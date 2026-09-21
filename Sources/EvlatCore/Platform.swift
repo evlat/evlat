@@ -16,13 +16,24 @@ public struct Platform {
     /// bilinmiyorsa oturum **ölü** sayılır, hayalet kayıt listede durmaz.
     public var isAlive: (Int32) -> Bool
 
+    /// Bu PID'deki sürecin başlangıç zamanı. `nil` = süreç yok ya da okunamadı.
+    ///
+    /// Canlılık tek başına yetmiyor: macOS PID'leri **geri dönüştürür** ve
+    /// oturum kayıtları aylarca duruyor (bu makinede Temmuz'dan kalma dosyalar
+    /// var). Geri dönüşmüş bir PID'de bambaşka bir süreç yaşar ve kayıt
+    /// hayalet bir oturum gösterir. Kayıt kendi başlangıç zamanını taşıdığı
+    /// için ikisi karşılaştırılabilir.
+    public var processStartedAt: (Int32) -> Date?
+
     /// Şimdi. Sınama sabit zaman verebilsin diye enjekte; `Date()` çağrısı
     /// koda dağılırsa zamana bağlı kural sınanamaz hâle gelir.
     public var now: () -> Date
 
     public init(isAlive: @escaping (Int32) -> Bool = { _ in false },
+                processStartedAt: @escaping (Int32) -> Date? = { _ in nil },
                 now: @escaping () -> Date = Date.init) {
         self.isAlive = isAlive
+        self.processStartedAt = processStartedAt
         self.now = now
     }
 

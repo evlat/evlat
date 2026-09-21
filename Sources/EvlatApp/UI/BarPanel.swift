@@ -11,7 +11,7 @@ import SwiftUI
 public final class BarPanel: NSPanel {
     /// Barın yaslandığı kenar. Bugün yalnız `right` kullanılıyor; dördünü tek
     /// kodla çizen geometri soyutlaması 003'ün işi.
-    public enum Edge { case right, left, top, bottom }
+    public enum Edge: Sendable { case right, left, top, bottom }
 
     public let edge: Edge
 

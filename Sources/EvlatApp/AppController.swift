@@ -7,16 +7,17 @@ import EvlatCore
 /// sınamada çalıştırılamaz).
 public final class AppController: NSObject, NSApplicationDelegate {
     public private(set) var panel: BarPanel?
+    public let registry = Registry()
     private var statusItem: NSStatusItem?
 
     /// Barın kapalı hâlinin ölçüleri. 003'te geometri soyutlaması gelince
     /// buradan çıkacak; bugün tek yerde sabit durması yeter.
-    public static let collapsedSize = CGSize(width: 56, height: 220)
+    public static let collapsedSize = CGSize(width: 54, height: 260)
 
     /// Gerçek platform yetenekleri. Darwin'e dokunan tek yer burası;
     /// `EvlatCore` bunları kapanış olarak alır.
     public static var darwinPlatform: Platform {
-        Platform(isAlive: Self.isProcessAlive)
+        Platform(isAlive: Self.isProcessAlive, processStartedAt: Self.processStartedAt)
     }
 
     /// Bu PID'de **gerçekten koşan** bir süreç var mı?
@@ -29,25 +30,74 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// `sysctl`/`kinfo_proc` ikisini de çözüyor — `p_stat` zombiyi söylüyor.
     /// v1 de aynı yürüyüşü yapıyor (`SessionHost.parentPID`) ve izin istemiyor.
     static func isProcessAlive(_ pid: Int32) -> Bool {
-        guard pid > 0 else { return false }
+        guard let info = procInfo(pid) else { return false }
+        return info.kp_proc.p_stat != SZOMB
+    }
+
+    /// Sürecin başlangıç zamanı. PID geri dönüşümünü ayırt etmek için:
+    /// kayıt kendi `startedAt`'ini taşıyor, ikisi tutmuyorsa o PID'de artık
+    /// başka bir süreç yaşıyor demektir.
+    static func processStartedAt(_ pid: Int32) -> Date? {
+        guard let info = procInfo(pid) else { return nil }
+        let tv = info.kp_proc.p_un.__p_starttime
+        return Date(timeIntervalSince1970: Double(tv.tv_sec) + Double(tv.tv_usec) / 1_000_000)
+    }
+
+    private static func procInfo(_ pid: Int32) -> kinfo_proc? {
+        guard pid > 0 else { return nil }
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else {
-            return false
+            return nil
         }
-        return info.kp_proc.p_stat != SZOMB
+        return info
+    }
+
+    /// Gerçek yerine bağlı sağlayıcı. Yol ve canlılık dışarıdan verilir;
+    /// sınama ikisini de sahteleyebilir.
+    public static func makeSessionsProvider() -> SessionsProvider {
+        SessionsProvider(directory: SessionsProvider.defaultDirectory(),
+                         platform: darwinPlatform)
+    }
+
+    /// `Evlat --liste`: sinyalleri yazdırıp çıkar. Pencere açmaz.
+    /// v1'in `GET /status` teşhisinin bu setteki karşılığı; tam yerel API
+    /// `002`'de geliyor.
+    public static func printSignalsAndExit() -> Never {
+        let provider = makeSessionsProvider()
+        let registry = Registry()
+        registry.register(provider)
+        // Tek tarama, üç sayı. İlk sürüm `ordered()`, `aggregate()` ve
+        // `hasLive`'ı ayrı ayrı çağırıyordu; üçü de dizini baştan okuduğu için
+        // arada değişen bir dosya çelişkili bir özet bastırabiliyordu.
+        let signals = registry.ordered()
+        let aggregate = signals.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
+        print("sağlayıcı: \(SessionsProvider.id)  ·  dizin: \(SessionsProvider.defaultDirectory().path)")
+        print("canlı oturum: \(signals.count)  ·  toplu durum: \(aggregate.rawValue)  ·  hasLive: \(!signals.isEmpty)")
+        for s in signals {
+            let raw = s.rawStatus.map { " (raw: \($0))" } ?? ""
+            print("  \(s.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)) \(s.label)\(raw)  ← \(s.detail ?? "")")
+        }
+        if !provider.unrecognizedStatuses.isEmpty {
+            print("tanınmayan status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
+        }
+        if provider.recordsMissingUpdatedAt > 0 {
+            print("updatedAt okunamayan kayıt: \(provider.recordsMissingUpdatedAt) (format kaymış olabilir)")
+        }
+        exit(0)
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // .accessory: Dock'ta ikon yok, Cmd-Tab'da yok. Bar bir uygulama gibi
         // değil, sistemin parçası gibi davranmalı.
         NSApp.setActivationPolicy(.accessory)
+        registry.register(Self.makeSessionsProvider())
         installStatusItem()
 
         let panel = BarPanel(edge: .right,
                              size: Self.collapsedSize,
-                             content: PlaceholderBar())
+                             content: BarBody(edge: .right))
         panel.show()
         self.panel = panel
     }
@@ -67,16 +117,20 @@ public final class AppController: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Maskot gelene kadarki yer tutucu (phase-2 onu değiştirir).
-struct PlaceholderBar: View {
+/// Barın gövdesi. İçerik (maskot, oturum göstergeleri) phase-2'de gelecek;
+/// bugün yalnız şekil var.
+struct BarBody: View {
+    var edge: BarPanel.Edge = .right
+
     var body: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(.black.opacity(0.85))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-            )
-            .padding(.vertical, 8)
-            .padding(.trailing, -18)   // sağ kenarın yuvarlağı çerçevenin dışına taşsın
+        let shape = BarShape(corner: 18, flare: 20, edge: edge)
+        shape
+            .fill(Color.black.opacity(0.88))
+            // İnce iç kenar: gövdeyi koyu bir duvardan ayırır ve flare'in
+            // kıvrımını görünür kılar. Kenarın kendisinde çizgi olmamalı —
+            // orası ekranın dışı.
+            .overlay(shape.stroke(Color.white.opacity(0.10), lineWidth: 1))
+            // Gölge kıvrımı derinleştirir; çerçeveden çıkıyor hissini o veriyor.
+            .shadow(color: .black.opacity(0.35), radius: 10, x: -3, y: 0)
     }
 }
