@@ -88,9 +88,21 @@ ihraç ettiği için "yalnız Foundation import et" kuralı taşınabilirliği
 derlenmiyor. Platform yeteneği `Platform` üstünden **kapanışla enjekte edilir**.
 
 **2. Kodun dili İngilizce, defterin dili Türkçe.**
-İngilizce: `Sources/`, `Tests/`, `Package.swift`, `Makefile`, `scripts/` ve
-**commit iletileri**. Türkçe: `ROADMAP.md`, `.tasks/`, `.claude/`, bu dosya.
-v1'den kod portlarken yorumlar **çevrilir**, kopyalanmaz.
+
+| nerede | dil | not |
+|---|---|---|
+| `Sources/` · `Tests/` · `Package.swift` · `Makefile` · `scripts/` | **İngilizce** | Yorumlar, tip ve değişken adları, sınama adları, `XCTAssert` mesajları, fixture dizgeleri **ve CLI bayrakları** (`--list`, `--liste` değil) |
+| commit iletileri | **İngilizce** | Emir kipinde, tek satırlık özet |
+| `Resources/{en,tr}.lproj/*.strings` | **iki dil** | Kaynak dil `en`, çeviri `tr` ve aksanları tam. Yeni bir metin **iki tabloya birden** girer. *(Katalog `004`'te geliyor; o zamana kadar arayüz metni geçici ve İngilizce.)* |
+| `README.md` / `README.tr.md` | **iki dil** | `README.md` kanonik (İngilizce), `.tr` onun çevirisi. İkisi **birlikte** güncellenir. *(Henüz yok.)* |
+| `ROADMAP.md` · `AGENTS.md` · `.tasks/` · `.claude/` | **Türkçe** | Kod değil, defter |
+
+Kestirme ölçüt: **derleyici ya da kullanıcı görüyorsa İngilizce, yalnız biz
+okuyorsak Türkçe.** Tek istisna katalogdur — kullanıcıya bakar ama tanımı gereği
+iki dillidir.
+
+v1 Türkçe yorumluydu; v2 değil. v1'den kod portlarken yorumlar **çevrilir**,
+kopyalanmaz.
 
 **3. İzin istemeyen tasarım.** Erişilebilirlik, Ekran Kaydı, Apple Events,
 bildirim — hiçbiri. Yeni bir izin **mimari karardır**: dur ve sor. Sentetik tık
