@@ -16,6 +16,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public private(set) var panel: BarPanel?
     public let registry = Registry()
     public let mascot = MascotModel()
+    /// The indicators under the mascot. Fed from the same snapshot as the
+    /// mascot in `refresh()`, observed by its own column.
+    public let sessionRows = SessionRowsModel()
     /// `phase-3`'s bucket: a counter and the last few lines. It feeds nothing
     /// into `registry` and never will — turning events into phases is the
     /// provider's job, one line below.
@@ -57,6 +60,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// Distance from the top of the bar to the top of the mascot. Shared with
     /// the gaze anchor, which otherwise drifts whenever the layout changes.
     public static let mascotTopInset: CGFloat = 26
+
+    /// The session rings under the mascot. Four slots of this size fit well
+    /// inside `barHeight`, so the bar never has to grow with the list.
+    public static let indicatorSize: CGFloat = 12
+    public static let indicatorSpacing: CGFloat = 10
+    /// From the mascot's bottom edge to the first ring.
+    public static let indicatorTopGap: CGFloat = 18
 
     /// No directory watching, just polling.
     /// `DispatchSource.makeFileSystemObjectSource` needs an `open()` file
@@ -333,7 +343,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         let panel = BarPanel(edge: .right,
                              size: Self.collapsedSize,
-                             content: BarBody(edge: .right, mascot: mascot))
+                             content: BarBody(edge: .right, mascot: mascot, rows: sessionRows))
         panel.show()
         self.panel = panel
 
@@ -450,8 +460,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// snapshot. The snapshot carries every row's stamp and a hook row's stamp
     /// moves on every single event, so comparing snapshots would report
     /// "changed" for precisely the burst the deadband exists to absorb. The
-    /// mascot's face and whether anything is live are the whole of what this
-    /// writes.
+    /// mascot's face, whether anything is live, and the visible fields of the
+    /// indicator rows are the whole of what this writes.
     ///
     /// Internal rather than private so the deadband is testable: it fails
     /// silently — the app keeps working and simply re-evaluates the bar at
@@ -473,6 +483,16 @@ public final class AppController: NSObject, NSApplicationDelegate {
             mascot.phase = snapshot.aggregate
         }
         if mascot.hasLive != snapshot.hasLive { mascot.hasLive = snapshot.hasLive }
+
+        // Same snapshot, so the rings and the face cannot disagree. The model
+        // keeps its own deadband over what it draws.
+        let before = (sessionRows.rows, sessionRows.overflow)
+        sessionRows.update(from: snapshot.ordered)
+        if before.0 != sessionRows.rows || before.1 != sessionRows.overflow {
+            // The rows' trace on stderr, for the same reason as the line above.
+            let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
+            NSLog("Evlat: rows [%@] +%ld", rows.joined(separator: ", "), sessionRows.overflow)
+        }
     }
 
     /// Menu-bar entry. The bar's own right-click menu and the settings window
@@ -516,19 +536,26 @@ public final class AppController: NSObject, NSApplicationDelegate {
     }
 }
 
-/// The bar's body. Session indicators arrive in `003`; today it carries the
-/// shape and the mascot.
+/// The bar's body: the shape, the mascot at its head, the session rings
+/// beneath it.
+///
+/// **It observes nothing itself.** The mascot and the column each observe
+/// their own model, so a gaze write re-evaluates the mascot and not the rings,
+/// and a beat re-evaluates the rings and not the mascot.
 struct BarBody: View {
     var edge: BarPanel.Edge = .right
-    @ObservedObject var mascot: MascotModel
+    let mascot: MascotModel
+    let rows: SessionRowsModel
 
     var body: some View {
         ZStack(alignment: .top) {
             shapeLayer
-            // The mascot is the head of the bar: in the collapsed strip it is
-            // the only thing visible. Session indicators line up beneath it.
-            MascotView(model: mascot, size: AppController.mascotSize)
-                .padding(.top, AppController.mascotTopInset)
+            VStack(spacing: AppController.indicatorTopGap) {
+                // The mascot is the head of the bar; the rings line up beneath.
+                MascotView(model: mascot, size: AppController.mascotSize)
+                SessionColumn(model: rows)
+            }
+            .padding(.top, AppController.mascotTopInset)
         }
         // The window is wider than the bar so the inner-edge shadow has somewhere
         // to fall; everything inside sits in the bar's own width.
