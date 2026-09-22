@@ -69,16 +69,14 @@ struct MascotClip: Equatable {
 
     /// Phase → motion, the sibling of `MascotPose.resting(for:)`.
     ///
-    /// `working` is the one phase with a choice to make: `003/phase-2` writes
-    /// three candidates and the **user** picks (`plan.md` → R8). Every other
-    /// phase walks the idle rhythm `phase-1` re-expressed; giving those their
-    /// own motion is what `phase-3` is for.
+    /// `working` has its own clip, picked by the user in `003/phase-2`
+    /// (`plan.md` → R8). Every other phase walks the idle rhythm `phase-1`
+    /// re-expressed; giving those their own motion is what `phase-3` is for.
     static func clip(for phase: Phase,
-                     working: MascotWorking = MascotWorking.selected,
                      pacing: MascotPacing = MascotPacing.selected) -> MascotClip {
         let clip: MascotClip
         switch phase {
-        case .working: clip = working.clip
+        case .working: clip = working()
         default: clip = idleRhythm(for: phase)
         }
         return pacing == .continuous ? clip.continuous : clip
@@ -162,10 +160,10 @@ struct MascotClip: Equatable {
     ///
     /// Dropping them is not a shortcut, it is the point: a step that lands on
     /// the pose it is already in produces no frames, so leaving it in would put
-    /// dead time back into the measurement — for `glance`, whose whole cycle is
-    /// 1.14 s of motion, step 0 alone would be a third of the window measuring
-    /// nothing. What comes out is a clip that is moving 100% of the time, which
-    /// is what "in-clip cost" means.
+    /// dead time back into the measurement — for a clip of short eye darts,
+    /// step 0's 0.40 s alone can be a third of the window measuring nothing.
+    /// What comes out is a clip that is moving 100% of the time, which is what
+    /// "in-clip cost" means.
     ///
     /// The in-clip leg of the measurement runs on this. It is not a mode to
     /// ship — a clip that never stops is the ~7% floor `001` measured — which
@@ -216,87 +214,40 @@ extension MascotPose {
     }
 }
 
-// MARK: - The `working` candidates
+// MARK: - `working`
 
-extension MascotWorking {
-    /// This candidate's clip. **Three answers, no choice made** — `phase-2` is
-    /// a user gate.
+extension MascotClip {
+    /// **`working`: heads-down.** The user's pick out of three candidates in
+    /// `003/phase-2` (the others were a body rhythm alone and a gaze release
+    /// alone; both are gone, the measurements stay in the phase's notes).
     ///
-    /// All three obey the same rules: they burst rather than run (Karar 3a),
-    /// they blink (a face that never blinks reads dead), they never animate
-    /// `gazeMix` (Karar 4: the mix is a phase constant), and they end where
-    /// they started so the loop's seam is not a jump.
-    var clip: MascotClip {
-        let rest = MascotPose.resting(for: .working, working: self)
-        switch self {
-        case .breath:  return MascotWorking.breathClip(rest)
-        case .glance:  return MascotWorking.glanceClip(rest)
-        case .busy:    return MascotWorking.busyClip(rest)
-        }
-    }
-
-    /// **A — it breathes.** The signal is in the body and the face stays with
-    /// you.
+    /// It carries both signals at low amplitude. The gaze is half released
+    /// (`gazeMix` 0.30, in `resting(for:)`) and settles **downward** — onto the
+    /// work rather than away from you — and the body bobs once while it is down
+    /// there, with one dart sideways before it comes back up. The aims live in
+    /// the pose's own `yaw`/`pitch`, the two fields no phase could reach before
+    /// `phase-1` made gaze additive; this clip is what that change was for.
     ///
-    /// Two breaths per cycle against `idle`'s one per 18.8 s, and they stretch
-    /// rather than scale: taller and slightly narrower, which reads as drawing
-    /// breath instead of growing. Told apart from `idle` by rate — so it is the
-    /// candidate that asks the most of "without looking".
-    private static func breathClip(_ rest: MascotPose) -> MascotClip {
-        MascotClip(steps: [
-            .entering(rest, hold: 1.6),
-            .eased(rest.bobbed(1.045), over: 0.75, hold: 0.80),
-            .eased(rest, over: 0.95, hold: 1.05),
-            .eased(rest.bobbed(1.03), over: 0.70, hold: 0.75),
-            .eased(rest, over: 0.90, hold: 3.40),
-            MascotClip.blink(rest),
-            MascotClip.open(rest, hold: 4.0)
-        ], loops: true)
-    }
-
-    /// **B — it looks away.** The body is completely still; the eyes leave the
-    /// cursor and work a small patch below the face.
-    ///
-    /// The one candidate readable **without looking at the mascot**: move the
-    /// pointer and it no longer follows. The aims live in the pose's own
-    /// `yaw`/`pitch`, the two of eight fields no phase could reach before
-    /// `phase-1` made gaze additive — this clip is the reason that change was
-    /// made. Holds are uneven on purpose; evenly spaced darts read as a
-    /// mechanism.
-    private static func glanceClip(_ rest: MascotPose) -> MascotClip {
-        MascotClip(steps: [
-            .entering(rest, hold: 1.2),
-            .eased(rest.aimed(yaw: -0.35, pitch: 0.30), over: 0.10, hold: 1.5),
-            .eased(rest.aimed(yaw: 0.30, pitch: 0.28), over: 0.12, hold: 0.9),
-            // The blink keeps the aim it lands on, so the eyes open where they
-            // closed rather than snapping back to centre mid-clip.
-            MascotClip.blink(rest.aimed(yaw: 0.30, pitch: 0.28)),
-            .eased(rest.aimed(yaw: -0.05, pitch: 0.35), over: 0.12, hold: 2.2),
-            .eased(rest.aimed(yaw: -0.28, pitch: 0.32), over: 0.10, hold: 1.6),
-            // Back to the resting aim: a clip that wrapped from a saccade would
-            // put a jump at the seam, and a phase change out of `working` would
-            // start from an aim no other phase knows about.
-            .eased(rest, over: 0.22, hold: 2.4)
-        ], loops: true)
-    }
-
-    /// **C — heads-down.** Both axes, each at lower amplitude than the
-    /// candidate that owns it.
-    ///
-    /// The gaze is half released and settles **downward** — onto the work
-    /// rather than away from you — and the body bobs once while it is down
-    /// there, with one dart sideways before it comes back up.
-    private static func busyClip(_ rest: MascotPose) -> MascotClip {
+    /// Like every clip it bursts rather than runs (Karar 3a), blinks, never
+    /// animates `gazeMix` (Karar 4) and ends where it started, so the loop's
+    /// seam is not a jump. Measured: 1.84% over 90 s at a duty cycle of 0.215.
+    static func working() -> MascotClip {
+        let rest = MascotPose.resting(for: .working)
         let down = rest.aimed(yaw: -0.18, pitch: 0.30)
+        let aside = rest.aimed(yaw: 0.22, pitch: 0.26)
         return MascotClip(steps: [
             .entering(rest, hold: 1.1),
             .eased(down, over: 0.30, hold: 1.4),
             .eased(down.bobbed(0.985), over: 0.45, hold: 0.55),
             .eased(down.bobbed(1.025), over: 0.50, hold: 0.60),
             .eased(down, over: 0.50, hold: 1.5),
-            .eased(rest.aimed(yaw: 0.22, pitch: 0.26), over: 0.10, hold: 1.3),
-            MascotClip.blink(rest.aimed(yaw: 0.22, pitch: 0.26)),
-            .eased(rest.aimed(yaw: 0.22, pitch: 0.26), over: 0.12, hold: 1.9),
+            .eased(aside, over: 0.10, hold: 1.3),
+            // The blink keeps the aim it lands on, so the eyes open where they
+            // closed rather than snapping back to centre mid-clip.
+            blink(aside),
+            .eased(aside, over: 0.12, hold: 1.9),
+            // Back to the resting aim: a phase change out of `working` must not
+            // start from an aim no other phase knows about.
             .eased(rest, over: 0.26, hold: 2.3)
         ], loops: true)
     }

@@ -6,29 +6,14 @@ import EvlatCore
 /// The clip table. Motion used to live inside the view as two `asyncAfter`
 /// chains and a coin flip, which is why none of it was testable; the point of
 /// `MascotClip` being plain data is that these claims can be held.
-///
-/// Every test walks **every phase against every `working` candidate**
-/// (`003/phase-2`). The candidates are selected by an environment variable, so
-/// testing only the selected one would leave two thirds of the table uncovered
-/// on any given run — and the whole point of the gate is that all three are
-/// shippable and the user picks.
 final class MascotClipTests: XCTestCase {
     /// Every clip in the table, with the resting pose it was built on and a
-    /// name for the failure message.
+    /// name for the failure message. The pacing is named explicitly so a run
+    /// with `EVLAT_MASCOT_PACING` set still tests the clips as they ship.
     private func allClips() -> [(name: String, rest: MascotPose, clip: MascotClip)] {
-        var clips: [(String, MascotPose, MascotClip)] = []
-        for phase in Phase.allCases {
-            for candidate in MascotWorking.allCases {
-                // Only `working` differs by candidate; taking the others once
-                // keeps the failure messages honest about what is being tested.
-                guard phase == .working || candidate == MascotWorking.allCases[0] else { continue }
-                let name = phase == .working ? "working/\(candidate.rawValue)" : phase.rawValue
-                clips.append((name,
-                              MascotPose.resting(for: phase, working: candidate),
-                              MascotClip.clip(for: phase, working: candidate, pacing: .normal)))
-            }
+        Phase.allCases.map {
+            ($0.rawValue, MascotPose.resting(for: $0), MascotClip.clip(for: $0, pacing: .normal))
         }
-        return clips
     }
 
     func testEveryPhaseHasAClip() {
@@ -73,14 +58,15 @@ final class MascotClipTests: XCTestCase {
     /// written in the currency the threshold is in.
     ///
     /// The ceiling is derived from measurement, not chosen. The most expensive
-    /// candidate measured in `003/phase-2` reads **2.11% over 90 s at a duty
-    /// cycle of 0.299**; the same shape stretched to this ceiling would cost
-    /// 2.11 × 0.35 / 0.299 ≈ **2.47%**, against the **3.77%** R5.2 allows while
-    /// a clip is running. The idle foot is untouched at 0.04%.
+    /// of the three `working` candidates measured in `003/phase-2` read **2.11%
+    /// over 90 s at a duty cycle of 0.299**; the same shape stretched to this
+    /// ceiling would cost 2.11 × 0.35 / 0.299 ≈ **2.47%**, against the **3.77%**
+    /// R5.2 allows while a clip is running. The clip that shipped reads 1.84%
+    /// at 0.215, and the idle foot 0.04%.
     ///
     /// It is a guard, not a proof: cost also tracks how often the step index
-    /// changes, and the three candidates' in-clip readings (5.16% / 9.16% /
-    /// 7.68%) differ by more than their duty cycles do. The gate is the measured
+    /// changes, and the candidates' in-clip readings (5.16% / 9.16% / 7.68%)
+    /// differed by more than their duty cycles did. The gate is the measured
     /// 90 s leg, which `phase-4` re-runs against the threshold; this line is
     /// what stops a clip from drifting there between measurements.
     func testLoopingClipsStayInsideTheDutyCycleBudget() {
@@ -118,7 +104,7 @@ final class MascotClipTests: XCTestCase {
     ///
     /// `phase-1` wrote this as "tilt, squint and aim stay at rest", which was a
     /// description of the only clip that existed then. Aim is now a channel
-    /// clips legitimately drive — that is what `glance` and `busy` are — so what
+    /// clips legitimately drive — that is what `working` does — so what
     /// survives is the part that is a rule rather than a description: a clip
     /// never touches the head tilt or the squint, the two channels that say
     /// which phase this is rather than what it is doing inside it.
@@ -146,8 +132,8 @@ final class MascotClipTests: XCTestCase {
 
     /// The blink is the old `lidClosed` flag, moved onto the channel that owns
     /// eye height: some step shuts the eyes and the clip opens them again. Every
-    /// candidate blinks — a face that never blinks reads as dead however well it
-    /// is moving otherwise.
+    /// clip blinks — a face that never blinks reads as dead however well it is
+    /// moving otherwise.
     func testEveryClipBlinksAndOpensAgain() {
         for (name, rest, clip) in allClips() {
             let open = rest.eyeOpen
@@ -178,7 +164,7 @@ final class MascotClipTests: XCTestCase {
     /// Something in every clip moves the body or the eyes, and `idle`'s breath
     /// is still the breath `phase-1` shipped — untouched by this phase.
     func testTheIdleRhythmIsUnchanged() {
-        let clip = MascotClip.clip(for: .idle, working: .breath, pacing: .normal)
+        let clip = MascotClip.clip(for: .idle, pacing: .normal)
         XCTAssertEqual(clip.steps.count, 9)
         XCTAssertEqual(clip.cycle, 18.8, accuracy: 1e-9, "the 18.8 s cycle `phase-1` measured")
         XCTAssertEqual(clip.movingTime, 3.0, accuracy: 1e-9, "~3.0 s of it in motion")
