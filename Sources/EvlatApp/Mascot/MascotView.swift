@@ -24,6 +24,13 @@ struct MascotView: View {
     /// continuous loop.
     private static let beat = 4.0
 
+    /// Built once and held, not created inside `body`. An `autoconnect()`ed
+    /// publisher constructed in the view body starts a fresh timer on every
+    /// re-evaluation, and the mascot's body is re-evaluated on every phase and
+    /// gaze change.
+    private let heartbeat = Timer.publish(every: MascotView.beat, on: .main, in: .common)
+        .autoconnect()
+
     private var pose: MascotPose {
         var p = MascotPose.resting(for: model.effectivePhase)
         // Gaze rides ON TOP of every phase: whatever mood it is in, the mascot
@@ -75,7 +82,7 @@ struct MascotView: View {
     private func breathing<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .scaleEffect(inhale ? 1.02 : 1.0, anchor: .center)
-            .onReceive(Timer.publish(every: Self.beat, on: .main, in: .common).autoconnect()) { _ in
+            .onReceive(heartbeat) { _ in
                 // Blinking is the common tick, breathing the rare one, so the
                 // rhythm stays organic instead of metronomic.
                 if Int.random(in: 0..<10) < 7 { blink() } else { breathe() }
