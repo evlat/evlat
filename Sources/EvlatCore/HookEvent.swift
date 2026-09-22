@@ -32,8 +32,11 @@ public struct HookEvent: Equatable {
     /// Claude Code sets this when the `Stop` hook is itself what continued the
     /// session; treating it as a real stop loops.
     public let stopHookActive: Bool
-    /// The Evlat errand that produced this event, from `X-Evlat-Task`. Empty in
-    /// the user's own sessions.
+    /// The Evlat errand that produced this event, from `X-Evlat-Task`.
+    /// **Absent** in the user's own sessions rather than empty: with
+    /// `EVLAT_TASK` unset the installed command's value expands to nothing and
+    /// curl then drops the header instead of sending it blank (measured,
+    /// curl 8.7.1). Both readings land on `nil`, so only the comment was wrong.
     public let taskID: String?
     /// The agent process that sent the event, from `X-Evlat-Pid`. A source that
     /// keeps no file record has nothing else to prove it is still alive.
@@ -69,8 +72,10 @@ public struct HookEvent: Equatable {
         }
     }
 
-    /// A string field, with empty read as absent: `X-Evlat-Task:` arrives empty
-    /// in every session the user started themselves.
+    /// A string field, with empty read as absent. The header case cannot
+    /// actually produce an empty value — curl omits `X-Evlat-Task` entirely
+    /// when `EVLAT_TASK` is unset — but a **body** field can still arrive as
+    /// `""`, and the two must read the same.
     private static func text(_ value: Any?) -> String? {
         guard let text = value as? String, !text.isEmpty else { return nil }
         return text

@@ -124,6 +124,13 @@ public final class HooksProvider: Provider {
     /// **not** listed, because neither would ever reach this set: the first
     /// removes the row before the question is asked, and the second sets a
     /// blocking phase, which is never refused.
+    ///
+    /// `SessionStart` is **not** listed either, and that one is open rather
+    /// than settled: it would let a resumed session clear a block left by a
+    /// subagent that is gone, but the same event is claimed to fire mid-turn
+    /// on auto-compaction, where it would clear a block the user is still
+    /// looking at. The premise is unmeasured, so the reach stays as it is
+    /// (`phase-5` → `SessionStart` devri).
     private static let sessionLevel: Set<String> = ["Stop", "UserPromptSubmit"]
 
     /// May this event move the session off the phase it is in?

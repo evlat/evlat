@@ -219,6 +219,13 @@ final class LocalAPITests: XCTestCase {
     /// The header names the command sends are the ones the parser reads. `$PPID`
     /// and `${EVLAT_TASK:-}` resolve while the hook runs, not while it is
     /// installed, so they are plain text here.
+    ///
+    /// The hand-written request below carries `X-Evlat-Task` because it is
+    /// pinning the **parser**. On the wire the user's own sessions send no such
+    /// line at all: `${EVLAT_TASK:-}` expands to nothing and curl drops a
+    /// header with an empty value rather than sending it (measured, curl 8.7.1
+    /// — unlike `Origin`, where an empty value still counts because a browser
+    /// does send the line).
     func testTheCommandSendsTheHeadersTheServerReads() throws {
         let command = LocalAPI.installedHookCommand(for: .claude)
         XCTAssertTrue(command.contains("X-Evlat-Task: ${EVLAT_TASK:-}"))

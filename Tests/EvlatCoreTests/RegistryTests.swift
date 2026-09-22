@@ -43,10 +43,12 @@ final class RegistryTests: XCTestCase {
     /// Every cell, written out rather than computed: an expectation derived
     /// from the rule itself would pass whatever the rule happened to say.
     ///
-    /// The last three baselines cannot be produced by the only `.derived`
-    /// source there is — it speaks `busy`/`idle`, and `idle` for a word it does
-    /// not know — but the rule is a total function, so what it does there is
-    /// pinned too.
+    /// Two of the last three baselines cannot be produced by the only
+    /// `.derived` source there is: it maps `busy`, `idle` and `waiting`
+    /// (`SessionsProvider.phase(for:)`) and draws `idle` for a word it does not
+    /// know, so `review` and `failed` are out of its reach. `waiting` is within
+    /// reach but has never been seen in a session file. The rule is a total
+    /// function either way, so what it does on all three is pinned here.
     func testEveryCellOfTheCompatibilityTable() {
         let cells: [(baseline: Phase, report: Phase, shown: Phase)] = [
             // A busy session can also be waiting on the user, or have failed.

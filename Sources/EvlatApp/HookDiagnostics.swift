@@ -51,6 +51,18 @@ public final class HookDiagnostics {
 
     private let recentLimit: Int
 
+    /// The ceiling on **distinct** names. The key comes straight off an
+    /// unauthenticated local POST, so a churning name would otherwise grow this
+    /// dictionary for the life of the process — the same unbounded-growth trap
+    /// `SessionsProvider.unrecognizedStatuses` avoids by resetting each scan.
+    /// Eleven Claude events and eight Codex ones are installed, so a real
+    /// vocabulary never comes near this.
+    static let nameLimit = 64
+
+    /// Where counts land once `nameLimit` distinct names have been seen. The
+    /// total stays truthful even though the names stop being listed.
+    static let overflowName = "(other)"
+
     public init(recentLimit: Int = 40) {
         self.recentLimit = recentLimit
     }
@@ -63,8 +75,14 @@ public final class HookDiagnostics {
                         stopHookActive: event.stopHookActive)
         total += 1
         // The name is written as the source spelled it, `""` included: an event
-        // this version does not know must not be counted as one it does.
-        byName[event.name, default: 0] += 1
+        // this version does not know must not be counted as one it does — up to
+        // `nameLimit` distinct names, after which the count is still kept but
+        // under one bucket (see `nameLimit`).
+        if byName[event.name] != nil || byName.count < Self.nameLimit {
+            byName[event.name, default: 0] += 1
+        } else {
+            byName[Self.overflowName, default: 0] += 1
+        }
         if event.agentID != nil { fromSubagents += 1 }
         recent.append(line)
         if recent.count > recentLimit { recent.removeFirst(recent.count - recentLimit) }

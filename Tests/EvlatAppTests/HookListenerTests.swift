@@ -191,9 +191,14 @@ final class HookListenerTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/EvlatApp")
-        let files = try FileManager.default
-            .contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
+        // Recursive on purpose. `contentsOfDirectory` is not, and it returned
+        // `Mascot/` and `UI/` as extensionless entries that the filter then
+        // dropped — six of the nine app-layer files, `MascotModel` among them,
+        // were exempt from the guard this test advertises.
+        let walk = try XCTUnwrap(
+            FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil),
+            "could not walk EvlatApp: \(root.path)")
+        let files = walk.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
         XCTAssertFalse(files.isEmpty, "no EvlatApp sources found: \(root.path)")
 
         let declarations: Set<String> = ["class", "struct", "enum", "actor", "extension"]

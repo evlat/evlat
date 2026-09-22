@@ -187,8 +187,11 @@ public final class SessionsProvider: Provider {
                 self.updatedAtWasMissing = true
             }
             // The row's stamp falls back to the record's own, which has
-            // already been through the chain above — so this never reaches
-            // 1970 either.
+            // already been through the chain above. That chain ends at epoch 0
+            // when **every** step fails (no `updatedAt`, no `startedAt`, an
+            // unreadable mtime), and this copies it: such a row loses every
+            // freshness contest and sinks to the bottom of the list. Rare, but
+            // it is a fallback, not an invariant.
             if let ms = (json["statusUpdatedAt"] as? NSNumber)?.doubleValue, ms > 0 {
                 self.statusUpdatedAt = Date(timeIntervalSince1970: ms / 1000)
                 self.statusUpdatedAtWasMissing = false
