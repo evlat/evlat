@@ -32,18 +32,26 @@ final class ImportScannerTests: XCTestCase {
             """), [])
     }
 
-    /// Finding 2: a nested `#if` must not end the exemption early.
+    /// Finding 2: a nested `#if` must not end the exemption early — `Darwin`
+    /// after the inner `#endif` is still inside the shim block.
+    ///
+    /// Non-shim modules are returned whether or not they sit in a shim block;
+    /// the allowlist in `ImportPurityTests` is what decides they are fine. Only
+    /// the shim module itself is filtered out here.
     func testNestedConditionalDoesNotEndTheExemption() {
-        XCTAssertEqual(modules("""
+        let found = modules("""
             #if canImport(Darwin)
             import Darwin
             #if DEBUG
             import Foundation
             #endif
-            import Dispatch
+            import Darwin
             #endif
             import AppKit
-            """), ["AppKit"])
+            """)
+        XCTAssertFalse(found.contains("Darwin"),
+                       "the shim stays exempt across a nested #if/#endif")
+        XCTAssertTrue(found.contains("AppKit"), "the leak outside the block is caught")
     }
 
     /// Finding 3a: with a kind specifier the module name is the second token.
@@ -67,6 +75,28 @@ final class ImportScannerTests: XCTestCase {
             /* import Network */
             import Foundation
             """), ["Foundation"])
+    }
+
+    /// Being inside a shim block is not a licence for anything else: the
+    /// exemption is per import, not per block.
+    func testNonShimImportInsideAShimBlockIsStillCaught() {
+        XCTAssertEqual(modules("""
+            #if canImport(Darwin)
+            import Darwin
+            import AppKit
+            #endif
+            """), ["AppKit"])
+    }
+
+    func testNonShimImportInTheElseBranchIsStillCaught() {
+        XCTAssertEqual(modules("""
+            #if canImport(Darwin)
+            import Darwin
+            #else
+            import Glibc
+            import AppKit
+            #endif
+            """), ["AppKit"])
     }
 
     func testStringLiteralWithSlashesSurvivesCommentStripping() {

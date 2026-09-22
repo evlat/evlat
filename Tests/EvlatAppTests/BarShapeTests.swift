@@ -76,3 +76,60 @@ final class BarShapeTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Edge transforms (gate finding)
+
+/// The canonical path hugs the right edge, and each edge is a transform of it.
+/// The `.top` and `.bottom` transforms were swapped in the first version: a
+/// top-docked bar flared away from the menu bar and pointed its rounded inner
+/// corners at the bezel. Only `.right` was exercised, so nothing caught it.
+extension BarShapeTests {
+    /// A horizontal bar's rect is wide and short.
+    private var horizontal: CGRect { CGRect(x: 0, y: 0, width: 260, height: 54) }
+
+    /// Sampled **in the flare region at one end**, not in the middle: across the
+    /// middle the body spans the whole cross-section, so both sides are filled
+    /// there and the sample says nothing.
+    private var inFlare: CGFloat { 20 * 0.9 }
+
+    func testTopEdgePutsTheFlushSideAgainstTheTop() {
+        let path = BarShape(corner: 18, flare: 20, edge: .top).path(in: horizontal)
+        XCTAssertEqual(path.boundingRect.minY, 0, accuracy: 0.5)
+        XCTAssertTrue(path.contains(CGPoint(x: inFlare, y: 2)),
+                      "the flush side must sit against the top")
+        XCTAssertFalse(path.contains(CGPoint(x: inFlare, y: horizontal.maxY - 2)),
+                       "at the same point along the bar the inner side must be empty")
+    }
+
+    func testBottomEdgePutsTheFlushSideAgainstTheBottom() {
+        let path = BarShape(corner: 18, flare: 20, edge: .bottom).path(in: horizontal)
+        XCTAssertEqual(path.boundingRect.maxY, horizontal.maxY, accuracy: 0.5)
+        XCTAssertTrue(path.contains(CGPoint(x: inFlare, y: horizontal.maxY - 2)),
+                      "the flush side must sit against the bottom")
+        XCTAssertFalse(path.contains(CGPoint(x: inFlare, y: 2)),
+                       "at the same point along the bar the inner side must be empty")
+    }
+
+    /// Every edge fills its whole rect, so the flare always reaches the bezel.
+    func testEveryEdgeSpansItsRect() {
+        for (edge, rect) in [(BarPanel.Edge.right, self.rect), (.left, self.rect),
+                             (.top, horizontal), (.bottom, horizontal)] {
+            let box = BarShape(corner: 18, flare: 20, edge: edge).path(in: rect).boundingRect
+            XCTAssertEqual(box.width, rect.width, accuracy: 1, "\(edge)")
+            XCTAssertEqual(box.height, rect.height, accuracy: 1, "\(edge)")
+        }
+    }
+
+    /// `outline` drops the segment that lies on the screen edge: stroking the
+    /// closed path drew a hairline on the screen's outermost pixel column.
+    func testOutlineOmitsTheScreenEdgeSegment() {
+        let filled = BarShape(edge: .right).path(in: rect)
+        let outline = BarShape(edge: .right).outline.path(in: rect)
+        XCTAssertFalse(outline.isEmpty)
+        // The open path still traces the same silhouette…
+        XCTAssertEqual(outline.boundingRect.maxX, filled.boundingRect.maxX, accuracy: 0.5)
+        // …but it is not a closed region, so nothing inside it counts as filled.
+        XCTAssertTrue(filled.contains(CGPoint(x: rect.midX, y: rect.midY)))
+        XCTAssertFalse(BarShape(edge: .right, closed: false).closed)
+    }
+}

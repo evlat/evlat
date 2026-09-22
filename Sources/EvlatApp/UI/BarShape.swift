@@ -29,11 +29,27 @@ public struct BarShape: Shape {
     /// Which edge it docks to. The path is drawn for the right edge; the
     /// others are transforms of it.
     public var edge: BarPanel.Edge
+    /// Whether the segment that runs **along the screen edge** is part of the
+    /// path.
+    ///
+    /// Filling needs it; stroking must not have it. `closeSubpath()` draws a
+    /// straight line back along x == w, and stroking that puts a hairline on the
+    /// screen's outermost pixel column — exactly the seam the border is meant to
+    /// avoid. `BarShape.outline` is the open variant for `.stroke`.
+    public var closed: Bool
 
-    public init(corner: CGFloat = 20, flare: CGFloat = 14, edge: BarPanel.Edge = .right) {
+    public init(corner: CGFloat = 20, flare: CGFloat = 14,
+                edge: BarPanel.Edge = .right, closed: Bool = true) {
         self.corner = corner
         self.flare = flare
         self.edge = edge
+        self.closed = closed
+    }
+
+    /// The same outline without the segment that lies on the screen edge.
+    /// Stroke this, fill `self`.
+    public var outline: BarShape {
+        BarShape(corner: corner, flare: flare, edge: edge, closed: false)
     }
 
     public func path(in rect: CGRect) -> Path {
@@ -57,10 +73,16 @@ public struct BarShape: Shape {
         case .left:
             // mirror on x
             return CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -rect.width, y: 0)
-        case .bottom:
-            // canonical "right" → "bottom": rotate 90°
-            return CGAffineTransform(rotationAngle: -.pi / 2).translatedBy(x: -rect.height, y: 0)
+        // The canonical path hugs x == w, so the transform has to land that side
+        // on the docked edge. These two were swapped in the first version: a
+        // top-docked bar flared away from the menu bar and pointed its rounded
+        // inner corners at the bezel. Solved on paper and pinned by
+        // BarShapeTests — `.top` must map canonical x == w to y' == 0.
         case .top:
+            // translate then rotate −90°: y' = w − x, so the edge side lands on top.
+            return CGAffineTransform(rotationAngle: -.pi / 2).translatedBy(x: -rect.height, y: 0)
+        case .bottom:
+            // translate then rotate +90°: y' = x, so the edge side lands at the bottom.
             return CGAffineTransform(rotationAngle: .pi / 2).translatedBy(x: 0, y: -rect.width)
         }
     }
@@ -98,7 +120,7 @@ public struct BarShape: Shape {
         // Body's bottom edge and the lower flare.
         p.addLine(to: CGPoint(x: w - f, y: bottom))
         p.addQuadCurve(to: CGPoint(x: w, y: h), control: CGPoint(x: w, y: bottom))
-        p.closeSubpath()
+        if closed { p.closeSubpath() }
         return p
     }
 

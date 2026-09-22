@@ -108,7 +108,7 @@ final class SessionsProviderTests: XCTestCase {
     }
 
     func testMissingDirectoryYieldsNoSignals() {
-        let p = SessionsProvider(directory: dir.appendingPathComponent("yok"),
+        let p = SessionsProvider(directory: dir.appendingPathComponent("absent"),
                                  platform: Platform(isAlive: { _ in true }))
         XCTAssertEqual(p.currentSignals().count, 0, "a missing directory means an empty list, not a crash")
     }
@@ -118,17 +118,19 @@ final class SessionsProviderTests: XCTestCase {
         try write(pid: 200, sessionId: "busy-one", status: "busy", updatedAt: 1_790_000_000_001)
         let registry = Registry()
         registry.register(provider())
-        XCTAssertTrue(registry.hasLive)
-        XCTAssertEqual(registry.aggregate(), .working)
-        XCTAssertEqual(registry.ordered().map(\.entity), ["busy-one", "resting"],
+        let snapshot = registry.snapshot()
+        XCTAssertTrue(snapshot.hasLive)
+        XCTAssertEqual(snapshot.aggregate, .working)
+        XCTAssertEqual(snapshot.ordered.map(\.entity), ["busy-one", "resting"],
                        "working sorts above idle")
     }
 
     func testEmptyDirectoryMeansNoLiveWork() {
         let registry = Registry()
         registry.register(provider())
-        XCTAssertFalse(registry.hasLive, "with no live session the mascot goes to sleep")
-        XCTAssertEqual(registry.aggregate(), .idle)
+        let snapshot = registry.snapshot()
+        XCTAssertFalse(snapshot.hasLive, "with no live session the mascot goes to sleep")
+        XCTAssertEqual(snapshot.aggregate, .idle)
     }
 }
 
@@ -225,6 +227,34 @@ extension SessionsProviderTests {
         XCTAssertGreaterThan(signal.updatedAt.timeIntervalSince1970, 1_700_000_000,
                              "falls back to the file modification date")
         XCTAssertEqual(p.recordsMissingUpdatedAt, 1)
+    }
+
+    /// Unparseable records are counted, not swallowed: a renamed `pid` or
+    /// `sessionId` would otherwise empty the list while the diagnostics reported
+    /// a healthy idle machine.
+    func testUnparseableRecordsAreCounted() throws {
+        try write(pid: 100, sessionId: "intact", status: "busy")
+        try writeRaw("200.json", "{ not json")
+        try writeRaw("300.json", #"{"sessionId":"no pid here"}"#)
+        let p = provider()
+        XCTAssertEqual(p.currentSignals().map(\.entity), ["intact"])
+        XCTAssertEqual(p.recordsUnparseable, 2)
+    }
+
+    /// The unrecognised-status set reports the **last** scan, not history: a
+    /// value that appeared once used to be reported for the rest of the process,
+    /// so a historical gap looked exactly like a live one.
+    func testUnrecognizedStatusesResetBetweenScans() throws {
+        try write(pid: 100, sessionId: "s", status: "shell")
+        let p = provider()
+        _ = p.currentSignals()
+        XCTAssertEqual(p.unrecognizedStatuses, ["shell"])
+
+        try FileManager.default.removeItem(at: dir.appendingPathComponent("100.json"))
+        try write(pid: 100, sessionId: "s", status: "busy")
+        _ = p.currentSignals()
+        XCTAssertTrue(p.unrecognizedStatuses.isEmpty,
+                      "a value that is gone must stop being reported")
     }
 
     func testCounterResetsBetweenScans() throws {

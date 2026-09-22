@@ -39,18 +39,40 @@ final class GazeTracker {
         monitor = nil
     }
 
+    /// Below this change in either component the gaze is not republished.
+    ///
+    /// Without it every `.mouseMoved` event — one per display refresh while the
+    /// cursor moves — writes a `@Published` property, which re-runs the whole
+    /// bar's body and restarts the 0.38 s spring behind it. In a design whose
+    /// premise is "any continuous SwiftUI animation costs ~7% CPU", moving the
+    /// mouse would itself be a continuous-animation path. Consecutive samples
+    /// from a distant cursor are identical to several decimals, so almost all of
+    /// those writes carried no information.
+    private let deadband: CGFloat = 0.01
+
     private func update(to point: CGPoint) {
         let center = anchor()
         let dx = point.x - center.x
         let dy = point.y - center.y
         let distance = (dx * dx + dy * dy).squareRoot()
 
-        guard distance > 1 else { model.gaze = .zero; return }
-        // A distant cursor does not lock the gaze: influence falls off with reach.
-        let strength = min(1, reach / max(distance, reach * 0.35))
-        let nx = dx / distance * strength
-        // Screen coordinates grow upward, `pitch` grows downward.
-        let ny = -dy / distance * strength
-        model.gaze = CGSize(width: max(-1, min(1, nx)), height: max(-1, min(1, ny)))
+        let next: CGSize
+        if distance > 1 {
+            // A distant cursor does not lock the gaze: influence falls off with
+            // reach. (An inner clamp used to sit here; it could never change the
+            // result, because `min(1, …)` already pins everything nearer than
+            // `reach` to 1.)
+            let strength = min(1, reach / distance)
+            let nx = dx / distance * strength
+            // Screen coordinates grow upward, `pitch` grows downward.
+            let ny = -dy / distance * strength
+            next = CGSize(width: max(-1, min(1, nx)), height: max(-1, min(1, ny)))
+        } else {
+            next = .zero
+        }
+
+        guard abs(next.width - model.gaze.width) > deadband
+                || abs(next.height - model.gaze.height) > deadband else { return }
+        model.gaze = next
     }
 }

@@ -69,7 +69,13 @@ final class ImportPurityTests: XCTestCase {
         let kindKeywords: Set<String> = ["struct", "class", "enum", "protocol",
                                          "typealias", "func", "let", "var", "actor"]
         var out: [(Int, String)] = []
-        var stack: [Bool] = []   // true = exempt (platform shim) block
+        // Depth of open `#if` blocks whose condition names a shim module.
+        // The exemption is applied **per import**, not per block: the first
+        // version skipped every line inside a `canImport(Darwin)` block, so
+        // `#if canImport(Darwin) / import Darwin / import AppKit / #endif`
+        // reported nothing — the same leak the AppKit case exists to prevent,
+        // just with a shim module as the condition.
+        var stack: [Bool] = []
 
         for (index, raw) in source.components(separatedBy: .newlines).enumerated() {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -80,12 +86,11 @@ final class ImportPurityTests: XCTestCase {
                 else if !stack.isEmpty { stack[stack.count - 1] = exempt }
                 continue
             }
-            if line.hasPrefix("#else") {
-                // The `#else` branch counts as shim too:
-                // `#if canImport(Darwin) … #else import Glibc`
-                if !stack.isEmpty, stack[stack.count - 1] { stack[stack.count - 1] = true }
-                continue
-            }
+            // The `#else` branch of a shim block is still a shim branch
+            // (`#if canImport(Darwin) … #else import Glibc`), so the flag is
+            // left as it is. It is only ever read together with the module
+            // check below, which is what actually grants the exemption.
+            if line.hasPrefix("#else") { continue }
             // EVERY `#endif` closes a block. The first version opened depth
             // only for `#if canImport` but closed on any `#endif`, so a nested
             // `#if DEBUG` ended the exemption early (caught at the gate).
@@ -93,8 +98,6 @@ final class ImportPurityTests: XCTestCase {
                 if !stack.isEmpty { stack.removeLast() }
                 continue
             }
-            if stack.contains(true) { continue }
-
             var tokens = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             // Drop the prefix: @_exported, @testable, public, internal, …
             while let first = tokens.first, first != "import" { tokens.removeFirst() }
@@ -104,6 +107,9 @@ final class ImportPurityTests: XCTestCase {
             let module = tokens[0]
                 .components(separatedBy: CharacterSet(charactersIn: " ."))
                 .first ?? tokens[0]
+            // Exempt only when the import IS a shim module and it sits inside a
+            // shim block. Being inside such a block is not on its own a licence.
+            if stack.contains(true), Self.shimModules.contains(module) { continue }
             out.append((index, module))
         }
         return out

@@ -24,11 +24,17 @@ struct MascotView: View {
     /// continuous loop.
     private static let beat = 4.0
 
-    /// Built once and held, not created inside `body`. An `autoconnect()`ed
-    /// publisher constructed in the view body starts a fresh timer on every
-    /// re-evaluation, and the mascot's body is re-evaluated on every phase and
-    /// gaze change.
-    private let heartbeat = Timer.publish(every: MascotView.beat, on: .main, in: .common)
+    /// One publisher for the whole process, not one per view.
+    ///
+    /// `private let` on a struct `View` is **not** per-lifetime storage: the
+    /// view is a value that SwiftUI rebuilds on every parent update, so a stored
+    /// publisher is a new instance each time and `onReceive` re-subscribes,
+    /// restarting the beat. The first fix only moved that churn from this view's
+    /// body up into its parent's. Since the beat carries no per-view state,
+    /// `static` is the honest lifetime — and it means a moving cursor can no
+    /// longer keep resetting the timer so the mascot never blinks.
+    private static let heartbeat = Timer
+        .publish(every: MascotView.beat, on: .main, in: .common)
         .autoconnect()
 
     private var pose: MascotPose {
@@ -82,7 +88,7 @@ struct MascotView: View {
     private func breathing<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
             .scaleEffect(inhale ? 1.02 : 1.0, anchor: .center)
-            .onReceive(heartbeat) { _ in
+            .onReceive(Self.heartbeat) { _ in
                 // Blinking is the common tick, breathing the rare one, so the
                 // rhythm stays organic instead of metronomic.
                 if Int.random(in: 0..<10) < 7 { blink() } else { breathe() }

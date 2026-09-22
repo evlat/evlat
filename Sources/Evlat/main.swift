@@ -1,7 +1,7 @@
 import EvlatApp
 
-// Diagnostics run before any window: `--liste` draws nothing, it prints and exits.
-if CommandLine.arguments.contains("--liste") {
+// Diagnostics run before any window: `--list` draws nothing, it prints and exits.
+if CommandLine.arguments.contains("--list") {
     AppController.printSignalsAndExit()
 }
 

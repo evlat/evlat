@@ -22,9 +22,24 @@ public final class SessionsProvider: Provider {
 
     private let directory: URL
     private let platform: Platform
-    /// Unrecognised `status` values. Collected so they cannot drop silently
-    /// into `idle`; diagnostics read them from here (`proje.md` → tuzaklar).
+    /// Unrecognised `status` values seen in the **last** scan. Collected so
+    /// they cannot drop silently into `idle`; diagnostics read them from here
+    /// (`proje.md` → tuzaklar).
+    ///
+    /// Reset on every scan, like the counters below. It used to accumulate, so
+    /// one session that briefly reported `shell` kept being reported for the
+    /// rest of the process — a historical gap was indistinguishable from a live
+    /// one, and the key comes straight out of an untrusted file, so a churning
+    /// status grew the set without bound.
     public private(set) var unrecognizedStatuses: Set<String> = []
+    /// Records that could not be parsed at all in the last scan.
+    ///
+    /// This is the drift that would otherwise be **invisible**: if `pid` or
+    /// `sessionId` were renamed, every record would fail to parse, the list
+    /// would come back empty, and the diagnostics would report a healthy idle
+    /// machine. The file's contract is that an unrecognised value is never
+    /// invisible; that has to hold for the worst case too.
+    public private(set) var recordsUnparseable = 0
     /// How many records had an unreadable `updatedAt`. A non-zero count may
     /// mean the format drifted, so like an unrecognised `status` it stays
     /// **visible**.
@@ -47,9 +62,12 @@ public final class SessionsProvider: Provider {
             at: directory, includingPropertiesForKeys: nil)) ?? []
 
         recordsMissingUpdatedAt = 0
+        recordsUnparseable = 0
+        unrecognizedStatuses = []
         var best: [String: Record] = [:]
         for file in files where file.pathExtension == "json" {
-            guard let record = Record(file: file) else { continue }  // a broken record drops alone
+            // A broken record drops alone — but it is counted, not swallowed.
+            guard let record = Record(file: file) else { recordsUnparseable += 1; continue }
             guard isTheSameProcess(record) else { continue }
             if record.updatedAtWasMissing { recordsMissingUpdatedAt += 1 }
             // `claude --resume` changes the pid, so one sessionId can survive in

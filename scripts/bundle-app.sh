@@ -56,6 +56,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# The exit status is NOT swallowed. This call binds Info.plist and Resources
+# into the seal — it is the reason .DS_Store is deleted above. A silent failure
+# ships a half-sealed bundle that still launches today, and turns into a launch
+# or TCC failure the moment 004 adds a catalogue or an entitlement, with nothing
+# pointing back here.
+if ! codesign --force --sign - "$APP"; then
+  echo "codesign failed; the bundle is not sealed" >&2
+  exit 1
+fi
 echo "Ready: $APP"
 echo "Run: open $APP"

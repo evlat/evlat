@@ -19,13 +19,29 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     private var poller: Timer?
+    private var screenObserver: NSObjectProtocol?
 
-    /// The collapsed bar's size. It leaves here once `003` brings the geometry
+    /// The visible bar's width. It leaves here once `003` brings the geometry
     /// abstraction; for now one constant in one place is enough.
-    public static let collapsedSize = CGSize(width: 54, height: 260)
+    public static let barWidth: CGFloat = 54
+    public static let barHeight: CGFloat = 260
+
+    /// Transparent margin on the inner side of the window.
+    ///
+    /// The shape is flush with the screen edge and the window used to be exactly
+    /// its bounding box, so the inner-edge drop shadow was clipped away by the
+    /// window frame — the one part of the shadow that sells "growing out of the
+    /// bezel" never rendered. The window is wider than the bar by this much and
+    /// the shape is inset by the same amount.
+    public static let shadowGutter: CGFloat = 18
+
+    public static let collapsedSize = CGSize(width: barWidth + shadowGutter, height: barHeight)
 
     /// The mascot sits at the head of the bar.
     public static let mascotSize: CGFloat = 34
+    /// Distance from the top of the bar to the top of the mascot. Shared with
+    /// the gaze anchor, which otherwise drifts whenever the layout changes.
+    public static let mascotTopInset: CGFloat = 26
 
     /// No directory watching, just polling.
     /// `DispatchSource.makeFileSystemObjectSource` needs an `open()` file
@@ -93,21 +109,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
         SessionsProvider(directory: sessionsDirectory(), platform: darwinPlatform)
     }
 
-    /// `Evlat --liste`: print the signals and exit, opening no window.
+    /// `Evlat --list`: print the signals and exit, opening no window.
     /// This set's stand-in for v1's `GET /status`; the full local API lands in
     /// `002`.
     nonisolated public static func printSignalsAndExit() -> Never {
         let provider = makeSessionsProvider()
         let registry = Registry()
         registry.register(provider)
-        // One scan, three numbers. The first version called `ordered()`,
-        // `aggregate()` and `hasLive` separately; each re-read the directory, so
-        // a file changing in between could print a self-contradicting summary.
-        let signals = registry.ordered()
-        let aggregate = signals.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
+        // One scan, every derived value — see Registry.Snapshot for why the
+        // separate accessors are gone.
+        let snapshot = registry.snapshot()
         print("provider: \(SessionsProvider.id)  ·  directory: \(sessionsDirectory().path)")
-        print("live sessions: \(signals.count)  ·  aggregate: \(aggregate.rawValue)  ·  hasLive: \(!signals.isEmpty)")
-        for signal in signals {
+        print("live sessions: \(snapshot.ordered.count)  ·  aggregate: \(snapshot.aggregate.rawValue)  ·  hasLive: \(snapshot.hasLive)")
+        for signal in snapshot.ordered {
             let raw = signal.rawStatus.map { " (raw: \($0))" } ?? ""
             let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
             print("  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")")
@@ -117,6 +131,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
         if provider.recordsMissingUpdatedAt > 0 {
             print("records with unreadable updatedAt: \(provider.recordsMissingUpdatedAt) (format may have drifted)")
+        }
+        // The drift that would otherwise look like a healthy idle machine.
+        if provider.recordsUnparseable > 0 {
+            print("records that could not be parsed: \(provider.recordsUnparseable) (format may have drifted)")
         }
         exit(0)
     }
@@ -143,16 +161,34 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         let tracker = GazeTracker(model: mascot) { [weak panel] in
             guard let frame = panel?.frame else { return .zero }
-            // The mascot is the head of the bar, so the anchor is near the top.
-            return CGPoint(x: frame.midX, y: frame.maxY - Self.mascotSize)
+            // The eyes' real centre, not an approximation of it: the inset and
+            // half the mascot below the top, and half the bar's width in from
+            // the screen edge (the window is wider than the bar by the shadow
+            // gutter). Reading it off shared constants keeps the anchor from
+            // drifting when the layout moves.
+            return CGPoint(x: frame.maxX - Self.barWidth / 2,
+                           y: frame.maxY - Self.mascotTopInset - Self.mascotSize / 2)
         }
         tracker.start()
         gaze = tracker
+
+        // Resolution changes, an unplugged display, or the Dock moving to the
+        // right edge all change `visibleFrame`. Without this the bar keeps a
+        // stale origin: it detaches from the edge — the whole premise of the
+        // flare — or lands on coordinates no screen has and becomes
+        // unreachable. `.canJoinAllSpaces` covers space switches, not geometry.
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak panel] _ in
+            MainActor.assumeIsolated { panel?.reposition() }
+        }
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
         poller?.invalidate()
         gaze?.stop()
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
     }
 
     /// Entry point for the executable shell. Top-level code in `main.swift` is
@@ -168,12 +204,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
         exit(0)
     }
 
-    /// One scan, two values. The registry is not asked twice: a file changing in
-    /// between could leave `phase` and `hasLive` contradicting each other.
+    /// One scan, every value. The registry is not asked twice: a file changing
+    /// in between could leave `phase` and `hasLive` contradicting each other.
     private func refresh() {
-        let signals = registry.signals()
-        mascot.phase = signals.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
-        mascot.hasLive = !signals.isEmpty
+        let snapshot = registry.snapshot()
+        mascot.phase = snapshot.aggregate
+        mascot.hasLive = snapshot.hasLive
     }
 
     /// Menu-bar entry. The bar's own right-click menu and the settings window
@@ -229,8 +265,11 @@ struct BarBody: View {
             // The mascot is the head of the bar: in the collapsed strip it is
             // the only thing visible. Session indicators line up beneath it.
             MascotView(model: mascot, size: AppController.mascotSize)
-                .padding(.top, 26)
+                .padding(.top, AppController.mascotTopInset)
         }
+        // The window is wider than the bar so the inner-edge shadow has somewhere
+        // to fall; everything inside sits in the bar's own width.
+        .padding(.leading, AppController.shadowGutter)
     }
 
     private var shapeLayer: some View {
@@ -238,11 +277,12 @@ struct BarBody: View {
         return shape
             .fill(Color.black.opacity(0.88))
             // A thin inner edge separates the body from a dark wall behind it
-            // and makes the flare's curve readable. There must be no line on the
-            // screen edge itself — that side is off-screen.
-            .overlay(shape.stroke(Color.white.opacity(0.10), lineWidth: 1))
+            // and makes the flare's curve readable. `outline` drops the segment
+            // that lies on the screen edge: stroking the closed path put a
+            // hairline on the screen's outermost pixel column.
+            .overlay(shape.outline.stroke(Color.white.opacity(0.10), lineWidth: 1))
             // The shadow deepens the curve; it is what sells "growing out of the
-            // bezel".
+            // bezel". It needs the gutter above to render at all.
             .shadow(color: .black.opacity(0.35), radius: 10, x: -3, y: 0)
     }
 }
