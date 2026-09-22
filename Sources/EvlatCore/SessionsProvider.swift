@@ -68,7 +68,9 @@ public final class SessionsProvider: Provider {
         for file in files where file.pathExtension == "json" {
             // A broken record drops alone — but it is counted, not swallowed.
             guard let record = Record(file: file) else { recordsUnparseable += 1; continue }
-            guard isTheSameProcess(record) else { continue }
+            // The record's own `startedAt` is what this source contributes to
+            // the shared check: a claim, measured against the running process.
+            guard platform.sameProcess(pid: record.pid, startedAt: record.startedAt) else { continue }
             if record.updatedAtWasMissing { recordsMissingUpdatedAt += 1 }
             // `claude --resume` changes the pid, so one sessionId can survive in
             // two files. Both are live here, so the newer one wins. (The dead
@@ -98,24 +100,6 @@ public final class SessionsProvider: Provider {
             )
         }
         .sorted { $0.entity < $1.entity }  // deterministic; display order is the Registry's job
-    }
-
-    /// Is the process under this record's pid still **that session's** process?
-    ///
-    /// Two gates: does a process exist, and is it the *same* process. The second
-    /// one is about pid recycling — records live for months, pids get handed
-    /// out again, and a check that only asks `isAlive` would show a ghost
-    /// session. When the start time cannot be read the record is trusted:
-    /// dropping a fresh record over an unreadable field is worse than the ghost
-    /// it would prevent.
-    private func isTheSameProcess(_ record: Record) -> Bool {
-        guard platform.isAlive(record.pid) else { return false }
-        guard let actual = platform.processStartedAt(record.pid),
-              let claimed = record.startedAt else { return true }
-        // Tolerance for second-level resolution and for the record being
-        // written a moment after the process starts. On a recycled pid the gap
-        // is days. Measured across 21 real records: 0.7–6.3 s.
-        return abs(actual.timeIntervalSince(claimed)) < 120
     }
 
     /// Maps the source's word to a canonical phase. `nil` means "not known to

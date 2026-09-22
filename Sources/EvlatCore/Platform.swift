@@ -41,3 +41,28 @@ public struct Platform {
     /// A platform that knows nothing; the default for tests and compile time.
     public static let unknown = Platform()
 }
+
+extension Platform {
+    /// Is the process under `pid` still the **same** process it was?
+    ///
+    /// Two gates: does a process exist at all, and is it the one we mean. The
+    /// second gate is the pid-recycling guard described on `processStartedAt`.
+    ///
+    /// It lives here rather than in a provider because both sources need it and
+    /// **neither owns it**. What differs is only where `startedAt` comes from:
+    /// a file record hands over the start time it *claims*, while a source that
+    /// keeps no record hands over the one it read at *first sight* and so
+    /// measures one reading against the next. One comparison, two origins.
+    ///
+    /// When either side is unknown the process is trusted: dropping a live
+    /// session over an unreadable field is worse than the ghost it prevents.
+    ///
+    /// The default tolerance absorbs second-level resolution and the moment
+    /// between a process starting and its record being written — measured
+    /// across 21 real records, 0.7–6.3 s. On a recycled pid the gap is days.
+    func sameProcess(pid: Int32, startedAt: Date?, tolerance: TimeInterval = 120) -> Bool {
+        guard isAlive(pid) else { return false }
+        guard let reference = startedAt, let actual = processStartedAt(pid) else { return true }
+        return abs(actual.timeIntervalSince(reference)) < tolerance
+    }
+}

@@ -5,7 +5,10 @@ import Foundation
 /// abstraction, not the only one (ROADMAP → the seam).
 public struct Signal: Equatable {
     public let provider: String
-    /// Unique within a provider. For sessions this is the `sessionId`.
+    /// What is being described, and the key rows are merged on. It identifies
+    /// the **thing**, not the provider's view of it: the same session reaches
+    /// Evlat from a file record and from a hook, and `Registry` reduces those
+    /// to one row. For sessions it is the `sessionId`, which both sources see.
     public let entity: String
     public let kind: Kind
     public let phase: Phase
