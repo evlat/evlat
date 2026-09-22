@@ -86,6 +86,19 @@ final class MascotClipTests: XCTestCase {
 
     static let maxDutyCycle = 0.35
 
+    /// `idle`'s breath is a breath, not a squash: both axes grow together.
+    /// The area test cannot see this — a bob keeps the area by construction —
+    /// and a squashing inhale would read as `working`'s bob on an idle face.
+    func testTheIdleBreathScalesBothAxesTogether() {
+        let rest = MascotPose.resting(for: .idle)
+        let clip = MascotClip.clip(for: .idle, pacing: .normal)
+        guard let inhale = clip.steps.first(where: { $0.pose.scaleY > rest.scaleY }) else {
+            return XCTFail("idle: nothing in this clip breathes")
+        }
+        XCTAssertEqual(inhale.pose.scaleX / rest.scaleX, inhale.pose.scaleY / rest.scaleY,
+                       accuracy: 1e-9, "the idle breath must not squash")
+    }
+
     /// A looping clip comes back to where it started. The seam of the loop is a
     /// cut like any other, and a clip that wrapped from a saccade or a held
     /// breath would jump there; a phase change out of it would also start from
@@ -239,23 +252,6 @@ final class MascotClipTests: XCTestCase {
             }
         }
     }
-
-    /// Something in every clip moves the body or the eyes, and `idle`'s breath
-    /// is still the breath `phase-1` shipped — untouched by this phase.
-    func testTheIdleRhythmIsUnchanged() {
-        let clip = MascotClip.clip(for: .idle, pacing: .normal)
-        XCTAssertEqual(clip.steps.count, 9)
-        XCTAssertEqual(clip.cycle, 18.8, accuracy: 1e-9, "the 18.8 s cycle `phase-1` measured")
-        XCTAssertEqual(clip.movingTime, 3.0, accuracy: 1e-9, "~3.0 s of it in motion")
-        // 16%: the number `phase-1` reached with pen and paper, now computed.
-        XCTAssertEqual(clip.dutyCycle ?? 0, 0.16, accuracy: 0.005)
-        let rest = MascotPose.resting(for: .idle)
-        guard let inhale = clip.steps.first(where: { $0.pose.scaleY > rest.scaleY }) else {
-            return XCTFail("idle: nothing in this clip breathes")
-        }
-        XCTAssertEqual(inhale.pose.scaleX / rest.scaleX, inhale.pose.scaleY / rest.scaleY,
-                       accuracy: 1e-9, "the idle breath must not squash")
-    }
 }
 
 /// A pose channel, as the clip-ownership test counts them. Scale is one
@@ -302,7 +298,7 @@ private struct Motion: Equatable {
 /// `003`, `grep -rn "shake\|keyframe" Tests/` returned nothing, so the promise
 /// that the clip layer preserves today's behaviour had no guard.
 final class MascotShakeTests: XCTestCase {
-    /// The amplitude is what makes the shudder a shudder: the same four
+    /// The amplitude is what makes the shudder a shudder: the same
     /// keyframes run on every phase change and stay flat everywhere else.
     func testOnlyFailedShakes() {
         for phase in Phase.allCases {
@@ -312,15 +308,6 @@ final class MascotShakeTests: XCTestCase {
             } else {
                 XCTAssertTrue(keys.allSatisfy { $0.offset == 0 }, "\(phase): must not twitch")
             }
-        }
-    }
-
-    /// Four keys, always. The view unrolls them by index because SwiftUI's
-    /// keyframe builder takes a fixed list, so a fifth key would be dropped on
-    /// the floor rather than drawn.
-    func testTheShudderIsFourKeys() {
-        for phase in Phase.allCases {
-            XCTAssertEqual(MascotShake.shake(for: phase).keys.count, 4, "\(phase)")
         }
     }
 

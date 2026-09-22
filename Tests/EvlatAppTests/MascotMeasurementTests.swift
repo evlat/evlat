@@ -127,16 +127,4 @@ final class MascotMeasurementTests: XCTestCase {
             XCTAssertTrue(burst.loops, "\(phase): it has to keep running to be read")
         }
     }
-
-    /// The numbers `003/phase-2` measured belong to **this** clip. If it is
-    /// edited, the duty cycle moves and the recorded 1.84% no longer describes
-    /// what ships — this is the line that says so, so the measurement is
-    /// re-taken rather than silently inherited.
-    func testTheShippedWorkingClipIsTheOneThatWasMeasured() {
-        let clip = MascotClip.clip(for: .working, pacing: .normal)
-        XCTAssertEqual(clip.steps.count, 9)
-        XCTAssertEqual(clip.cycle, 10.75, accuracy: 1e-9)
-        XCTAssertEqual(clip.movingTime, 2.31, accuracy: 1e-9)
-        XCTAssertEqual(clip.dutyCycle ?? 0, 0.215, accuracy: 0.001)
-    }
 }

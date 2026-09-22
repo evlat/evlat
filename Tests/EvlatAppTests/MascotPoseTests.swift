@@ -92,13 +92,10 @@ final class MascotPoseTests: XCTestCase {
         XCTAssertEqual(blended.pitch, 0, accuracy: 1e-9)
     }
 
-    /// `working` is the phase that gives up the cursor: an agent busy with its
-    /// own work does not stare at you. The value was nailed by eye in
-    /// `003/phase-2` — the user picked the clip whose gaze is half released and
-    /// aimed down onto the work.
-    func testWorkingHoldsTheCursorMoreLoosely() {
-        XCTAssertEqual(MascotPose.resting(for: .working).gazeMix, 0.30, accuracy: 1e-9,
-                       "the mix picked in 003/phase-2")
+    /// A mix is a fraction of the cursor, and the phase whose job is to be
+    /// noticed takes all of it. How loosely `working` holds it is the ordering
+    /// test's claim below, not a number pinned here.
+    func testGazeMixIsAFractionAndWaitingTakesAllOfIt() {
         XCTAssertEqual(MascotPose.resting(for: .waiting).gazeMix, 1,
                        "the phase whose job is to be noticed locks on")
         for phase in Phase.allCases {

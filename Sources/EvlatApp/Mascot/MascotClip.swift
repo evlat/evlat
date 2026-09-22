@@ -389,8 +389,7 @@ struct MascotShake: Equatable {
     /// nothing at all.
     static let amplitude: Double = 3.5
 
-    /// Phase → shudder. Four keys, always: out, back past centre, a smaller
-    /// bounce, then still.
+    /// Phase → shudder: out, back past centre, a smaller bounce, then still.
     static func shake(for phase: Phase) -> MascotShake {
         let a = phase == .failed ? amplitude : 0
         return MascotShake(keys: [

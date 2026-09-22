@@ -39,11 +39,9 @@ struct MascotView: View {
         .keyframeAnimator(initialValue: 0.0, trigger: model.effectivePhase) { view, shake in
             view.offset(x: shake)
         } keyframes: { _ in
-            let keys = MascotShake.shake(for: model.effectivePhase).keys
-            SpringKeyframe(keys[0].offset, duration: keys[0].duration)
-            SpringKeyframe(keys[1].offset, duration: keys[1].duration)
-            SpringKeyframe(keys[2].offset, duration: keys[2].duration)
-            SpringKeyframe(keys[3].offset, duration: keys[3].duration)
+            for key in MascotShake.shake(for: model.effectivePhase).keys {
+                SpringKeyframe(key.offset, duration: key.duration)
+            }
         }
         .frame(width: size, height: size)
         .animation(MascotPose.transition, value: model.effectivePhase)
@@ -82,16 +80,25 @@ private struct ClipPlayer: View {
     /// last step, and only this says so — otherwise a later phase change would
     /// sit waiting on a step that is never going to land.
     @State private var walking = false
+    /// The phase whose clip the walk is on. It mirrors `phase`, but it has to
+    /// live in `@State`: the pending step is a closure over a **copy** of this
+    /// struct, so `phase` read from inside it is the phase at the moment the
+    /// step was scheduled. A walk that carried on into a looping clip would
+    /// keep playing the old one — and one carried on from `waiting` would run
+    /// out at `waiting`'s last step and leave the new phase frozen. `@State` is
+    /// the storage that closure reads live, the way it reads `generation`.
+    @State private var walkedPhase: Phase?
 
-    private var clip: MascotClip { MascotClip.clip(for: phase) }
+    private var clipPhase: Phase { walkedPhase ?? phase }
+    private var clip: MascotClip { MascotClip.clip(for: clipPhase) }
 
-    /// Clamped because `onChange` runs after a body render: for one pass the
-    /// new clip is paired with the old clip's index, and clips do not all have
-    /// the same number of steps. An empty clip is a bug the tests catch, but
-    /// the mascot is not worth crashing the app over, so it rests instead.
+    /// Clamped because clips do not all have the same number of steps, and the
+    /// index and the clip are two separate pieces of state that change in the
+    /// same `enter()`. An empty clip is a bug the tests catch, but the mascot is
+    /// not worth crashing the app over, so it rests instead.
     private var current: MascotClip.Step {
         guard let last = clip.steps.indices.last else {
-            return .entering(MascotPose.resting(for: phase), hold: 1)
+            return .entering(MascotPose.resting(for: clipPhase), hold: 1)
         }
         return clip.steps[min(step, last)]
     }
@@ -123,11 +130,19 @@ private struct ClipPlayer: View {
     /// of a second in. The flapping argument above does not apply to them —
     /// restarting a clip that plays once cannot starve a rhythm.
     private func enter() {
-        step = 0
-        if !walking || !clip.loops { restart() }
+        // The new clip's first pose reaches the screen here, not in the render
+        // that carried the phase change — that one still drew `walkedPhase`.
+        // So the spring has to be supplied here: when `step` was already 0 the
+        // `.animation(value: step)` below sees no change and the pose would jump.
+        withAnimation(MascotPose.transition) {
+            walkedPhase = phase
+            step = 0
+        }
+        if !walking || !MascotClip.clip(for: phase).loops { restart() }
     }
 
     private func restart() {
+        walkedPhase = phase
         generation &+= 1
         step = 0
         scheduleNext()
