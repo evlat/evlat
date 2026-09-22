@@ -49,12 +49,61 @@ final class MascotPoseTests: XCTestCase {
         }
     }
 
-    /// Resting poses carry no gaze: gaze comes from the cursor and rides on top
-    /// of whatever phase is showing.
-    func testRestingPosesCarryNoGaze() {
+    /// **Contract change (`003/phase-1`).** This test used to be
+    /// `testRestingPosesCarryNoGaze` and it coded the rule "gaze is written over
+    /// every phase, unconditionally" — `MascotView` did `p.yaw = gaze.width` and
+    /// erased whatever the pose asked for, which made `yaw` and `pitch` the two
+    /// of seven fields no phase could reach. The rule was deliberately broken,
+    /// so the test is replaced rather than deleted: gaze is now **blended in**
+    /// by `gazeMix`.
+    ///
+    /// What survives unchanged: the table still aims straight ahead, so a phase
+    /// that takes the full gaze looks exactly where it used to.
+    func testGazeIsBlendedInNotWrittenOver() {
+        let gaze = CGSize(width: 0.8, height: -0.5)
         for phase in Phase.allCases {
-            XCTAssertEqual(MascotPose.resting(for: phase).yaw, 0, "\(phase)")
-            XCTAssertEqual(MascotPose.resting(for: phase).pitch, 0, "\(phase)")
+            let rest = MascotPose.resting(for: phase)
+            XCTAssertEqual(rest.yaw, 0, "\(phase): the table aims straight ahead")
+            XCTAssertEqual(rest.pitch, 0, "\(phase)")
+
+            // Full mix is the old behaviour, exactly.
+            var full = rest
+            full.gazeMix = 1
+            XCTAssertEqual(full.blending(gaze: gaze).yaw, gaze.width, accuracy: 1e-9, "\(phase)")
+            XCTAssertEqual(full.blending(gaze: gaze).pitch, gaze.height, accuracy: 1e-9, "\(phase)")
+
+            // No mix means no gaze: the pose keeps its own aim. This is the
+            // half the old rule made impossible.
+            var none = rest
+            none.gazeMix = 0
+            none.yaw = 0.3
+            none.pitch = -0.2
+            XCTAssertEqual(none.blending(gaze: gaze).yaw, 0.3, accuracy: 1e-9, "\(phase)")
+            XCTAssertEqual(none.blending(gaze: gaze).pitch, -0.2, accuracy: 1e-9, "\(phase)")
+        }
+    }
+
+    /// Between the two ends the face is *partly* somewhere else, and it lands
+    /// proportionally: half the mix, half the way to the cursor.
+    func testAPartialMixLandsBetweenThePoseAndTheCursor() {
+        let pose = MascotPose(yaw: -1, pitch: 1, gazeMix: 0.5)
+        let blended = pose.blending(gaze: CGSize(width: 1, height: -1))
+        XCTAssertEqual(blended.yaw, 0, accuracy: 1e-9)
+        XCTAssertEqual(blended.pitch, 0, accuracy: 1e-9)
+    }
+
+    /// `working` is the phase that gives up the cursor: an agent busy with its
+    /// own work does not stare at you. The value is nailed by eye in
+    /// `003/phase-2`; what must hold from here on is the ordering.
+    func testWorkingHoldsTheCursorMoreLoosely() {
+        XCTAssertLessThan(MascotPose.resting(for: .working).gazeMix,
+                          MascotPose.resting(for: .idle).gazeMix)
+        XCTAssertEqual(MascotPose.resting(for: .waiting).gazeMix, 1,
+                       "the phase whose job is to be noticed locks on")
+        for phase in Phase.allCases {
+            let mix = MascotPose.resting(for: phase).gazeMix
+            XCTAssertGreaterThanOrEqual(mix, 0, "\(phase)")
+            XCTAssertLessThanOrEqual(mix, 1, "\(phase)")
         }
     }
 
@@ -82,6 +131,24 @@ final class MascotModelTests: XCTestCase {
     func testStartsAsleep() {
         let model = MascotModel()
         XCTAssertFalse(model.hasLive, "with nothing live the animations stay out of the tree")
+        XCTAssertFalse(model.isAwake)
         XCTAssertEqual(model.gaze, .zero)
+    }
+
+    /// A forced phase has to wake the clip layer even with nothing live.
+    ///
+    /// `AppController` writes only `override` when a phase is forced from the
+    /// status menu, and the view branched on `hasLive` alone — so the one way to
+    /// look at `waiting` or `failed` without hooks put a **motionless** cube on
+    /// screen. `003/phase-2` cannot compare candidate clips through a menu that
+    /// shows nothing moving.
+    func testAForcedPhaseWakesTheMascotWithNothingLive() {
+        let model = MascotModel()
+        model.override = .failed
+        XCTAssertTrue(model.isAwake, "a forced phase has to be previewable")
+        model.override = nil
+        XCTAssertFalse(model.isAwake)
+        model.hasLive = true
+        XCTAssertTrue(model.isAwake)
     }
 }

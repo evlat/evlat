@@ -22,4 +22,12 @@ public final class MascotModel: ObservableObject {
     public init() {}
 
     public var effectivePhase: Phase { override ?? phase }
+
+    /// Whether the clip layer belongs in the view tree.
+    ///
+    /// **Not** `hasLive` alone. A forced phase is written to `override` and
+    /// nothing else, so while no session was live the status menu used to put a
+    /// motionless cube on screen — the one state you cannot inspect is the one
+    /// the menu item exists to let you inspect.
+    public var isAwake: Bool { hasLive || override != nil }
 }
