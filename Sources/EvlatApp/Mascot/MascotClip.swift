@@ -69,28 +69,47 @@ struct MascotClip: Equatable {
 
     /// Phase → motion, the sibling of `MascotPose.resting(for:)`.
     ///
-    /// `working` has its own clip, picked by the user in `003/phase-2`
-    /// (`plan.md` → R8). Every other phase walks the idle rhythm `phase-1`
-    /// re-expressed; giving those their own motion is what `phase-3` is for.
+    /// Every phase has its own clip (`003/phase-3`), and **whether it loops is
+    /// part of what it says**: `idle`, `working` and `failed` are states you sit
+    /// in, so they keep a sparse rhythm going; `waiting` and `review` are news,
+    /// so they play once and hold. Peripheral vision catches a change, not a
+    /// state — a face that stops moving after it arrives is the arrival.
     static func clip(for phase: Phase,
                      pacing: MascotPacing = MascotPacing.selected) -> MascotClip {
         let clip: MascotClip
         switch phase {
+        case .idle: clip = idle()
         case .working: clip = working()
-        default: clip = idleRhythm(for: phase)
+        case .waiting: clip = waiting()
+        case .review: clip = review()
+        case .failed: clip = failed()
         }
         return pacing == .continuous ? clip.continuous : clip
     }
 
-    /// Today's behaviour, as `phase-1` wrote it down: an occasional blink, a
-    /// rarer breath, quiet in between.
+    /// The step after `index`, or `nil` when the clip has played out.
+    ///
+    /// This is the one decision the player makes about a clip, pulled out here
+    /// so that "a one-shot clip stops and holds" is a claim the tests can hold
+    /// rather than a branch inside a view. `nil` means: stay on the last pose
+    /// and schedule nothing — no pending step, no frames.
+    func step(after index: Int) -> Int? {
+        let next = index + 1
+        if next < steps.count { return next }
+        return loops && !steps.isEmpty ? 0 : nil
+    }
+
+    /// **`idle`**: today's behaviour, as `phase-1` wrote it down — an
+    /// occasional blink, a rarer breath, quiet in between. It stays the sparsest
+    /// loop in the table (duty cycle 0.16) because it is the one that runs for
+    /// hours.
     ///
     /// The rhythm is deterministic but the gaps are deliberately uneven — the
     /// old randomness was there to keep it from reading as a metronome, and
     /// uneven holds buy the same thing without giving up testability. Three
     /// blinks to one breath is the 7:3 coin flip the old 4 s timer used to make.
-    static func idleRhythm(for phase: Phase) -> MascotClip {
-        let rest = MascotPose.resting(for: phase)
+    static func idle() -> MascotClip {
+        let rest = MascotPose.resting(for: .idle)
         return MascotClip(steps: [
             // Entering the clip is entering the phase, so step 0 is the resting
             // pose on the shared transition curve. Whichever `.animation`
@@ -135,9 +154,12 @@ struct MascotClip: Equatable {
     /// of a looping clip, which re-enters the resting pose the last step already
     /// returned to. Getting this wrong would overstate every clip by a full
     /// transition.
+    ///
+    /// A one-shot clip has no such pass: it is only ever played on the way
+    /// *into* its phase, from some other phase's pose, so its step 0 is a real
+    /// transition and counts.
     var movingTime: Double {
-        guard let last = steps.last else { return 0 }
-        var previous = loops ? last.pose : steps[0].pose
+        var previous = entryPose
         var total = 0.0
         for step in steps {
             if step.pose != previous { total += step.motion }
@@ -146,6 +168,11 @@ struct MascotClip: Equatable {
         return total
     }
 
+    /// The pose step 0 is entered from, when the clip itself decides it: a loop
+    /// re-enters from its own last step. A one-shot clip is entered from another
+    /// phase — a pose it cannot know — so `nil`, and step 0 always moves.
+    private var entryPose: MascotPose? { loops ? steps.last?.pose : nil }
+
     /// The fraction of the cycle that produces frames.
     ///
     /// This is the multiplier `proje.md`'s canonical 90 s window hides: over a
@@ -153,7 +180,16 @@ struct MascotClip: Equatable {
     /// stretching the window buys any number you like. Measure the in-clip cost
     /// with `continuous`, multiply by this, and the 90 s reading has something
     /// to be checked against.
-    var dutyCycle: Double { cycle > 0 ? movingTime / cycle : 0 }
+    ///
+    /// **Only for a loop.** A one-shot clip (`waiting`, `review`) plays once and
+    /// then produces no frames at all, so its steady state is zero and there is
+    /// no cycle to take a fraction of: its cost over a window is *in-clip cost ×
+    /// `movingTime` / window*, and it is `nil` here so nobody multiplies it the
+    /// other way.
+    var dutyCycle: Double? {
+        guard loops else { return nil }
+        return cycle > 0 ? movingTime / cycle : 0
+    }
 
     /// The same motion with the waiting taken out: every step holds only as
     /// long as it moves, and the steps that go nowhere are dropped.
@@ -168,9 +204,13 @@ struct MascotClip: Equatable {
     /// The in-clip leg of the measurement runs on this. It is not a mode to
     /// ship — a clip that never stops is the ~7% floor `001` measured — which
     /// is why it is reachable only through `EVLAT_MASCOT_PACING=continuous`.
+    /// A one-shot clip comes out **looping** too, on purpose: played once it
+    /// would be gone before the window opened. As a loop its step 0 re-enters
+    /// the rest its last step returned to, so that step is dropped like any
+    /// loop's — the variant measures the gesture, and the entering spring every
+    /// phase shares is not part of it.
     var continuous: MascotClip {
-        guard let last = steps.last else { return self }
-        var previous = loops ? last.pose : steps[0].pose
+        var previous = steps.last?.pose
         var moving: [Step] = []
         for step in steps where step.pose != previous {
             var tight = step
@@ -249,6 +289,80 @@ extension MascotClip {
             // Back to the resting aim: a phase change out of `working` must not
             // start from an aim no other phase knows about.
             .eased(rest, over: 0.26, hold: 2.3)
+        ], loops: true)
+    }
+}
+
+// MARK: - `waiting`, `review`, `failed`
+
+extension MascotClip {
+    /// **`waiting`: turn to you, grow, and stop.** No loop.
+    ///
+    /// The phase that blocks the user has one job, and the signal is its
+    /// *arrival*, not its motion: step 0's spring is where the eyes widen and
+    /// the body leans out (`resting(for:)` carries both), and `gazeMix` 1 locks
+    /// the eyes onto the cursor — which `working`, at 0.30 and looking down at
+    /// its work, had let go. That contrast is free and it is the loudest thing
+    /// the mascot can do. After it, one more swell, a settle, one blink, and
+    /// then nothing: a face that keeps moving while it waits would read as
+    /// busy, and a still one costs no frames for however long you take.
+    ///
+    /// The swell scales both axes — growing *is* the message here — by the
+    /// same 1.02 `idle` breathes with, so it stays inside the area guard for
+    /// the same reason the breath does (`MascotClipTests`).
+    static func waiting() -> MascotClip {
+        let rest = MascotPose.resting(for: .waiting)
+        var swell = rest.scaled(by: 1.02)
+        swell.eyeOpen = rest.eyeOpen * 1.10
+        return MascotClip(steps: [
+            .entering(rest, hold: 0.6),
+            .eased(swell, over: 0.18, hold: 0.35),
+            .eased(rest, over: 0.35, hold: 0.9),
+            blink(rest),
+            // The last step is the pose the clip holds for as long as the phase
+            // lasts, so it is rest — the same face the sleeping branch draws.
+            open(rest, hold: 0.5)
+        ], loops: false)
+    }
+
+    /// **`review`: one look down at the work, then back up to you.** No loop.
+    ///
+    /// The head tilt is the phase's identity and it arrives on step 0's spring;
+    /// the clip may not touch it (`MascotClipTests` — tilt and squint belong to
+    /// the table). The gesture is therefore a nod: the eyes drop onto the work
+    /// while the body dips, come back up with a small lift, blink, and hold.
+    /// "Had a look — is this right?" asked once, not on repeat.
+    static func review() -> MascotClip {
+        let rest = MascotPose.resting(for: .review)
+        return MascotClip(steps: [
+            .entering(rest, hold: 0.7),
+            .eased(rest.aimed(yaw: 0.10, pitch: 0.45).bobbed(0.975), over: 0.40, hold: 0.9),
+            .eased(rest.bobbed(1.015), over: 0.35, hold: 0.4),
+            .eased(rest, over: 0.25, hold: 0.6),
+            blink(rest),
+            open(rest, hold: 0.5)
+        ], loops: false)
+    }
+
+    /// **`failed`: the shudder, then a slow slump.** Loops, sparsely.
+    ///
+    /// The shudder (`MascotShake`) is the arrival and stays where `phase-1`
+    /// moved it. What follows used to be `idle`'s rhythm on a squashed face,
+    /// which made the two phases the same motion; this is its own: a slow,
+    /// heavy blink, and now and then a sigh that sinks the body further and
+    /// drops the eyes before it comes back. It keeps looping — a failure sits
+    /// there until someone acts, and a face that never blinks reads as dead
+    /// rather than sad — but slower than `idle`.
+    static func failed() -> MascotClip {
+        let rest = MascotPose.resting(for: .failed)
+        var heavy = rest
+        heavy.eyeOpen = rest.eyeOpen * 0.08
+        return MascotClip(steps: [
+            .entering(rest, hold: 5.0),
+            .eased(heavy, over: 0.20, hold: 0.30),
+            .eased(rest, over: 0.25, hold: 6.5),
+            .eased(rest.bobbed(0.97).aimed(yaw: 0, pitch: 0.25), over: 1.0, hold: 1.4),
+            .eased(rest, over: 1.2, hold: 1.25)
         ], loops: true)
     }
 }

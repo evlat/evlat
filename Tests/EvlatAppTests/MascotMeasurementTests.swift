@@ -75,7 +75,7 @@ final class MascotMeasurementTests: XCTestCase {
         // closing, once opening.
         XCTAssertEqual(clip.cycle, 10, accuracy: 1e-9)
         XCTAssertEqual(clip.movingTime, 1.0, accuracy: 1e-9)
-        XCTAssertEqual(clip.dutyCycle, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(clip.dutyCycle ?? 0, 0.1, accuracy: 1e-9)
     }
 
     /// A step that lands on the pose it is already in produces no frames, so it
@@ -89,7 +89,7 @@ final class MascotMeasurementTests: XCTestCase {
             .eased(pose, over: 1, hold: 6)
         ], loops: true)
         XCTAssertEqual(clip.movingTime, 0, accuracy: 1e-9)
-        XCTAssertEqual(clip.dutyCycle, 0, accuracy: 1e-9)
+        XCTAssertEqual(clip.dutyCycle ?? 1, 0, accuracy: 1e-9)
     }
 
     /// The in-clip leg runs on a variant with the waiting taken out: the same
@@ -103,6 +103,9 @@ final class MascotMeasurementTests: XCTestCase {
             // Every pose the clip actually travels to is still there, in order.
             // Only the standing still is gone — including step 0, which
             // re-enters the pose the last step already returned to.
+            // The variant always loops, so it re-enters step 0 from its own
+            // last pose — for a one-shot clip too, which is why its entering
+            // spring is not part of the measured motion.
             var previous = clip.steps.last!.pose
             var travelled: [MascotPose] = []
             for step in clip.steps where step.pose != previous {
@@ -113,10 +116,13 @@ final class MascotMeasurementTests: XCTestCase {
                            "\(phase): the variant must show the same motion")
             XCTAssertTrue(burst.steps.allSatisfy { $0.hold == $0.motion },
                           "\(phase): a step that waits is not in-clip time")
-            XCTAssertEqual(burst.dutyCycle, 1.0, accuracy: 1e-9,
+            XCTAssertEqual(burst.dutyCycle ?? 0, 1.0, accuracy: 1e-9,
                            "\(phase): the in-clip leg has to be all clip")
             XCTAssertLessThan(burst.cycle, clip.cycle, "\(phase): the waiting is what was removed")
-            XCTAssertEqual(burst.movingTime, clip.movingTime, accuracy: 1e-9,
+            // A one-shot clip's own `movingTime` counts the entering spring
+            // (it is entered from another phase); the looping variant does not.
+            let entering = clip.loops ? 0 : clip.steps[0].motion
+            XCTAssertEqual(burst.movingTime, clip.movingTime - entering, accuracy: 1e-9,
                            "\(phase): the same motion, not less of it")
             XCTAssertTrue(burst.loops, "\(phase): it has to keep running to be read")
         }
@@ -131,6 +137,6 @@ final class MascotMeasurementTests: XCTestCase {
         XCTAssertEqual(clip.steps.count, 9)
         XCTAssertEqual(clip.cycle, 10.75, accuracy: 1e-9)
         XCTAssertEqual(clip.movingTime, 2.31, accuracy: 1e-9)
-        XCTAssertEqual(clip.dutyCycle, 0.215, accuracy: 0.001)
+        XCTAssertEqual(clip.dutyCycle ?? 0, 0.215, accuracy: 0.001)
     }
 }

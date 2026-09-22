@@ -99,14 +99,30 @@ final class MascotPoseTests: XCTestCase {
     func testWorkingHoldsTheCursorMoreLoosely() {
         XCTAssertEqual(MascotPose.resting(for: .working).gazeMix, 0.30, accuracy: 1e-9,
                        "the mix picked in 003/phase-2")
-        XCTAssertLessThan(MascotPose.resting(for: .working).gazeMix,
-                          MascotPose.resting(for: .idle).gazeMix)
         XCTAssertEqual(MascotPose.resting(for: .waiting).gazeMix, 1,
                        "the phase whose job is to be noticed locks on")
         for phase in Phase.allCases {
             let mix = MascotPose.resting(for: phase).gazeMix
             XCTAssertGreaterThanOrEqual(mix, 0, "\(phase)")
             XCTAssertLessThanOrEqual(mix, 1, "\(phase)")
+        }
+    }
+
+    /// **The order of the mixes is the contract** (`003/phase-3`): `waiting`
+    /// takes the whole cursor, `idle` most of it, `working` the least of any
+    /// phase. Strict, because the point of `waiting`'s lock is that it is a
+    /// *change*: if idle already stared at full mix, the phase that blocks the
+    /// user would arrive looking exactly like the one that does nothing.
+    func testGazeMixesAreOrderedWaitingIdleWorking() {
+        let mix = { MascotPose.resting(for: $0).gazeMix }
+        XCTAssertGreaterThan(mix(.idle), mix(.working))
+        for phase in Phase.allCases where phase != .working {
+            XCTAssertGreaterThan(mix(phase), mix(.working),
+                                 "\(phase): working is the one that looks away most")
+        }
+        for phase in Phase.allCases where phase != .waiting {
+            XCTAssertLessThan(mix(phase), mix(.waiting),
+                              "\(phase): only waiting locks on")
         }
     }
 

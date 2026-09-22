@@ -74,8 +74,9 @@ final class MascotClipTests: XCTestCase {
             guard clip.loops else { continue }
             XCTAssertGreaterThan(clip.movingTime, 0,
                                  "\(name): a clip that never leaves rest is not a clip")
-            XCTAssertLessThanOrEqual(clip.dutyCycle, MascotClipTests.maxDutyCycle,
-                                     "\(name): \(clip.dutyCycle) of the cycle is motion")
+            let duty = clip.dutyCycle ?? 1
+            XCTAssertLessThanOrEqual(duty, MascotClipTests.maxDutyCycle,
+                                     "\(name): \(duty) of the cycle is motion")
             // A clip whose steps all sit at rest would pass the line above with
             // a duty cycle of zero; this is the same claim from the other side.
             XCTAssertTrue(clip.steps.contains { $0.pose != rest },
@@ -84,39 +85,6 @@ final class MascotClipTests: XCTestCase {
     }
 
     static let maxDutyCycle = 0.35
-
-    /// **`gazeMix` is a phase constant, never animated.** Karar 4 put the mix on
-    /// the pose so a phase could say how much of the cursor it wants; animating
-    /// it per step would make the eyes drift between following and not
-    /// following, which is a second gaze authority — the exact arrangement
-    /// `003` exists to end. `wander` is explicitly out of scope (`plan.md` →
-    /// Kapsam Dışı).
-    func testGazeMixIsConstantThroughAClip() {
-        for (name, rest, clip) in allClips() {
-            for (i, step) in clip.steps.enumerated() {
-                XCTAssertEqual(step.pose.gazeMix, rest.gazeMix,
-                               "\(name) step \(i): the mix moved")
-            }
-        }
-    }
-
-    /// **The clip owns the channels it drives, and only those.**
-    ///
-    /// `phase-1` wrote this as "tilt, squint and aim stay at rest", which was a
-    /// description of the only clip that existed then. Aim is now a channel
-    /// clips legitimately drive — that is what `working` does — so what
-    /// survives is the part that is a rule rather than a description: a clip
-    /// never touches the head tilt or the squint, the two channels that say
-    /// which phase this is rather than what it is doing inside it.
-    func testClipsDoNotRewriteTheChannelsThatIdentifyThePhase() {
-        for (name, rest, clip) in allClips() {
-            for (i, step) in clip.steps.enumerated() {
-                XCTAssertEqual(step.pose.tilt, rest.tilt, "\(name) step \(i): tilt")
-                XCTAssertEqual(step.pose.eyeSquint, rest.eyeSquint,
-                               "\(name) step \(i): squint")
-            }
-        }
-    }
 
     /// A looping clip comes back to where it started. The seam of the loop is a
     /// cut like any other, and a clip that wrapped from a saccade or a held
@@ -144,19 +112,130 @@ final class MascotClipTests: XCTestCase {
         }
     }
 
-    /// The body does not change how much room it takes up.
+    /// The body does not change how much room it takes up — beyond a breath.
     ///
     /// `phase-1` said this as "a breath scales both axes equally", which is true
     /// of the idle breath and false of a working body that **bobs** — stretching
     /// up while narrowing is the difference between drawing breath and growing.
     /// The rule underneath both is that the area is left alone: a mascot that
     /// silently grew would shoulder the bar's layout around it.
+    ///
+    /// Two steps grow on purpose, `idle`'s breath and `waiting`'s swell, both
+    /// by the same 1.02 per axis — about 4% of area. The bound is that, stated
+    /// relative to the phase's own rest rather than as an absolute slack that
+    /// happened to fit: 5%, and nothing else in the table comes near it.
     func testTheBodyKeepsItsAreaWhileItMoves() {
         for (name, rest, clip) in allClips() {
             let area = rest.scaleX * rest.scaleY
             for (i, step) in clip.steps.enumerated() {
-                XCTAssertEqual(step.pose.scaleX * step.pose.scaleY, area, accuracy: 0.05,
+                let ratio = step.pose.scaleX * step.pose.scaleY / area
+                XCTAssertEqual(ratio, 1, accuracy: 0.05,
                                "\(name) step \(i): the body changed size")
+            }
+        }
+    }
+
+    /// **No step ever shuts the eyes all the way.** A blink goes down to 8% of
+    /// the resting opening and no further — zero would draw a flat line the
+    /// view has to rescue, and a mascot that holds a closed-eyed pose reads as
+    /// asleep, which is what the *absence* of a clip already means. Checked on
+    /// the measurement variant too, since that is the same motion.
+    func testNoStepShutsTheEyesCompletely() {
+        for phase in Phase.allCases {
+            for pacing in MascotPacing.allCases {
+                for (i, step) in MascotClip.clip(for: phase, pacing: pacing).steps.enumerated() {
+                    XCTAssertGreaterThan(step.pose.eyeOpen, 0,
+                                         "\(phase) \(pacing) step \(i): the eyes are shut")
+                }
+            }
+        }
+    }
+
+    /// **`waiting` and `review` play once and hold** (`003/phase-3`). They are
+    /// news, not states: the arrival is the signal, and a one-shot clip that
+    /// has played out schedules nothing more, so however long you take to
+    /// answer costs no frames. The pose they hold is the phase's resting pose —
+    /// the same face the sleeping branch draws for that phase.
+    func testWaitingAndReviewPlayOnceAndHoldTheirLastPose() {
+        for phase in [Phase.waiting, .review] {
+            let clip = MascotClip.clip(for: phase, pacing: .normal)
+            XCTAssertFalse(clip.loops, "\(phase) must not loop")
+            XCTAssertEqual(clip.steps.last?.pose, MascotPose.resting(for: phase),
+                           "\(phase): it holds the resting pose")
+            XCTAssertNil(clip.step(after: clip.steps.count - 1),
+                         "\(phase): a played-out clip schedules nothing")
+            XCTAssertNil(clip.dutyCycle, "\(phase): a clip that stops has no duty cycle")
+        }
+        for phase in [Phase.idle, .working, .failed] {
+            let clip = MascotClip.clip(for: phase, pacing: .normal)
+            XCTAssertTrue(clip.loops, "\(phase) is a state you sit in; it keeps a rhythm")
+            XCTAssertEqual(clip.step(after: clip.steps.count - 1), 0, "\(phase)")
+        }
+    }
+
+    /// The walk visits every step in order, once per pass.
+    func testTheWalkVisitsEveryStepInOrder() {
+        for phase in Phase.allCases {
+            let clip = MascotClip.clip(for: phase, pacing: .normal)
+            for i in 0..<(clip.steps.count - 1) {
+                XCTAssertEqual(clip.step(after: i), i + 1, "\(phase)")
+            }
+        }
+    }
+
+    /// **The channels a clip does not drive stay at rest — one writer per
+    /// channel** (R4, Karar 8).
+    ///
+    /// The table below is each clip's declaration: a clip that starts writing
+    /// a channel it is not listed for is a second writer on something another
+    /// part of the face owns, and the list has to change on purpose for it to
+    /// pass. Three channels are never on it, for any clip:
+    ///
+    /// - **tilt and squint** say *which* phase this is, not what it is doing
+    ///   inside it; they belong to `resting(for:)`. `review`'s tilt arrives on
+    ///   step 0's spring, and its gesture is a nod instead.
+    /// - **`gazeMix`** is a phase constant (Karar 4). Animating it per step
+    ///   would make the eyes drift between following and not following — a
+    ///   second gaze authority, the exact arrangement `003` exists to end.
+    func testEachClipDrivesOnlyItsOwnChannels() {
+        let driven: [Phase: Set<Channel>] = [
+            .idle: [.eyeOpen, .scale],
+            .working: [.eyeOpen, .scale, .aim],
+            .waiting: [.eyeOpen, .scale],
+            .review: [.eyeOpen, .scale, .aim],
+            .failed: [.eyeOpen, .scale, .aim]
+        ]
+        let tableOnly: Set<Channel> = [.tilt, .squint, .gazeMix]
+        for phase in Phase.allCases {
+            let rest = MascotPose.resting(for: phase)
+            let allowed = driven[phase] ?? []
+            XCTAssertTrue(allowed.isDisjoint(with: tableOnly),
+                          "\(phase): tilt, squint and gazeMix belong to the table")
+            var used: Set<Channel> = []
+            for (i, step) in MascotClip.clip(for: phase, pacing: .normal).steps.enumerated() {
+                let touched = Channel.touched(by: step.pose, from: rest)
+                XCTAssertTrue(touched.isSubset(of: allowed),
+                              "\(phase) step \(i) writes \(touched.subtracting(allowed))")
+                used.formUnion(touched)
+            }
+            // The declaration is not allowed to go stale in the other
+            // direction either: a channel listed but never driven is a claim
+            // about the face nobody is keeping.
+            XCTAssertEqual(used, allowed, "\(phase): the table says more than the clip does")
+        }
+    }
+
+    /// **The five phases move differently** (R1): no two clips are the same
+    /// motion on a different face. Comparing poses would pass trivially, since
+    /// every clip is built on its own resting pose; what is compared is the
+    /// motion itself — each step as a change from rest, how long it holds,
+    /// and whether the clip loops.
+    func testNoTwoPhasesMoveTheSame() {
+        let phases = Phase.allCases
+        for (a, first) in phases.enumerated() {
+            for second in phases[(a + 1)...] {
+                XCTAssertNotEqual(Motion(first), Motion(second),
+                                  "\(first) and \(second) are the same motion")
             }
         }
     }
@@ -169,13 +248,53 @@ final class MascotClipTests: XCTestCase {
         XCTAssertEqual(clip.cycle, 18.8, accuracy: 1e-9, "the 18.8 s cycle `phase-1` measured")
         XCTAssertEqual(clip.movingTime, 3.0, accuracy: 1e-9, "~3.0 s of it in motion")
         // 16%: the number `phase-1` reached with pen and paper, now computed.
-        XCTAssertEqual(clip.dutyCycle, 0.16, accuracy: 0.005)
+        XCTAssertEqual(clip.dutyCycle ?? 0, 0.16, accuracy: 0.005)
         let rest = MascotPose.resting(for: .idle)
         guard let inhale = clip.steps.first(where: { $0.pose.scaleY > rest.scaleY }) else {
             return XCTFail("idle: nothing in this clip breathes")
         }
         XCTAssertEqual(inhale.pose.scaleX / rest.scaleX, inhale.pose.scaleY / rest.scaleY,
                        accuracy: 1e-9, "the idle breath must not squash")
+    }
+}
+
+/// A pose channel, as the clip-ownership test counts them. Scale is one
+/// channel with two fields because squash and stretch move them together.
+private enum Channel: Hashable {
+    case aim, eyeOpen, squint, scale, tilt, gazeMix
+
+    static func touched(by pose: MascotPose, from rest: MascotPose) -> Set<Channel> {
+        var out: Set<Channel> = []
+        if pose.yaw != rest.yaw || pose.pitch != rest.pitch { out.insert(.aim) }
+        if pose.eyeOpen != rest.eyeOpen { out.insert(.eyeOpen) }
+        if pose.eyeSquint != rest.eyeSquint { out.insert(.squint) }
+        if pose.scaleX != rest.scaleX || pose.scaleY != rest.scaleY { out.insert(.scale) }
+        if pose.tilt != rest.tilt { out.insert(.tilt) }
+        if pose.gazeMix != rest.gazeMix { out.insert(.gazeMix) }
+        return out
+    }
+}
+
+/// A clip with its face taken out: every step as a change relative to the
+/// phase's resting pose, plus timing and looping. Ratios for the channels that
+/// multiply, differences for aim.
+private struct Motion: Equatable {
+    struct Beat: Equatable {
+        var yaw, pitch, eyeOpen, scaleX, scaleY, hold: Double
+    }
+    var beats: [Beat]
+    var loops: Bool
+
+    init(_ phase: Phase) {
+        let rest = MascotPose.resting(for: phase)
+        let clip = MascotClip.clip(for: phase, pacing: .normal)
+        beats = clip.steps.map {
+            Beat(yaw: $0.pose.yaw - rest.yaw, pitch: $0.pose.pitch - rest.pitch,
+                 eyeOpen: $0.pose.eyeOpen / rest.eyeOpen,
+                 scaleX: $0.pose.scaleX / rest.scaleX, scaleY: $0.pose.scaleY / rest.scaleY,
+                 hold: $0.hold)
+        }
+        loops = clip.loops
     }
 }
 

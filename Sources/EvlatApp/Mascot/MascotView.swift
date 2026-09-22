@@ -70,10 +70,13 @@ private struct ClipPlayer: View {
     let size: CGFloat
 
     @State private var step = 0
-    /// Bumped whenever the clip is replaced or torn down. A pending step checks
-    /// it and does nothing if the clip it belonged to is gone — otherwise a
-    /// phase change during a long hold would advance the *new* clip one step
-    /// early, and the old blink would land on the new face.
+    /// Bumped whenever the walk is started over or torn down. A pending step
+    /// checks it and does nothing if the walk it belonged to is gone.
+    ///
+    /// A phase change into a **looping** clip does *not* bump it: the step in
+    /// flight keeps its schedule and lands on the new clip (see `enter()`). A
+    /// change into a **one-shot** clip does, because that clip's gesture is
+    /// timed from the arrival and it only gets one chance.
     @State private var generation = 0
     /// Whether a step is in flight. A clip with `loops == false` stops at its
     /// last step, and only this says so — otherwise a later phase change would
@@ -112,9 +115,16 @@ private struct ClipPlayer: View {
     /// cursor can no longer keep resetting the timer so the mascot never
     /// blinks"*. The step in flight keeps its own schedule and reads the new
     /// clip when it lands.
+    ///
+    /// **One-shot clips are the exception** (`waiting`, `review`): their gesture
+    /// is the arrival, so it is timed from the phase change and not from
+    /// whatever was left of the old clip's hold. Inheriting that hold would
+    /// play the swell up to 6.5 s late, or cut step 0's spring short a tenth
+    /// of a second in. The flapping argument above does not apply to them —
+    /// restarting a clip that plays once cannot starve a rhythm.
     private func enter() {
         step = 0
-        if !walking { restart() }
+        if !walking || !clip.loops { restart() }
     }
 
     private func restart() {
@@ -135,17 +145,13 @@ private struct ClipPlayer: View {
     }
 
     private func advance() {
-        let next = step + 1
-        if next < clip.steps.count {
-            step = next
-        } else if clip.loops {
-            step = 0
-        } else {
+        guard let next = clip.step(after: step) else {
             // Played out: hold the final pose and stop scheduling. Nothing
             // moves again until a phase change starts the walk over.
             walking = false
             return
         }
+        step = next
         scheduleNext()
     }
 }

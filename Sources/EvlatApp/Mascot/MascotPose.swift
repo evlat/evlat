@@ -62,11 +62,17 @@ public struct MascotPose: Equatable {
     /// leaves every channel it does not drive sitting right here.
     ///
     /// The table aims straight ahead (`yaw`/`pitch` zero) and says through
-    /// `gazeMix` how much of the cursor it wants on top of that.
+    /// `gazeMix` how much of the cursor it wants on top of that. The mixes are
+    /// nailed per phase (`003/phase-3`) and their **order** is the contract,
+    /// held by `MascotPoseTests`: `waiting` takes all of it, `working` the least
+    /// of anyone, `idle` in between. Idle gives up a little so that the lock
+    /// `waiting` makes is a change you can see, not the same stare as before.
     public static func resting(for phase: Phase) -> MascotPose {
         switch phase {
         case .idle:
-            return MascotPose()
+            // Mostly with you, not locked on. Asleep as well as awake: the
+            // sleeping branch draws this pose.
+            return MascotPose(gazeMix: 0.85)
         case .working:
             // Focus: the eyes narrow a little, and the face gives up most of the
             // cursor — a working agent is looking at its own work, not at you.
@@ -81,11 +87,15 @@ public struct MascotPose: Equatable {
             return MascotPose(eyeOpen: 1.28, scaleX: 1.03, scaleY: 1.04)
         case .review:
             // Head tilt plus a slight squint: "had a look — is this right?"
-            return MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, tilt: 9)
+            // Turned toward you but not locked on: the question is about the
+            // work, which `review`'s clip glances down at.
+            return MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, tilt: 9, gazeMix: 0.60)
         case .failed:
             // Lids low, body squashed. The shudder is its own channel and lives
-            // in `MascotShake`.
-            return MascotPose(eyeOpen: 0.55, eyeSquint: 0.5, scaleX: 1.07, scaleY: 0.9)
+            // in `MascotShake`. Half of the cursor: it still knows you are
+            // there, it just cannot quite meet your eye.
+            return MascotPose(eyeOpen: 0.55, eyeSquint: 0.5, scaleX: 1.07, scaleY: 0.9,
+                              gazeMix: 0.45)
         }
     }
 
