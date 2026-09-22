@@ -33,8 +33,10 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 
 ## Şu an nerede
 
-`001` ve `002` bitti: iskelet, kenar paneli, maskot, iki sağlayıcı ve hook
-sunucusu çalışıyor. Kurulu hook'lar hiçbir kurulum yapılmadan
-`127.0.0.1:48151`'e akıyor ve `waiting` ilk kez gerçek bir oturumda görünüyor.
-Bar henüz oturum satırı çizmiyor — o `003`'ün işi. Güncel durum ve açık
-kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
+`001`, `002` ve `003` bitti: iskelet, kenar paneli, iki sağlayıcı ve hook
+sunucusu çalışıyor; kurulu hook'lar hiçbir kurulum yapılmadan
+`127.0.0.1:48151`'e akıyor. Maskotun beş fazının her birinin kendi klibi var
+(`MascotClip`), her kanalın tek yazıcısı klip ve bakış faz başına `gazeMix` ile
+toplanıyor. Bar henüz oturum satırı çizmiyor — o artık `004`'ün işi (numara
+kayması: `ROADMAP.md` → Fazlar). Güncel durum ve açık kalemler için
+`.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
