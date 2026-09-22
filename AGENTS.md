@@ -33,7 +33,8 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 
 ## Şu an nerede
 
-`001` bitti: iskelet, kenar paneli, oturum sağlayıcısı ve maskot çalışıyor.
-`waiting` durumu henüz görünmüyor — o ayrım hook'lardan geliyor ve hook sunucusu
-`002`'de. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki setler
-için `ROADMAP.md` → Fazlar.
+`001` ve `002` bitti: iskelet, kenar paneli, maskot, iki sağlayıcı ve hook
+sunucusu çalışıyor. Kurulu hook'lar hiçbir kurulum yapılmadan
+`127.0.0.1:48151`'e akıyor ve `waiting` ilk kez gerçek bir oturumda görünüyor.
+Bar henüz oturum satırı çizmiyor — o `003`'ün işi. Güncel durum ve açık
+kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
