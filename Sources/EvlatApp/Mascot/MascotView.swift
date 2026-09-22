@@ -88,8 +88,7 @@ private struct ClipPlayer: View {
     /// the mascot is not worth crashing the app over, so it rests instead.
     private var current: MascotClip.Step {
         guard let last = clip.steps.indices.last else {
-            return MascotClip.Step(pose: MascotPose.resting(for: phase),
-                                   curve: MascotPose.transition, hold: 1)
+            return .entering(MascotPose.resting(for: phase), hold: 1)
         }
         return clip.steps[min(step, last)]
     }

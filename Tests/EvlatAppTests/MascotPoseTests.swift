@@ -93,11 +93,15 @@ final class MascotPoseTests: XCTestCase {
     }
 
     /// `working` is the phase that gives up the cursor: an agent busy with its
-    /// own work does not stare at you. The value is nailed by eye in
-    /// `003/phase-2`; what must hold from here on is the ordering.
+    /// own work does not stare at you. **How much** it gives up is one of the
+    /// axes `003/phase-2`'s candidates differ on, and the user nails it by
+    /// choosing one — `MascotVariantsTests` holds the ordering for all three.
+    /// What is pinned here is the rest of the table, which no candidate moves.
     func testWorkingHoldsTheCursorMoreLoosely() {
-        XCTAssertLessThan(MascotPose.resting(for: .working).gazeMix,
-                          MascotPose.resting(for: .idle).gazeMix)
+        for candidate in MascotWorking.allCases {
+            XCTAssertLessThan(MascotPose.resting(for: .working, working: candidate).gazeMix,
+                              MascotPose.resting(for: .idle).gazeMix, "\(candidate.rawValue)")
+        }
         XCTAssertEqual(MascotPose.resting(for: .waiting).gazeMix, 1,
                        "the phase whose job is to be noticed locks on")
         for phase in Phase.allCases {
@@ -107,11 +111,19 @@ final class MascotPoseTests: XCTestCase {
         }
     }
 
-    /// A state change must never snap. The transition is a spring held in one
-    /// place so every phase feels the same; if it ever became a linear or
-    /// zero-duration animation, v1's principle would be quietly lost.
+    /// A state change must never snap.
+    ///
+    /// **The curve is still undecided** (Karar 2, `003/phase-2`): the user has
+    /// to see the spring and the exponential ease-out side by side before one of
+    /// them becomes the answer. Until then this pins the shipped default — the
+    /// spring `001` chose — so the ease variant existing cannot quietly become
+    /// the ease variant shipping. When the choice is made, this is the test that
+    /// records it.
     func testTransitionIsASpring() {
-        XCTAssertEqual(MascotPose.transition, .spring(response: 0.38, dampingFraction: 0.72))
+        XCTAssertEqual(MascotPose.transition, .spring(response: 0.38, dampingFraction: 0.72),
+                       "the default must stay 001's spring while the curve is being chosen")
+        XCTAssertEqual(MascotCurve.selected, .spring,
+                       "no environment variable is set in a test run")
     }
 }
 

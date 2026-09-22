@@ -137,6 +137,26 @@ public final class AppController: NSObject, NSApplicationDelegate {
         SessionsProvider(directory: sessionsDirectory(), platform: darwinPlatform)
     }
 
+    /// `EVLAT_PHASE=working` forces a phase at launch, the scriptable twin of
+    /// the "Force state" menu item.
+    ///
+    /// It is the other half of the measurement instrument `003/phase-2` needs
+    /// (`phase-2.md` → Ölçüm: *fix the phase, point `EVLAT_SESSIONS` at an empty
+    /// directory*). The menu reaches the same state, but a measurement has to
+    /// be launched and torn down from a script, and a clip that has to be
+    /// selected by hand cannot be put in a window beside another one.
+    ///
+    /// It writes `override` and nothing else, so "Follow sessions" in the menu
+    /// clears it exactly like any other forced phase. An unreadable value is
+    /// ignored rather than refused.
+    nonisolated public static func forcedPhase(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Phase? {
+        guard let raw = environment["EVLAT_PHASE"]?
+            .trimmingCharacters(in: .whitespaces).lowercased(), !raw.isEmpty else { return nil }
+        return Phase(rawValue: raw)
+    }
+
     /// How long `--capture` listens when no number follows it.
     nonisolated public static var defaultCaptureWindow: TimeInterval { 30 }
 
@@ -316,6 +336,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
                              content: BarBody(edge: .right, mascot: mascot))
         panel.show()
         self.panel = panel
+
+        // A phase forced from the environment, for looking at one state and for
+        // measuring it. Set before the first refresh so the mascot never shows
+        // the aggregate for a frame first.
+        mascot.override = Self.forcedPhase()
 
         // The seam runs here: provider → Registry → MascotModel → view.
         refresh()

@@ -64,15 +64,30 @@ public struct MascotPose: Equatable {
     /// The table aims straight ahead (`yaw`/`pitch` zero) and says through
     /// `gazeMix` how much of the cursor it wants on top of that.
     public static func resting(for phase: Phase) -> MascotPose {
+        resting(for: phase, working: MascotWorking.selected)
+    }
+
+    /// The same table with the `working` candidate named explicitly.
+    ///
+    /// `003/phase-2` puts three candidates side by side and **how much of the
+    /// cursor `working` keeps is one of the axes they differ on** — a face that
+    /// stops following you is a different answer to "what does working look
+    /// like", not the same answer with a different number. The candidate is a
+    /// parameter rather than a global read so every candidate can be tested,
+    /// not only whichever one the environment happens to select.
+    ///
+    /// Internal, unlike its one-argument sibling: the candidates are this
+    /// phase's scaffolding and do not belong in the type's public surface.
+    static func resting(for phase: Phase, working: MascotWorking) -> MascotPose {
         switch phase {
         case .idle:
             return MascotPose()
         case .working:
-            // Focus: the eyes narrow a little, and the face gives up **most** of
-            // the cursor — a working agent is looking at its own work, not at
-            // you. The exact mix is nailed by eye in `003/phase-2`; this value
-            // is provisional and only has to be visibly below `idle`'s.
-            return MascotPose(eyeOpen: 0.92, eyeSquint: 0.34, gazeMix: 0.45)
+            // Focus: the eyes narrow a little, and the face gives up part of the
+            // cursor — a working agent is looking at its own work, not at you.
+            // How much it gives up belongs to the candidate; `phase-1`'s
+            // provisional 0.45 survives as `breath`'s value.
+            return MascotPose(eyeOpen: 0.92, eyeSquint: 0.34, gazeMix: working.gazeMix)
         case .waiting:
             // Eyes WIDEN and the body leans out a touch toward the user. This
             // phase has exactly one job: be noticed — so it keeps the full gaze
@@ -88,7 +103,17 @@ public struct MascotPose: Equatable {
         }
     }
 
-    /// The transition spring. Kept in one place so every phase change feels the
-    /// same.
-    public static let transition: Animation = .spring(response: 0.38, dampingFraction: 0.72)
+    /// The phase-change curve. Kept in one place so every phase change feels
+    /// the same — and so Karar 2's two answers are one line apart.
+    ///
+    /// Resolves to `MascotCurve.selected`: the spring unless
+    /// `EVLAT_MASCOT_CURVE=ease` says otherwise. Until the user has looked at
+    /// both, the default is exactly what `001` shipped.
+    public static var transition: Animation { MascotCurve.selected.animation }
+
+    /// How long a transition takes to land, seconds. The spring's response and
+    /// the ease variant's duration are written to be the same number, so a
+    /// clip's duty cycle does not depend on which curve is in force — the two
+    /// variants differ in shape, not in cost.
+    public static let transitionDuration: Double = 0.40
 }
