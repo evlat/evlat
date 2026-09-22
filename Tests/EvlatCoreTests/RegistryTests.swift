@@ -21,10 +21,10 @@ final class RegistryTests: XCTestCase {
     /// table below is about a baseline that did say something.
     private func signal(_ entity: String, _ phase: Phase, _ fidelity: Signal.Fidelity,
                         provider: String = "stub", label: String? = nil,
-                        rawStatus: String? = "said-so",
+                        detail: String? = nil, rawStatus: String? = "said-so",
                         at offset: TimeInterval = 0) -> Signal {
         Signal(provider: provider, entity: entity, phase: phase,
-               label: label ?? provider, fidelity: fidelity, rawStatus: rawStatus,
+               label: label ?? provider, detail: detail, fidelity: fidelity, rawStatus: rawStatus,
                updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + offset))
     }
 
@@ -100,13 +100,48 @@ final class RegistryTests: XCTestCase {
         }
     }
 
-    /// An admitted report replaces the whole row, not only its phase: the
-    /// source's own word is the richer one and the list shows it.
-    func testAnAdmittedReportReplacesTheWholeRow() {
-        let rows = merged([signal("s", .working, .derived, provider: "file", label: "from-file")],
-                          [signal("s", .waiting, .official, provider: "hook", label: "from-hook")])
-        XCTAssertEqual(rows.first?.label, "from-hook")
+    /// An admitted report gives the row its phase and everything that moves
+    /// with it, but **not its name**. The hook body carries no session name,
+    /// so a report-owned label falls back to the folder, and on this machine
+    /// that differed from the file's name in 17 of 22 live records: the row
+    /// would rename itself the moment it turned `waiting`. `detail` does come
+    /// from the report, because the hook keeps `cwd` fresh and the file is not
+    /// written at event rate.
+    func testAnAdmittedReportKeepsTheBaselineName() {
+        let rows = merged([signal("s", .working, .derived, provider: "file", label: "from-file",
+                                  detail: "/file/cwd")],
+                          [signal("s", .waiting, .official, provider: "hook", label: "from-hook",
+                                  detail: "/hook/cwd")])
+        XCTAssertEqual(rows.first?.label, "from-file", "the name does not move with the phase")
         XCTAssertEqual(rows.first?.provider, "hook")
+        XCTAssertEqual(rows.first?.phase, .waiting)
+        XCTAssertEqual(rows.first?.detail, "/hook/cwd")
+        XCTAssertEqual(rows.first?.fidelity, .official)
+    }
+
+    /// A report that has not learnt a `cwd` yet does not blank the file's.
+    func testAnAdmittedReportWithoutDetailKeepsTheBaselineDetail() {
+        let rows = merged([signal("s", .working, .derived, provider: "file", detail: "/file/cwd")],
+                          [signal("s", .waiting, .official, provider: "hook")])
+        XCTAssertEqual(rows.first?.detail, "/file/cwd")
+    }
+
+    /// The guard on the behaviour that did not change: a vetoed report leaves
+    /// no trace on the row, not even a borrowed field.
+    func testARejectedReportLeavesTheBaselineUntouched() {
+        let baseline = signal("s", .idle, .derived, provider: "file", label: "from-file",
+                              detail: "/file/cwd")
+        let rows = merged([baseline],
+                          [signal("s", .working, .official, provider: "hook", label: "from-hook",
+                                  detail: "/hook/cwd", at: 600)])
+        XCTAssertEqual(rows, [baseline])
+    }
+
+    /// With no baseline there is no other name to take: Codex keeps its own.
+    func testAnOfficialRowWithoutADerivedTwinKeepsItsOwnName() {
+        let rows = merged([signal("codex-1", .working, .official, provider: "codex",
+                                  label: "codex-name")])
+        XCTAssertEqual(rows.map(\.label), ["codex-name"])
     }
 
     // MARK: - One row per entity
@@ -122,6 +157,18 @@ final class RegistryTests: XCTestCase {
         let rows = merged([signal("s-1", .working, .derived)],
                           [signal("s-2", .waiting, .official)])
         XCTAssertEqual(rows.map(\.entity), ["s-2", "s-1"], "waiting sorts above working")
+    }
+
+    /// Within one phase the order is by `entity`, never by stamp: the hook
+    /// refreshes its stamp on every `PostToolUse`, so an order that read it
+    /// would reshuffle the bar at event rate.
+    func testSwappingStampsDoesNotReorderRowsOfOnePhase() {
+        let before = merged([signal("s-a", .working, .official, at: 0),
+                             signal("s-b", .working, .official, at: 600)])
+        let after = merged([signal("s-a", .working, .official, at: 600),
+                            signal("s-b", .working, .official, at: 0)])
+        XCTAssertEqual(before.map(\.entity), after.map(\.entity))
+        XCTAssertEqual(after.map(\.entity), ["s-a", "s-b"])
     }
 
     // MARK: - A row without a twin

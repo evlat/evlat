@@ -55,6 +55,15 @@ public final class Registry {
     /// a source that keeps no file drops its own row through the same check.
     /// What is left here is the live process whose report went stale.
     ///
+    /// An admitted report supplies the phase and everything that moves with it
+    /// (stamp, `detail`, provider), but **the name stays the baseline's**. The
+    /// hook body carries no session name, so a report-owned label falls back to
+    /// the folder — different from the file's name in 17 of 22 live records —
+    /// and the row renamed itself the moment it turned `waiting`. `detail`
+    /// deliberately follows the report: the hook keeps `cwd` fresh and the file
+    /// is not written at event rate. A report that has no `cwd` yet (it only
+    /// learns one from an event that carries it) keeps the baseline's.
+    ///
     /// With no baseline the report passes untouched, and that branch is the
     /// whole of what a source without a file record gets.
     private static func reconcile(_ rows: [Signal]) -> Signal? {
@@ -71,7 +80,11 @@ public final class Registry {
         // it a row of its own instead of inheriting this.
         guard let baseline = newest(.derived) else { return newest(.official) ?? newest(.manual) }
         guard let report = newest(.official) else { return baseline }
-        return admits(baseline, report.phase) ? report : baseline
+        guard admits(baseline, report.phase) else { return baseline }
+        return Signal(provider: report.provider, entity: report.entity, kind: report.kind,
+                      phase: report.phase, progress: report.progress, label: baseline.label,
+                      detail: report.detail ?? baseline.detail, fidelity: report.fidelity,
+                      rawStatus: report.rawStatus, updatedAt: report.updatedAt)
     }
 
     /// Which reports a baseline can be reconciled with. `failed` sits in both
@@ -119,7 +132,7 @@ public final class Registry {
     /// cover.
     public struct Snapshot: Equatable {
         /// Display order: waiting on top, then working, then recently finished,
-        /// idle at the bottom. Most recent first on a tie.
+        /// idle at the bottom. On a tie, by `entity`: stable, never by stamp.
         public let ordered: [Signal]
         /// The mascot's face. Highest `Phase.priority` wins; `idle` when there
         /// is nothing at all.
@@ -130,10 +143,12 @@ public final class Registry {
         public var hasLive: Bool { !ordered.isEmpty }
 
         public init(signals: [Signal]) {
+            // The stamp stays out of the order: the hook refreshes it on every
+            // `PostToolUse`, so sorting by it reshuffled the rows at event rate.
             ordered = signals.sorted {
                 $0.phase.priority != $1.phase.priority
                     ? $0.phase.priority > $1.phase.priority
-                    : $0.updatedAt > $1.updatedAt
+                    : $0.entity < $1.entity
             }
             aggregate = signals.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
         }
