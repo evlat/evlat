@@ -22,6 +22,12 @@ import Foundation
 /// through subagents, and a filtered permission prompt is the product's one
 /// promise failing in its most common scenario.
 ///
+/// **A blocking phase remembers who put it up** (`mayApply`). That every
+/// subagent event lands on the parent's row is what makes the filter needless;
+/// it is also what lets a sibling subagent running in parallel undo a prompt it
+/// knows nothing about. The two are separate questions and this is the answer
+/// to the second one, not a reopening of the first.
+///
 /// **Not thread-safe, by design.** Events are delivered on the main queue and
 /// `currentSignals()` is called there too (`Provider`'s contract).
 public final class HooksProvider: Provider {
@@ -98,6 +104,54 @@ public final class HooksProvider: Provider {
         }
     }
 
+    /// Phases the user cannot walk away from. They are the ones worth
+    /// protecting — `working`, `idle` and `review` are corrected by the next
+    /// event either way — and they are also the only two that never decay,
+    /// which is why the phase alone says whether a block is standing and no
+    /// separate "is blocked" flag is kept.
+    private static func blocks(_ phase: Phase) -> Bool {
+        phase == .waiting || phase == .failed
+    }
+
+    /// Events that speak for the **session** rather than for one actor's step,
+    /// so they lift a block whoever put it up: a turn that has ended cannot
+    /// still be waiting on a prompt, and a new user prompt could not have been
+    /// typed while one was on screen. Without them a block whose owner goes
+    /// quiet — a subagent that was killed mid-prompt — would hold the row for
+    /// the rest of the turn.
+    ///
+    /// `SessionEnd` and `StopFailure` read the same way and are deliberately
+    /// **not** listed, because neither would ever reach this set: the first
+    /// removes the row before the question is asked, and the second sets a
+    /// blocking phase, which is never refused.
+    private static let sessionLevel: Set<String> = ["Stop", "UserPromptSubmit"]
+
+    /// May this event move the session off the phase it is in?
+    ///
+    /// The rule: **a blocking phase remembers who put it up, and only that
+    /// actor — or an event about the session itself — may lift it.** The actor
+    /// is already in the event: `agent_id` for a subagent, its absence for the
+    /// main thread. Without this, sibling subagent B's routine `PostToolUse`
+    /// paints the parent `working` while the user is still blocked on A's
+    /// prompt, and A's prompt does not come again.
+    ///
+    /// **Putting a block up is never refused, only lifting one.** If A's prompt
+    /// kept the row while B's arrived, answering A would read as `working` with
+    /// B still holding the user. The newest blocking event owns the block, the
+    /// same way `since` and `word` follow the last event that set a phase.
+    ///
+    /// The unmeasured limit of one owner: while A and B both wait, answering
+    /// only B lifts the row, because A's ownership was overwritten. Modelling
+    /// both would take a set of owners; the phase that blocks is the same
+    /// either way, so what is lost is one row's accuracy after a partial
+    /// answer, not the block itself.
+    private static func mayApply(_ phase: Phase, from event: HookEvent,
+                                 to session: Session) -> Bool {
+        guard blocks(session.phase), !blocks(phase) else { return true }
+        if sessionLevel.contains(event.name) { return true }
+        return event.agentID == session.blockedBy
+    }
+
     /// One event. Called on the main queue.
     public func handle(_ event: HookEvent) {
         // No id, no row. v1 filed every anonymous event under the placeholder
@@ -116,7 +170,11 @@ public final class HooksProvider: Provider {
             sessions[entity] = Session(phase: phase, since: platform.now(),
                                        word: event.name, cwd: event.cwd,
                                        pid: event.pid,
-                                       startedAt: event.pid.flatMap(platform.processStartedAt))
+                                       startedAt: event.pid.flatMap(platform.processStartedAt),
+                                       // The owner is recorded where the row is
+                                       // opened too: a subagent's prompt is
+                                       // often the first event of a session.
+                                       blockedBy: Self.blocks(phase) ? event.agentID : nil)
             return
         }
 
@@ -132,13 +190,18 @@ public final class HooksProvider: Provider {
             session.pid = pid
             session.startedAt = platform.processStartedAt(pid)
         }
-        if case .set(let phase) = effect {
+        // The phase is what the guard refuses, not the event: the whereabouts
+        // above are kept either way, because a row that sat out a prompt with a
+        // stale `cwd` would be wrong about which project is blocked.
+        if case .set(let phase) = effect, Self.mayApply(phase, from: event, to: session) {
             session.phase = phase
             // The stamp belongs to the phase. An event that assigns none must
             // not restart the decay, or a `Notification` arriving a minute into
             // an idle session would spring `review` back to life.
             session.since = platform.now()
             session.word = event.name
+            // A phase that does not block clears the ownership with it.
+            session.blockedBy = Self.blocks(phase) ? event.agentID : nil
         }
         sessions[entity] = session
     }
@@ -204,10 +267,16 @@ public final class HooksProvider: Provider {
         var pid: Int32?
         /// The process start time as read at first sight of this pid.
         var startedAt: Date?
+        /// Who put up a blocking phase: the `agent_id` of the subagent whose
+        /// event set it, or `nil` for the main thread — whose identity **is**
+        /// the absence of one. Only read while `phase` blocks, so there is no
+        /// third "nobody" case to tell apart from the main thread.
+        var blockedBy: String?
 
         /// The phase as of now. Only `review` decays: `waiting` and `failed`
-        /// are the user's business and wait for an event that says otherwise,
-        /// while `working` is corrected by the next event either way.
+        /// are the user's business and wait for an event from whoever put them
+        /// up (`mayApply`), while `working` is corrected by the next event
+        /// either way.
         func shownPhase(now: Date) -> Phase {
             guard phase == .review, now.timeIntervalSince(since) >= HooksProvider.reviewDecay else {
                 return phase

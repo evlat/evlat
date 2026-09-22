@@ -149,15 +149,106 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertEqual(rows.first?.entity, "s-1", "it lands on the parent's session")
     }
 
-    /// The edge seen while the filter was being removed, pinned so it is a
-    /// written fact rather than a surprise: a sibling subagent's tool event
-    /// clears a `waiting` the parent put up for itself. Not this set's decision
-    /// to make, but not an accident either.
-    func testASubagentToolEventClearsTheParentsWaiting() {
+    // MARK: - Who may lift a block
+
+    /// The scenario this rule exists for, and the one this repo runs all day:
+    /// subagent A stops on a permission prompt while sibling B keeps working.
+    /// Both events land on the **parent's** row, so without an owner B's
+    /// routine tool event would paint the parent `working` while the user is
+    /// still blocked on A.
+    func testOnlyTheActorThatBlockedCanLiftTheBlock() {
+        let hooks = provider()
+        hooks.handle(event("UserPromptSubmit"))
+        hooks.handle(event("PermissionRequest", agent: "agent-a"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .waiting)
+
+        hooks.handle(event("PostToolUse", agent: "agent-b"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .waiting,
+                       "B's tool event says nothing about A's prompt")
+
+        hooks.handle(event("PostToolUse", agent: "agent-a"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .working,
+                       "A was answered, so A's own next event lifts it")
+    }
+
+    /// The main thread is an actor too, and the **absence** of an `agent_id` is
+    /// its identity. No subagent may lift a prompt the main thread put up.
+    func testASubagentCannotLiftTheMainThreadsBlock() {
         let hooks = provider()
         hooks.handle(event("PermissionRequest"))
-        hooks.handle(event("PostToolUse", agent: "a7a6733d11250a71f"))
+        hooks.handle(event("PostToolUse", agent: "agent-b"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .waiting)
+
+        hooks.handle(event("PostToolUse"))
         XCTAssertEqual(hooks.currentSignals().first?.phase, .working)
+    }
+
+    /// The owner is recorded where the row is **opened** too, not only where an
+    /// existing row moves: a subagent's prompt is often the first thing Evlat
+    /// hears about a session.
+    func testABlockThatOpensTheRowRemembersItsOwner() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", agent: "agent-a"))
+        hooks.handle(event("PostToolUse", agent: "agent-b"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .waiting)
+    }
+
+    /// `failed` blocks the user exactly as `waiting` does, so it is guarded the
+    /// same way. (These are also the only two phases that never decay, which is
+    /// why the phase alone can say whether a block is standing.)
+    func testAFailedPhaseIsGuardedLikeAWait() {
+        let hooks = provider()
+        hooks.handle(event("StopFailure"))
+        hooks.handle(event("PostToolUse", agent: "agent-b"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .failed)
+    }
+
+    /// Putting a block up is never refused — only lifting one is. If A's prompt
+    /// kept the row while B's arrived, answering A would show `working` with B
+    /// still waiting.
+    func testTheNewestBlockOwnsTheRow() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", agent: "agent-a"))
+        hooks.handle(event("PermissionRequest", agent: "agent-b"))
+        hooks.handle(event("PostToolUse", agent: "agent-a"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .waiting,
+                       "A was answered; B still has the user")
+
+        hooks.handle(event("PostToolUse", agent: "agent-b"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .working)
+    }
+
+    /// Events that speak for the **session** rather than for one actor's step
+    /// lift any block, whoever put it up. A turn that has ended cannot still be
+    /// waiting on a prompt, and a new user prompt could not have been typed
+    /// while one was on screen.
+    func testASessionLevelEventLiftsAnyBlock() {
+        for (name, expected) in [("Stop", Phase.review), ("StopFailure", .failed),
+                                 ("UserPromptSubmit", .working)] {
+            let hooks = provider()
+            hooks.handle(event("PermissionRequest", agent: "agent-a"))
+            hooks.handle(event(name))
+            XCTAssertEqual(hooks.currentSignals().first?.phase, expected, name)
+        }
+    }
+
+    func testSessionEndRemovesTheRowWhoeverBlockedIt() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", agent: "agent-a"))
+        hooks.handle(event("SessionEnd"))
+        XCTAssertTrue(hooks.currentSignals().isEmpty)
+    }
+
+    /// The guard refuses the **phase**, not the event: a refused event still
+    /// carries whereabouts, and a row that waited out a prompt with a stale
+    /// `cwd` would be wrong about which project is blocked.
+    func testARefusedEventStillUpdatesTheRowsWhereabouts() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", cwd: nil))
+        hooks.handle(event("PostToolUse", cwd: "/tmp/second", agent: "agent-b"))
+        let row = hooks.currentSignals().first
+        XCTAssertEqual(row?.phase, .waiting)
+        XCTAssertEqual(row?.detail, "/tmp/second")
     }
 
     // MARK: - review → idle, with no timer anywhere
