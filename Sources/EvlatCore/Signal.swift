@@ -21,6 +21,11 @@ public struct Signal: Equatable {
     public let fidelity: Fidelity
     /// The source's own word, untranslated. An unrecognised value stays
     /// **visible** here so `phase` cannot swallow it silently.
+    ///
+    /// Its absence carries weight too, and `Registry.admits` reads it: a row
+    /// with no word never read one, so its `phase` is a fallback rather than a
+    /// claim and it overrules nobody. A provider that has a word must therefore
+    /// put it here, even one it does not understand.
     public let rawStatus: String?
     public let updatedAt: Date
 

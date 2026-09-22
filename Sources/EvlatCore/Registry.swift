@@ -71,7 +71,7 @@ public final class Registry {
         // it a row of its own instead of inheriting this.
         guard let baseline = newest(.derived) else { return newest(.official) ?? newest(.manual) }
         guard let report = newest(.official) else { return baseline }
-        return admits(baseline.phase, report.phase) ? report : baseline
+        return admits(baseline, report.phase) ? report : baseline
     }
 
     /// Which reports a baseline can be reconciled with. `failed` sits in both
@@ -82,14 +82,26 @@ public final class Registry {
     /// `idle` (plus `idle` for a word it does not know), so a rule for the rest
     /// would be a guess about a baseline nobody has observed.
     ///
-    /// **Open, and known:** that parenthesis is the weak spot. `.idle` arrives
-    /// both as "the file says idle" and as the fallback for a status word — or
-    /// a whole field — that could not be read, and the second kind vetoes a
-    /// report it has no business vetoing. Telling them apart needs a `Signal`
-    /// that can say "I don't know", which is a change this set deliberately
-    /// did not make before measuring; `002`'s hook provider closes it.
-    private static func admits(_ baseline: Phase, _ report: Phase) -> Bool {
-        switch baseline {
+    /// **A baseline with no word of its own asserts nothing**, and that is the
+    /// first thing checked. `.idle` used to arrive with two meanings — "the
+    /// file says idle" and "nothing could be read, so idle it is" — and the
+    /// second kind vetoed reports it had no business vetoing. It is not a
+    /// hypothetical: a new session record exists for about 500 ms with no
+    /// `status` field at all (`phase-3`, measured), and the day that field is
+    /// renamed every row would read `idle` with no hook able to correct it.
+    ///
+    /// Telling the two apart needs no new `Signal` field: `rawStatus` is
+    /// already "the source's own word", and a row that read no word has none.
+    /// The rule stays blind to provider names, as it must.
+    ///
+    /// What is **not** covered, deliberately: a word that was read but not
+    /// recognised still lands on `.idle` and still vetoes. It is a statement
+    /// from the source rather than an absence, it stays visible on the row and
+    /// in `unrecognizedStatuses`, and it has been seen exactly once on this
+    /// machine (`"shell"`).
+    private static func admits(_ baseline: Signal, _ report: Phase) -> Bool {
+        guard baseline.rawStatus != nil else { return true }
+        switch baseline.phase {
         case .working: return report == .waiting || report == .failed
         case .idle: return report == .review || report == .failed
         case .waiting, .review, .failed: return false

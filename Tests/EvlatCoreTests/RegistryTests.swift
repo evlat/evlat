@@ -15,11 +15,16 @@ final class RegistryTests: XCTestCase {
         func currentSignals() -> [Signal] { signals }
     }
 
+    /// `rawStatus` defaults to a word rather than to `nil`, because absence is
+    /// **not** neutral here: a baseline with no word of its own asserts nothing
+    /// and admits everything (see the tests at the bottom). Every cell of the
+    /// table below is about a baseline that did say something.
     private func signal(_ entity: String, _ phase: Phase, _ fidelity: Signal.Fidelity,
                         provider: String = "stub", label: String? = nil,
+                        rawStatus: String? = "said-so",
                         at offset: TimeInterval = 0) -> Signal {
         Signal(provider: provider, entity: entity, phase: phase,
-               label: label ?? provider, fidelity: fidelity,
+               label: label ?? provider, fidelity: fidelity, rawStatus: rawStatus,
                updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + offset))
     }
 
@@ -51,11 +56,15 @@ final class RegistryTests: XCTestCase {
             (.working, .review, .working),
             (.working, .failed, .failed),
             // An idle session can be one that just finished, or failed.
-            // `(.idle, .waiting)` rests on an assumption nobody has measured:
-            // the plan takes the file to say `busy` while a permission prompt
-            // is on screen. If it says `idle` instead, `waiting` becomes
-            // unreachable through the merge — `phase-3`'s first measurement is
-            // what settles this cell.
+            // `(.idle, .waiting)` stays a veto, and the reason is now narrower
+            // than it was. `phase-3` could not produce a real permission prompt
+            // (an autonomous agent blocks on one), so what the file says while
+            // a prompt is on screen is still **unknown**. What was measured is
+            // that the file is not written by tool events at all — 53 events,
+            // zero writes — so a prompt arriving mid-turn finds the record
+            // still saying `busy`, and that is the `(.working, .waiting)` cell
+            // above, which admits. An `idle` file next to a `waiting` hook is
+            // the other story: a report that outlived its correction. It loses.
             (.idle, .idle, .idle),
             (.idle, .working, .idle),
             (.idle, .waiting, .idle),
@@ -177,5 +186,41 @@ final class RegistryTests: XCTestCase {
 
     func testNoProvidersMeansNoRows() {
         XCTAssertFalse(Registry().snapshot().hasLive)
+    }
+
+    // MARK: - A baseline that never read a word
+
+    /// `.idle` used to arrive with two different meanings: "the file says idle"
+    /// and "nothing could be read, so idle it is". The second kind vetoed
+    /// reports it had no business vetoing — and it happens in a real window:
+    /// a new session record exists for ~500 ms with **no `status` field at
+    /// all** (`phase-3`, measured). Worse, the day the field is renamed every
+    /// row reads idle and no hook can ever correct it.
+    ///
+    /// The two are told apart without adding a field to `Signal`: a row whose
+    /// `rawStatus` is nil never read a word, so it asserts nothing.
+    func testABaselineWithNoWordOfItsOwnAdmitsAnyReport() {
+        for report in Phase.allCases {
+            let rows = merged([signal("s", .idle, .derived, provider: "file", rawStatus: nil)],
+                              [signal("s", report, .official, provider: "hook")])
+            XCTAssertEqual(rows.first?.phase, report,
+                           "a baseline with no word cannot veto \(report)")
+        }
+    }
+
+    /// The other half of the same rule, and the one that keeps the veto
+    /// load-bearing: a file that really did say `idle` still overrules a hook
+    /// left `working` because Evlat was closed while the session finished.
+    func testABaselineThatDidReadAWordStillVetoes() {
+        let rows = merged([signal("s", .idle, .derived, provider: "file", rawStatus: "idle")],
+                          [signal("s", .working, .official, provider: "hook")])
+        XCTAssertEqual(rows.first?.phase, .idle)
+    }
+
+    /// Alone, a wordless baseline is still the row: "asserts nothing" is about
+    /// the veto, not about existing.
+    func testAWordlessBaselineAloneIsStillTheRow() {
+        let rows = merged([signal("s", .idle, .derived, provider: "file", rawStatus: nil)])
+        XCTAssertEqual(rows.map(\.provider), ["file"])
     }
 }

@@ -16,16 +16,25 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public private(set) var panel: BarPanel?
     public let registry = Registry()
     public let mascot = MascotModel()
-    /// Where a hook event lands in `phase-3`, and where it stops. It is
-    /// **not** registered with `registry`: the provider that turns events into
-    /// signals is `phase-4`'s last line of wiring, and binding it early would
-    /// put a second row next to the file record's for every live session.
+    /// `phase-3`'s bucket: a counter and the last few lines. It feeds nothing
+    /// into `registry` and never will — turning events into phases is the
+    /// provider's job, one line below.
+    ///
+    /// `--capture` builds its own; this copy has no reader in-process, and
+    /// giving it one needs either a read endpoint or a write under `~/`, both
+    /// of which `002` rules out (R6). It is kept because the alternative is
+    /// having nothing at all to hand such a reader the day it exists.
     public let hookDiagnostics = HookDiagnostics()
+    /// The second provider. It holds the phase of every session that has ever
+    /// spoken to this process, and it is the only place `waiting` comes from.
+    public let hooks = HooksProvider(platform: AppController.darwinPlatform)
     private var hookListener: HookListener?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     private var poller: Timer?
     private var screenObserver: NSObjectProtocol?
+    /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
+    private var refreshPending = false
 
     /// The visible bar's width. It leaves here once `003` brings the geometry
     /// abstraction; for now one constant in one place is enough.
@@ -55,6 +64,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// polling is enough at this size and stays portable. The interval is
     /// measured and recorded in the phase notes.
     private static let pollInterval: TimeInterval = 1.5
+
+    /// How long an arriving event waits for its neighbours before the seam is
+    /// run once for all of them.
+    ///
+    /// Events do not trickle, they burst: a single turn sends a `PreToolUse`
+    /// and a `PostToolUse` per tool call, and a subagent's land on the parent's
+    /// session too. Refreshing per event would re-read the session directory
+    /// that many times and hand `@Published` a write each time — the trap this
+    /// repo names outright (`proje.md` → tuzaklar). A tenth of a second is far
+    /// below anything the eye resolves and still an order of magnitude better
+    /// than waiting out the poll above, which is what `PermissionRequest` used
+    /// to do.
+    public static let refreshCoalescing: TimeInterval = 0.1
 
     /// The real platform capabilities. This is the only place that touches
     /// Darwin; `EvlatCore` receives them as closures.
@@ -165,6 +187,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
         if provider.recordsMissingUpdatedAt > 0 {
             print("records with unreadable updatedAt: \(provider.recordsMissingUpdatedAt) (format may have drifted)")
+        }
+        // The row's stamp comes from `statusUpdatedAt`; falling back to
+        // `updatedAt` silently would restore the skew that moved it there.
+        if provider.recordsMissingStatusUpdatedAt > 0 {
+            print("records with unreadable statusUpdatedAt: \(provider.recordsMissingStatusUpdatedAt) (format may have drifted)")
         }
         // The drift that would otherwise look like a healthy idle machine.
         if provider.recordsUnparseable > 0 {
@@ -277,6 +304,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
         // like part of the system rather than like an app.
         NSApp.setActivationPolicy(.accessory)
         registry.register(Self.makeSessionsProvider())
+        // The undo switch for this whole set: with this one line gone the
+        // listener still binds and the events still parse, and the bar is
+        // exactly what `001` shipped.
+        registry.register(hooks)
         startHookListener()
         installStatusItem()
 
@@ -319,8 +350,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Binds the hook port. The event goes into the diagnostic bucket and no
-    /// further: the mascot behaves exactly as it did in `001` this phase.
+    /// Binds the hook port. Every event that arrives goes to
+    /// `handleHookEvent`, which is where the seam starts.
     private func startHookListener() {
         let choice = HookListener.resolvePort()
         if let rejected = choice.rejectedOverride {
@@ -335,7 +366,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
             },
             onEvent: { [weak self] event in
-                MainActor.assumeIsolated { self?.hookDiagnostics.record(event) }
+                MainActor.assumeIsolated { self?.handleHookEvent(event) }
             })
         listener.start()
         hookListener = listener
@@ -361,12 +392,62 @@ public final class AppController: NSObject, NSApplicationDelegate {
         exit(0)
     }
 
+    /// One event, from the listener's callback. Internal so the coalescing has
+    /// a test; the listener is the only caller in the app.
+    func handleHookEvent(_ event: HookEvent) {
+        hookDiagnostics.record(event)
+        hooks.handle(event)
+        scheduleRefresh()
+    }
+
+    /// Runs the seam once for a burst of events.
+    ///
+    /// A plain `async` would not do: the events of one turn arrive over
+    /// seconds, each on its own run-loop turn, so there would be nothing to
+    /// coalesce with. This is not the timer `plan.md` rules out either — that
+    /// one was a scheduled **state change** (`review` → `idle` after 25 s),
+    /// which is derived at read time now. This schedules a read.
+    private func scheduleRefresh() {
+        guard !refreshPending else { return }
+        refreshPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshCoalescing) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.refreshPending = false
+                self?.refresh()
+            }
+        }
+    }
+
     /// One scan, every value. The registry is not asked twice: a file changing
     /// in between could leave `phase` and `hasLive` contradicting each other.
-    private func refresh() {
+    ///
+    /// **What is compared is what is written**, field by field, not the
+    /// snapshot. The snapshot carries every row's stamp and a hook row's stamp
+    /// moves on every single event, so comparing snapshots would report
+    /// "changed" for precisely the burst the deadband exists to absorb. The
+    /// mascot's face and whether anything is live are the whole of what this
+    /// writes.
+    ///
+    /// Internal rather than private so the deadband is testable: it fails
+    /// silently — the app keeps working and simply re-evaluates the bar at
+    /// event rate.
+    func refresh() {
         let snapshot = registry.snapshot()
-        mascot.phase = snapshot.aggregate
-        mascot.hasLive = snapshot.hasLive
+        if mascot.phase != snapshot.aggregate {
+            // The only trace the seam leaves in the field. `--capture` shows
+            // the events and `--list` the file rows, but neither runs in this
+            // process, so without this line a face that never changes is
+            // indistinguishable from events that never arrive.
+            //
+            // Read it from **stderr**, which means running the binary rather
+            // than opening the bundle. Both were measured: the unified log
+            // redacts this to `(Foundation) <private>`, and `%{public}@` does
+            // not help — that is an `os_log` specifier and `NSLog` prints it
+            // verbatim, arguments dropped.
+            NSLog("Evlat: aggregate %@ → %@", mascot.phase.rawValue, snapshot.aggregate.rawValue)
+            mascot.phase = snapshot.aggregate
+        }
+        if mascot.hasLive != snapshot.hasLive { mascot.hasLive = snapshot.hasLive }
     }
 
     /// Menu-bar entry. The bar's own right-click menu and the settings window

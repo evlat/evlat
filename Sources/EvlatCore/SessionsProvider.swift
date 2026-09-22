@@ -44,6 +44,11 @@ public final class SessionsProvider: Provider {
     /// mean the format drifted, so like an unrecognised `status` it stays
     /// **visible**.
     public private(set) var recordsMissingUpdatedAt = 0
+    /// How many records had an unreadable `statusUpdatedAt`. Counted
+    /// separately from the field above because the two are different facts and
+    /// the row's stamp is this one: a silent fallback to `updatedAt` would
+    /// bring back exactly the skew that moved the stamp here.
+    public private(set) var recordsMissingStatusUpdatedAt = 0
 
     public init(directory: URL, platform: Platform) {
         self.directory = directory
@@ -62,6 +67,7 @@ public final class SessionsProvider: Provider {
             at: directory, includingPropertiesForKeys: nil)) ?? []
 
         recordsMissingUpdatedAt = 0
+        recordsMissingStatusUpdatedAt = 0
         recordsUnparseable = 0
         unrecognizedStatuses = []
         var best: [String: Record] = [:]
@@ -72,6 +78,7 @@ public final class SessionsProvider: Provider {
             // the shared check: a claim, measured against the running process.
             guard platform.sameProcess(pid: record.pid, startedAt: record.startedAt) else { continue }
             if record.updatedAtWasMissing { recordsMissingUpdatedAt += 1 }
+            if record.statusUpdatedAtWasMissing { recordsMissingStatusUpdatedAt += 1 }
             // `claude --resume` changes the pid, so one sessionId can survive in
             // two files. Both are live here, so the newer one wins. (The dead
             // one was already dropped above: "the live pid wins".)
@@ -96,7 +103,12 @@ public final class SessionsProvider: Provider {
                 detail: record.cwd,
                 fidelity: .derived,
                 rawStatus: record.status,
-                updatedAt: record.updatedAt
+                // The **status** stamp, not the record's. Measured in
+                // `phase-3`: the two disagree on 2 of 22 live records, by up
+                // to 188 690 ms. `updatedAt` moves when anything in the file
+                // is written — a session being renamed, for one — so with that
+                // stamp a rename reads three minutes fresher than a live state.
+                updatedAt: record.statusUpdatedAt
             )
         }
         .sorted { $0.entity < $1.entity }  // deterministic; display order is the Registry's job
@@ -123,13 +135,21 @@ public final class SessionsProvider: Provider {
         let status: String?
         let cwd: String
         let name: String?
+        /// When the record was last written, for any reason. It answers "which
+        /// of two files for one session is current", and only that.
         let updatedAt: Date
+        /// When the `status` above was last written. This is the row's stamp:
+        /// the two fields are different facts and only this one is about the
+        /// state being reported.
+        let statusUpdatedAt: Date
         /// When the session (that is, the process) started; separates a
         /// recycled pid from the real one.
         let startedAt: Date?
         /// `updatedAt` could not be read and a fallback was used. A sign the
         /// format may have drifted.
         let updatedAtWasMissing: Bool
+        /// The same, for `statusUpdatedAt`.
+        let statusUpdatedAtWasMissing: Bool
 
         var label: String {
             if let name, !name.isEmpty { return name }
@@ -165,6 +185,16 @@ public final class SessionsProvider: Provider {
                     .contentModificationDate
                 self.updatedAt = startedAt ?? mtime ?? Date(timeIntervalSince1970: 0)
                 self.updatedAtWasMissing = true
+            }
+            // The row's stamp falls back to the record's own, which has
+            // already been through the chain above — so this never reaches
+            // 1970 either.
+            if let ms = (json["statusUpdatedAt"] as? NSNumber)?.doubleValue, ms > 0 {
+                self.statusUpdatedAt = Date(timeIntervalSince1970: ms / 1000)
+                self.statusUpdatedAtWasMissing = false
+            } else {
+                self.statusUpdatedAt = self.updatedAt
+                self.statusUpdatedAtWasMissing = true
             }
         }
     }

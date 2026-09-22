@@ -20,11 +20,12 @@ final class SessionsProviderTests: XCTestCase {
     /// Fields taken from a real record (Claude Code 2.1.278).
     private func write(pid: Int32, sessionId: String, status: String,
                        name: String = "project", cwd: String = "/tmp/project",
-                       updatedAt: Int = 1_790_000_000_000, extra: String = "") throws {
+                       updatedAt: Int = 1_790_000_000_000, statusUpdatedAt: Int? = nil,
+                       extra: String = "") throws {
         let json = """
         {"pid":\(pid),"sessionId":"\(sessionId)","cwd":"\(cwd)","kind":"interactive",
          "name":"\(name)","nameSource":"derived","status":"\(status)",
-         "updatedAt":\(updatedAt),"statusUpdatedAt":\(updatedAt)\(extra)}
+         "updatedAt":\(updatedAt),"statusUpdatedAt":\(statusUpdatedAt ?? updatedAt)\(extra)}
         """
         try json.write(to: dir.appendingPathComponent("\(pid).json"), atomically: true, encoding: .utf8)
     }
@@ -202,6 +203,44 @@ extension SessionsProviderTests {
         let p = provider()
         XCTAssertNil(p.currentSignals().first?.rawStatus)
         XCTAssertTrue(p.unrecognizedStatuses.isEmpty)
+    }
+
+    /// The row's stamp is the **status** stamp. Measured in `phase-3`: on 2 of
+    /// 22 live records the two fields disagree, by up to 188 690 ms. They are
+    /// different facts — `updatedAt` moves when anything in the record is
+    /// written, a session name included, so with that stamp a rename looks
+    /// three minutes fresher than a live state.
+    func testTheRowCarriesTheStatusStamp() throws {
+        let status = 1_790_000_000_000
+        try write(pid: 100, sessionId: "s", status: "busy",
+                  updatedAt: status + 188_690, statusUpdatedAt: status)
+        let signal = try XCTUnwrap(provider().currentSignals().first)
+        XCTAssertEqual(signal.updatedAt.timeIntervalSince1970, Double(status) / 1000, accuracy: 0.001)
+    }
+
+    /// Picking which of two files for one session is current is a different
+    /// question — "which record was written last", any write counting — and it
+    /// keeps reading `updatedAt`.
+    func testTheNewestFileStillWinsOnItsOwnUpdatedAt() throws {
+        try write(pid: 100, sessionId: "same", status: "idle",
+                  updatedAt: 1_790_000_000_000, statusUpdatedAt: 1_790_000_000_000)
+        try write(pid: 200, sessionId: "same", status: "busy",
+                  updatedAt: 1_790_000_009_999, statusUpdatedAt: 1_789_999_000_000)
+        let signals = provider().currentSignals()
+        XCTAssertEqual(signals.count, 1)
+        XCTAssertEqual(signals[0].phase, .working, "the newer file wins, stale status stamp or not")
+    }
+
+    /// If the status stamp disappears the row falls back to `updatedAt` — and
+    /// says so, because a silent fallback is exactly the bug above coming back.
+    func testMissingStatusUpdatedAtFallsBackAndIsVisible() throws {
+        try writeRaw("100.json",
+                     #"{"pid":100,"sessionId":"s","status":"busy","updatedAt":1790000000000}"#)
+        let p = provider()
+        let signal = try XCTUnwrap(p.currentSignals().first)
+        XCTAssertEqual(signal.updatedAt.timeIntervalSince1970, 1_790_000_000, accuracy: 0.001)
+        XCTAssertEqual(p.recordsMissingStatusUpdatedAt, 1, "format drift must be visible")
+        XCTAssertEqual(p.recordsMissingUpdatedAt, 0, "the other field was readable")
     }
 
     /// An unreadable `updatedAt` must not fall back to 1970 and must stay
