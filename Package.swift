@@ -1,14 +1,15 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Üç hedef, iki katman. `EvlatCore` ile `EvlatApp` ROADMAP'in iki katmanı;
-// `Evlat` yalnız main.swift taşıyan ince kabuk. Kabuğun ayrı olmasının sebebi
-// sınama: SPM'de yürütülebilir hedefin testi top-level kodla çakışabiliyor,
-// oysa panelin yapılandırması (PanelConfigTests) kodla sınanmak zorunda.
+// Three targets, two layers. `EvlatCore` and `EvlatApp` are the ROADMAP's two
+// layers; `Evlat` is a thin shell carrying only main.swift. The shell is
+// separate for testing: an executable target's top-level code gets in the way of
+// its own tests, and the panel's configuration (PanelConfigTests) has to be
+// testable in code.
 //
-// Katman yönü DERLEYİCİYLE kapalı: EvlatCore hiçbir şeye bağlı değil, yani
-// `import EvlatApp` mümkün değil. Import sınaması bunun üstüne yalnız
-// tripwire ekler (Tests/EvlatCoreTests/ImportPurityTests.swift).
+// Layer direction is closed BY THE COMPILER: EvlatCore depends on nothing, so
+// `import EvlatApp` is impossible. The import test only adds a tripwire on top
+// (Tests/EvlatCoreTests/ImportPurityTests.swift).
 let package = Package(
     name: "Evlat",
     platforms: [.macOS(.v14)],

@@ -1,15 +1,11 @@
-import AppKit
 import EvlatApp
 
-// İnce kabuk: kurulumun tamamı AppController'da, çünkü yürütülebilir hedefin
-// top-level kodu sınamada koşturulamaz ve panelin yapılandırması sınanmak
-// zorunda (PanelConfigTests).
-// Teşhis kipi pencereden önce: `--liste` bir şey çizmez, yazdırır ve çıkar.
+// Diagnostics run before any window: `--liste` draws nothing, it prints and exits.
 if CommandLine.arguments.contains("--liste") {
     AppController.printSignalsAndExit()
 }
 
-let app = NSApplication.shared
-let controller = AppController()
-app.delegate = controller
-app.run()
+// A thin shell: all wiring lives in AppController, because an executable
+// target's top-level code cannot run inside a test bundle and the panel's
+// configuration has to be testable (PanelConfigTests).
+AppController.launch()

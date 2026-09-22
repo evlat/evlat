@@ -1,32 +1,33 @@
 import SwiftUI
 
-/// Barın gövdesi: kenara yaslanan, uçları **dışa** kıvrılan şekil.
+/// The bar's body: docked to an edge, flaring **outward** at both ends.
 ///
-/// Ayırt edici detay uçlardaki ters yuvarlatma (*flare*). Sıradan bir
-/// yuvarlatılmış dikdörtgen ekranın üstüne **yapıştırılmış** görünür; burada
-/// gövde kenara yaklaştıkça açılıp çerçeveye teğet biter, yani ekranın kendi
-/// parçasıymış gibi okunur. Aynı hile macOS'un donanım çentiğinde ve
-/// codenotch'un `SideNotchShape`'inde var.
+/// The detail that matters is the inverse rounding at the ends (*flare*). A
+/// plain rounded rectangle reads as something **stuck onto** the screen; here
+/// the body widens as it approaches the edge and ends tangent to the bezel, so
+/// it reads as part of the screen itself. macOS's hardware notch and
+/// codenotch's `SideNotchShape` use the same trick.
 ///
-/// Kenardaki dikey uzanım gövdeninkinden `2 × flare` kadar **uzundur**: şekil
-/// çerçeveye doğru genişler.
+/// The vertical extent at the edge is `2 × flare` **longer** than the body:
+/// the shape opens up toward the bezel.
 ///
 /// ```
-///        ┃  ← ekran kenarı
-///     ╭──┚     üst flare: gövdeden kenara ters kıvrım
+///        ┃  ← screen edge
+///     ╭──┚     top flare: inverse curve from body to edge
 ///     │  ┃
-///     │  ┃  ← gövde, kenara yaslı
+///     │  ┃  ← body, flush with the edge
 ///     │  ┃
-///     ╰──┒     alt flare
+///     ╰──┒     bottom flare
 ///        ┃
 /// ```
 public struct BarShape: Shape {
-    /// Gövdenin iç köşelerinin (kenardan uzak taraf) yuvarlaklığı.
+    /// Corner radius of the inner corners (the side away from the edge).
     public var corner: CGFloat
-    /// Uçlardaki ters kıvrımın yarıçapı. Gövde bu kadar **kısalır**, kenardaki
-    /// uzanım bu kadar **uzar**.
+    /// Radius of the inverse curve at the ends. The body gets **shorter** by
+    /// this much and the reach at the edge gets **longer** by the same.
     public var flare: CGFloat
-    /// Hangi kenara yaslı. Şekil sağ kenar için çizilir, ötekiler aynalanır.
+    /// Which edge it docks to. The path is drawn for the right edge; the
+    /// others are transforms of it.
     public var edge: BarPanel.Edge
 
     public init(corner: CGFloat = 20, flare: CGFloat = 14, edge: BarPanel.Edge = .right) {
@@ -40,8 +41,8 @@ public struct BarShape: Shape {
         return path.applying(transform(for: rect))
     }
 
-    /// Dikey kenarlarda genişlik/yükseklik yer değiştirir: kanonik çizim her
-    /// zaman "sağ kenar" içindir.
+    /// Width and height swap on horizontal edges: the canonical path is always
+    /// drawn as if docked right.
     private func canonicalSize(of rect: CGRect) -> CGSize {
         switch edge {
         case .right, .left: return rect.size
@@ -54,45 +55,47 @@ public struct BarShape: Shape {
         case .right:
             return .identity
         case .left:
-            // x ekseninde aynala
+            // mirror on x
             return CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -rect.width, y: 0)
         case .bottom:
-            // Kanonik "sağ" → "alt": 90° döndür
+            // canonical "right" → "bottom": rotate 90°
             return CGAffineTransform(rotationAngle: -.pi / 2).translatedBy(x: -rect.height, y: 0)
         case .top:
             return CGAffineTransform(rotationAngle: .pi / 2).translatedBy(x: 0, y: -rect.width)
         }
     }
 
-    /// Sağ kenar için çizim. Dolu bölge sağa yaslı; `w` ekranın kenarı.
+    /// The canonical right-edge path. The filled region hugs the right; `w` is
+    /// the screen edge.
     private func canonicalPath(in rect: CGRect) -> Path {
         let w = rect.width, h = rect.height
-        // Flare gövdeden yer alır; pencere çok kısaldığında şekil kendini yemesin.
+        // The flare eats into the body; clamp so a very short window does not
+        // make the shape consume itself.
         let f = min(flare, h / 2)
         let c = min(corner, (h - 2 * f) / 2, w)
-        let top = f            // gövdenin üst kenarı
-        let bottom = h - f     // gövdenin alt kenarı
+        let top = f            // top edge of the body
+        let bottom = h - f     // bottom edge of the body
 
         var p = Path()
-        // Kenarda, üst flare'in tepesi.
+        // At the edge, the top of the upper flare.
         p.move(to: CGPoint(x: w, y: 0))
-        // Ters kıvrım: kenardan gövdenin üst kenarına.
+        // Inverse curve: from the edge down to the body's top.
         //
-        // Kontrol noktası **kenar tarafındaki** köşede (w, top) durur. İlk
-        // sürümde öteki köşeye (w-f, 0) konmuştu ve eğri ters bükülüyordu:
-        // flare dışbükey çıkıp bara yapıştırılmış ikinci bir yuvarlak gibi
-        // görünüyordu (ekran görüntüsüyle bakıldı). Kenar köşesi kontrol
-        // olunca eğri kenara sarılır ve boşluk İÇERİ oyulur — çerçeveden
-        // çıkıyor hissini veren şey bu.
+        // The control point sits on the corner **toward the edge**, (w, top).
+        // The first version put it on the other corner (w-f, 0) and the curve
+        // bent the wrong way: the flare came out convex and looked like a second
+        // rounded blob glued to the bar (caught on a screenshot). With the edge
+        // corner as control the curve wraps the edge and the gap is carved
+        // INWARD — that is what makes it read as growing out of the bezel.
         p.addQuadCurve(to: CGPoint(x: w - f, y: top),
                        control: CGPoint(x: w, y: top))
-        // Gövdenin üst kenarı, iç köşeye kadar.
+        // Body's top edge, up to the inner corner.
         p.addLine(to: CGPoint(x: c, y: top))
-        // İç köşeler normal (dışbükey) yuvarlak.
+        // Inner corners are ordinary (convex) rounding.
         p.addQuadCurve(to: CGPoint(x: 0, y: top + c), control: CGPoint(x: 0, y: top))
         p.addLine(to: CGPoint(x: 0, y: bottom - c))
         p.addQuadCurve(to: CGPoint(x: c, y: bottom), control: CGPoint(x: 0, y: bottom))
-        // Gövdenin alt kenarı ve alt flare.
+        // Body's bottom edge and the lower flare.
         p.addLine(to: CGPoint(x: w - f, y: bottom))
         p.addQuadCurve(to: CGPoint(x: w, y: h), control: CGPoint(x: w, y: bottom))
         p.closeSubpath()

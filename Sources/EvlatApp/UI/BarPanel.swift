@@ -1,16 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// Ekranın kenarına yaslanan, odak çalmayan bar penceresi.
+/// The bar window: docked to a screen edge, never steals focus.
 ///
-/// Gövdesi v1'in `PetWindow`'undan portlandı; oradaki her ayarın bir sebebi
-/// vardı ve sebepleri burada da geçerli. Tek bilinçli fark `level`:
-/// v1 `.floating` kullanır, çünkü maskot ekranın köşesinde duran bir figürdü
-/// ve menüleri örtmemesi gerekiyordu. Bar bir **sistem şeridi** gibi davranır,
-/// o yüzden bir seviye yukarı çıkar.
+/// Ported from v1's `PetWindow`; every setting there had a reason and the
+/// reasons still hold. The one deliberate difference is `level`: v1 uses
+/// `.floating` because the mascot was a figure in the corner that must not
+/// cover menus. The bar behaves like a **system strip**, so it sits one level
+/// higher.
 public final class BarPanel: NSPanel {
-    /// Barın yaslandığı kenar. Bugün yalnız `right` kullanılıyor; dördünü tek
-    /// kodla çizen geometri soyutlaması 003'ün işi.
+    /// Which edge the bar is docked to. Only `right` is used today; the
+    /// abstraction that draws all four with one code path is `003`'s work.
     public enum Edge: Sendable { case right, left, top, bottom }
 
     public let edge: Edge
@@ -18,9 +18,9 @@ public final class BarPanel: NSPanel {
     public init(edge: Edge = .right, size: CGSize, content: some View) {
         self.edge = edge
         super.init(contentRect: NSRect(origin: .zero, size: size),
-                   // .nonactivatingPanel: bara tıklayınca Evlat öne gelmez ve
-                   // kullanıcının terminali odağını korur. Bu bar için
-                   // pazarlık konusu değil — odak çalan bir şerit ürünü bitirir.
+                   // .nonactivatingPanel: clicking the bar does not bring Evlat
+                   // forward, so the user's terminal keeps focus. Not negotiable
+                   // for a bar — a strip that steals focus kills the product.
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered,
                    defer: false)
@@ -30,31 +30,33 @@ public final class BarPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        // Evlat arka plana düştüğünde bar kaybolmamalı: sürekli görünür olmak
-        // işinin tanımı.
+        // The bar must not vanish when Evlat goes to the background: staying
+        // visible is its whole job.
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         titleVisibility = .hidden
 
         let hosting = NSHostingView(rootView: AnyView(content))
-        // Pencere boyunun tek sahibi bu sınıf. Varsayılan sizingOptions ile
-        // NSHostingView pencereyi içerik boyuna kendisi getiriyor ve AppKit
-        // bunu SOL ÜST köşe sabit yapıyor — v1'de ölçüldü (taban 96→51, tepe
-        // yerinde). Hover'da sola açılan bar aynı duvara çarpar.
+        // This class is the sole owner of the window size. With the default
+        // sizingOptions `NSHostingView` resizes the window to fit its content
+        // and AppKit pins that to the TOP-LEFT corner — measured in v1 (bottom
+        // 96→51, top unchanged). A bar that unfolds leftward on hover hits the
+        // same wall.
         hosting.sizingOptions = []
         contentView = hosting
 
         reposition()
     }
 
-    /// Odak asla bu pencereye geçmez. `.nonactivatingPanel` tek başına
-    /// yetmiyor; `canBecomeKey` açık kalırsa panel klavye odağını alabiliyor.
+    /// Focus never reaches this window. `.nonactivatingPanel` alone is not
+    /// enough; with `canBecomeKey` left open the panel can still take key focus.
     public override var canBecomeKey: Bool { false }
     public override var canBecomeMain: Bool { false }
 
-    /// Yaslandığı eksende `visibleFrame` (Dock'un üstünde, menü çubuğunun
-    /// altında), diğer eksende tam `frame`. İkinci yarısı bilinçli: ortalama
-    /// `visibleFrame`den okunsaydı Dock gelip gittiğinde bar kayardı.
+    /// `visibleFrame` along the docked axis (above the Dock, below the menu
+    /// bar), the full `frame` along the other one. The second half is
+    /// deliberate: centring off `visibleFrame` would make the bar shift
+    /// whenever the Dock appears or hides.
     public func reposition(on screen: NSScreen? = nil) {
         guard let screen = screen ?? self.screen ?? NSScreen.main else { return }
         let usable = screen.visibleFrame
@@ -79,7 +81,7 @@ public final class BarPanel: NSPanel {
         setFrameOrigin(origin)
     }
 
-    /// `orderFront` değil: uygulama etkin olmadığında da görünmeli.
+    /// Not `orderFront`: the bar must appear even when the app is inactive.
     public func show() {
         reposition()
         orderFrontRegardless()

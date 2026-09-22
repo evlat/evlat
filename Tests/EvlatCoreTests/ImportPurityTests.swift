@@ -1,24 +1,25 @@
 import XCTest
 
-/// `EvlatCore`'un import yüzeyini bekçileyen **tripwire**.
+/// A **tripwire** guarding `EvlatCore`'s import surface.
 ///
-/// Bunun bir KANIT olmadığını bilerek yazıyoruz: macOS'ta `Foundation` Darwin'i
-/// yeniden ihraç eder, dolayısıyla `sysctl`, `kill`, `open` yalnız `Foundation`
-/// import eden bir dosyadan da çağrılabilir ve bu sınama onu **göremez**.
-/// Karşı örnek gerçek: v1'in `Sources/Evlat/Sessions/SessionHost.swift`'i tek
-/// başına `Foundation` import eder, `kinfo_proc`/`CTL_KERN`/`sysctl` kullanır
-/// ve Linux'ta derlenmez.
+/// It is written knowing it is not a PROOF: on macOS `Foundation` re-exports
+/// Darwin, so `sysctl`, `kill` and `open` can be called from a file that
+/// imports nothing but `Foundation`, and this test **cannot see** that. The
+/// counter-example is real: v1's `Sources/Evlat/Sessions/SessionHost.swift`
+/// imports only `Foundation`, uses `kinfo_proc`/`CTL_KERN`/`sysctl`, and would
+/// not compile on Linux.
 ///
-/// Taşınabilirliğin gerçek kapısı bu yüzden mekanizmadır, sınama değil:
-/// platform yeteneği `Platform` üstünden **enjekte edilir**. Bu sınamanın işi
-/// yalnız kaba kaçağı — `import AppKit` gibi — commit'e girmeden yakalamak.
+/// Portability's real gate is therefore the mechanism, not this test: platform
+/// capability is **injected** through `Platform`. This test's only job is to
+/// catch a blunt leak — an `import AppKit` — before it reaches a commit.
 final class ImportPurityTests: XCTestCase {
-    /// İzin verilenler. Liste **allowlist**: yasak listesi eksik kalırdı
-    /// (`Combine` ve `os.log` Linux'ta yok ama "AppKit değil" diye geçerdi).
+    /// What is permitted. The list is an **allowlist**: a denylist would come
+    /// up short (`Combine` and `os.log` do not exist on Linux, yet both would
+    /// pass a "not AppKit" check).
     private static let allowed: Set<String> = ["Foundation", "Dispatch"]
 
     private var coreRoot: URL {
-        // Tests/EvlatCoreTests/ImportPurityTests.swift → depo kökü → Sources/EvlatCore
+        // Tests/EvlatCoreTests/ImportPurityTests.swift → repo root → Sources/EvlatCore
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -26,21 +27,21 @@ final class ImportPurityTests: XCTestCase {
             .appendingPathComponent("Sources/EvlatCore")
     }
 
-    /// Yalnız platform kabuğu deyimi muaftır: `#if canImport(Darwin)` /
-    /// `#else` `import Glibc`. Keyfi bir modülü `canImport` ardına saklamak
-    /// muafiyet değil, kaçaktır — ilk sürüm `#if canImport(AppKit)` yazan bir
-    /// dosyayı sessizce geçiriyordu (kapıda yakalandı).
+    /// Only the platform-shim idiom is exempt: `#if canImport(Darwin)` /
+    /// `#else` `import Glibc`. Hiding an arbitrary module behind `canImport` is
+    /// not an exemption but a leak — the first version silently passed a file
+    /// writing `#if canImport(AppKit)` (caught at the gate).
     private static let shimModules: Set<String> = ["Darwin", "Glibc", "WinSDK", "Musl"]
 
     func testCoreImportsOnlyAllowedModules() throws {
         let files = try swiftFiles()
-        XCTAssertFalse(files.isEmpty, "EvlatCore kaynağı bulunamadı: \(coreRoot.path)")
+        XCTAssertFalse(files.isEmpty, "no EvlatCore sources found: \(coreRoot.path)")
 
         var violations: [String] = []
         for file in files {
-            // Yorumlar burada da ayıklanır. Bu depoda yorumlar "neden BUNU
-            // yapmıyoruz"u anlatıyor ve `// import AppKit` yazan bir satır ham
-            // taramada ihlal sayılıyordu.
+            // Comments are stripped here too. In this repo comments explain
+            // "why we do NOT do this", and a line reading `// import AppKit`
+            // counted as a violation under a raw scan.
             let text = Self.strippingComments(try String(contentsOf: file, encoding: .utf8))
             for (index, module) in Self.imports(in: text) {
                 guard !Self.allowed.contains(module) else { continue }
@@ -49,25 +50,26 @@ final class ImportPurityTests: XCTestCase {
         }
 
         XCTAssertTrue(violations.isEmpty, """
-            EvlatCore yalnız \(Self.allowed.sorted().joined(separator: ", ")) import eder.
-            İhlaller:
+            EvlatCore imports only \(Self.allowed.sorted().joined(separator: ", ")).
+            Violations:
             \(violations.joined(separator: "\n"))
-            Platforma özgü yetenek EvlatCore'a import edilmez, Platform ile enjekte edilir.
+            Platform-specific capability is not imported into EvlatCore; it is injected via Platform.
             """)
     }
 
-    /// Yorumsuz kaynaktan `(satır, modül)` çiftleri. Muaf blokların içindeki
-    /// satırlar atlanır.
+    /// `(line, module)` pairs from comment-free source. Lines inside exempt
+    /// blocks are skipped.
     ///
-    /// Import satırı üç şekilde yazılabiliyor ve üçü de yakalanmalı:
+    /// An import can be written three ways and all three must be caught:
     /// `import AppKit`, `@_exported import AppKit`, `public import AppKit`.
-    /// Ayrıca `import struct Foundation.Data` biçiminde **tür belirteci**
-    /// gelebilir (`struct`, `class`, `func`, …) — modül adı ondan sonrakidir.
+    /// It can also carry a **kind specifier** as in
+    /// `import struct Foundation.Data` (`struct`, `class`, `func`, …) — the
+    /// module name is the token after it.
     static func imports(in source: String) -> [(Int, String)] {
         let kindKeywords: Set<String> = ["struct", "class", "enum", "protocol",
                                          "typealias", "func", "let", "var", "actor"]
         var out: [(Int, String)] = []
-        var stack: [Bool] = []   // true = muaf (platform kabuğu) blok
+        var stack: [Bool] = []   // true = exempt (platform shim) block
 
         for (index, raw) in source.components(separatedBy: .newlines).enumerated() {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -79,13 +81,14 @@ final class ImportPurityTests: XCTestCase {
                 continue
             }
             if line.hasPrefix("#else") {
-                // `#else` dalı da kabuk sayılır: `#if canImport(Darwin) … #else import Glibc`
+                // The `#else` branch counts as shim too:
+                // `#if canImport(Darwin) … #else import Glibc`
                 if !stack.isEmpty, stack[stack.count - 1] { stack[stack.count - 1] = true }
                 continue
             }
-            // HER `#endif` bir blok kapatır. İlk sürüm yalnız `#if canImport`
-            // için derinlik açıp her `#endif`te kapatıyordu; içteki `#if DEBUG`
-            // muafiyeti erken bitiriyordu (kapıda yakalandı).
+            // EVERY `#endif` closes a block. The first version opened depth
+            // only for `#if canImport` but closed on any `#endif`, so a nested
+            // `#if DEBUG` ended the exemption early (caught at the gate).
             if line.hasPrefix("#endif") {
                 if !stack.isEmpty { stack.removeLast() }
                 continue
@@ -93,7 +96,7 @@ final class ImportPurityTests: XCTestCase {
             if stack.contains(true) { continue }
 
             var tokens = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            // Öneki at: @_exported, @testable, public, internal, …
+            // Drop the prefix: @_exported, @testable, public, internal, …
             while let first = tokens.first, first != "import" { tokens.removeFirst() }
             guard tokens.first == "import", tokens.count >= 2 else { continue }
             tokens.removeFirst()
@@ -106,23 +109,23 @@ final class ImportPurityTests: XCTestCase {
         return out
     }
 
-    /// `EvlatCore` Darwin'i import etmeden de çağırabilir; kaba kaçakları
-    /// adıyla arıyoruz. Bu da tripwire — tam liste değil.
+    /// `EvlatCore` can reach Darwin without importing it, so the blunt leaks
+    /// are searched for by name. Also a tripwire — not an exhaustive list.
     func testCoreDoesNotCallDarwinDirectly() throws {
         let markers = ["sysctl", "kinfo_proc", "kill(", "CTL_KERN", "DispatchSource.makeFileSystemObjectSource"]
         var violations: [String] = []
         for file in try swiftFiles() {
-            // Yorumlar ayıklanır: bu dosyaların yorumları tam olarak bu
-            // API'lerin NEDEN burada olmadığını anlatıyor ve ham metin taraması
-            // onları ihlal sanıyordu (ölçüldü — Platform.swift'in kendi yorumu).
+            // Comments are stripped: these files' comments explain exactly WHY
+            // those APIs are not here, and a raw scan read them as violations
+            // (measured — Platform.swift's own comment).
             let text = Self.strippingComments(try String(contentsOf: file, encoding: .utf8))
             for marker in markers where text.contains(marker) {
                 violations.append("\(file.lastPathComponent) → \(marker)")
             }
         }
         XCTAssertTrue(violations.isEmpty, """
-            EvlatCore Darwin çağırmaz; bu yetenekler Platform ile enjekte edilir.
-            İhlaller: \(violations.joined(separator: ", "))
+            EvlatCore does not call Darwin; those capabilities are injected via Platform.
+            Violations: \(violations.joined(separator: ", "))
             """)
     }
 
@@ -131,8 +134,9 @@ final class ImportPurityTests: XCTestCase {
         return e.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
     }
 
-    /// Satır (`//`) ve blok (`/* */`) yorumlarını boşlukla değiştirir.
-    /// Dizge içindeki `//` yanlışlıkla yorum sayılmasın diye tırnak durumu izlenir.
+    /// Replaces line (`//`) and block (`/* */`) comments with nothing.
+    /// String state is tracked so a `//` inside a literal is not mistaken for a
+    /// comment.
     static func strippingComments(_ source: String) -> String {
         var out = ""
         var inLineComment = false, inBlockComment = false, inString = false

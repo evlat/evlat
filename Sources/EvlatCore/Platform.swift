@@ -1,32 +1,33 @@
 import Foundation
 
-/// Çekirdeğin dışarıdan aldığı platform yetenekleri.
+/// Platform capabilities the core receives from outside.
 ///
-/// `EvlatCore` Darwin çağırmaz — `sysctl`, `kill`, `open` burada değil,
-/// `EvlatApp` tarafında yaşar ve buraya kapanışla verilir. Gerekçe: macOS'ta
-/// `Foundation` Darwin'i yeniden ihraç ettiği için "yalnız Foundation import
-/// et" kuralı taşınabilirliği **ölçmez**; v1'in `SessionHost.swift`'i tek
-/// başına `Foundation` import edip `sysctl` kullanıyor ve Linux'ta derlenmez.
-/// Enjeksiyon deseni v1'in kendi çözümü (`SessionStore.resolveHost`).
+/// `EvlatCore` never calls Darwin. `sysctl`, `kill` and `open` live on the
+/// `EvlatApp` side and arrive here as closures. The reason: on macOS
+/// `Foundation` re-exports Darwin, so a rule that says "import Foundation only"
+/// does **not** measure portability — v1's `SessionHost.swift` imports nothing
+/// but `Foundation`, calls `sysctl`, and would not compile on Linux. The
+/// injection pattern is v1's own answer (`SessionStore.resolveHost`).
 ///
-/// Varsayılanlar **saf ve güvenli**: gerçek yetenek bağlanmadıysa çekirdek
-/// "bilmiyorum" der, tahmin etmez.
+/// Defaults are **pure and safe**: with no real capability bound, the core says
+/// "I don't know" instead of guessing.
 public struct Platform {
-    /// Bu PID'de yaşayan bir süreç var mı? Varsayılan `false`: canlılık
-    /// bilinmiyorsa oturum **ölü** sayılır, hayalet kayıt listede durmaz.
+    /// Is a process alive under this pid? Defaults to `false`: when liveness is
+    /// unknown a session counts as dead, so no ghost row survives in the list.
     public var isAlive: (Int32) -> Bool
 
-    /// Bu PID'deki sürecin başlangıç zamanı. `nil` = süreç yok ya da okunamadı.
+    /// When the process under this pid started. `nil` means no process, or the
+    /// value could not be read.
     ///
-    /// Canlılık tek başına yetmiyor: macOS PID'leri **geri dönüştürür** ve
-    /// oturum kayıtları aylarca duruyor (bu makinede Temmuz'dan kalma dosyalar
-    /// var). Geri dönüşmüş bir PID'de bambaşka bir süreç yaşar ve kayıt
-    /// hayalet bir oturum gösterir. Kayıt kendi başlangıç zamanını taşıdığı
-    /// için ikisi karşılaştırılabilir.
+    /// Liveness alone is not enough: macOS **recycles** pids and session records
+    /// stick around for months (this machine still holds files from July). On a
+    /// recycled pid an unrelated process is alive and the record would show a
+    /// ghost session. Records carry their own start time, so the two can be
+    /// compared.
     public var processStartedAt: (Int32) -> Date?
 
-    /// Şimdi. Sınama sabit zaman verebilsin diye enjekte; `Date()` çağrısı
-    /// koda dağılırsa zamana bağlı kural sınanamaz hâle gelir.
+    /// Now. Injected so tests can pin time; a `Date()` call scattered through
+    /// the code makes time-dependent rules untestable.
     public var now: () -> Date
 
     public init(isAlive: @escaping (Int32) -> Bool = { _ in false },
@@ -37,6 +38,6 @@ public struct Platform {
         self.now = now
     }
 
-    /// Hiçbir şey bilmeyen platform; sınamaların ve derleme zamanının varsayılanı.
+    /// A platform that knows nothing; the default for tests and compile time.
     public static let unknown = Platform()
 }

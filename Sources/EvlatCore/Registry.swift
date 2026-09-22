@@ -1,10 +1,10 @@
 import Foundation
 
-/// Sağlayıcıların çıktısını toplar ve tek bir görünüme indirger.
+/// Collects what the providers say and reduces it to a single view.
 ///
-/// **Zaman kaynaklı geçişler burada YOK.** v1'de var (`review`→`idle` 25 sn,
-/// bayat kayıt budama); sahibi bu sınıf olacak ama `002`'nin işi. `Signal`
-/// `updatedAt` taşıdığı için tip onları kaldırabilir.
+/// **No time-driven transitions live here yet.** v1 has them (`review`→`idle`
+/// after 25 s, stale-record pruning); this class will own them, but that is
+/// `002`'s work. `Signal` carries `updatedAt` so the type can support them.
 public final class Registry {
     private var providers: [Provider] = []
 
@@ -14,25 +14,26 @@ public final class Registry {
         providers.append(provider)
     }
 
-    /// Bütün sağlayıcıların sinyalleri. Çakışma kuralı sağlayıcılar arasıdır
-    /// ve `002`'de hook kazanacak; bugün tek sağlayıcı var, birleştirme yok.
+    /// Signals from every provider. The conflict rule is *between* providers
+    /// and will land in `002` (hooks win); today there is a single provider, so
+    /// nothing is merged here.
     public func signals() -> [Signal] {
         providers.flatMap { $0.currentSignals() }
     }
 
-    /// Maskotun yüzü. `Phase.priority`'nin en yükseği kazanır; hiç sinyal
-    /// yoksa `idle`.
+    /// The mascot's face. Highest `Phase.priority` wins; `idle` when there is
+    /// nothing at all.
     public func aggregate() -> Phase {
         signals().map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
     }
 
-    /// Ekranda canlı bir şey var mı? **Bir faz değil**, bir görünüm koşulu:
-    /// maskotun nefes/kırpma döngüsü buna bakar ve yanlışken view ağacından
-    /// çıkar (ROADMAP → Render yolu, boşta çizim durur).
+    /// Is anything live on screen? **Not a phase**, a render condition: the
+    /// mascot's breathing and blinking loops check this and leave the view tree
+    /// when it is false (ROADMAP → Render yolu, idle drawing stops).
     public var hasLive: Bool { !signals().isEmpty }
 
-    /// Listede gösterilecek sıra: bekleyenler tepede, sonra çalışanlar,
-    /// sonra yeni bitenler, en altta boştalar. Eşitlikte en yeni önce.
+    /// Display order: waiting on top, then working, then recently finished,
+    /// idle at the bottom. Most recent first on a tie.
     public func ordered() -> [Signal] {
         signals().sorted {
             $0.phase.priority != $1.phase.priority

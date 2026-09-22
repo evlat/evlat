@@ -1,8 +1,9 @@
 import XCTest
 @testable import EvlatCore
 
-/// `claude-sessions` sağlayıcısının sözleşmesi. Tamamı **başsız**: geçici
-/// dizine fixture yazılır, canlılık sahte bir kapanışla verilir.
+/// The `claude-sessions` provider's contract. Entirely **headless**: fixtures
+/// are written to a temporary directory and liveness is handed in as a fake
+/// closure.
 final class SessionsProviderTests: XCTestCase {
     private var dir: URL!
 
@@ -16,9 +17,9 @@ final class SessionsProviderTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    /// Alanlar gerçek bir kayıttan alındı (Claude Code 2.1.278).
+    /// Fields taken from a real record (Claude Code 2.1.278).
     private func write(pid: Int32, sessionId: String, status: String,
-                       name: String = "proje", cwd: String = "/tmp/proje",
+                       name: String = "project", cwd: String = "/tmp/project",
                        updatedAt: Int = 1_790_000_000_000, extra: String = "") throws {
         let json = """
         {"pid":\(pid),"sessionId":"\(sessionId)","cwd":"\(cwd)","kind":"interactive",
@@ -32,7 +33,7 @@ final class SessionsProviderTests: XCTestCase {
         SessionsProvider(directory: dir, platform: Platform(isAlive: alive))
     }
 
-    // MARK: - Vakalar
+    // MARK: - Cases
 
     func testReadsLiveSession() throws {
         try write(pid: 100, sessionId: "s-1", status: "busy", name: "evlat-v2")
@@ -41,55 +42,55 @@ final class SessionsProviderTests: XCTestCase {
         XCTAssertEqual(signals[0].entity, "s-1")
         XCTAssertEqual(signals[0].phase, .working, "busy → working")
         XCTAssertEqual(signals[0].label, "evlat-v2")
-        XCTAssertEqual(signals[0].fidelity, .derived, "format belgelenmemiş")
+        XCTAssertEqual(signals[0].fidelity, .derived, "the format is undocumented")
         XCTAssertEqual(signals[0].provider, SessionsProvider.id)
-        XCTAssertNil(signals[0].progress, "oturumlar yüzde üretmez")
+        XCTAssertNil(signals[0].progress, "sessions produce no percentage")
     }
 
     func testDeadPidIsDropped() throws {
-        try write(pid: 100, sessionId: "canlı", status: "busy")
-        try write(pid: 200, sessionId: "ölü", status: "busy")
+        try write(pid: 100, sessionId: "live", status: "busy")
+        try write(pid: 200, sessionId: "dead", status: "busy")
         let signals = provider(alive: { $0 == 100 }).currentSignals()
-        XCTAssertEqual(signals.map(\.entity), ["canlı"])
+        XCTAssertEqual(signals.map(\.entity), ["live"])
     }
 
-    /// `claude --resume` başka bir terminalde PID'i değiştirir; aynı
-    /// `sessionId` için iki dosya kalabilir. Canlı olan kazanır.
+    /// `claude --resume` in another terminal changes the pid, so one
+    /// `sessionId` can survive in two files. The live one wins.
     func testSameSessionInTwoFilesCollapsesToOne_livePidWins() throws {
-        try write(pid: 100, sessionId: "aynı", status: "idle", updatedAt: 1_790_000_000_000)
-        try write(pid: 200, sessionId: "aynı", status: "busy", updatedAt: 1_790_000_000_001)
+        try write(pid: 100, sessionId: "same", status: "idle", updatedAt: 1_790_000_000_000)
+        try write(pid: 200, sessionId: "same", status: "busy", updatedAt: 1_790_000_000_001)
         let signals = provider(alive: { $0 == 100 }).currentSignals()
-        XCTAssertEqual(signals.count, 1, "sessionId başına tek kayıt")
-        XCTAssertEqual(signals[0].phase, .idle, "canlı PID kazanır, daha yeni olan değil")
+        XCTAssertEqual(signals.count, 1, "one record per sessionId")
+        XCTAssertEqual(signals[0].phase, .idle, "the live pid wins, not the newer one")
     }
 
-    /// İkisi de canlıysa en yeni `updatedAt` kazanır.
+    /// When both are alive the newest `updatedAt` wins.
     func testSameSessionBothAlive_newestWins() throws {
-        try write(pid: 100, sessionId: "aynı", status: "idle", updatedAt: 1_790_000_000_000)
-        try write(pid: 200, sessionId: "aynı", status: "busy", updatedAt: 1_790_000_009_999)
+        try write(pid: 100, sessionId: "same", status: "idle", updatedAt: 1_790_000_000_000)
+        try write(pid: 200, sessionId: "same", status: "busy", updatedAt: 1_790_000_009_999)
         let signals = provider().currentSignals()
         XCTAssertEqual(signals.count, 1)
         XCTAssertEqual(signals[0].phase, .working)
     }
 
     func testBrokenJsonDropsOnlyItsOwnRecord() throws {
-        try write(pid: 100, sessionId: "sağlam", status: "busy")
-        try "{ bu json değil".write(to: dir.appendingPathComponent("200.json"),
+        try write(pid: 100, sessionId: "intact", status: "busy")
+        try "{ not json".write(to: dir.appendingPathComponent("200.json"),
                                     atomically: true, encoding: .utf8)
         let signals = provider().currentSignals()
-        XCTAssertEqual(signals.map(\.entity), ["sağlam"], "bozuk kayıt ötekileri düşürmez")
+        XCTAssertEqual(signals.map(\.entity), ["intact"], "a broken record does not drop the others")
     }
 
-    /// `proje.md` tuzağı: tanınmayan `status` sessizce `idle`'a düşmez.
-    /// Bu makinede gerçekten görülmüş bir değer: `shell`.
+    /// The `proje.md` trap: an unrecognised `status` must not sink silently
+    /// into `idle`. A value actually seen on this machine: `shell`.
     func testUnknownStatusStaysVisible() throws {
         try write(pid: 100, sessionId: "s-1", status: "shell")
         let p = provider()
         let signals = p.currentSignals()
         XCTAssertEqual(signals.count, 1)
-        XCTAssertEqual(signals[0].rawStatus, "shell", "kaynağın sözcüğü korunur")
+        XCTAssertEqual(signals[0].rawStatus, "shell", "the source's word is preserved")
         XCTAssertTrue(p.unrecognizedStatuses.contains("shell"),
-                      "tanınmayan değer teşhiste görünür olmalı")
+                      "an unrecognised value must be visible in diagnostics")
     }
 
     func testKnownStatusIsNotReportedAsUnrecognized() throws {
@@ -109,29 +110,29 @@ final class SessionsProviderTests: XCTestCase {
     func testMissingDirectoryYieldsNoSignals() {
         let p = SessionsProvider(directory: dir.appendingPathComponent("yok"),
                                  platform: Platform(isAlive: { _ in true }))
-        XCTAssertEqual(p.currentSignals().count, 0, "dizin yoksa çökme değil, boş liste")
+        XCTAssertEqual(p.currentSignals().count, 0, "a missing directory means an empty list, not a crash")
     }
 
     func testRegistryHasLiveAndOrdering() throws {
-        try write(pid: 100, sessionId: "boş", status: "idle", updatedAt: 1_790_000_000_000)
-        try write(pid: 200, sessionId: "çalışan", status: "busy", updatedAt: 1_790_000_000_001)
+        try write(pid: 100, sessionId: "resting", status: "idle", updatedAt: 1_790_000_000_000)
+        try write(pid: 200, sessionId: "busy-one", status: "busy", updatedAt: 1_790_000_000_001)
         let registry = Registry()
         registry.register(provider())
         XCTAssertTrue(registry.hasLive)
         XCTAssertEqual(registry.aggregate(), .working)
-        XCTAssertEqual(registry.ordered().map(\.entity), ["çalışan", "boş"],
-                       "çalışan boştanın üstünde")
+        XCTAssertEqual(registry.ordered().map(\.entity), ["busy-one", "resting"],
+                       "working sorts above idle")
     }
 
     func testEmptyDirectoryMeansNoLiveWork() {
         let registry = Registry()
         registry.register(provider())
-        XCTAssertFalse(registry.hasLive, "canlı oturum yoksa maskot uykuya geçer")
+        XCTAssertFalse(registry.hasLive, "with no live session the mascot goes to sleep")
         XCTAssertEqual(registry.aggregate(), .idle)
     }
 }
 
-// MARK: - PID geri dönüşümü
+// MARK: - Pid recycling
 
 extension SessionsProviderTests {
     private func providerWithStart(_ start: @escaping (Int32) -> Date?) -> SessionsProvider {
@@ -139,34 +140,35 @@ extension SessionsProviderTests {
                          platform: Platform(isAlive: { _ in true }, processStartedAt: start))
     }
 
-    /// macOS PID'leri geri dönüştürür ve oturum kayıtları aylarca durur.
-    /// O PID'de artık başka bir süreç yaşıyorsa kayıt hayalettir.
+    /// macOS recycles pids and session records live for months. If another
+    /// process now owns that pid, the record is a ghost.
     func testRecycledPidIsNotTheSameSession() throws {
         let sessionStart = 1_790_000_000_000
-        try write(pid: 100, sessionId: "hayalet", status: "busy",
+        try write(pid: 100, sessionId: "ghost", status: "busy",
                   extra: ",\"startedAt\":\(sessionStart)")
-        // Aynı PID'de ÇOK sonra başlamış bir süreç var.
+        // A process started MUCH later now owns the same pid.
         let laterStart = Date(timeIntervalSince1970: Double(sessionStart) / 1000 + 86_400)
         XCTAssertTrue(providerWithStart({ _ in laterStart }).currentSignals().isEmpty,
-                      "başlangıç zamanı tutmuyorsa oturum ölü sayılır")
+                      "a mismatched start time means the session counts as dead")
     }
 
     func testMatchingStartTimeKeepsTheSession() throws {
         let sessionStart = 1_790_000_000_000
-        try write(pid: 100, sessionId: "gerçek", status: "busy",
+        try write(pid: 100, sessionId: "real", status: "busy",
                   extra: ",\"startedAt\":\(sessionStart)")
-        let same = Date(timeIntervalSince1970: Double(sessionStart) / 1000 + 3)  // tolerans içinde
-        XCTAssertEqual(providerWithStart({ _ in same }).currentSignals().map(\.entity), ["gerçek"])
+        let same = Date(timeIntervalSince1970: Double(sessionStart) / 1000 + 3)  // within tolerance
+        XCTAssertEqual(providerWithStart({ _ in same }).currentSignals().map(\.entity), ["real"])
     }
 
-    /// Başlangıç zamanı okunamıyorsa kayda güvenilir: taze bir kaydı
-    /// okunamayan bir alan yüzünden düşürmek, hayalet göstermekten kötü.
+    /// When the start time cannot be read the record is trusted: dropping a
+    /// fresh record over an unreadable field is worse than the ghost it
+    /// prevents.
     func testUnreadableStartTimeDoesNotDropTheSession() throws {
         try write(pid: 100, sessionId: "s", status: "busy", extra: ",\"startedAt\":1790000000000")
         XCTAssertEqual(providerWithStart({ _ in nil }).currentSignals().count, 1)
     }
 
-    /// Kayıtta `startedAt` yoksa (eski format) karşılaştırma yapılmaz.
+    /// With no `startedAt` in the record (older format) no comparison runs.
     func testRecordWithoutStartedAtIsKept() throws {
         try write(pid: 100, sessionId: "s", status: "busy")
         let far = Date(timeIntervalSince1970: 1)
@@ -174,22 +176,22 @@ extension SessionsProviderTests {
     }
 }
 
-// MARK: - Eksik alanlar (kapı bulguları)
+// MARK: - Missing fields (gate findings)
 
 extension SessionsProviderTests {
     private func writeRaw(_ name: String, _ json: String) throws {
         try json.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
     }
 
-    /// Alanın **yokluğu** ile **tanınmayan değer** ayrı şeyler; alansız bir
-    /// kayıt "bilinmeyen sözcük" diye bildirilmemeli.
+    /// A **missing** field and an **unrecognised value** are different things;
+    /// a record without the field must not be reported as an unknown word.
     func testMissingStatusIsNotReportedAsUnrecognized() throws {
         try writeRaw("100.json", #"{"pid":100,"sessionId":"s","cwd":"/tmp","updatedAt":1790000000000}"#)
         let p = provider()
         let signals = p.currentSignals()
         XCTAssertEqual(signals.count, 1)
-        XCTAssertNil(signals[0].rawStatus, "alan yoksa boş dizge değil, nil")
-        XCTAssertTrue(p.unrecognizedStatuses.isEmpty, "yokluk, tanınmayan değer değildir")
+        XCTAssertNil(signals[0].rawStatus, "a missing field is nil, not an empty string")
+        XCTAssertTrue(p.unrecognizedStatuses.isEmpty, "absence is not an unrecognised value")
         XCTAssertEqual(signals[0].phase, .idle)
     }
 
@@ -200,8 +202,9 @@ extension SessionsProviderTests {
         XCTAssertTrue(p.unrecognizedStatuses.isEmpty)
     }
 
-    /// `updatedAt` okunamazsa 1970'e düşmez ve **görünür** olur; yoksa o kayıt
-    /// her teklileştirme yarışını kaybeder ve 002'nin budaması onu siler.
+    /// An unreadable `updatedAt` must not fall back to 1970 and must stay
+    /// **visible**; otherwise that record loses every dedup contest and 002's
+    /// pruning wipes it.
     func testMissingUpdatedAtFallsBackAndIsVisible() throws {
         let started = 1_790_000_000_000
         try writeRaw("100.json",
@@ -211,8 +214,8 @@ extension SessionsProviderTests {
         XCTAssertEqual(signals.count, 1)
         XCTAssertEqual(signals[0].updatedAt.timeIntervalSince1970,
                        Double(started) / 1000, accuracy: 1,
-                       "startedAt'e düşer, 1970'e değil")
-        XCTAssertEqual(p.recordsMissingUpdatedAt, 1, "format kayması görünür olmalı")
+                       "falls back to startedAt, not to 1970")
+        XCTAssertEqual(p.recordsMissingUpdatedAt, 1, "format drift must be visible")
     }
 
     func testMissingUpdatedAtAndStartedAtFallsBackToFileDate() throws {
@@ -220,7 +223,7 @@ extension SessionsProviderTests {
         let p = provider()
         let signal = try XCTUnwrap(p.currentSignals().first)
         XCTAssertGreaterThan(signal.updatedAt.timeIntervalSince1970, 1_700_000_000,
-                             "dosyanın değiştirilme zamanına düşer")
+                             "falls back to the file modification date")
         XCTAssertEqual(p.recordsMissingUpdatedAt, 1)
     }
 
@@ -229,6 +232,6 @@ extension SessionsProviderTests {
         let p = provider()
         _ = p.currentSignals()
         _ = p.currentSignals()
-        XCTAssertEqual(p.recordsMissingUpdatedAt, 1, "sayaç her taramada sıfırlanır, birikmez")
+        XCTAssertEqual(p.recordsMissingUpdatedAt, 1, "the counter resets on each scan; it does not accumulate")
     }
 }

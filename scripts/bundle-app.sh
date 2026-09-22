@@ -1,25 +1,27 @@
 #!/bin/bash
-# Release ikilisini build/Evlat.app içine sarar. Dock ikonu yok, ad-hoc imzalı.
+# Wraps the release binary in build/Evlat.app. No Dock icon, ad-hoc signed.
 #
-# v1'in betiğinden portlandı. DÜŞENLER ve neden:
-#   - Resources/pets kopyası ve tools/ budaması — v2'de pet yok.
-#   - Beş *UsageDescription plist anahtarı — v2 izin istemiyor.
-#   - Kararlı imza kimliği bloğu — tek gerekçesi TCC klasör izinlerinin her
-#     derlemede sıfırlanmasıydı; v2'de o yüzey yok. Düşmesi aynı zamanda
-#     codesign'ın anahtarlık izin kutusunda süresiz asılma riskini de kaldırır:
-#     `codesign --sign -` kutu açmaz.
-# KALANLAR ve neden:
-#   - plutil -lint paket YIKILMADAN önce: bozuk tablo yarım .app bırakmasın.
-#   - .DS_Store silme imzadan ÖNCE: sonradan silinen dosya mührü geçersiz kılar.
-#   - LSUIElement: Dock ikonu ve Cmd-Tab girişi olmasın.
+# Ported from v1's script. DROPPED, and why:
+#   - the Resources/pets copy and the tools/ pruning — v2 has no pets.
+#   - five *UsageDescription plist keys — v2 asks for no permissions.
+#   - the stable signing-identity block — its only reason was TCC folder
+#     permissions resetting on every build, and v2 has no such surface. Dropping
+#     it also removes the risk of codesign hanging forever on the keychain
+#     prompt: `codesign --sign -` opens no dialog.
+# KEPT, and why:
+#   - plutil -lint BEFORE the bundle is torn down: a broken table must not leave
+#     half an .app behind.
+#   - deleting .DS_Store BEFORE signing: a file removed afterwards invalidates
+#     the seal.
+#   - LSUIElement: no Dock icon and no Cmd-Tab entry.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Dil tabloları henüz yok (004); geldiğinde bu döngü onları paket yıkılmadan
-# önce denetler.
+# There are no string tables yet (004); when they arrive this loop checks them
+# before the bundle is torn down.
 shopt -s nullglob
 for f in Resources/*.lproj/*.strings; do
-  plutil -lint -s "$f" || { echo "Bozuk dil tablosu: $f"; exit 1; }
+  plutil -lint -s "$f" || { echo "Broken string table: $f"; exit 1; }
 done
 shopt -u nullglob
 
@@ -55,5 +57,5 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
-echo "Hazır: $APP"
-echo "Çalıştır: open $APP"
+echo "Ready: $APP"
+echo "Run: open $APP"

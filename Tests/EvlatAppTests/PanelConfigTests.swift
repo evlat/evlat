@@ -3,18 +3,20 @@ import AppKit
 import SwiftUI
 @testable import EvlatApp
 
-/// Panelin **yapılandırması** kodla sınanır, gözle değil.
+/// The panel's **configuration** is tested in code, not by eye.
 ///
-/// Ayrım bilinçli: "odak çalmıyor" iddiasının makineyle doğrulanabilen yarısı
-/// bu dosyadadır (`canBecomeKey`, `styleMask`, `level`, `collectionBehavior`).
-/// Uçtan uca yarısı — bara gerçekten tıklayınca öndeki uygulamanın odağını
-/// koruması — kullanıcıya kalır ve sentetik tıkla taklit EDİLMEZ: `CGEvent`
-/// Erişilebilirlik izni ister, izin gerektirmeyen tasarım projenin sözleşmesi.
+/// The split is deliberate: the machine-verifiable half of "it never steals
+/// focus" lives here (`canBecomeKey`, `styleMask`, `level`,
+/// `collectionBehavior`). The end-to-end half — that clicking the bar really
+/// leaves the frontmost app focused — belongs to the user and is NOT faked with
+/// a synthetic click: `CGEvent` needs Accessibility permission, and
+/// permission-free design is this project's contract.
 @MainActor
 final class PanelConfigTests: XCTestCase {
-    /// `NSApp` test paketinde **nil**'dir: örtük açılan bir global ve
-    /// `NSApplication.shared`'a dokunulana kadar kurulmuyor (ölçüldü — sinyal 5
-    /// ile düşüyordu). Paneller de bir uygulama nesnesi olmadan kurulmamalı.
+    /// `NSApp` is **nil** inside a test bundle: it is an implicitly unwrapped
+    /// global that is not set up until `NSApplication.shared` is touched
+    /// (measured — the suite crashed with signal 5). Panels should not be built
+    /// without an application object either.
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
@@ -26,24 +28,24 @@ final class PanelConfigTests: XCTestCase {
 
     func testPanelNeverTakesFocus() {
         let panel = makePanel()
-        XCTAssertFalse(panel.canBecomeKey, "Bara tıklamak klavye odağını almamalı")
-        XCTAssertFalse(panel.canBecomeMain, "Bar ana pencere olamaz")
+        XCTAssertFalse(panel.canBecomeKey, "clicking the bar must not take keyboard focus")
+        XCTAssertFalse(panel.canBecomeMain, "the bar cannot become the main window")
         XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel),
-                      "nonactivatingPanel olmadan tık uygulamayı öne getirir")
+                      "without nonactivatingPanel a click brings the app forward")
         XCTAssertTrue(panel.styleMask.contains(.borderless))
     }
 
     func testPanelFloatsAboveAndFollowsSpaces() {
         let panel = makePanel()
         XCTAssertEqual(panel.level, .statusBar,
-                       "Bar sistem şeridi gibi davranır; v1'in .floating'i maskot içindi")
+                       "the bar behaves like a system strip; v1's .floating was for the mascot")
         XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces),
-                      "Her space'te görünmeli")
+                      "must show on every space")
         XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary),
-                      "Tam ekran uygulamanın üstünde de durmalı")
+                      "must stay above a full-screen app too")
         XCTAssertTrue(panel.collectionBehavior.contains(.stationary))
         XCTAssertFalse(panel.hidesOnDeactivate,
-                       "Evlat arka plana düşünce bar kaybolmamalı")
+                       "the bar must not vanish when Evlat goes to the background")
     }
 
     func testPanelIsTransparent() {
@@ -53,10 +55,10 @@ final class PanelConfigTests: XCTestCase {
         XCTAssertFalse(panel.hasShadow)
     }
 
-    /// Pencere boyunun tek sahibi `BarPanel`. Varsayılan `sizingOptions` ile
-    /// `NSHostingView` pencereyi içerik boyuna kendi getiriyor ve AppKit bunu
-    /// sol üst köşe sabit yapıyor (v1'de ölçüldü). Hover'da sola açılan bar
-    /// aynı duvara çarpar.
+    /// `BarPanel` is the sole owner of the window size. With the default
+    /// `sizingOptions`, `NSHostingView` resizes the window to its content and
+    /// AppKit pins that to the top-left corner (measured in v1). A bar that
+    /// unfolds leftward on hover hits the same wall.
     func testHostingViewDoesNotResizeTheWindow() throws {
         let panel = makePanel()
         let hosting = try XCTUnwrap(panel.contentView as? NSHostingView<AnyView>)
@@ -68,9 +70,9 @@ final class PanelConfigTests: XCTestCase {
         let panel = makePanel(edge: .right)
         panel.reposition(on: screen)
         XCTAssertEqual(panel.frame.maxX, screen.visibleFrame.maxX, accuracy: 0.5,
-                       "Sağ kenar Dock'un üstüne yaslanır (visibleFrame)")
-        // Ortalama tam frame'den okunur: visibleFrame'den okunsaydı Dock gelip
-        // gittiğinde bar dikeyde kayardı.
+                       "the right edge sits above the Dock (visibleFrame)")
+        // Centring reads the full frame: off visibleFrame the bar would drift
+        // vertically whenever the Dock appeared or hid.
         XCTAssertEqual(panel.frame.midY, screen.frame.midY, accuracy: 0.5)
     }
 
@@ -78,18 +80,19 @@ final class PanelConfigTests: XCTestCase {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         XCTAssertEqual(app.activationPolicy(), .accessory,
-                       "Dock ikonu ve Cmd-Tab girişi olmamalı")
+                       "no Dock icon and no Cmd-Tab entry")
     }
 
-    /// Paneli öne getirmek uygulamayı etkinleştirmemeli. `orderFrontRegardless`
-    /// tam olarak bunun için var; `makeKeyAndOrderFront` olsaydı Evlat öne gelirdi.
+    /// Showing the panel must not activate the app. `orderFrontRegardless`
+    /// exists for exactly this; `makeKeyAndOrderFront` would bring Evlat
+    /// forward.
     func testShowingThePanelDoesNotActivateTheApp() {
         let app = NSApplication.shared
         let wasActive = app.isActive
         let panel = makePanel()
         panel.show()
         XCTAssertEqual(app.isActive, wasActive,
-                       "Barı göstermek uygulamanın etkinlik durumunu değiştirmemeli")
+                       "showing the bar must not change the app's active state")
         XCTAssertTrue(panel.isVisible)
         panel.close()
     }

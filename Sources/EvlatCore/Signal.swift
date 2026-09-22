@@ -1,22 +1,23 @@
 import Foundation
 
-/// Bir kaynağın anlattığı tek bir durum. Uygulama "AI oturumu" bilmez,
-/// `Signal` bilir: oturum takibi bu soyutlamanın ilk sağlayıcısıdır, tek
-/// sağlayıcısı değil (ROADMAP → Dikiş).
+/// One thing a source has to say. The app knows nothing about "AI sessions";
+/// it knows `Signal`. Session tracking is the first provider behind this
+/// abstraction, not the only one (ROADMAP → the seam).
 public struct Signal: Equatable {
     public let provider: String
-    /// Sağlayıcı içinde tekil kimlik. Oturumlarda `sessionId`.
+    /// Unique within a provider. For sessions this is the `sessionId`.
     public let entity: String
     public let kind: Kind
     public let phase: Phase
-    /// 0…1. Oturumlar üretmez; dolgulu halka ancak veren bir sağlayıcıyla doğar.
+    /// 0…1. Sessions never produce this; a filled ring only appears once a
+    /// provider supplies it.
     public let progress: Double?
-    /// Kısa ad — listede görünen.
+    /// Short name, the one shown in the list.
     public let label: String
     public let detail: String?
     public let fidelity: Fidelity
-    /// Kaynağın kendi sözcüğü, çevrilmeden. Tanınmayan bir değer buradan
-    /// **görünür** olur; `phase` onu sessizce yutmasın diye duruyor.
+    /// The source's own word, untranslated. An unrecognised value stays
+    /// **visible** here so `phase` cannot swallow it silently.
     public let rawStatus: String?
     public let updatedAt: Date
 
@@ -38,30 +39,31 @@ public struct Signal: Equatable {
 
     public enum Kind: String, Equatable { case session, usage, job, custom }
 
-    /// Sayının ne kadar sağlam olduğu (codenotch'un `Fidelity`'si). UI bir
-    /// tahmini, yayımlanmış veri gibi göstermez.
+    /// How solid a number is (codenotch's `Fidelity`). The UI never presents a
+    /// guess as if a vendor had published it.
     public enum Fidelity: String, Equatable {
-        /// Kaynağın kendi belgelenmiş çıktısı.
+        /// The source's own documented output.
         case official
-        /// Evlat'ın türettiği ya da belgelenmemiş bir formattan okuduğu.
+        /// Derived by Evlat, or read from an undocumented format.
         case derived
-        /// Kullanıcının elle girdiği.
+        /// Entered by hand.
         case manual
     }
 }
 
-/// Durum makinesi. v1'in beş değeri aynen taşınır (`SessionStore.Phase`).
+/// The state machine. v1's five values carry over unchanged
+/// (`SessionStore.Phase`).
 ///
-/// **Altıncı bir değer eklenmedi** ve bu bilinçli: her yeni değer maskotun
-/// ifade tablosunu, barın gösterge dilini ve `Aggregator` önceliğini birden
-/// değiştirir. Tanınmayan bir kaynak sözcüğü `Signal.rawStatus`'ta görünür
-/// kalır, `Phase`i kirletmez. "Canlı oturum var mı" da bir faz değil,
-/// `Registry.hasLive` sorusudur.
+/// **No sixth value was added**, and that is deliberate: every new value
+/// changes the mascot's expression table, the bar's indicator language and the
+/// aggregator priority all at once. An unrecognised source word stays visible
+/// in `Signal.rawStatus` instead of polluting `Phase`. "Is any session live" is
+/// likewise not a phase but a `Registry.hasLive` question.
 public enum Phase: String, CaseIterable, Equatable {
     case idle, working, waiting, review, failed
 
-    /// Maskotun tek yüzü var, N oturum var: hangisi kazanır.
-    /// Kullanıcıyı bekleten bir şey her zaman öne çıkar.
+    /// The mascot has one face and there are N sessions: this decides which
+    /// one wins. Anything that blocks the user always comes forward.
     public var priority: Int {
         switch self {
         case .failed: return 4

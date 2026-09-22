@@ -1,13 +1,13 @@
 import Foundation
 
-/// Bir sinyal kaynağı. Kaynağa özgü her şey burada kalır; çekirdek kanonik
-/// sözlüğü görür (v1'in `AgentSource.canonical` deseni).
+/// A source of signals. Everything source-specific stays here; the core only
+/// ever sees the canonical vocabulary (v1's `AgentSource.canonical` pattern).
 ///
-/// Sağlayıcı **derlenmiş** bir tiptir; dışarıdan kod yüklenmez. Dışarıdan
-/// implementasyonun yolu yerel API'ye sinyal göndermektir (`002`).
+/// A provider is a **compiled** type; no code is loaded from outside. The way
+/// in for third parties is posting signals to the local API (`002`).
 public protocol Provider {
-    /// Tel kimliği: `Signal.provider` ve ileride `/hook/{id}`.
+    /// Wire identity: `Signal.provider`, and later `/hook/{id}`.
     var id: String { get }
-    /// O andaki sinyaller. Çağıran ana kuyruktadır.
+    /// Signals as of now. Called on the main queue.
     func currentSignals() -> [Signal]
 }

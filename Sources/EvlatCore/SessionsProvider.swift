@@ -1,31 +1,33 @@
 import Foundation
 
-/// Claude Code'un kendi oturum kayıtlarını okur: `~/.claude/sessions/<pid>.json`.
+/// Reads Claude Code's own session records: `~/.claude/sessions/<pid>.json`.
 ///
-/// **Bu sağlayıcı hook'ların yerine geçmez, onları tamamlar.** Durumun kaynağı
-/// hook'lardır (v1'de öyleydi, v2'de de öyle); buradan gelen `status` kaba ve
-/// "seni bekliyor" ayrımını taşımıyor. Bu dosyanın kaldırdığı şey v1'in üç
-/// workaround'u:
-///   - hook'lar yalnız kurulumdan SONRA açılan oturumlarda çalışır; burada
-///     var olan bütün oturumlar anında görünür,
-///   - `kill -9`'lanan oturum `Stop` göndermez; PID canlılığı ölüyü eler,
-///   - oturum adı için alt süreç koşuyordu (`claude agents --json`); `name`
-///     burada hazır.
+/// **This provider does not replace hooks, it completes them.** State comes
+/// from hooks (it did in v1 and it still does); the `status` here is coarse and
+/// carries no "waiting for you" distinction. What this file removes is v1's
+/// three workarounds:
+///   - hooks only fire for sessions started *after* installation, so existing
+///     sessions were invisible; here every session shows up at once,
+///   - a `kill -9`'d session never sends `Stop`, so hooks left it `working`
+///     forever; pid liveness drops the dead ones,
+///   - the session name needed a subprocess (`claude agents --json`); `name` is
+///     right here.
 ///
-/// **Format belgelenmemiştir** (`peerProtocol: 1` sürümlü bir şey ima ediyor),
-/// o yüzden `Fidelity` `.derived` ve tanınmayan `status` değerleri
-/// `unrecognizedStatuses`'ta görünür kalır.
+/// **The format is undocumented** (`peerProtocol: 1` implies something
+/// versioned), so `Fidelity` is `.derived` and unrecognised `status` values
+/// stay visible in `unrecognizedStatuses`.
 public final class SessionsProvider: Provider {
     public static let id = "claude-sessions"
     public var id: String { Self.id }
 
     private let directory: URL
     private let platform: Platform
-    /// Tanınmayan `status` değerleri. Sessizce `idle`'a düşmesin diye
-    /// biriktirilir; teşhis buradan okunur (`proje.md` → tuzaklar).
+    /// Unrecognised `status` values. Collected so they cannot drop silently
+    /// into `idle`; diagnostics read them from here (`proje.md` → tuzaklar).
     public private(set) var unrecognizedStatuses: Set<String> = []
-    /// `updatedAt` alanı okunamayan kayıt sayısı. Sıfırdan farklıysa format
-    /// kaymış olabilir; tanınmayan `status` gibi bu da **görünür** kalmalı.
+    /// How many records had an unreadable `updatedAt`. A non-zero count may
+    /// mean the format drifted, so like an unrecognised `status` it stays
+    /// **visible**.
     public private(set) var recordsMissingUpdatedAt = 0
 
     public init(directory: URL, platform: Platform) {
@@ -33,42 +35,42 @@ public final class SessionsProvider: Provider {
         self.platform = platform
     }
 
-    /// Varsayılan yer. Sabit yazılmaz, çağıranın verdiği yol kazanır —
-    /// sınama geçici dizin verebilsin diye.
+    /// The default location. Never hard-coded at the call site: the caller's
+    /// path wins, so tests can hand over a temporary directory.
     public static func defaultDirectory(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> URL {
         home.appendingPathComponent(".claude/sessions")
     }
 
     public func currentSignals() -> [Signal] {
-        // Dizin yoksa bu bir hata değil: Claude Code hiç çalışmamış olabilir.
+        // A missing directory is not an error: Claude Code may never have run.
         let files = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil)) ?? []
 
         recordsMissingUpdatedAt = 0
         var best: [String: Record] = [:]
         for file in files where file.pathExtension == "json" {
-            guard let record = Record(file: file) else { continue }   // bozuk kayıt ötekileri düşürmez
+            guard let record = Record(file: file) else { continue }  // a broken record drops alone
             guard isTheSameProcess(record) else { continue }
-            // `claude --resume` PID'i değiştirir; aynı sessionId iki dosyada
-            // kalabilir. Burada ikisi de canlı, o yüzden en yeni kazanır.
-            // (Ölü olan zaten yukarıda elendi: "canlı PID kazanır" kuralı.)
             if record.updatedAtWasMissing { recordsMissingUpdatedAt += 1 }
+            // `claude --resume` changes the pid, so one sessionId can survive in
+            // two files. Both are live here, so the newer one wins. (The dead
+            // one was already dropped above: "the live pid wins".)
             if let existing = best[record.sessionId], existing.updatedAt >= record.updatedAt { continue }
             best[record.sessionId] = record
         }
 
         return best.values.map { record in
-            // Alanın **yokluğu** ile **tanınmayan bir değer** ayrı şeyler.
-            // İlk sürüm ikisini birleştiriyordu: alansız bir kayıt boş dizgeyi
-            // "bilinmeyen sözcük" diye bildiriyordu (kapıda yakalandı).
+            // A **missing** field and an **unrecognised value** are different
+            // things. The first version conflated them and reported a record
+            // without the field as an unknown vocabulary word.
             let phase = record.status.flatMap(Self.phase(for:))
             if let status = record.status, phase == nil { unrecognizedStatuses.insert(status) }
             return Signal(
                 provider: Self.id,
                 entity: record.sessionId,
                 kind: .session,
-                // Tanınmayan durum `idle` çizilir ama sözcüğü `rawStatus`'ta
-                // durur ve `unrecognizedStatuses`'a düşer: görünmez olmaz.
+                // An unrecognised state draws as `idle`, but its word survives
+                // in `rawStatus` and lands in `unrecognizedStatuses`: never invisible.
                 phase: phase ?? .idle,
                 label: record.label,
                 detail: record.cwd,
@@ -77,28 +79,30 @@ public final class SessionsProvider: Provider {
                 updatedAt: record.updatedAt
             )
         }
-        .sorted { $0.entity < $1.entity }   // deterministik sıra; görünüm sırası Registry'nin işi
+        .sorted { $0.entity < $1.entity }  // deterministic; display order is the Registry's job
     }
 
-    /// Kayıttaki PID'de **o oturumun** süreci mi yaşıyor?
+    /// Is the process under this record's pid still **that session's** process?
     ///
-    /// İki kapı: süreç var mı, ve **aynı süreç mi**. İkincisi PID geri dönüşümü
-    /// içindir — kayıtlar aylarca duruyor, PID'ler yeniden dağıtılıyor ve
-    /// yalnız `isAlive`'a bakan bir kontrol hayalet oturum gösterirdi.
-    /// Başlangıç zamanı okunamıyorsa kayda güvenilir: taze bir kaydı
-    /// okunamayan bir alan yüzünden düşürmek, hayalet göstermekten daha kötü.
+    /// Two gates: does a process exist, and is it the *same* process. The second
+    /// one is about pid recycling — records live for months, pids get handed
+    /// out again, and a check that only asks `isAlive` would show a ghost
+    /// session. When the start time cannot be read the record is trusted:
+    /// dropping a fresh record over an unreadable field is worse than the ghost
+    /// it would prevent.
     private func isTheSameProcess(_ record: Record) -> Bool {
         guard platform.isAlive(record.pid) else { return false }
         guard let actual = platform.processStartedAt(record.pid),
               let claimed = record.startedAt else { return true }
-        // Saniye çözünürlüğü ve kaydın sürecin kendisinden bir tık sonra
-        // yazılması için tolerans. Geri dönüşmüş bir PID'de fark günlerdir.
+        // Tolerance for second-level resolution and for the record being
+        // written a moment after the process starts. On a recycled pid the gap
+        // is days. Measured across 21 real records: 0.7–6.3 s.
         return abs(actual.timeIntervalSince(claimed)) < 120
     }
 
-    /// Kaynağın sözcüğünü kanonik faza çevirir. `nil` = tanımadık.
-    /// Bu makinede ölçülen değerler: `busy`, `idle`, bir kez `shell`.
-    /// `waiting` hiç görülmedi — o ayrım hook'lardan gelir.
+    /// Maps the source's word to a canonical phase. `nil` means "not known to
+    /// us". Values measured on this machine: `busy`, `idle`, and once `shell`.
+    /// `waiting` never appeared — that distinction comes from hooks.
     static func phase(for status: String) -> Phase? {
         switch status {
         case "busy": return .working
@@ -108,19 +112,21 @@ public final class SessionsProvider: Provider {
         }
     }
 
-    /// Dosyanın tipli görünümü. Yalnız gerekli alanlar okunur; format
-    /// genişlerse buraya dokunmadan geçer.
+    /// A typed view of the file. Only the fields we need are read, so the
+    /// format can grow without touching this.
     private struct Record {
         let pid: Int32
         let sessionId: String
-        /// Yoksa `nil` — boş dizge değil; ikisi ayrı anlam taşıyor.
+        /// `nil` when absent — not an empty string; the two mean different things.
         let status: String?
         let cwd: String
         let name: String?
         let updatedAt: Date
-        /// Oturumun (yani sürecin) başlangıcı; PID geri dönüşümünü ayırt eder.
+        /// When the session (that is, the process) started; separates a
+        /// recycled pid from the real one.
         let startedAt: Date?
-        /// `updatedAt` okunamadı ve yedeğe düşüldü. Format kaymasının işareti.
+        /// `updatedAt` could not be read and a fallback was used. A sign the
+        /// format may have drifted.
         let updatedAtWasMissing: Bool
 
         var label: String {
@@ -141,13 +147,14 @@ public final class SessionsProvider: Provider {
             self.status = (rawStatus?.isEmpty ?? true) ? nil : rawStatus
             self.cwd = json["cwd"] as? String ?? ""
             self.name = json["name"] as? String
-            self.startedAt = (json["startedAt"] as? NSNumber)
+            let startedAt = (json["startedAt"] as? NSNumber)
                 .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
-            // Milisaniye epoch. Alan yoksa **1970'e düşmez**: o kayıt her
-            // teklileştirme yarışını kaybeder, listenin en dibine oturur ve
-            // 002'nin bayat-kayıt budaması onu anında siler — yani belgelenmemiş
-            // bir formatta alan adı değişirse hata sessizce görünmez olurdu.
-            // Sıra: updatedAt → startedAt → dosyanın kendi değiştirilme zamanı.
+            self.startedAt = startedAt
+            // Millisecond epoch. A missing field must **not** fall back to 1970:
+            // such a record would lose every dedup contest, sink to the bottom
+            // of the list, and be wiped by `002`'s stale-record pruning — so a
+            // renamed field in this undocumented format would fail invisibly.
+            // Order: updatedAt → startedAt → the file's own modification date.
             if let ms = (json["updatedAt"] as? NSNumber)?.doubleValue, ms > 0 {
                 self.updatedAt = Date(timeIntervalSince1970: ms / 1000)
                 self.updatedAtWasMissing = false
