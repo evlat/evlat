@@ -16,6 +16,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public private(set) var panel: BarPanel?
     public let registry = Registry()
     public let mascot = MascotModel()
+    /// Where a hook event lands in `phase-3`, and where it stops. It is
+    /// **not** registered with `registry`: the provider that turns events into
+    /// signals is `phase-4`'s last line of wiring, and binding it early would
+    /// put a second row next to the file record's for every live session.
+    public let hookDiagnostics = HookDiagnostics()
+    private var hookListener: HookListener?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     private var poller: Timer?
@@ -109,10 +115,38 @@ public final class AppController: NSObject, NSApplicationDelegate {
         SessionsProvider(directory: sessionsDirectory(), platform: darwinPlatform)
     }
 
+    /// How long `--capture` listens when no number follows it.
+    nonisolated public static var defaultCaptureWindow: TimeInterval { 30 }
+
+    /// `--capture [SECONDS]`, or `nil` when the flag is absent.
+    ///
+    /// `--list` is a separate process from the running app and cannot read its
+    /// counters, so this is how the bucket is ever seen: the flag makes the
+    /// diagnostics run **as** the endpoint for a bounded window. A malformed or
+    /// missing number falls back to the default rather than refusing — the flag
+    /// is a measuring instrument, and refusing to measure is the worse answer.
+    nonisolated public static func captureWindow(_ arguments: [String]) -> TimeInterval? {
+        guard let index = arguments.firstIndex(of: "--capture") else { return nil }
+        let next = arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
+        // `isFinite` and the ceiling are not decoration: `Double("inf")` and
+        // `Double("1e400")` both parse and are both > 0, and the first thing
+        // done with the value is `Int(window)`, which **traps** on either.
+        // A day is past any measurement and still safely inside `Int`.
+        guard let text = next, let seconds = Double(text),
+              seconds > 0, seconds.isFinite, seconds <= 86_400 else {
+            return defaultCaptureWindow
+        }
+        return seconds
+    }
+
     /// `Evlat --list`: print the signals and exit, opening no window.
     /// This set's stand-in for v1's `GET /status`; the full local API lands in
     /// `002`.
-    nonisolated public static func printSignalsAndExit() -> Never {
+    ///
+    /// With `capturingFor`, it also **binds** the hook port for that many
+    /// seconds and prints every event that arrives. Without it, the endpoint is
+    /// only asked whether someone is already answering there.
+    nonisolated public static func printSignalsAndExit(capturingFor window: TimeInterval? = nil) -> Never {
         let provider = makeSessionsProvider()
         let registry = Registry()
         registry.register(provider)
@@ -136,7 +170,106 @@ public final class AppController: NSObject, NSApplicationDelegate {
         if provider.recordsUnparseable > 0 {
             print("records that could not be parsed: \(provider.recordsUnparseable) (format may have drifted)")
         }
+        printHookEndpoint(capturingFor: window)
         exit(0)
+    }
+
+    /// The hook endpoint's own diagnostics.
+    ///
+    /// Failing to bind is the way this feature breaks in the field and it
+    /// produces **no symptom at all**: v1 and v2 carry the same bundle id and
+    /// the same executable name, so a v1 left running holds 48151, v2 starts
+    /// fine, and no event ever arrives. That state is printed here.
+    private nonisolated static func printHookEndpoint(capturingFor window: TimeInterval?) {
+        let choice = HookListener.resolvePort()
+        if let rejected = choice.rejectedOverride {
+            print("EVLAT_PORT=\(rejected) ignored: not a usable port number")
+        }
+        guard let window = window else {
+            print("hook endpoint: 127.0.0.1:\(choice.port)  ·  \(probeHookEndpoint(port: choice.port))")
+            return
+        }
+
+        // Line buffering, because stdout is fully buffered whenever it is not a
+        // terminal: under `… --capture 135 | tee log` nothing would appear
+        // until the process exited, and a Ctrl-C inside the window would lose
+        // every line — the exact failure streaming was chosen to avoid.
+        setvbuf(stdout, nil, _IOLBF, 0)
+        let diagnostics = HookDiagnostics()
+        let listener = HookListener(port: choice.port) { event in
+            // Streamed, not only summarised: under a `PostToolUse` burst a
+            // fixed-size bucket drops exactly the rare event a measurement is
+            // looking for (one `Stop` carrying an `agent_id`).
+            print(diagnostics.record(event).text)
+        }
+        listener.start()
+        let status = listener.awaitSettled()
+        print("hook endpoint: \(status.text)")
+        guard case .listening = status else {
+            // A busy port says "in use" but not WHO — and that is the whole
+            // question when the port is held by the other Evlat.
+            print("  ·  \(probeHookEndpoint(port: choice.port))")
+            return
+        }
+        print("capturing for \(Int(window)) s …")
+        // Events are delivered to the main queue; this is what runs it. The
+        // timer is not idle decoration: a run loop with no input source at all
+        // returns from `run(until:)` immediately, and the capture would then
+        // print an empty summary and exit without ever having listened.
+        let deadline = Date().addingTimeInterval(window)
+        RunLoop.main.add(Timer(fire: deadline, interval: 0, repeats: false) { _ in }, forMode: .default)
+        RunLoop.main.run(until: deadline)
+        listener.stop()
+        // Events cross on `DispatchQueue.main.async`, so the ones handed over
+        // just before the deadline have not run yet. Without this drain they
+        // are neither printed nor counted, and the totals a measurement is
+        // read from would be short by the last few.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        diagnostics.summary.forEach { print($0) }
+    }
+
+    /// Is anything answering there, and which Evlat is it?
+    ///
+    /// A `GET /health` rather than a trial bind: binding takes the port away
+    /// from the running app for as long as it is held, and a hook that arrived
+    /// in that window would be answered by a process about to exit. The body
+    /// tells the two apps apart — v1 answers the bare word `ok`, v2 answers
+    /// `{"ok":true}` (`phase-2` corrected it).
+    ///
+    /// **Only "cannot connect" means free.** Every other failure — a process
+    /// that accepts the connection and never answers, or speaks something
+    /// that is not HTTP — means the port is taken. Reading those as free
+    /// would print "nothing is listening" in precisely the situation this
+    /// diagnostic exists for: a v1 holding 48151 while v2 failed to bind.
+    private nonisolated static func probeHookEndpoint(port: UInt16, timeout: TimeInterval = 1) -> String {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/health") else { return "unreadable address" }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        let semaphore = DispatchSemaphore(value: 0)
+        // Guarded: on the wait's own timeout this thread would otherwise write
+        // the same variable the session's callback thread is writing.
+        let lock = NSLock()
+        var answer: String?
+        URLSession(configuration: configuration).dataTask(with: url) { data, _, error in
+            let result: String
+            if let error = error as? URLError, error.code == .cannotConnectToHost {
+                result = "free — nothing is listening"
+            } else if let error = error {
+                result = "in use — did not answer (\(error.localizedDescription))"
+            } else {
+                switch String(data: data ?? Data(), encoding: .utf8) ?? "" {
+                case "{\"ok\":true}": result = "in use — an Evlat v2 answers"
+                case "ok": result = "in use — an Evlat v1 answers"
+                case let body: result = "in use — answered \(body.prefix(40))"
+                }
+            }
+            lock.withLock { answer = result }
+            semaphore.signal()
+        }.resume()
+        // The request has its own timeout; this one only keeps a lost callback
+        // from hanging the diagnostics for ever.
+        _ = semaphore.wait(timeout: .now() + timeout + 2)
+        return lock.withLock { answer } ?? "no answer within \(timeout + 2) s"
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -144,6 +277,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         // like part of the system rather than like an app.
         NSApp.setActivationPolicy(.accessory)
         registry.register(Self.makeSessionsProvider())
+        startHookListener()
         installStatusItem()
 
         let panel = BarPanel(edge: .right,
@@ -185,7 +319,30 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Binds the hook port. The event goes into the diagnostic bucket and no
+    /// further: the mascot behaves exactly as it did in `001` this phase.
+    private func startHookListener() {
+        let choice = HookListener.resolvePort()
+        if let rejected = choice.rejectedOverride {
+            NSLog("Evlat: EVLAT_PORT=%@ ignored, not a usable port number", rejected)
+        }
+        let listener = HookListener(
+            port: choice.port,
+            // Binding is asynchronous, so the outcome cannot be returned from
+            // here. It is not swallowed either: `Evlat --list` reads the port
+            // back over `/health` and says who holds it.
+            onStatus: { status in
+                if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
+            },
+            onEvent: { [weak self] event in
+                MainActor.assumeIsolated { self?.hookDiagnostics.record(event) }
+            })
+        listener.start()
+        hookListener = listener
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
+        hookListener?.stop()
         poller?.invalidate()
         gaze?.stop()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
