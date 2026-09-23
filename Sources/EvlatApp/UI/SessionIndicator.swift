@@ -6,46 +6,43 @@ import EvlatCore
 ///
 /// It observes `SessionRowsModel` and nothing else — the mascot's gaze moves
 /// with the cursor, and a column that observed the mascot would be rebuilt at
-/// that rate for nothing. Whether names show is handed in by `BarBody`, which
-/// reads it off its own width.
+/// that rate for nothing. Whether names show is handed in by `BarBody`.
+///
+/// **Opening moves no ring.** A name is an overlay on its ring, not a sibling
+/// in a row: it takes no room, so the ring's place is the same open or closed.
+/// The name comes in from the ring's side, a few points toward it, and fades.
 struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
     var showsNames = false
 
-    /// Room between the open bar's inner edge and the start of a name.
-    private static let nameInset: CGFloat = 16
+    /// Between a name's end and its ring.
+    static let nameGap: CGFloat = 8
+    /// Between the open body's inner edge and the longest name.
+    static let nameInset: CGFloat = 14
+    /// How far a name travels as it comes in: from under its ring's side.
+    static let nameTravel: CGFloat = 10
+    /// The ring's leading edge inside the bar's width (it is centred there).
+    static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
+    /// Room for a name: the open body minus the collapsed bar, plus the part
+    /// of the bar left of the ring, minus the gaps on either side.
+    static var nameWidth: CGFloat {
+        AppController.expandedBarWidth - AppController.barWidth + ringLead - nameGap - nameInset
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: AppController.indicatorSpacing) {
             // Identity is the session, so a reorder travels on the spring
             // rather than snapping rings into each other's places.
             ForEach(model.rows) { row in
-                HStack(spacing: 0) {
-                    if showsNames {
-                        // The name is data, not text of ours: it is what the
-                        // user called the session, so it bypasses the string
-                        // lookup (`verbatim`) and needs no catalogue entry.
-                        Text(verbatim: row.label)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.85))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            // Held to a ring's height: a taller line would
-                            // push the rings apart the moment the bar opens.
-                            .frame(height: AppController.indicatorSize)
-                            .padding(.leading, Self.nameInset)
-                            .transition(.opacity)
-                    }
-                    // Centred in the collapsed bar's width, the same column
-                    // the mascot sits in, so opening the bar moves no ring.
-                    SessionIndicator(phase: row.phase,
-                                     // Only a beating row sees the counter move. A
-                                     // still row's trigger never changes on the
-                                     // beat, so it plays nothing and draws nothing.
-                                     beat: row.beats ? model.beat : 0)
-                        .frame(width: AppController.barWidth)
-                }
+                // Centred in the collapsed bar's width, the same column the
+                // mascot sits in.
+                SessionIndicator(phase: row.phase,
+                                 // Only a beating row sees the counter move. A
+                                 // still row's trigger never changes on the
+                                 // beat, so it plays nothing and draws nothing.
+                                 beat: row.beats ? model.beat : 0)
+                    .frame(width: AppController.barWidth)
+                    .overlay(alignment: .leading) { name(row.label) }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
             if model.overflow > 0 {
@@ -65,7 +62,30 @@ struct SessionColumn: View {
         }
         .animation(MascotPose.transition, value: model.rows)
         .animation(MascotPose.transition, value: model.overflow)
-        .animation(.easeOut(duration: 0.15), value: showsNames)
+    }
+
+    /// The name, right-aligned against its ring. Its own animation, keyed on
+    /// `showsNames` alone: it comes in just after the body starts to open and
+    /// goes out before the body starts to close, so no name is ever drawn
+    /// past the body's edge.
+    private func name(_ label: String) -> some View {
+        // The name is data, not text of ours: it is what the user called the
+        // session, so it bypasses the string lookup (`verbatim`) and needs no
+        // catalogue entry.
+        Text(verbatim: label)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.white.opacity(0.85))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(width: Self.nameWidth, alignment: .trailing)
+            // Held to a ring's height: a taller line would push the rings
+            // apart the moment the bar opens.
+            .frame(height: AppController.indicatorSize)
+            .offset(x: Self.ringLead - Self.nameGap - Self.nameWidth
+                        + (showsNames ? 0 : Self.nameTravel))
+            .opacity(showsNames ? 1 : 0)
+            .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
+            .allowsHitTesting(false)
     }
 }
 

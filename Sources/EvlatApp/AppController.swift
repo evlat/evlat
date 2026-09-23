@@ -36,6 +36,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
     private let hover = HoverIntent()
+    /// Whether the body is drawn open. Apart from the window's size on purpose:
+    /// the window is resized when nothing on screen moves, and this is what the
+    /// eye sees move (`openBar`, `closeBar`).
+    let barState = BarState()
     private var poller: Timer?
     private var screenObserver: NSObjectProtocol?
     /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
@@ -381,13 +385,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
                              expandedSize: Self.expandedSize,
                              anchorLength: Self.anchorLength,
                              trackingInset: Self.shadowGutter,
-                             content: BarBody(edge: .right, mascot: mascot, rows: sessionRows))
+                             content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
+                                              state: barState))
         panel.show()
         self.panel = panel
-        // The panel resizes; `BarBody` reads the new width and names the rows.
-        // Nothing else carries "open": no published flag, no second owner of
-        // the size.
-        hover.onChange = { [weak panel] open in panel?.setExpanded(open) }
+        hover.onChange = { [weak self] open in
+            if open { self?.openBar() } else { self?.closeBar() }
+        }
 
         // A phase forced from the environment, for looking at one state and for
         // measuring it. Set before the first refresh so the mascot never shows
@@ -556,6 +560,31 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Opening, in two steps that never share a frame. The window grows first,
+    /// while the body is still drawn closed: everything is laid out from the
+    /// screen edge, so the wider window changes nothing on screen. Only on the
+    /// next turn does the body open, and then the animation has one thing to
+    /// move — the body's inner edge — rather than every view the window's new
+    /// origin shifted. In one frame the rings slid across the bar.
+    private func openBar() {
+        panel?.setExpanded(true)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.hover.isOpen else { return }
+            self.barState.isOpen = true
+        }
+    }
+
+    /// Closing, the same two steps backwards: the body closes on screen, and
+    /// the window shrinks only once it has, when nothing is left to move. A
+    /// hover that comes back in the meantime finds the window still wide.
+    private func closeBar() {
+        barState.isOpen = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + BarMotion.bodyDuration) { [weak self] in
+            guard let self, !self.hover.isOpen, !self.barState.isOpen else { return }
+            self.panel?.setExpanded(false)
+        }
+    }
+
     /// Menu-bar entry. The bar's own right-click menu and the settings window
     /// come with the first job that needs user text, together with the string
     /// catalogue; this menu's titles are diagnostics until then.
@@ -598,40 +627,55 @@ public final class AppController: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Whether the bar's body is drawn open. Its own model so the one view that
+/// reads it — `BarBody` — is the only one rebuilt when it flips.
+@MainActor
+final class BarState: ObservableObject {
+    @Published var isOpen = false
+}
+
+/// The bar's motion, in one place.
+enum BarMotion {
+    /// How long the body takes to open or close. The window waits this long
+    /// before it shrinks behind a closing body.
+    static let bodyDuration: TimeInterval = 0.24
+    static let body = Animation.smooth(duration: bodyDuration)
+    /// Names arrive once the body has made some room, and leave at once.
+    static let namesIn = Animation.easeOut(duration: 0.18).delay(0.07)
+    static let namesOut = Animation.easeIn(duration: 0.1)
+}
+
 /// The bar's body: the shape, the mascot at its head, the session rings
 /// beneath it, and — while the bar is open — their names.
 ///
-/// **It observes no model itself.** The mascot and the column each observe
-/// their own, so a gaze write re-evaluates the mascot and not the rings, and a
-/// beat re-evaluates the rings and not the mascot. What it does read is its
-/// own width: the panel is the sole owner of the size, and "open" is nothing
-/// more than the window being wider than the collapsed bar.
+/// **Everything is laid out from the screen edge.** The shape, the mascot and
+/// the rings hang off the trailing side, so the window growing or shrinking
+/// moves none of them; opening is the shape's inner edge travelling left and
+/// the names fading in. The mascot and the column observe their own models,
+/// so a gaze write re-evaluates the mascot alone and a beat the rings alone.
 struct BarBody: View {
     var edge: BarPanel.Edge = .right
     let mascot: MascotModel
     let rows: SessionRowsModel
+    @ObservedObject var state: BarState
 
     var body: some View {
-        GeometryReader { proxy in
-            let open = proxy.size.width > AppController.collapsedSize.width + 0.5
-            ZStack(alignment: .topTrailing) {
-                shapeLayer
-                // Pinned to the screen edge at the bar's collapsed width. The
-                // window grows leftward; centred, the mascot and the rings
-                // would slide into the middle of the open bar and the gaze
-                // anchor (`maxX − barWidth / 2`) would point at empty space.
-                VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
-                    // The mascot is the head of the bar; the rings line up beneath.
-                    MascotView(model: mascot, size: AppController.mascotSize)
-                        .frame(width: AppController.barWidth)
-                    SessionColumn(model: rows, showsNames: open)
-                }
-                .padding(.top, AppController.mascotTopInset)
+        ZStack(alignment: .topTrailing) {
+            shapeLayer
+                .frame(width: state.isOpen ? AppController.expandedBarWidth : AppController.barWidth)
+                .frame(maxHeight: .infinity)
+                .animation(BarMotion.body, value: state.isOpen)
+            VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
+                // The mascot is the head of the bar; the rings line up beneath.
+                MascotView(model: mascot, size: AppController.mascotSize)
+                    .frame(width: AppController.barWidth)
+                SessionColumn(model: rows, showsNames: state.isOpen)
             }
-            // The window is wider than the bar so the inner-edge shadow has
-            // somewhere to fall; everything inside sits in the bar's own width.
-            .padding(.leading, AppController.shadowGutter)
+            .padding(.top, AppController.mascotTopInset)
         }
+        // Pinned to the screen edge. What is left on the other side is the
+        // shadow's room, and the open body's.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
     private var shapeLayer: some View {
