@@ -74,8 +74,9 @@ public struct SessionRow: Equatable, Identifiable {
 /// between, the same argument `003` made for the mascot's clips.
 @MainActor
 public final class SessionRowsModel: ObservableObject {
-    /// Slots under the mascot at most. The bar's length follows the slots in
-    /// use (`AppController.barLength`); past this the last slot becomes a count.
+    /// Slots under the mascot on the **closed** bar at most. Its length
+    /// follows the slots in use (`AppController.barLength`); past this the
+    /// last slot becomes a count. The open list has no such cap (`006`).
     public static let slotCount = 4
 
     /// Seconds between beats. Near the clips' own tempo (a `working` clip
@@ -83,9 +84,9 @@ public final class SessionRowsModel: ObservableObject {
     /// notes.
     public static let beatInterval: TimeInterval = 3.0
 
+    /// Every live session, in the column's order: the open list draws all
+    /// of them, the closed bar a prefix (`closedRows`).
     @Published public private(set) var rows: [SessionRow] = []
-    /// How many live sessions have no slot. Zero means no overflow slot.
-    @Published public private(set) var overflow: Int = 0
     /// The beat counter. Indicators hang their gesture on a **change** of this
     /// value (`keyframeAnimator(trigger:)`), so it only ever counts up.
     @Published public private(set) var beat: Int = 0
@@ -115,9 +116,31 @@ public final class SessionRowsModel: ObservableObject {
 
     public var isBeating: Bool { clock != nil }
 
-    /// Rings drawn plus the count's slot, if there is one: what the bar's
-    /// length is fitted to.
-    public var slotsInUse: Int { rows.count + (overflow > 0 ? 1 : 0) }
+    /// Whether the open list is drawn, handed in by `AppController`. Not
+    /// published: nothing observes it; it only tells the clock which rows are
+    /// drawn.
+    public private(set) var isOpen = false
+
+    /// The closed bar's rings: the slot rule over the whole list.
+    public var closedRows: [SessionRow] { Self.slots(rows).rows }
+    /// How many live sessions have no slot on the closed bar. Zero means no
+    /// overflow slot.
+    public var overflow: Int { Self.slots(rows).overflow }
+
+    /// Rings drawn on the closed bar plus the count's slot, if there is one:
+    /// what the closed bar's length is fitted to.
+    public var slotsInUse: Int { closedRows.count + (overflow > 0 ? 1 : 0) }
+
+    /// The rows in the view tree: the whole list open, the prefix closed.
+    private var drawnRows: [SessionRow] { isOpen ? rows : closedRows }
+
+    /// The clock follows the drawn rows, so opening can start it and closing
+    /// stop it: a working row hidden in the count beats for no one.
+    public func setOpen(_ open: Bool) {
+        guard open != isOpen else { return }
+        isOpen = open
+        setBeating(drawnRows.contains(where: \.beats))
+    }
 
     /// ≤ `slotCount` rows: all of them. More: the first `slotCount - 1` and a
     /// count of the rest, so the overflow takes the last slot and the bar
@@ -151,7 +174,10 @@ public final class SessionRowsModel: ObservableObject {
     /// Writes what is drawn, and only when it changed.
     ///
     /// Compared field by field, the same deadband `AppController.refresh`
-    /// keeps for the mascot: a moving stamp never reaches `@Published`.
+    /// keeps for the mascot: a moving stamp never reaches `@Published`. The
+    /// whole list is compared, so a phase change on a row the closed bar
+    /// counts but does not draw is written too — on purpose: the open list
+    /// draws it.
     ///
     /// **The order within a phase is the order rows entered it, newest
     /// first.** The session that just finished leads the idle rows instead of
@@ -181,12 +207,11 @@ public final class SessionRowsModel: ObservableObject {
             return ea != eb ? ea > eb : a.entity < b.entity
         }
         let numbers = Self.duplicateNumbers(signals)
-        let next = Self.slots(ordered.map {
+        let next = ordered.map {
             SessionRow($0, duplicate: numbers[$0.entity] ?? 0, enteredAt: enteredAt[$0.entity])
-        })
-        if rows != next.rows { rows = next.rows }
-        if overflow != next.overflow { overflow = next.overflow }
-        setBeating(next.rows.contains(where: \.beats))
+        }
+        if rows != next { rows = next }
+        setBeating(drawnRows.contains(where: \.beats))
     }
 
     /// The clock follows one Bool and nothing else. A change in the list that

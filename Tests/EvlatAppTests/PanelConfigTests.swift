@@ -184,6 +184,77 @@ final class PanelConfigTests: XCTestCase {
                            + AppController.indicatorTopGap, accuracy: 0.5)
     }
 
+    /// The whole list did not grow the window: the envelope is still the
+    /// tallest card hanging from the fourth slot, and the longest open list
+    /// fits inside it. Growing it would put the window's foot at the Dock
+    /// (`006` context → Ekran payı).
+    func testTheEnvelopeDidNotGrowForTheWholeList() {
+        XCTAssertEqual(AppController.envelopeSize.height,
+                       AppController.slotTop(SessionRowsModel.slotCount - 1)
+                           + AppController.detailCardMaxHeight + AppController.shadowGutter,
+                       accuracy: 0.5)
+        XCTAssertLessThanOrEqual(AppController.openLength(rows: 1000),
+                                 AppController.envelopeSize.height)
+    }
+
+    /// The open body hugs the list up to seven and a half rows, and the
+    /// summary line under it; no sessions, no list and no summary.
+    func testTheOpenLengthFollowsTheRowsUpToSevenAndAHalf() {
+        let pitch = AppController.indicatorSize + AppController.indicatorSpacing
+        XCTAssertEqual(AppController.openLength(rows: 0), AppController.barLength(slots: 0),
+                       accuracy: 0.5, "no sessions: the head alone")
+        let one = AppController.openLength(rows: 1)
+        let seven = AppController.openLength(rows: 7)
+        let eight = AppController.openLength(rows: 8)
+        XCTAssertEqual(seven - one, 6 * pitch, accuracy: 0.5)
+        XCTAssertEqual(eight - seven, pitch / 2, accuracy: 0.5, "the eighth row is half drawn")
+        XCTAssertEqual(AppController.openLength(rows: 20), eight, accuracy: 0.5, "and no more")
+        XCTAssertEqual(AppController.listHeight(rows: 20), 7.5 * pitch, accuracy: 0.5)
+        XCTAssertGreaterThan(one, AppController.barLength(slots: 1), "room for the summary")
+        // The same room closes the far end as opens the head.
+        XCTAssertEqual(one - AppController.summaryTop(rows: 1) - AppController.summaryHeight,
+                       AppController.mascotTopInset, accuracy: 0.5)
+    }
+
+    /// `refresh` keeps both lengths; the hover area takes the one drawn.
+    func testTheHoverAreaTakesTheOpenLengthWhileOpen() throws {
+        final class Stub: Provider {
+            let id = "stub"
+            var signals: [Signal] = []
+            func currentSignals() -> [Signal] { signals }
+        }
+        let controller = AppController()
+        let provider = Stub()
+        controller.registry.register(provider)
+        let panel = controller.installPanel()
+        defer { panel.close() }
+        let view = try XCTUnwrap(panel.contentView)
+        func bodyHeight() throws -> CGFloat {
+            view.updateTrackingAreas()
+            let owned = view.trackingAreas.filter { $0.owner is BarHostingView.PointerRelay }
+            return try XCTUnwrap(owned.first).rect.height
+        }
+        provider.signals = (0..<20).map { index in
+            Signal(provider: "stub", entity: "e\(index)", phase: .idle, label: "s\(index)",
+                   fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
+        }
+        controller.refresh()
+        XCTAssertEqual(controller.barState.length, AppController.anchorLength, accuracy: 0.5,
+                       "closed: three rings and the count, as before")
+        XCTAssertEqual(controller.barState.openLength, AppController.openLength(rows: 20), accuracy: 0.5)
+        XCTAssertEqual(try bodyHeight(), controller.barState.length, accuracy: 0.5)
+
+        controller.openBar()
+        XCTAssertEqual(try bodyHeight(), controller.barState.openLength, accuracy: 0.5)
+        provider.signals.removeLast(15)
+        controller.refresh()
+        XCTAssertEqual(try bodyHeight(), AppController.openLength(rows: 5), accuracy: 0.5,
+                       "a shorter list while open")
+        controller.closeBar()
+        XCTAssertEqual(try bodyHeight(), AppController.barLength(slots: 4), accuracy: 0.5,
+                       "closed: three rings and the count")
+    }
+
     /// The head is where today's full bar put it: the envelope's extra length
     /// hangs below, so the mascot and the gaze anchor (read off `maxX`/`maxY`)
     /// land on the same screen point as the 4-slot window did.

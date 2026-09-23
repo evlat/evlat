@@ -165,22 +165,72 @@ final class SlotGeometryTests: XCTestCase {
         let top0 = AppController.slotTop(0)
         let size = AppController.indicatorSize
         let half = AppController.indicatorSpacing / 2
-        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: top0 + size / 2, width: width), 0)
-        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: top0 - half + 0.5, width: width), 0)
-        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: top0 + size + half + 0.5, width: width), 1,
+        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: top0 + size / 2, width: width, rows: 4), 0)
+        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: top0 - half + 0.5, width: width, rows: 4), 0)
+        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: top0 + size + half + 0.5, width: width, rows: 4), 1,
                        "no dead band between two rows")
-        XCTAssertNil(AppController.slot(fromEdge: 10, fromTop: top0 - half - 1, width: width),
+        XCTAssertNil(AppController.slot(fromEdge: 10, fromTop: top0 - half - 1, width: width, rows: 4),
                      "over the mascot is no row")
-        XCTAssertNil(AppController.slot(fromEdge: width + 1, fromTop: top0 + 5, width: width),
+        XCTAssertNil(AppController.slot(fromEdge: width + 1, fromTop: top0 + 5, width: width, rows: 4),
                      "past the drawn body is no row")
-        XCTAssertEqual(AppController.slot(fromEdge: width + 1, fromTop: top0 + 5, width: 200), 0,
+        XCTAssertEqual(AppController.slot(fromEdge: width + 1, fromTop: top0 + 5, width: 200, rows: 4), 0,
                        "the open body's name is the row too")
         let last = SessionRowsModel.slotCount - 1
         XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: AppController.slotTop(last) + 1,
-                                          width: width), last)
+                                          width: width, rows: 4), last)
         XCTAssertNil(AppController.slot(fromEdge: 10,
                                         fromTop: AppController.slotTop(last) + size + half + 1,
-                                        width: width))
+                                        width: width, rows: 4))
+    }
+
+    /// The open list holds every row, but only a row whose ring is wholly in
+    /// the visible area answers to the cursor: with twenty rows the eighth is
+    /// half drawn and takes no hover; past the last row is nothing.
+    func testOnlyAWhollyVisibleRowIsASlot() {
+        let width: CGFloat = 200
+        func centre(_ index: Int) -> CGFloat {
+            AppController.slotTop(index) + AppController.indicatorSize / 2
+        }
+        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: centre(6), width: width, rows: 20), 6,
+                       "the seventh row is whole")
+        XCTAssertNil(AppController.slot(fromEdge: 10, fromTop: AppController.slotTop(7) + 2,
+                                        width: width, rows: 20),
+                     "the eighth is half drawn: no hover")
+        XCTAssertEqual(AppController.slot(fromEdge: 10, fromTop: centre(4), width: width, rows: 8), 4,
+                       "past the old four slots")
+        XCTAssertNil(AppController.slot(fromEdge: 10, fromTop: centre(3), width: width, rows: 3),
+                     "past the last row")
+
+        XCTAssertTrue(AppController.isRowVisible(0, rows: 20))
+        XCTAssertTrue(AppController.isRowVisible(6, rows: 20))
+        XCTAssertFalse(AppController.isRowVisible(7, rows: 20))
+        XCTAssertTrue(AppController.isRowVisible(6, rows: 7), "seven rows: all whole")
+        XCTAssertFalse(AppController.isRowVisible(3, rows: 3))
+        XCTAssertFalse(AppController.isRowVisible(-1, rows: 3))
+    }
+
+    /// The card opens level with its row, but never so low that its tallest
+    /// form would leave the window: from the lower rows on, its top is held
+    /// at a constant — not the measured height, which moves with each tool
+    /// event and would make the top jump. The held card still spans the row.
+    func testTheCardIsHeldInsideTheEnvelope() {
+        let limit = AppController.envelopeSize.height - AppController.shadowGutter
+            - AppController.detailCardMaxHeight
+        for slot in 0..<SessionRowsModel.slotCount {
+            XCTAssertEqual(BarBody.cardTop(slot: slot),
+                           max(0, AppController.slotTop(slot) - BarBody.cardLead), accuracy: 0.5,
+                           "the first four rows are where they were")
+        }
+        for slot in 0..<20 {
+            let top = BarBody.cardTop(slot: slot)
+            XCTAssertLessThanOrEqual(top + AppController.detailCardMaxHeight + AppController.shadowGutter,
+                                     AppController.envelopeSize.height + 0.5, "slot \(slot)")
+        }
+        XCTAssertEqual(BarBody.cardTop(slot: 6), limit, accuracy: 0.5, "held")
+        for slot in 0...6 {
+            XCTAssertLessThanOrEqual(BarBody.cardTop(slot: slot), AppController.slotTop(slot),
+                                     "the card starts no lower than its row")
+        }
     }
 }
 
@@ -356,7 +406,7 @@ final class SelectionTests: XCTestCase {
                           y: AppController.slotTop(1) + 5)
         XCTAssertTrue(card.contains(gap))
         XCTAssertNil(AppController.slot(fromEdge: bounds.maxX - gap.x, fromTop: gap.y,
-                                        width: openWidth))
+                                        width: openWidth, rows: 4))
 
         // The way there: body → gap/card is one "inside".
         let relay = BarHostingView.PointerRelay()
@@ -511,6 +561,57 @@ final class SelectionTests: XCTestCase {
         let fresh = try XCTUnwrap(scheduled.last)
         fresh.item.perform()
         XCTAssertEqual(controller.barState.selected, "a")
+    }
+
+    /// A selected row pushed below the visible area has nothing on screen for
+    /// the card to hang from: the card closes, as it does for a row that left.
+    func testASelectedRowThatIsNoLongerVisibleClosesItsCard() {
+        let controller = AppController()
+        let provider = Stub()
+        controller.registry.register(provider)
+        controller.installPanel()
+        defer { controller.panel?.close() }
+        let names = (0..<12).map { String(format: "e%02d", $0) }
+        provider.signals = names.map { signal($0) }
+        controller.refresh()
+        controller.select("e00")
+        XCTAssertEqual(controller.barState.selectedSlot, 0)
+
+        // Eight others start working and lead the list: "e00" drops to the
+        // ninth row, past the visible area.
+        provider.signals = names.enumerated().map { index, name in
+            signal(name, (1...8).contains(index) ? .working : .idle)
+        }
+        controller.refresh()
+        XCTAssertEqual(controller.sessionRows.rows.firstIndex { $0.entity == "e00" }, 8)
+        XCTAssertNil(controller.barState.selected, "not visible: the card closes")
+        XCTAssertNil(controller.barState.selectedSlot)
+    }
+
+    /// The fifth row and beyond are reachable now: hover over a row past the
+    /// old four slots brings its card.
+    func testARowPastTheOldSlotsTakesTheCard() throws {
+        var scheduled: [(delay: TimeInterval, item: DispatchWorkItem)] = []
+        let controller = AppController()
+        controller.rowSwitch = RowSwitch { scheduled.append(($0, $1)) }
+        let provider = Stub()
+        controller.registry.register(provider)
+        let panel = controller.installPanel()
+        defer { panel.close() }
+        provider.signals = (0..<20).map { signal(String(format: "e%02d", $0)) }
+        controller.refresh()
+        controller.openBar()
+        let frame = panel.frame
+        controller.pointerMoved(CGPoint(x: frame.maxX - AppController.barWidth / 2,
+                                        y: frame.maxY - AppController.slotTop(6)
+                                            - AppController.indicatorSize / 2))
+        XCTAssertEqual(controller.barState.hovered, "e06")
+        try XCTUnwrap(scheduled.last).item.perform()
+        XCTAssertEqual(controller.barState.selectedSlot, 6)
+
+        controller.pointerMoved(CGPoint(x: frame.maxX - AppController.barWidth / 2,
+                                        y: frame.maxY - AppController.slotTop(7) - 2))
+        XCTAssertNil(controller.barState.hovered, "the half row takes no hover")
     }
 
     func testEvlatSelectIsReadFromTheEnvironment() {

@@ -70,8 +70,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The widest the open bar gets: the longest name `SessionColumn` draws.
     /// The body opens only as far as the names it holds need
     /// (`BarState.openWidth`); the window keeps room for this and the card
-    /// beside it (`envelopeSize`). Opening does not change the length — the
-    /// rows are the same rows, only named.
+    /// beside it (`envelopeSize`). Opening lengthens the body too: the open
+    /// list holds every session (`openLength`).
     public static let expandedBarWidth = SessionColumn.openWidth(namesWidth: SessionColumn.nameMaxWidth)
 
     /// The mascot sits at the head of the bar.
@@ -116,24 +116,65 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public static let anchorLength = barLength(slots: SessionRowsModel.slotCount)
 
     /// The top of a slot's ring, from the window's top. The card opens level
-    /// with its row, so the lowest slot is where the tallest card hangs from.
+    /// with its row, held inside the window (`BarBody.cardTop`).
     public static func slotTop(_ index: Int) -> CGFloat {
-        mascotTopInset + mascotSize + indicatorTopGap
-            + CGFloat(index) * (indicatorSize + indicatorSpacing)
+        mascotTopInset + mascotSize + indicatorTopGap + CGFloat(index) * rowPitch
     }
 
-    /// The slot under a point, measured from the docked edge and the window's
-    /// top; `nil` over the mascot, past the last slot or past `width` — the
-    /// drawn body's. A slot is its ring and half the gap each side, so the
-    /// cursor moving down the column is always over some row. Rows are
-    /// fixed-height (`SessionColumn`), so this is the whole geometry.
-    static func slot(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat) -> Int? {
-        guard x >= 0, x <= width else { return nil }
-        let pitch = indicatorSize + indicatorSpacing
-        let offset = y - (slotTop(0) - indicatorSpacing / 2)
-        guard offset >= 0 else { return nil }
-        let index = Int(offset / pitch)
-        return index < SessionRowsModel.slotCount ? index : nil
+    /// One row: its ring and one gap.
+    public static var rowPitch: CGFloat { indicatorSize + indicatorSpacing }
+
+    /// How many rows the open list shows at most. The half row is the sign
+    /// that more follow (`006`, user's decision) — there is no scroll bar,
+    /// arrow or count.
+    public static let visibleRows: CGFloat = 7.5
+
+    /// The open list's visible area starts half a gap above the first ring,
+    /// so every row — ring, name and status line — is whole inside it.
+    public static var listTop: CGFloat { slotTop(0) - indicatorSpacing / 2 }
+
+    /// The visible area's height: every row up to seven and a half.
+    public static func listHeight(rows: Int) -> CGFloat {
+        min(CGFloat(max(0, rows)), visibleRows) * rowPitch
+    }
+
+    /// The summary line under the list ("20 sessions · 3 working").
+    public static let summaryGap: CGFloat = 8
+    public static let summaryHeight: CGFloat = 12
+    public static func summaryTop(rows: Int) -> CGFloat {
+        listTop + listHeight(rows: rows) + summaryGap
+    }
+
+    /// The open body's length: the head, the visible list and the summary,
+    /// closed by the same margin as the head opens with. Kept apart from the
+    /// closed length (`BarState.openLength`), which is unchanged.
+    public static func openLength(rows: Int) -> CGFloat {
+        guard rows > 0 else { return barLength(slots: 0) }
+        return summaryTop(rows: rows) + summaryHeight + mascotTopInset
+    }
+
+    /// Whether a row of the open list counts as on screen: its ring wholly in
+    /// the visible area. Only such a row takes hover or keeps a card; the
+    /// half row does not. `offset` is how far the list is scrolled (`0` until
+    /// scrolling comes). The one place this is decided.
+    static func isRowVisible(_ index: Int, rows: Int, offset: CGFloat = 0) -> Bool {
+        guard index >= 0, index < rows else { return false }
+        let top = slotTop(index) - offset
+        return top >= listTop - 0.5 && top + indicatorSize <= listTop + listHeight(rows: rows) + 0.5
+    }
+
+    /// The row under a point, measured from the docked edge and the window's
+    /// top; `nil` over the mascot, outside the visible list, over a row not
+    /// wholly visible or past `width` — the drawn body's. A slot is its ring
+    /// and half the gap each side, so the cursor moving down the column is
+    /// always over some row. Rows are fixed-height (`SessionColumn`), so
+    /// this is the whole geometry.
+    static func slot(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat,
+                     rows: Int, offset: CGFloat = 0) -> Int? {
+        guard x >= 0, x <= width,
+              y >= listTop, y < listTop + listHeight(rows: rows) else { return nil }
+        let index = Int((y + offset - listTop) / rowPitch)
+        return isRowVisible(index, rows: rows, offset: offset) ? index : nil
     }
 
     /// The detail card beside the open list (`phase-4` draws it). Fixed here
@@ -162,8 +203,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The window, built once and never resized: as wide as the widest open
     /// list with the card beside it (and the gap between) and the card's
     /// shadow, and as long as the
-    /// full bar or the tallest card hanging from the lowest slot (and its
-    /// shadow), whichever reaches further. The head is still laid out from
+    /// full bar or the tallest card hanging from the fourth slot (and its
+    /// shadow), whichever reaches further. The whole open list fits in it
+    /// (`openLength`); a card further down is held at this floor
+    /// (`BarBody.cardTop`) rather than growing the window toward the Dock. The head is still laid out from
     /// `anchorLength`, so everything past the full bar hangs below it,
     /// transparent: clicks fall through, hover is only the drawn part.
     ///
@@ -687,27 +730,34 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.
-        let before = (sessionRows.rows, sessionRows.overflow)
+        let before = sessionRows.rows
         sessionRows.update(from: snapshot.ordered)
-        if before.0 != sessionRows.rows || before.1 != sessionRows.overflow {
-            // The body follows the column — drawn, not the window. The hover
-            // area is AppKit's and hears nothing from SwiftUI, so it is told
-            // the same length.
+        if before != sessionRows.rows {
+            // The body follows the column — drawn, not the window. Both
+            // lengths are kept, the closed and the open one; the hover area is
+            // AppKit's and hears nothing from SwiftUI, so it is told the one
+            // drawn.
             let length = Self.barLength(slots: sessionRows.slotsInUse)
+            let openLength = Self.openLength(rows: sessionRows.rows.count)
+            var lengthChanged = false
             if abs(barState.length - length) > 0.5 {
                 barState.length = length
-                panel?.setVisibleLength(length)
+                lengthChanged = true
             }
-            // The open body is as wide as the names it holds.
-            let width = SessionColumn.openWidth(
-                namesWidth: SessionColumn.namesWidth(sessionRows.rows))
+            if abs(barState.openLength - openLength) > 0.5 {
+                barState.openLength = openLength
+                lengthChanged = true
+            }
+            if lengthChanged { panel?.setVisibleLength(barState.drawnLength) }
+            // The open body is as wide as the names it holds, and the summary.
+            let width = SessionColumn.openWidth(rows: sessionRows.rows)
             if abs(barState.openWidth - width) > 0.5 {
                 barState.openWidth = width
                 if barState.isOpen { panel?.setVisibleWidth(width) }
             }
             // The rows' trace on stderr, for the same reason as the line above.
             let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
-            NSLog("Evlat: rows [%@] +%ld", rows.joined(separator: ", "), sessionRows.overflow)
+            NSLog("Evlat: rows [%@] closed +%ld", rows.joined(separator: ", "), sessionRows.overflow)
             // The mark and a pending switch are keyed by session, and only a
             // move re-reads them. A column that reorders under a still cursor
             // would otherwise leave the mark on a row the cursor has left and
@@ -719,12 +769,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     /// The card follows the selected session through the same snapshot: its
     /// slot when the column reorders, its facts when they move. Nothing is
-    /// written without a selection. A session that has no drawn row any more
-    /// — gone, or pushed into the "+N" count — has nothing for the card to
-    /// hang from, so the card closes.
+    /// written without a selection. A session that has no visible row any
+    /// more — gone, or pushed below the visible list — has nothing for the
+    /// card to hang from, so the card closes.
     private func syncSelection(_ signals: [Signal]) {
         guard let selected = barState.selected else { return }
-        guard let slot = sessionRows.rows.firstIndex(where: { $0.entity == selected }) else {
+        let rows = sessionRows.rows
+        guard let slot = rows.firstIndex(where: { $0.entity == selected }),
+              Self.isRowVisible(slot, rows: rows.count) else {
             deselect()
             return
         }
@@ -770,7 +822,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private func row(atScreen point: CGPoint) -> String? {
         guard let frame = panel?.frame, barState.isOpen,
               let slot = Self.slot(fromEdge: frame.maxX - point.x, fromTop: frame.maxY - point.y,
-                                   width: barState.openWidth),
+                                   width: barState.openWidth, rows: sessionRows.rows.count),
               sessionRows.rows.indices.contains(slot) else { return nil }
         return sessionRows.rows[slot].entity
     }
@@ -811,11 +863,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
         if barState.isOpen { closeBar() }
     }
 
-    /// Opening is the drawn body widening; the window is already wide. The
-    /// hover area takes the open width at once, so the cursor following the
-    /// body's edge as it travels is still over the bar.
+    /// Opening is the drawn body widening and lengthening; the window is
+    /// already big enough. The hover area takes the open size at once, so
+    /// the cursor following the body's edge as it travels is still over the
+    /// bar.
     func openBar() {
         panel?.setVisibleWidth(barState.openWidth)
+        panel?.setVisibleLength(barState.openLength)
+        sessionRows.setOpen(true)
         barState.isOpen = true
     }
 
@@ -826,7 +881,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         deselect()
         if barState.hovered != nil { barState.hovered = nil }
         barState.isOpen = false
+        sessionRows.setOpen(false)
         panel?.setVisibleWidth(Self.barWidth)
+        panel?.setVisibleLength(barState.length)
     }
 
     /// Menu-bar entry. A diagnostic, not a user surface: a real tray menu, the
@@ -879,9 +936,16 @@ final class BarState: ObservableObject {
     /// How far the body opens: as wide as the names need, within
     /// `SessionColumn`'s bounds.
     @Published var openWidth = SessionColumn.openWidth(namesWidth: 0)
-    /// How long the body is drawn along the edge, from the head. The window
-    /// is longer; this is the part that is bar.
+    /// How long the closed body is drawn along the edge, from the head. The
+    /// window is longer; this is the part that is bar.
     @Published var length = AppController.barLength(slots: 0)
+    /// How long the open body is: the whole list up to seven and a half rows
+    /// and the summary. Kept beside `length` the way `openWidth` is kept
+    /// beside the closed width, so `refresh` never writes the open body back
+    /// to the closed length.
+    @Published var openLength = AppController.openLength(rows: 0)
+    /// The length the body is drawn at now.
+    var drawnLength: CGFloat { isOpen ? openLength : length }
     /// The session whose card is up, by entity; `nil`: no card.
     @Published var selected: String?
     /// The row under the cursor on the open list, marked before its card
@@ -959,8 +1023,16 @@ struct BarBody: View {
     /// row's name.
     static let cardLead: CGFloat = 16
 
+    /// Level with the row, but never so low that the tallest card would leave
+    /// the window: the top is held at a **constant** floor, not at the card's
+    /// measured height — that moves with every tool event and the top would
+    /// jump. The held card still spans the lower rows.
     static func cardTop(slot: Int) -> CGFloat {
-        max(0, AppController.slotTop(slot) - cardLead)
+        min(max(0, AppController.slotTop(slot) - cardLead), cardTopLimit)
+    }
+
+    static var cardTopLimit: CGFloat {
+        AppController.envelopeSize.height - AppController.shadowGutter - AppController.detailCardMaxHeight
     }
 
     var body: some View {
@@ -969,21 +1041,24 @@ struct BarBody: View {
             // The shadow and the inner edge are the shape's, so they shorten
             // with it.
             shapeLayer
+                // Opening widens and lengthens it on one curve: the change of
+                // `isOpen` is the innermost, so it wins over the length's.
                 .frame(width: state.isOpen ? state.openWidth : AppController.barWidth,
-                       height: state.length)
+                       height: state.drawnLength)
                 .animation(BarMotion.body, value: state.isOpen)
                 .animation(BarMotion.body, value: state.openWidth)
                 .animation(BarMotion.length, value: state.length)
+                .animation(BarMotion.length, value: state.openLength)
             card
-            VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
-                // The mascot is the head of the bar; the rings line up beneath.
-                MascotView(model: mascot, size: AppController.mascotSize)
-                    .frame(width: AppController.barWidth)
-                SessionColumn(model: rows, showsNames: state.isOpen,
-                              selected: state.selected, hovered: state.hovered,
-                              openWidth: state.openWidth)
-            }
-            .padding(.top, AppController.mascotTopInset)
+            // The mascot is the head of the bar; the rings line up beneath,
+            // their visible area starting half a gap above the first ring.
+            MascotView(model: mascot, size: AppController.mascotSize)
+                .frame(width: AppController.barWidth)
+                .padding(.top, AppController.mascotTopInset)
+            SessionColumn(model: rows, showsNames: state.isOpen,
+                          selected: state.selected, hovered: state.hovered,
+                          openWidth: state.openWidth)
+                .padding(.top, AppController.listTop)
         }
         // Pinned to the screen edge and the head. What is left on the other
         // side is the shadow's room, the open body's and the card's; what is

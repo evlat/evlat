@@ -1,16 +1,20 @@
 import SwiftUI
 import EvlatCore
 
-/// The column under the mascot: one ring per slot, and the overflow count;
-/// on the open bar, each ring's session name to its left.
+/// The column under the mascot. Closed: one ring per slot, and the overflow
+/// count. Open: every session, each ring's name to its left, in a visible
+/// area of at most seven and a half rows, and the summary line under it.
 ///
 /// It observes `SessionRowsModel` and nothing else — the mascot's gaze moves
 /// with the cursor, and a column that observed the mascot would be rebuilt at
 /// that rate for nothing. Whether names show is handed in by `BarBody`.
 ///
-/// **Opening moves no ring.** A name is an overlay on its ring, not a sibling
-/// in a row: it takes no room, so the ring's place is the same open or closed.
-/// The name comes in from the ring's side, a few points toward it, and fades.
+/// **Opening moves no ring that was drawn.** A name is an overlay on its ring,
+/// not a sibling in a row: it takes no room, so the ring's place is the same
+/// open or closed. The name comes in from the ring's side, a few points toward
+/// it, and fades. The fourth slot is the one exception: the count gives way to
+/// the fourth ring, and the rows below it are uncovered by the area growing
+/// with the body.
 ///
 /// Under each name, the status line ("working · 14 min"). It is in the tree
 /// **only while the bar is open**, and so is the minute tick that redraws it:
@@ -53,6 +57,20 @@ struct SessionColumn: View {
     /// The ring's leading edge inside the bar's width (it is centred there).
     static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
 
+    /// How far the bottom edge of an overflowing list fades into the body.
+    static let fadeHeight: CGFloat = 24
+
+    /// The open body's width for these rows: the names', or the summary
+    /// line's if that is wider, within the window's room.
+    static func openWidth(rows: [SessionRow], in lang: String = L10n.language) -> CGFloat {
+        let names = openWidth(namesWidth: namesWidth(rows, in: lang))
+        guard let text = SummaryLine.text(rows: rows, in: lang) else { return names }
+        // Measured in the bolder of the two weights, so it holds either way.
+        let summary = ceil((text as NSString).size(withAttributes: [.font: SummaryLine.boldFont]).width)
+            + ringLead + nameInset
+        return min(max(names, summary), AppController.expandedBarWidth)
+    }
+
     /// The width the names need, as drawn: the longest one, capped at
     /// `nameMaxWidth`.
     static func namesWidth(_ labels: [String]) -> CGFloat {
@@ -92,11 +110,71 @@ struct SessionColumn: View {
         return max(minOpenWidth, width)
     }
 
+    /// The visible area's height: the open list's, or the closed slots'.
+    private var clipHeight: CGFloat {
+        showsNames ? AppController.listHeight(rows: model.rows.count)
+            : CGFloat(model.slotsInUse) * AppController.rowPitch
+    }
+
+    /// Whether the list runs past the visible area: its bottom edge fades.
+    private var overflowsOpen: Bool {
+        showsNames && CGFloat(model.rows.count) > AppController.visibleRows
+    }
+
+    /// The column in a container as wide as the open body, cut at the visible
+    /// area. Cut here, not on the column's own frame: that is the ring's
+    /// width and would cut the names and the ground. The cut grows on the
+    /// body's own curve, so while opening no ring or name is drawn past the
+    /// body. The summary hangs from the cut's bottom edge and travels with it.
     var body: some View {
+        rowsColumn
+            // Opening and closing change which rows are in the tree; they
+            // arrive and leave uncovered by the cut, not on a transition of
+            // their own. The names keep their own animation, set further in.
+            .transaction(value: showsNames) { $0.animation = nil }
+            .padding(.top, AppController.indicatorSpacing / 2)
+            .frame(width: openWidth, height: clipHeight, alignment: .topTrailing)
+            .clipped()
+            .overlay(alignment: .bottom) { fade }
+            .overlay(alignment: .bottomTrailing) { summary }
+            .animation(BarMotion.body, value: showsNames)
+            .animation(BarMotion.length, value: model.rows.count)
+    }
+
+    /// The body's own black, from clear: over an opaque body this is the same
+    /// as fading the rows out, without rendering the whole list offscreen for
+    /// a mask. Clear of the body's hairline on the inner edge.
+    @ViewBuilder private var fade: some View {
+        if overflowsOpen {
+            LinearGradient(colors: [BarPalette.body.opacity(0), BarPalette.body],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: Self.fadeHeight)
+                .padding(.leading, 1)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// "20 sessions · 3 working" under the list, trailing with the rings.
+    /// With the names: it comes and goes with them.
+    @ViewBuilder private var summary: some View {
+        if let text = SummaryLine.attributed(rows: model.rows) {
+            Text(text)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(height: AppController.summaryHeight)
+                .padding(.trailing, Self.ringLead)
+                .offset(y: AppController.summaryGap + AppController.summaryHeight)
+                .opacity(showsNames ? 1 : 0)
+                .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var rowsColumn: some View {
         VStack(alignment: .trailing, spacing: AppController.indicatorSpacing) {
             // Identity is the session, so a reorder travels on the spring
             // rather than snapping rings into each other's places.
-            ForEach(model.rows) { row in
+            ForEach(showsNames ? model.rows : model.closedRows) { row in
                 // Centred in the collapsed bar's width, the same column the
                 // mascot sits in.
                 SessionIndicator(phase: row.phase, source: row.source,
@@ -110,10 +188,9 @@ struct SessionColumn: View {
                     .overlay(alignment: .leading) { label(row) }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
-            if model.overflow > 0 {
-                // A number, not a word, so it needs no catalogue entry. It
-                // stays in the ring column open or closed — moving it into
-                // the name column was one more thing travelling on hover.
+            if !showsNames, model.overflow > 0 {
+                // A number, not a word, so it needs no catalogue entry. The
+                // closed bar's alone: the open list draws every row instead.
                 Text("+\(model.overflow)")
                     .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .monospacedDigit()
@@ -207,6 +284,55 @@ struct SessionColumn: View {
             }
         }
             .frame(width: Self.nameMaxWidth, alignment: .trailing)
+    }
+}
+
+/// The line under the open list: "20 sessions · 3 working". Working is the
+/// `working` phase alone — a waiting row asks for the user and says so on its
+/// own line. With nothing working the second part is gone; with no session
+/// there is no line.
+///
+/// **The keys are literals here**, listed in `keys`, so a test reaches all of
+/// them.
+enum SummaryLine {
+    static let lineKey = "summary.line"
+    static let sessionsOneKey = "summary.sessions.one"
+    static let sessionsKey = "summary.sessions"
+    static let workingKey = "summary.working"
+    static var keys: [String] { [lineKey, sessionsOneKey, sessionsKey, workingKey] }
+
+    static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+    static let boldFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+
+    static func parts(rows: [SessionRow], in lang: String) -> (sessions: String, working: String?)? {
+        guard !rows.isEmpty else { return nil }
+        let sessions = rows.count == 1
+            ? L10n.t(sessionsOneKey, in: lang)
+            : L10n.t(sessionsKey, ["count": String(rows.count)], in: lang)
+        let working = rows.filter { $0.phase == .working }.count
+        return (sessions, working == 0 ? nil : L10n.t(workingKey, ["count": String(working)], in: lang))
+    }
+
+    static func text(rows: [SessionRow], in lang: String = L10n.language) -> String? {
+        guard let parts = parts(rows: rows, in: lang) else { return nil }
+        guard let working = parts.working else { return parts.sessions }
+        return L10n.t(lineKey, ["sessions": parts.sessions, "working": working], in: lang)
+    }
+
+    /// The line as drawn: grey, the working part white and bolder — the
+    /// same split the names make.
+    static func attributed(rows: [SessionRow], in lang: String = L10n.language) -> AttributedString? {
+        guard let parts = parts(rows: rows, in: lang), let line = text(rows: rows, in: lang) else {
+            return nil
+        }
+        var out = AttributedString(line)
+        out.font = Font(font)
+        out.foregroundColor = BarPalette.textSecondary
+        if let working = parts.working, let range = out.range(of: working, options: .backwards) {
+            out[range].font = Font(boldFont)
+            out[range].foregroundColor = BarPalette.textPrimary
+        }
+        return out
     }
 }
 

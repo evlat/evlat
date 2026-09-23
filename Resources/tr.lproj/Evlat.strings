@@ -23,3 +23,8 @@
 "card.go" = "Oturuma git";
 "card.closed" = "{app} kapalı";
 "card.notFound" = "Terminal bulunamadı";
+
+"summary.line" = "{sessions} · {working}";
+"summary.sessions.one" = "1 oturum";
+"summary.sessions" = "{count} oturum";
+"summary.working" = "{count} çalışıyor";

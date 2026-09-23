@@ -35,6 +35,30 @@ final class L10nTests: XCTestCase {
         }
     }
 
+    func testEveryKeyTheSummaryAsksForExists() {
+        for lang in ["en", "tr"] {
+            for key in SummaryLine.keys {
+                XCTAssertNotNil(catalog.tables[lang]?[key], "\(lang) has no \(key)")
+            }
+        }
+    }
+
+    /// "{n} sessions · {k} working": with nothing working the second part is
+    /// gone, with no session the line is.
+    func testTheSummaryLine() {
+        func rows(_ phases: [Phase]) -> [SessionRow] {
+            phases.enumerated().map { SessionRow(entity: "e\($0.offset)", label: "x", phase: $0.element) }
+        }
+        XCTAssertNil(SummaryLine.text(rows: [], in: "tr"))
+        XCTAssertEqual(SummaryLine.text(rows: rows([.idle, .idle, .review]), in: "tr"), "3 oturum")
+        XCTAssertEqual(SummaryLine.text(rows: rows([.idle]), in: "en"), "1 session")
+        XCTAssertEqual(SummaryLine.text(rows: rows([.working, .waiting, .idle]), in: "en"),
+                       "3 sessions · 1 working", "waiting is not working")
+        XCTAssertEqual(SummaryLine.text(rows: rows(Array(repeating: .idle, count: 17)
+                                                   + [.working, .working, .working]), in: "tr"),
+                       "20 oturum · 3 çalışıyor")
+    }
+
     func testAMissingKeyReturnsItself() {
         XCTAssertEqual(L10n.t("no.such.key", in: "tr"), "no.such.key")
     }

@@ -263,6 +263,37 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertTrue(model.isBeating)
     }
 
+    /// The model holds the whole ordered list; the closed bar's three rings
+    /// and count are derived from it, by the same slot rule as before.
+    func testTheModelHoldsEveryRowAndTheClosedPrefixIsDerived() {
+        let model = SessionRowsModel()
+        model.update(from: (0..<6).map { signal("s\($0)", .idle) })
+        XCTAssertEqual(model.rows.map(\.entity), (0..<6).map { "s\($0)" })
+        XCTAssertEqual(model.closedRows.map(\.entity), ["s0", "s1", "s2"])
+        XCTAssertEqual(model.overflow, 3)
+        XCTAssertEqual(model.slotsInUse, SessionRowsModel.slotCount)
+
+        model.update(from: (0..<4).map { signal("s\($0)", .idle) })
+        XCTAssertEqual(model.closedRows.count, 4, "four fit")
+        XCTAssertEqual(model.overflow, 0)
+    }
+
+    /// The clock follows what is drawn. Closed, a working row behind the
+    /// count is not drawn and must not keep the clock running; open, it is.
+    /// `failed` outranks `working`, so three of them fill the closed rings.
+    func testTheClockFollowsTheDrawnRowsOnly() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("a", .failed), signal("b", .failed), signal("c", .failed),
+                            signal("d", .working), signal("e", .idle)])
+        XCTAssertEqual(model.closedRows.map(\.entity), ["a", "b", "c"])
+        XCTAssertFalse(model.isBeating, "the working row is in the count: nothing drawn beats")
+
+        model.setOpen(true)
+        XCTAssertTrue(model.isBeating, "open, the working row is drawn")
+        model.setOpen(false)
+        XCTAssertFalse(model.isBeating)
+    }
+
     // MARK: - The gesture table
 
     /// Still phases play nothing, beating ones play a gesture shorter than the
