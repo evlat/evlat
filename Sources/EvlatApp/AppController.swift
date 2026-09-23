@@ -49,6 +49,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// the window is resized when nothing on screen moves, and this is what the
     /// eye sees move (`openBar`, `closeBar`).
     let barState = BarState()
+    /// How far the open list is scrolled. Apart from `barState` so a scroll
+    /// re-evaluates the list and the card, not the whole body.
+    let listScroll = ListScroll()
     private var poller: Timer?
     private var screenObserver: NSObjectProtocol?
     /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
@@ -153,10 +156,36 @@ public final class AppController: NSObject, NSApplicationDelegate {
         return summaryTop(rows: rows) + summaryHeight + mascotTopInset
     }
 
+    /// How far the open list scrolls: until the last row is whole, with half
+    /// a gap under it — the mirror of the top, where half a row shows above.
+    /// Zero while every row fits.
+    public static func maxScrollOffset(rows: Int) -> CGFloat {
+        max(0, CGFloat(max(0, rows)) * rowPitch - listHeight(rows: rows))
+    }
+
+    /// A notched wheel's step, per line it reports: AppKit's own default
+    /// (`NSScrollView.verticalLineScroll`). A trackpad reports points.
+    public static let lineScroll: CGFloat = 10
+
+    /// The least scrolling that shows a row whole: up to it if it is cut at
+    /// the top, down to it if it is cut at the bottom, nothing if it is in
+    /// sight. A row's slot is its ring and half the gap each side.
+    static func offset(revealing index: Int, rows: Int, from offset: CGFloat) -> CGFloat {
+        let top = CGFloat(index) * rowPitch
+        let height = listHeight(rows: rows)
+        var next = offset
+        if top < offset {
+            next = top
+        } else if top + rowPitch > offset + height {
+            next = top + rowPitch - height
+        }
+        return min(max(0, next), maxScrollOffset(rows: rows))
+    }
+
     /// Whether a row of the open list counts as on screen: its ring wholly in
     /// the visible area. Only such a row takes hover or keeps a card; the
-    /// half row does not. `offset` is how far the list is scrolled (`0` until
-    /// scrolling comes). The one place this is decided.
+    /// half row does not. `offset` is how far the list is scrolled. The one
+    /// place this is decided.
     static func isRowVisible(_ index: Int, rows: Int, offset: CGFloat = 0) -> Bool {
         guard index >= 0, index < rows else { return false }
         let top = slotTop(index) - offset
@@ -175,6 +204,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
               y >= listTop, y < listTop + listHeight(rows: rows) else { return nil }
         let index = Int((y + offset - listTop) / rowPitch)
         return isRowVisible(index, rows: rows, offset: offset) ? index : nil
+    }
+
+    /// Whether a point is over the open list's visible area: the body's
+    /// width, from the first row's half gap to the last visible one's. The
+    /// mascot, the summary line and the card are not the list.
+    static func isOverList(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat, rows: Int) -> Bool {
+        x >= 0 && x <= width && y >= listTop && y < listTop + listHeight(rows: rows)
     }
 
     /// The detail card beside the open list (`phase-4` draws it). Fixed here
@@ -332,6 +368,18 @@ public final class AppController: NSObject, NSApplicationDelegate {
         guard let raw = environment["EVLAT_SELECT"]?
             .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
         return raw.lowercased() == "first" ? .first : .entity(raw)
+    }
+
+    /// `EVLAT_SCROLL=<pt>` opens the list at launch scrolled this far (held
+    /// to the list's bounds) — for looking at and measuring the middle and
+    /// the end, the same pattern as `EVLAT_SELECT`. An unreadable value is
+    /// ignored.
+    nonisolated static func forcedScroll(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> CGFloat? {
+        guard let raw = environment["EVLAT_SCROLL"]?.trimmingCharacters(in: .whitespaces),
+              let value = Double(raw), value.isFinite else { return nil }
+        return CGFloat(value)
     }
 
     /// How long `--capture` listens when no number follows it.
@@ -540,6 +588,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         // The seam runs here: provider → Registry → MascotModel → view.
         refresh()
+        // Scrolled first, so a selection in sight at that offset stays there.
+        if let offset = Self.forcedScroll() {
+            hover.openNow()
+            if !barState.isOpen { openBar() }
+            listScroll.set(offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
+        }
         switch Self.forcedSelection() {
         case .first?: sessionRows.rows.first.map { select($0.entity) }
         case .entity(let entity)?: select(entity)
@@ -612,7 +666,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                              anchorLength: Self.anchorLength,
                              trackingInset: Self.shadowGutter,
                              content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
-                                              state: barState, detail: detail,
+                                              state: barState, scroll: listScroll, detail: detail,
                                               onCardFrame: { [weak self] rect in
                                                   self?.cardFrameChanged(rect)
                                               },
@@ -623,6 +677,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         panel.setVisibleLength(barState.length)
         panel.onClick = { [weak self] point in
             self?.click(at: point) ?? false
+        }
+        panel.onScroll = { [weak self] point, deltaY, precise in
+            self?.scroll(at: point, deltaY: deltaY, precise: precise) ?? false
         }
         rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
         self.panel = panel
@@ -749,6 +806,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 lengthChanged = true
             }
             if lengthChanged { panel?.setVisibleLength(barState.drawnLength) }
+            // A shorter list takes the offset back to its new end, so the
+            // last row stays whole and nothing is scrolled past.
+            listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
             // The open body is as wide as the names it holds, and the summary.
             let width = SessionColumn.openWidth(rows: sessionRows.rows)
             if abs(barState.openWidth - width) > 0.5 {
@@ -770,13 +830,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The card follows the selected session through the same snapshot: its
     /// slot when the column reorders, its facts when they move. Nothing is
     /// written without a selection. A session that has no visible row any
-    /// more — gone, or pushed below the visible list — has nothing for the
-    /// card to hang from, so the card closes.
+    /// more — gone, pushed out of the visible list or scrolled out of it —
+    /// has nothing for the card to hang from, so the card closes.
     private func syncSelection(_ signals: [Signal]) {
         guard let selected = barState.selected else { return }
-        let rows = sessionRows.rows
-        guard let slot = rows.firstIndex(where: { $0.entity == selected }),
-              Self.isRowVisible(slot, rows: rows.count) else {
+        guard let slot = visibleSlot(of: selected) else {
             deselect()
             return
         }
@@ -785,16 +843,28 @@ public final class AppController: NSObject, NSApplicationDelegate {
                       signal: signals.first { $0.entity == selected })
     }
 
-    /// Selects a drawn row's session: the row switch after its wait, or
+    /// The session's row index, if its row is wholly in sight.
+    private func visibleSlot(of entity: String) -> Int? {
+        let rows = sessionRows.rows
+        guard let slot = rows.firstIndex(where: { $0.entity == entity }),
+              Self.isRowVisible(slot, rows: rows.count, offset: listScroll.offset) else { return nil }
+        return slot
+    }
+
+    /// Selects a row's session: the row switch after its wait, or
     /// `EVLAT_SELECT` at launch. The list opens (at once, if it was closed),
-    /// the row is marked and the card comes up level with it.
-    /// Activates nothing — the app stays in the background, the panel is
-    /// never key.
+    /// the row is scrolled into sight if it is not — only `EVLAT_SELECT` can
+    /// name such a row; hover reaches visible rows alone — and the card comes
+    /// up level with it. Activates nothing — the app stays in the background,
+    /// the panel is never key.
     func select(_ entity: String) {
-        guard sessionRows.rows.contains(where: { $0.entity == entity }) else { return }
+        guard let index = sessionRows.rows.firstIndex(where: { $0.entity == entity }) else { return }
         rowSwitch.cancel()
         hover.openNow()
         if !barState.isOpen { openBar() }
+        let count = sessionRows.rows.count
+        listScroll.set(Self.offset(revealing: index, rows: count, from: listScroll.offset),
+                       max: Self.maxScrollOffset(rows: count))
         if barState.selected != entity { barState.selected = entity }
         syncSelection(registry.snapshot().ordered)
     }
@@ -818,11 +888,41 @@ public final class AppController: NSObject, NSApplicationDelegate {
         rowSwitch.hover(row, selected: barState.selected)
     }
 
+    /// A scroll over the bar, from the hosting view. Taken only over the
+    /// open list; anywhere else it goes on to SwiftUI.
+    func scroll(at point: CGPoint, deltaY: CGFloat, precise: Bool) -> Bool {
+        guard barState.isOpen, let bounds = panel?.contentView?.bounds,
+              Self.isOverList(fromEdge: bounds.maxX - point.x, fromTop: point.y - bounds.minY,
+                              width: barState.openWidth, rows: sessionRows.rows.count) else {
+            return false
+        }
+        scrolled(by: precise ? deltaY : deltaY * Self.lineScroll)
+        return true
+    }
+
+    /// Moves the list by `deltaY` — positive shows what is above, the way
+    /// `scrollingDeltaY` points — held to its bounds. Directly, no spring:
+    /// the list follows the finger. A card whose row leaves the sight
+    /// closes; then the still cursor's row is read again, so its mark and a
+    /// pending switch are for the row now under it. The snapshot is not read
+    /// again: scrolling reorders nothing, and a scan per event would read the
+    /// sessions directory at display rate.
+    func scrolled(by deltaY: CGFloat) {
+        guard barState.isOpen,
+              listScroll.set(listScroll.offset - deltaY,
+                             max: Self.maxScrollOffset(rows: sessionRows.rows.count)) else { return }
+        // Before the re-read: closing the card cancels the pending switch,
+        // and the re-read then schedules the one for the row under the cursor.
+        if let selected = barState.selected, visibleSlot(of: selected) == nil { deselect() }
+        pointerMoved(mouseLocation())
+    }
+
     /// The row under a screen point, while the bar is open.
     private func row(atScreen point: CGPoint) -> String? {
         guard let frame = panel?.frame, barState.isOpen,
               let slot = Self.slot(fromEdge: frame.maxX - point.x, fromTop: frame.maxY - point.y,
-                                   width: barState.openWidth, rows: sessionRows.rows.count),
+                                   width: barState.openWidth, rows: sessionRows.rows.count,
+                                   offset: listScroll.offset),
               sessionRows.rows.indices.contains(slot) else { return nil }
         return sessionRows.rows[slot].entity
     }
@@ -882,6 +982,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         if barState.hovered != nil { barState.hovered = nil }
         barState.isOpen = false
         sessionRows.setOpen(false)
+        listScroll.set(0, max: 0)
         panel?.setVisibleWidth(Self.barWidth)
         panel?.setVisibleLength(barState.length)
     }
@@ -1013,6 +1114,9 @@ struct BarBody: View {
     let mascot: MascotModel
     let rows: SessionRowsModel
     @ObservedObject var state: BarState
+    /// Handed down, not observed: only the list and the card's placing move
+    /// with a scroll.
+    var scroll = ListScroll()
     var detail = DetailModel()
     /// The card's drawn rectangle as it lays out, `nil` when it goes: the
     /// panel's second hover area is held to it.
@@ -1026,9 +1130,10 @@ struct BarBody: View {
     /// Level with the row, but never so low that the tallest card would leave
     /// the window: the top is held at a **constant** floor, not at the card's
     /// measured height — that moves with every tool event and the top would
-    /// jump. The held card still spans the lower rows.
-    static func cardTop(slot: Int) -> CGFloat {
-        min(max(0, AppController.slotTop(slot) - cardLead), cardTopLimit)
+    /// jump. The held card still spans the lower rows. A scrolled list takes
+    /// its row up by `offset`, and the card with it, point for point.
+    static func cardTop(slot: Int, offset: CGFloat = 0) -> CGFloat {
+        min(max(0, AppController.slotTop(slot) - offset - cardLead), cardTopLimit)
     }
 
     static var cardTopLimit: CGFloat {
@@ -1055,7 +1160,7 @@ struct BarBody: View {
             MascotView(model: mascot, size: AppController.mascotSize)
                 .frame(width: AppController.barWidth)
                 .padding(.top, AppController.mascotTopInset)
-            SessionColumn(model: rows, showsNames: state.isOpen,
+            SessionColumn(model: rows, scroll: scroll, showsNames: state.isOpen,
                           selected: state.selected, hovered: state.hovered,
                           openWidth: state.openWidth)
                 .padding(.top, AppController.listTop)
@@ -1078,9 +1183,23 @@ struct BarBody: View {
                 }
                 .onDisappear { onCardFrame(nil) }
                 .transition(BarMotion.cardTransition)
-                .padding(.top, Self.cardTop(slot: slot))
+                .modifier(CardPlacing(scroll: scroll, slot: slot))
                 .padding(.trailing, state.openWidth + AppController.detailCardGap)
                 .animation(BarMotion.length, value: slot)
+        }
+    }
+
+    /// The card's top, level with its row wherever the list is scrolled. A
+    /// modifier of its own so a scroll re-evaluates this padding and not the
+    /// body, the mascot or the card's content. The offset is written without
+    /// an animation and the spring above is keyed on the slot alone, so the
+    /// card follows the finger directly.
+    private struct CardPlacing: ViewModifier {
+        @ObservedObject var scroll: ListScroll
+        let slot: Int
+
+        func body(content: Content) -> some View {
+            content.padding(.top, BarBody.cardTop(slot: slot, offset: scroll.offset))
         }
     }
 

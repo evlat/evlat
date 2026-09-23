@@ -41,7 +41,10 @@ altında sıradaki ilk 3–4 oturumun halkası atımla oynuyor, fazlası "+N".
 `005`'in kodu bitti: hover'da bar sola açılıp adı ve "durum · süre"yi
 gösteriyor; bir satırın üstünde durunca listenin solunda detay kartı açılıyor
 (tık yok) ve [Oturuma git] oturumun terminalini izinsiz öne getiriyor
-(`SessionHost`). Metinler katalogda (`L10n`, `en`/`tr`). Güncel durum ve açık
+(`SessionHost`). `006`'nın kodu bitti: açık listede bütün oturumlar, en çok
+7,5 satır görünür, liste gövdenin içinde kayar (solmalar, kart satırı izler),
+altında özet satırı; kapalı bar "+N" ile aynı kaldı. Metinler katalogda
+(`L10n`, `en`/`tr`). Güncel durum ve açık
 kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
 
 ## Tuzaklar

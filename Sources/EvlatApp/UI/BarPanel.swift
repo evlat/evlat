@@ -42,6 +42,15 @@ public final class BarPanel: NSPanel {
         set { hosting.onClick = newValue }
     }
 
+    /// A scroll over the bar: where, in the content view's (flipped)
+    /// coordinates, `scrollingDeltaY`, and whether it is in points (a
+    /// trackpad) or lines (a notched wheel). `true` means it was taken;
+    /// otherwise SwiftUI gets it.
+    public var onScroll: ((CGPoint, CGFloat, Bool) -> Bool)? {
+        get { hosting.onScroll }
+        set { hosting.onScroll = newValue }
+    }
+
     private let hosting: BarHostingView
 
     /// - Parameter trackingInset: the transparent margin on the bar's inner
@@ -352,6 +361,19 @@ public final class BarHostingView: NSHostingView<AnyView> {
         let point = convert(event.locationInWindow, from: nil)
         if onClick?(point) == true { return }
         super.mouseDown(with: event)
+    }
+
+    /// See `BarPanel.onScroll`.
+    var onScroll: ((CGPoint, CGFloat, Bool) -> Bool)?
+
+    /// The wheel reaches this panel although it is never key and the app is
+    /// never active (`006`, context.md → Kanıt), and taking it activates
+    /// nothing. Where it counts — over the open list — is decided from
+    /// geometry by the controller, like a click.
+    public override func scrollWheel(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if onScroll?(point, event.scrollingDeltaY, event.hasPreciseScrollingDeltas) == true { return }
+        super.scrollWheel(with: event)
     }
 
     private let relay = PointerRelay()

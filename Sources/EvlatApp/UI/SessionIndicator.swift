@@ -21,6 +21,8 @@ import EvlatCore
 /// behind an opacity, like the name, the tick would run on the closed bar too.
 struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
+    /// How far the open list is scrolled (`AppController.scrolled`).
+    @ObservedObject var scroll = ListScroll()
     var showsNames = false
     /// The session whose card is up: its row gets a faint ground.
     var selected: String? = nil
@@ -57,8 +59,20 @@ struct SessionColumn: View {
     /// The ring's leading edge inside the bar's width (it is centred there).
     static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
 
-    /// How far the bottom edge of an overflowing list fades into the body.
+    /// How far an edge of an overflowing list fades into the body.
     static let fadeHeight: CGFloat = 24
+
+    /// How strongly each edge fades at this offset: the top once anything is
+    /// scrolled past it, the bottom while anything is left below — each
+    /// growing over its first `fadeHeight` points (less on a short list, so
+    /// it is whole at the other end), so neither pops in as the finger starts
+    /// or reaches an end. Derived, never stored.
+    static func fades(offset: CGFloat, maxOffset: CGFloat) -> (top: Double, bottom: Double) {
+        guard maxOffset > 0 else { return (0, 0) }
+        let span = min(fadeHeight, maxOffset)
+        func ramp(_ distance: CGFloat) -> Double { Double(min(1, max(0, distance / span))) }
+        return (ramp(offset), ramp(maxOffset - offset))
+    }
 
     /// The open body's width for these rows: the names', or the summary
     /// line's if that is wider, within the window's room.
@@ -116,9 +130,12 @@ struct SessionColumn: View {
             : CGFloat(model.slotsInUse) * AppController.rowPitch
     }
 
-    /// Whether the list runs past the visible area: its bottom edge fades.
-    private var overflowsOpen: Bool {
-        showsNames && CGFloat(model.rows.count) > AppController.visibleRows
+    /// The open list's offset; the closed column never scrolls.
+    private var offset: CGFloat { showsNames ? scroll.offset : 0 }
+
+    private var fadeStrength: (top: Double, bottom: Double) {
+        guard showsNames else { return (0, 0) }
+        return Self.fades(offset: offset, maxOffset: AppController.maxScrollOffset(rows: model.rows.count))
     }
 
     /// The column in a container as wide as the open body, cut at the visible
@@ -133,23 +150,31 @@ struct SessionColumn: View {
             // their own. The names keep their own animation, set further in.
             .transaction(value: showsNames) { $0.animation = nil }
             .padding(.top, AppController.indicatorSpacing / 2)
+            // Scrolling moves the rows inside the cut, directly: the offset
+            // is written with no animation and the ones below are keyed on
+            // other values, so the list follows the finger.
+            .offset(y: -offset)
             .frame(width: openWidth, height: clipHeight, alignment: .topTrailing)
             .clipped()
-            .overlay(alignment: .bottom) { fade }
+            .overlay(alignment: .top) { fade(.top, strength: fadeStrength.top) }
+            .overlay(alignment: .bottom) { fade(.bottom, strength: fadeStrength.bottom) }
             .overlay(alignment: .bottomTrailing) { summary }
             .animation(BarMotion.body, value: showsNames)
             .animation(BarMotion.length, value: model.rows.count)
     }
 
-    /// The body's own black, from clear: over an opaque body this is the same
-    /// as fading the rows out, without rendering the whole list offscreen for
-    /// a mask. Clear of the body's hairline on the inner edge.
-    @ViewBuilder private var fade: some View {
-        if overflowsOpen {
+    /// The body's own black, from clear toward the edge: over an opaque body
+    /// this is the same as fading the rows out, without rendering the whole
+    /// list offscreen for a mask. Clear of the body's hairline on the inner
+    /// edge.
+    @ViewBuilder private func fade(_ edge: VerticalEdge, strength: Double) -> some View {
+        if strength > 0 {
             LinearGradient(colors: [BarPalette.body.opacity(0), BarPalette.body],
-                           startPoint: .top, endPoint: .bottom)
+                           startPoint: edge == .top ? .bottom : .top,
+                           endPoint: edge == .top ? .top : .bottom)
                 .frame(height: Self.fadeHeight)
                 .padding(.leading, 1)
+                .opacity(strength)
                 .allowsHitTesting(false)
         }
     }
