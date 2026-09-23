@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import EvlatCore
 @testable import EvlatApp
 
 /// The panel's **configuration** is tested in code, not by eye.
@@ -61,6 +62,74 @@ final class PanelConfigTests: XCTestCase {
         panel.setExpanded(false)
         XCTAssertEqual(panel.frame.width, Self.collapsed.width, accuracy: 0.5)
         XCTAssertEqual(panel.frame.maxX, before.maxX, accuracy: 0.5)
+    }
+
+    // MARK: - Length: the body hugs its content
+
+    /// An empty bar is the mascot with room around it; each slot adds one ring
+    /// and its spacing; the count takes a slot like a ring. A fixed length
+    /// left the lower half of the bar empty.
+    func testTheBarLengthFollowsTheSlotsInUse() {
+        let empty = AppController.barLength(slots: 0)
+        XCTAssertEqual(empty, AppController.mascotTopInset * 2 + AppController.mascotSize,
+                       accuracy: 0.5)
+        let one = AppController.barLength(slots: 1)
+        XCTAssertEqual(one - empty,
+                       AppController.indicatorTopGap + AppController.indicatorSize, accuracy: 0.5)
+        let two = AppController.barLength(slots: 2)
+        XCTAssertEqual(two - one,
+                       AppController.indicatorSize + AppController.indicatorSpacing, accuracy: 0.5)
+        XCTAssertEqual(AppController.anchorLength,
+                       AppController.barLength(slots: SessionRowsModel.slotCount), accuracy: 0.5)
+    }
+
+    /// The count's slot is part of the column the length is fitted to.
+    func testTheCountTakesASlot() {
+        let model = SessionRowsModel()
+        XCTAssertEqual(model.slotsInUse, 0)
+        let signals = (0..<6).map { index in
+            Signal(provider: "stub", entity: "e\(index)", phase: .idle, label: "s\(index)",
+                   fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
+        }
+        model.update(from: signals)
+        XCTAssertEqual(model.slotsInUse, SessionRowsModel.slotCount,
+                       "three rings and the count")
+    }
+
+    /// The length changes at the far end. The head — the mascot and the gaze
+    /// anchor, read off `maxY` — does not move, open or closed.
+    func testChangingTheLengthKeepsTheHead() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let panel = makePanel(edge: .right)
+        panel.reposition(on: screen)
+        let before = panel.frame
+
+        panel.setLength(300, animated: false)
+        XCTAssertEqual(panel.frame.height, 300, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxY, before.maxY, accuracy: 0.5, "the head stays")
+        XCTAssertEqual(panel.frame.maxX, before.maxX, accuracy: 0.5)
+
+        panel.setExpanded(true)
+        XCTAssertEqual(panel.frame.height, 300, accuracy: 0.5, "opening keeps the length")
+        panel.setLength(120, animated: false)
+        XCTAssertEqual(panel.frame.width, Self.expanded.width, accuracy: 0.5,
+                       "a length change while open stays open")
+        XCTAssertEqual(panel.frame.maxY, before.maxY, accuracy: 0.5)
+        panel.setExpanded(false)
+        XCTAssertEqual(panel.frame.height, 120, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxY, before.maxY, accuracy: 0.5)
+    }
+
+    /// With an anchor the head sits where a bar of the anchor's length,
+    /// centred on the edge, would start — whatever the bar's own length.
+    func testTheAnchorPlacesTheHead() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let panel = BarPanel(edge: .right, size: CGSize(width: 56, height: 86),
+                             anchorLength: 200, trackingInset: Self.gutter,
+                             content: EmptyView())
+        panel.reposition(on: screen)
+        XCTAssertEqual(panel.frame.maxY, screen.frame.midY + 100, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.height, 86, accuracy: 0.5)
     }
 
     /// A screen change while open lays the bar out at the size it has, not at

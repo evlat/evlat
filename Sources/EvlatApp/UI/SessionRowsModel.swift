@@ -47,8 +47,8 @@ public struct SessionRow: Equatable, Identifiable {
 /// between, the same argument `003` made for the mascot's clips.
 @MainActor
 public final class SessionRowsModel: ObservableObject {
-    /// Slots under the mascot. The bar's height does not change with the
-    /// number of sessions; past this the last slot becomes a count.
+    /// Slots under the mascot at most. The bar's length follows the slots in
+    /// use (`AppController.barLength`); past this the last slot becomes a count.
     public static let slotCount = 4
 
     /// Seconds between beats. Near the clips' own tempo (a `working` clip
@@ -76,9 +76,13 @@ public final class SessionRowsModel: ObservableObject {
 
     public var isBeating: Bool { clock != nil }
 
+    /// Rings drawn plus the count's slot, if there is one: what the bar's
+    /// length is fitted to.
+    public var slotsInUse: Int { rows.count + (overflow > 0 ? 1 : 0) }
+
     /// ≤ `slotCount` rows: all of them. More: the first `slotCount - 1` and a
     /// count of the rest, so the overflow takes the last slot and the bar
-    /// never grows.
+    /// never grows past `slotCount` slots.
     nonisolated public static func slots(_ all: [SessionRow])
         -> (rows: [SessionRow], overflow: Int) {
         guard all.count > slotCount else { return (all, 0) }

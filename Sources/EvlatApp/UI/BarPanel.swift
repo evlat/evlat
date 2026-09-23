@@ -16,8 +16,14 @@ public final class BarPanel: NSPanel {
     public let edge: Edge
     /// The two sizes the bar takes. The panel is their only owner: the
     /// hosting view never resizes the window (see `sizingOptions` below).
-    public let collapsedSize: CGSize
-    public let expandedSize: CGSize
+    /// Their length along the docked edge follows the content (`setLength`).
+    public private(set) var collapsedSize: CGSize
+    public private(set) var expandedSize: CGSize
+    /// The length the bar's position is laid out for. The bar's head (the
+    /// mascot's end) sits where a bar of this length, centred on the edge,
+    /// would start, and the body hangs from it: the length changes with the
+    /// content, the head does not move. `nil` centres the bar as it is.
+    public let anchorLength: CGFloat?
     public private(set) var isExpanded = false
 
     /// Enter, exit and move over the visible bar. The hover's timing is not
@@ -33,10 +39,12 @@ public final class BarPanel: NSPanel {
     ///   side (the shadow gutter). The cursor over it sees nothing, so it is
     ///   left out of the hover area.
     public init(edge: Edge = .right, size: CGSize, expandedSize: CGSize? = nil,
+                anchorLength: CGFloat? = nil,
                 trackingInset: CGFloat = 0, content: some View) {
         self.edge = edge
         self.collapsedSize = size
         self.expandedSize = expandedSize ?? size
+        self.anchorLength = anchorLength
         self.hosting = BarHostingView(rootView: AnyView(content))
         hosting.edge = edge
         hosting.trackingInset = trackingInset
@@ -88,18 +96,22 @@ public final class BarPanel: NSPanel {
         let size = frame.size
         let origin: NSPoint
 
+        // The head: the top of a vertical bar, the leading end of a
+        // horizontal one, placed as if the bar were `anchorLength` long.
+        let vertical = (anchorLength ?? size.height) / 2
+        let horizontal = (anchorLength ?? size.width) / 2
         switch edge {
         case .right:
             origin = NSPoint(x: usable.maxX - size.width,
-                             y: full.midY - size.height / 2)
+                             y: full.midY + vertical - size.height)
         case .left:
             origin = NSPoint(x: usable.minX,
-                             y: full.midY - size.height / 2)
+                             y: full.midY + vertical - size.height)
         case .top:
-            origin = NSPoint(x: full.midX - size.width / 2,
+            origin = NSPoint(x: full.midX - horizontal,
                              y: usable.maxY - size.height)
         case .bottom:
-            origin = NSPoint(x: full.midX - size.width / 2,
+            origin = NSPoint(x: full.midX - horizontal,
                              y: usable.minY)
         }
         setFrameOrigin(origin)
@@ -115,6 +127,47 @@ public final class BarPanel: NSPanel {
         isExpanded = expanded
         let size = expanded ? expandedSize : collapsedSize
         setFrame(Self.frame(frame, resizedTo: size, pinning: edge), display: true)
+    }
+
+    /// Fits the bar's length along the docked edge to its content. The head
+    /// stays where it is — the mascot and the gaze anchor are laid out from
+    /// it — and the far end moves. Animated so the body slides rather than
+    /// jumps when a session arrives or leaves.
+    public func setLength(_ length: CGFloat, animated: Bool = true) {
+        let vertical = edge == .right || edge == .left
+        let current = vertical ? collapsedSize.height : collapsedSize.width
+        guard abs(current - length) > 0.5 else { return }
+        if vertical {
+            collapsedSize.height = length
+            expandedSize.height = length
+        } else {
+            collapsedSize.width = length
+            expandedSize.width = length
+        }
+        let size = isExpanded ? expandedSize : collapsedSize
+        let next = Self.frame(frame, lengthenedTo: size, keepingHeadOf: edge)
+        guard animated else { return setFrame(next, display: true) }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(next, display: true)
+        }
+    }
+
+    /// The frame after a length change that keeps the bar's head: the top of
+    /// a vertical bar, the leading end of a horizontal one.
+    nonisolated static func frame(_ old: NSRect, lengthenedTo size: CGSize,
+                                  keepingHeadOf edge: Edge) -> NSRect {
+        switch edge {
+        case .right: return NSRect(x: old.maxX - size.width, y: old.maxY - size.height,
+                                   width: size.width, height: size.height)
+        case .left: return NSRect(x: old.minX, y: old.maxY - size.height,
+                                  width: size.width, height: size.height)
+        case .top: return NSRect(x: old.minX, y: old.maxY - size.height,
+                                 width: size.width, height: size.height)
+        case .bottom: return NSRect(x: old.minX, y: old.minY,
+                                    width: size.width, height: size.height)
+        }
     }
 
     /// The frame after a resize that keeps the docked edge where it is and the

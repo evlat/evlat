@@ -44,7 +44,6 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The visible bar's width. It leaves here once `003` brings the geometry
     /// abstraction; for now one constant in one place is enough.
     public static let barWidth: CGFloat = 54
-    public static let barHeight: CGFloat = 260
 
     /// Transparent margin on the inner side of the window.
     ///
@@ -55,13 +54,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// the shape is inset by the same amount.
     public static let shadowGutter: CGFloat = 18
 
-    public static let collapsedSize = CGSize(width: barWidth + shadowGutter, height: barHeight)
+    public static let collapsedSize = CGSize(width: barWidth + shadowGutter,
+                                             height: barLength(slots: 0))
 
     /// The bar's width while the cursor is over it: room for a session's name
-    /// to the left of its ring. The height does not change — the rows are the
-    /// same rows, only named.
+    /// to the left of its ring. Opening does not change the length — the rows
+    /// are the same rows, only named.
     public static let expandedBarWidth: CGFloat = 200
-    public static let expandedSize = CGSize(width: expandedBarWidth + shadowGutter, height: barHeight)
+    public static let expandedSize = CGSize(width: expandedBarWidth + shadowGutter,
+                                            height: barLength(slots: 0))
 
     /// The mascot sits at the head of the bar.
     public static let mascotSize: CGFloat = 34
@@ -69,12 +70,27 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// the gaze anchor, which otherwise drifts whenever the layout changes.
     public static let mascotTopInset: CGFloat = 26
 
-    /// The session rings under the mascot. Four slots of this size fit well
-    /// inside `barHeight`, so the bar never has to grow with the list.
+    /// The session rings under the mascot.
     public static let indicatorSize: CGFloat = 12
     public static let indicatorSpacing: CGFloat = 10
     /// From the mascot's bottom edge to the first ring.
     public static let indicatorTopGap: CGFloat = 18
+
+    /// The bar's length hugs what it holds: the mascot, and under it one slot
+    /// per ring (the "+N" count takes a slot of its own). The same margin
+    /// closes the far end as opens the head, so an empty bar is the mascot
+    /// with room around it and a full one is at most `slotCount` slots
+    /// longer. A fixed length left the lower half of the bar empty.
+    public static func barLength(slots: Int) -> CGFloat {
+        let head = mascotTopInset + mascotSize + mascotTopInset
+        guard slots > 0 else { return head }
+        let column = CGFloat(slots) * indicatorSize + CGFloat(slots - 1) * indicatorSpacing
+        return head + indicatorTopGap + column
+    }
+
+    /// Where the bar's head is laid out from: a full bar is centred on the
+    /// edge, a shorter one hangs from the same head, so the mascot never moves.
+    public static let anchorLength = barLength(slots: SessionRowsModel.slotCount)
 
     /// No directory watching, just polling.
     /// `DispatchSource.makeFileSystemObjectSource` needs an `open()` file
@@ -352,6 +368,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let panel = BarPanel(edge: .right,
                              size: Self.collapsedSize,
                              expandedSize: Self.expandedSize,
+                             anchorLength: Self.anchorLength,
                              trackingInset: Self.shadowGutter,
                              content: BarBody(edge: .right, mascot: mascot, rows: sessionRows))
         panel.show()
@@ -519,6 +536,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let before = (sessionRows.rows, sessionRows.overflow)
         sessionRows.update(from: snapshot.ordered)
         if before.0 != sessionRows.rows || before.1 != sessionRows.overflow {
+            // The body follows the column. Only on a change: the panel keeps
+            // its own deadband, but there is no reason to ask it every poll.
+            panel?.setLength(Self.barLength(slots: sessionRows.slotsInUse))
             // The rows' trace on stderr, for the same reason as the line above.
             let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
             NSLog("Evlat: rows [%@] +%ld", rows.joined(separator: ", "), sessionRows.overflow)
