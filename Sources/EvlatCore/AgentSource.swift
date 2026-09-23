@@ -17,6 +17,36 @@ public enum AgentSource: String, CaseIterable {
     /// synonym (`LocalAPI.dispatch`).
     public var hookPath: String { self == .claude ? "/hook" : "/hook/\(rawValue)" }
 
+    /// The events Evlat's command is installed on, byte for byte v1's lists.
+    /// `SubagentStart`/`SubagentStop` are left out on purpose: a subagent's tool
+    /// events already arrive on the parent's row (`proje.md` → tuzaklar).
+    /// Codex's `Interrupt` is there because Codex sends no `Stop` on an
+    /// interrupt; the adapter translates it (`CodexHookAdapter`).
+    public var hookEvents: [String] {
+        switch self {
+        case .claude:
+            return ["SessionStart", "SessionEnd", "UserPromptSubmit",
+                    "PreToolUse", "PostToolUse", "PostToolUseFailure",
+                    "PermissionRequest", "PermissionDenied",
+                    "Notification", "Stop", "StopFailure"]
+        case .codex:
+            return ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+                    "PermissionRequest", "Stop", "Interrupt"]
+        }
+    }
+
+    /// The agent's own directory under `home`. Its existence is what says the
+    /// agent is installed at all; the writer never creates it.
+    public func configDirectory(home: URL) -> URL {
+        home.appendingPathComponent(self == .claude ? ".claude" : ".codex")
+    }
+
+    /// The file the agent reads its hooks from. `home` has no default: a caller
+    /// that forgets to pass one must not land on the user's real settings.
+    public func settingsFile(home: URL) -> URL {
+        configDirectory(home: home).appendingPathComponent(self == .claude ? "settings.json" : "hooks.json")
+    }
+
     /// Translates a source's hook body into the canonical vocabulary. An event
     /// this adapter does not know is passed through **unchanged** rather than
     /// dropped: an unrecognised name stays visible downstream, where it matches

@@ -187,10 +187,11 @@ public enum LocalAPI {
 
     // MARK: - The installed command
 
-    /// The command that is **already installed** in the user's hook settings —
-    /// `~/.claude/settings.json` and `~/.codex/hooks.json` — and that this set
-    /// deliberately does not rewrite. It is recorded here so the contract has
-    /// an owner in code: the route, the port and the header names below are the
+    /// The command installed in the user's hook settings —
+    /// `~/.claude/settings.json` and `~/.codex/hooks.json` — and the only one
+    /// the app writes there (`HookSettings`). It is both the contract's owner in
+    /// code and the string that lands in the file, so v1's installs and v2's
+    /// read the same: the route, the port and the header names below are the
     /// same ones `dispatch` and `HTTPRequest` read, so a change to any of them
     /// changes this string and breaks the golden test that pins it
     /// (`LocalAPITests.testTheInstalledHookCommandIsUnchanged`).
