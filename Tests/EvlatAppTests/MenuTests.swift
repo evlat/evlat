@@ -10,7 +10,7 @@ import EvlatCore
 /// Every test that stores anything has its own suite, removed in `tearDown`:
 /// the user's domain (`dev.kalaomer.evlat`) is never read or written here.
 @MainActor
-final class MenuTests: XCTestCase, NSMenuDelegate {
+final class MenuTests: XCTestCase {
     private var suiteName = ""
     private var defaults: UserDefaults!
 
@@ -247,21 +247,17 @@ final class MenuTests: XCTestCase, NSMenuDelegate {
         }
     }
 
-    /// Menus that opened for real, through AppKit's tracking loop.
-    private var opened: [NSMenu] = []
-
-    /// Closes the menu as soon as it opens, so the tracking loop returns.
-    func menuWillOpen(_ menu: NSMenu) {
-        opened.append(menu)
-        menu.perform(#selector(NSMenu.cancelTrackingWithoutAnimation), with: nil, afterDelay: 0,
-                     inModes: [.eventTracking, .default, .modalPanel])
-    }
-
     /// The whole AppKit route, not only `menu(for:)`: a right click and a
-    /// ctrl-click handed to the panel open the mascot's menu (the hosting
-    /// view does not swallow them), a click beside it opens none, and the
-    /// app is not activated. Whether a user's real click activates is still
-    /// looked at by eye — no real event loop runs here.
+    /// ctrl-click handed to the panel reach the mascot's menu (the hosting
+    /// view does not swallow them), a click beside it asks for none, and the
+    /// app is not activated.
+    ///
+    /// The menu is built but not handed back: whatever `menu(for:)` returns
+    /// AppKit pops up on the user's screen, and a test must show nothing.
+    /// That `menu(for:)`'s menu is the one opened is AppKit's part
+    /// (`NSView.rightMouseDown`); which menu it returns, and where, is
+    /// `testARightClickOnTheMascotOpensTheMenu`'s. Whether a user's real click
+    /// activates is still looked at by eye — no real event loop runs here.
     func testTheClickReachesTheMenuThroughAppKit() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let controller = controller(rows: 2)
@@ -269,10 +265,10 @@ final class MenuTests: XCTestCase, NSMenuDelegate {
         defer { panel.close() }
         panel.show()
         let build = try XCTUnwrap(panel.onMenu)
-        panel.onMenu = { [unowned self] point in
-            let menu = build(point)
-            menu?.delegate = self
-            return menu
+        var asked: [NSMenu] = []
+        panel.onMenu = { point in
+            if let menu = build(point) { asked.append(menu) }
+            return nil
         }
         let view = try XCTUnwrap(panel.contentView)
         func send(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags, fromTop y: CGFloat) throws {
@@ -282,14 +278,22 @@ final class MenuTests: XCTestCase, NSMenuDelegate {
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
         }
+        // A click AppKit's route answers with no menu may be asked about
+        // twice (a ctrl-click is), so each click is judged on its own.
+        func asks(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags, fromTop y: CGFloat) throws -> [NSMenu] {
+            asked = []
+            try send(type, flags, fromTop: y)
+            return asked
+        }
         let middle = AppController.mascotTopInset + AppController.mascotSize / 2
-        try send(.rightMouseDown, [], fromTop: middle)
-        XCTAssertEqual(opened.count, 1, "a right click on the mascot")
-        try send(.leftMouseDown, .control, fromTop: middle)
-        XCTAssertEqual(opened.count, 2, "a ctrl-click on the mascot")
-        try send(.rightMouseDown, [], fromTop: AppController.slotTop(0) + 5)
-        XCTAssertEqual(opened.count, 2, "a ring opens nothing")
-        XCTAssertEqual(opened.first.map(titles)?.count, 3)
+        let right = try asks(.rightMouseDown, [], fromTop: middle)
+        XCTAssertFalse(right.isEmpty, "a right click on the mascot")
+        XCTAssertEqual(right.map { titles($0).count }, right.map { _ in 3 })
+        let control = try asks(.leftMouseDown, .control, fromTop: middle)
+        XCTAssertFalse(control.isEmpty, "a ctrl-click on the mascot")
+        XCTAssertEqual(control.map { titles($0).count }, control.map { _ in 3 })
+        XCTAssertEqual(try asks(.rightMouseDown, [], fromTop: AppController.slotTop(0) + 5), [],
+                       "a ring opens nothing")
         XCTAssertFalse(NSRunningApplication.current.isActive)
         XCTAssertFalse(panel.isKeyWindow)
     }
