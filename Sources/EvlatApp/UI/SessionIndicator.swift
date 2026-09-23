@@ -20,6 +20,8 @@ struct SessionColumn: View {
     var showsNames = false
     /// The session whose card is up: its row gets a faint ground.
     var selected: String? = nil
+    /// The row under the cursor: a fainter ground at once, before its card.
+    var hovered: String? = nil
     /// The open body's width, which the ground spans.
     var openWidth: CGFloat = SessionColumn.minOpenWidth
 
@@ -103,7 +105,8 @@ struct SessionColumn: View {
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0)
                     .frame(width: AppController.barWidth)
-                    .background(alignment: .trailing) { ground(selected: showsNames && row.entity == selected) }
+                    .background(alignment: .trailing) { ground(selected: showsNames && row.entity == selected,
+                                                        hovered: showsNames && row.entity == hovered) }
                     .overlay(alignment: .leading) { label(row) }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
@@ -129,16 +132,17 @@ struct SessionColumn: View {
     }
 
     /// Behind the selected row, as wide as the open body less an inset: the
-    /// row the card speaks for. Clicks are not taken here — the panel reads
-    /// them from geometry (`AppController.slot`).
-    private func ground(selected: Bool) -> some View {
+    /// row the card speaks for. Half as strong under the cursor alone, so a
+    /// row shows it answers to pointing before its card comes.
+    private func ground(selected: Bool, hovered: Bool) -> some View {
         RoundedRectangle(cornerRadius: 8)
             .fill(Color.white.opacity(0.09))
             .frame(width: max(0, openWidth - 2 * Self.groundInset),
                    height: Self.labelHeight + 6)
             .offset(x: -Self.groundInset)
-            .opacity(selected ? 1 : 0)
+            .opacity(selected ? 1 : hovered ? 0.5 : 0)
             .animation(BarMotion.namesOut, value: selected)
+            .animation(BarMotion.namesOut, value: hovered)
             .allowsHitTesting(false)
     }
 

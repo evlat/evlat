@@ -345,8 +345,9 @@ public final class BarHostingView: NSHostingView<AnyView> {
 
     /// Clicks are read from geometry, like the hovered row: the rows are laid
     /// out from constants (`AppController.slotTop`), and one route for both
-    /// means a click and a hover can never disagree about which row is where.
-    /// A click on no row goes on to SwiftUI.
+    /// means a click and a hover can never disagree about where anything is.
+    /// Today the only click taken is `[Go to session]`'s; any other goes on
+    /// to SwiftUI.
     public override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if onClick?(point) == true { return }

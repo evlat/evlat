@@ -39,8 +39,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
     private let hover = HoverIntent()
-    /// With the card open, when a cursor on another row takes the card there.
-    private let rowSwitch = RowSwitch()
+    /// When a cursor staying on a row brings its card up, or takes the card
+    /// there. A `var` so a test can hand it a scheduler before `installPanel`.
+    var rowSwitch = RowSwitch()
     /// Whether the body is drawn open. Apart from the window's size on purpose:
     /// the window is resized when nothing on screen moves, and this is what the
     /// eye sees move (`openBar`, `closeBar`).
@@ -327,7 +328,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let snapshot = registry.snapshot()
         print("provider: \(SessionsProvider.id)  ·  directory: \(sessionsDirectory().path)")
         print("live sessions: \(snapshot.ordered.count)  ·  aggregate: \(snapshot.aggregate.rawValue)  ·  hasLive: \(snapshot.hasLive)")
-        for signal in snapshot.ordered { print(listLine(signal)) }
+        // Resolved here too, so the lookup can be checked against the live
+        // sessions on this machine without opening a card.
+        for signal in snapshot.ordered {
+            print(listLine(signal, host: SessionHost.resolve(pid: signal.activity?.pid)))
+        }
         if !provider.unrecognizedStatuses.isEmpty {
             print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
         }
@@ -350,11 +355,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// One `--list` row. Separate so its privacy has a test: the row names the
     /// session and its phase, and **never** its `activity` — the tool, the
     /// command and the last reply stay on the card. `--list` output is what
-    /// ends up pasted into bug reports.
-    nonisolated static func listLine(_ signal: Signal) -> String {
+    /// ends up pasted into bug reports. The terminal is named, the pid is not.
+    nonisolated static func listLine(_ signal: Signal, host: SessionHost? = nil) -> String {
         let raw = signal.rawStatus.map { " (raw: \($0))" } ?? ""
         let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
-        return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")"
+        let terminal = host.map { "  → \($0.diagnostic)" } ?? ""
+        return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")\(terminal)"
     }
 
     /// The hook endpoint's own diagnostics.
@@ -470,7 +476,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let panel = installPanel()
         panel.show()
         hover.onChange = { [weak self] open in
-            if open { self?.openBar() } else { self?.closeBar() }
+            guard let self else { return }
+            if open {
+                self.openBar()
+                // A cursor that entered over a ring and stayed still sends no
+                // move after the bar opens: its row is read here instead.
+                self.pointerMoved(NSEvent.mouseLocation)
+            } else {
+                self.closeBar()
+            }
         }
 
         // A phase forced from the environment, for looking at one state and for
@@ -512,6 +526,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 // Off the bar is off every row: a switch still pending
                 // would otherwise select after the cursor has gone.
                 self.rowSwitch.cancel()
+                if self.barState.hovered != nil { self.barState.hovered = nil }
                 self.hover.pointerExited()
             case .moved(let point):
                 // A move is only reported inside the bar, so it also says
@@ -519,7 +534,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 // missed exit/enter pair.
                 self.hover.pointerEntered()
                 self.gaze?.observe(point)
-                self.rowSwitch.hover(self.row(atScreen: point), selected: self.barState.selected)
+                self.pointerMoved(point)
             }
         }
 
@@ -554,6 +569,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
                                               state: barState, detail: detail,
                                               onCardFrame: { [weak self] rect in
                                                   self?.cardFrameChanged(rect)
+                                              },
+                                              onGoButtonFrame: { [weak self] rect in
+                                                  self?.goButtonFrameChanged(rect)
                                               }))
         panel.setVisibleWidth(Self.barWidth)
         panel.setVisibleLength(barState.length)
@@ -707,8 +725,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
                       signal: signals.first { $0.entity == selected })
     }
 
-    /// Selects a drawn row's session: the list opens (at once, if it was
-    /// closed), the row is marked and the card comes up level with it.
+    /// Selects a drawn row's session: the row switch after its wait, or
+    /// `EVLAT_SELECT` at launch. The list opens (at once, if it was closed),
+    /// the row is marked and the card comes up level with it.
     /// Activates nothing — the app stays in the background, the panel is
     /// never key.
     func select(_ entity: String) {
@@ -722,9 +741,21 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     private func deselect() {
         rowSwitch.cancel()
+        detail.cardClosed()
+        goButtonRect = nil
         if barState.selected != nil { barState.selected = nil }
         if barState.selectedSlot != nil { barState.selectedSlot = nil }
         panel?.setCardRect(nil)
+    }
+
+    /// The cursor over the open list: its row is marked at once (a row
+    /// reads as something to point at), and the card follows after the wait
+    /// (`RowSwitch`). Written only when the row changes — moves arrive at
+    /// display rate.
+    func pointerMoved(_ point: CGPoint) {
+        let row = row(atScreen: point)
+        if barState.hovered != row { barState.hovered = row }
+        rowSwitch.hover(row, selected: barState.selected)
     }
 
     /// The row under a screen point, while the bar is open.
@@ -736,14 +767,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
         return sessionRows.rows[slot].entity
     }
 
-    /// A click on a ring — or, on the open bar, anywhere along its row —
-    /// selects that session. Anything else is not ours.
+    /// The only click the bar takes is `[Go to session]`'s. Rows and rings
+    /// take none: the card comes by hover (`005`, user's decision), and a
+    /// click on a row it already speaks for has nothing left to do.
     private func click(at point: CGPoint) -> Bool {
-        guard let bounds = panel?.contentView?.bounds else { return false }
-        let width = barState.isOpen ? barState.openWidth : Self.barWidth
-        guard let slot = Self.slot(fromEdge: bounds.maxX - point.x, fromTop: point.y, width: width),
-              sessionRows.rows.indices.contains(slot) else { return false }
-        select(sessionRows.rows[slot].entity)
+        guard barState.selected != nil, let button = goButtonRect, button.contains(point) else {
+            return false
+        }
+        goToSession()
         return true
     }
 
@@ -751,6 +782,25 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// hover area.
     private func cardFrameChanged(_ rect: CGRect?) {
         panel?.setCardRect(barState.selected == nil ? nil : rect.map(Self.cardHoverRect))
+    }
+
+    /// `[Go to session]`'s drawn rectangle, in the content view's (flipped)
+    /// coordinates like a click; `nil` without a card.
+    private var goButtonRect: CGRect?
+
+    func goButtonFrameChanged(_ rect: CGRect?) {
+        goButtonRect = barState.selected == nil ? nil : rect
+    }
+
+    /// Looks the terminal up again and brings it forward; the list and the
+    /// card close, since the user is elsewhere now. Evlat itself is never
+    /// activated (`SessionHost.activate`). If the app is gone, nothing opens
+    /// and the card says so.
+    func goToSession() {
+        guard detail.go() else { return }
+        hover.closeNow()
+        // The intent may already have believed the bar closed.
+        if barState.isOpen { closeBar() }
     }
 
     /// Opening is the drawn body widening; the window is already wide. The
@@ -766,6 +816,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         // The list and the card close together; the selection does not
         // outlive them.
         deselect()
+        if barState.hovered != nil { barState.hovered = nil }
         barState.isOpen = false
         panel?.setVisibleWidth(Self.barWidth)
     }
@@ -825,6 +876,9 @@ final class BarState: ObservableObject {
     @Published var length = AppController.barLength(slots: 0)
     /// The session whose card is up, by entity; `nil`: no card.
     @Published var selected: String?
+    /// The row under the cursor on the open list, marked before its card
+    /// comes up. Written only when it changes.
+    @Published var hovered: String?
     /// Its row's slot, which the card hangs from. Follows the row as the
     /// column reorders.
     @Published var selectedSlot: Int?
@@ -870,6 +924,8 @@ struct BarBody: View {
     /// The card's drawn rectangle as it lays out, `nil` when it goes: the
     /// panel's second hover area is held to it.
     var onCardFrame: (CGRect?) -> Void = { _ in }
+    /// `[Go to session]`'s drawn rectangle, for the click.
+    var onGoButtonFrame: (CGRect?) -> Void = { _ in }
     /// The card's top above its row's ring: its header lines up with the
     /// row's name.
     static let cardLead: CGFloat = 16
@@ -895,7 +951,8 @@ struct BarBody: View {
                 MascotView(model: mascot, size: AppController.mascotSize)
                     .frame(width: AppController.barWidth)
                 SessionColumn(model: rows, showsNames: state.isOpen,
-                              selected: state.selected, openWidth: state.openWidth)
+                              selected: state.selected, hovered: state.hovered,
+                              openWidth: state.openWidth)
             }
             .padding(.top, AppController.mascotTopInset)
         }
@@ -910,7 +967,7 @@ struct BarBody: View {
     /// (`AppController.envelopeSize`), so it is never pushed around.
     @ViewBuilder private var card: some View {
         if state.isOpen, state.selected != nil, let slot = state.selectedSlot {
-            DetailCard(model: detail)
+            DetailCard(model: detail, onButtonFrame: onGoButtonFrame)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     onCardFrame(rect)
                 }

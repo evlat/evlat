@@ -30,3 +30,9 @@
    is shown with a leading "~". */
 "card.tools.one" = "1 tool";
 "card.tools" = "{count} tools";
+/* The card's button: brings the session's terminal app forward. */
+"card.go" = "Go to session";
+/* The button, dimmed, when the session's app is not running. It is never opened. */
+"card.closed" = "{app} is closed";
+/* The button, dimmed, when no app was found for the session: screen, tmux, ssh. */
+"card.notFound" = "Terminal not found";

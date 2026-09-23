@@ -34,14 +34,15 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 
 ## Şu an nerede
 
-`001`, `002` ve `003` bitti: iskelet, kenar paneli, iki sağlayıcı ve hook
-sunucusu çalışıyor; kurulu hook'lar hiçbir kurulum yapılmadan
-`127.0.0.1:48151`'e akıyor. Maskotun beş fazının her birinin kendi klibi var
-(`MascotClip`), her kanalın tek yazıcısı klip ve bakış faz başına `gazeMix` ile
-toplanıyor. `004`'ün kodu bitti: maskotun altında sıradaki ilk 3–4 oturumun
-halkası atımla oynuyor, fazlası "+N"; hover'da bar sola açılıp adları
-gösteriyor, ad raporla değil dosya kaydıyla kalıyor. Güncel durum ve açık kalemler için
-`.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
+`001`–`004` bitti: iskelet, kenar paneli, iki sağlayıcı ve hook sunucusu
+çalışıyor; kurulu hook'lar hiçbir kurulum yapılmadan `127.0.0.1:48151`'e
+akıyor. Maskotun beş fazının her birinin kendi klibi var (`MascotClip`);
+altında sıradaki ilk 3–4 oturumun halkası atımla oynuyor, fazlası "+N".
+`005`'in kodu bitti: hover'da bar sola açılıp adı ve "durum · süre"yi
+gösteriyor; bir satırın üstünde durunca listenin solunda detay kartı açılıyor
+(tık yok) ve [Oturuma git] oturumun terminalini izinsiz öne getiriyor
+(`SessionHost`). Metinler katalogda (`L10n`, `en`/`tr`). Güncel durum ve açık
+kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
 
 ## Tuzaklar
 
@@ -77,3 +78,9 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   ölçülür; çarpım 90 sn'yi iki yönde de şaşırıyor (`003`'te %37 altında, ~2 kat
   üstünde), kapı yine 90 sn'dir. Döngüsüz klipte: *klip içi × `movingTime` /
   pencere*.
+- **`proc_pidpath` kendini güncellemiş bir uygulamanın eski sürecinde boş
+  döner** (`ENOENT`) — Orca'nın pty yardımcısı böyleydi ve 13 oturum
+  "bulunamadı" okudu (`005/phase-5`). Başlatıldığı yol argüman alanında
+  (`KERN_PROCARGS2`) durur. Aynı ölçümde `claude`'un kendisi
+  `~/.local/share/claude/ClaudeCode.app` içinden koşuyordu: bir yolun `.app`
+  içinde olması onu terminal yapmaz.

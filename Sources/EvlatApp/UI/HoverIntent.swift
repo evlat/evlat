@@ -47,7 +47,17 @@ final class HoverIntent {
 
     func pointerExited() { want(false) }
 
-    /// Open at once: a click on a closed bar's ring does not wait out the
+    /// Close at once: `[Go to session]` has sent the user elsewhere. Through
+    /// the intent for the same reason as `openNow` — a closed bar the intent
+    /// believed open would ignore the next enter.
+    func closeNow() {
+        guard isOpen else { return }
+        cancelPending()
+        isOpen = false
+        onChange?(false)
+    }
+
+    /// Open at once: `EVLAT_SELECT` at launch does not wait out the
     /// opening delay. Through the intent, not around it — an open bar the
     /// intent believed closed would ignore the next leave.
     ///

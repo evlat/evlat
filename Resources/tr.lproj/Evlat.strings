@@ -20,3 +20,6 @@
 "source.codex" = "Codex";
 "card.tools.one" = "1 araç";
 "card.tools" = "{count} araç";
+"card.go" = "Oturuma git";
+"card.closed" = "{app} kapalı";
+"card.notFound" = "Terminal bulunamadı";

@@ -6,13 +6,16 @@ import EvlatCore
 /// The header is the tool's mark, the session's name (data, `verbatim`) and
 /// the tool's name (catalogue); under it the status as a title in the phase's
 /// colour; then the body `CardBody` picks — a tool and its one-line subject,
-/// or the last reply — and a footer of time in the phase and tools this turn.
-/// `[Go to session]` and the terminal's name come in `phase-5`.
+/// or the last reply — a footer of time in the phase, tools this turn and the
+/// terminal, and `[Go to session]` under it.
 ///
 /// It observes `DetailModel` alone, and it is in the tree only while a
 /// session is selected: so is its minute tick.
 struct DetailCard: View {
     @ObservedObject var model: DetailModel
+    /// The button's drawn rectangle, `nil` when it goes. The click is read
+    /// from geometry by the panel (`AppController.click`), like the hovered row.
+    var onButtonFrame: (CGRect?) -> Void = { _ in }
 
     /// A card of its own, apart from the body (`005`, user's decision): all
     /// four corners round, its own edge line and shadow. The body's shape
@@ -31,14 +34,19 @@ struct DetailCard: View {
     static let subjectFont = Font.system(size: 11, design: .monospaced)
     static let replyFont = Font.system(size: 11)
     static let footerFont = Font(NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular))
+    static let buttonFont = Font.system(size: 12, weight: .semibold)
+    static let buttonHeight: CGFloat = 28
 
     /// Keys this view asks for beyond the status line's. Listed so a test
     /// reaches every one of them.
     static let toolsOneKey = "card.tools.one"
     static let toolsKey = "card.tools"
+    static let goKey = "card.go"
+    static let closedKey = "card.closed"
+    static let notFoundKey = "card.notFound"
     static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
     static var keys: [String] {
-        [toolsOneKey, toolsKey] + AgentSource.allCases.map(sourceKey)
+        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey] + AgentSource.allCases.map(sourceKey)
     }
 
     var body: some View {
@@ -81,6 +89,7 @@ struct DetailCard: View {
             // Once a minute, and only while the card is up.
             TimelineView(.everyMinute) { context in
                 if let footer = Self.footer(enteredAt: detail.enteredAt, activity: detail.activity,
+                                            terminal: Self.terminal(detail.host),
                                             now: context.date) {
                     Text(verbatim: footer)
                         .font(Self.footerFont)
@@ -88,6 +97,52 @@ struct DetailCard: View {
                         .lineLimit(1)
                 }
             }
+            button(Self.button(for: detail.host))
+        }
+    }
+
+    /// Drawn, not a SwiftUI `Button`: the panel reads the click from the
+    /// reported rectangle. A dimmed button still reports it — a click there
+    /// looks again, in case the app has come back.
+    private func button(_ state: ButtonState) -> some View {
+        Text(verbatim: state.title)
+            .font(Self.buttonFont)
+            .foregroundStyle(state.enabled ? Color.black : BarPalette.textSecondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.buttonHeight)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(state.enabled ? Color.white : Color.white.opacity(0.08)))
+            .padding(.top, 2)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                onButtonFrame(rect)
+            }
+            .onDisappear { onButtonFrame(nil) }
+    }
+
+    struct ButtonState: Equatable {
+        let title: String
+        let enabled: Bool
+    }
+
+    /// Only a running app is a place to go. A closed one is named and not
+    /// opened: the session went with it.
+    static func button(for host: SessionHost, in lang: String = L10n.language) -> ButtonState {
+        switch host {
+        case .app: return ButtonState(title: L10n.t(goKey, in: lang), enabled: true)
+        case .closed(let name):
+            return ButtonState(title: L10n.t(closedKey, ["app": name], in: lang), enabled: false)
+        case .notFound: return ButtonState(title: L10n.t(notFoundKey, in: lang), enabled: false)
+        }
+    }
+
+    /// The footer's last word: the app's own name, running or not.
+    static func terminal(_ host: SessionHost) -> String? {
+        switch host {
+        case .app(let app): return app.name
+        case .closed(let name): return name
+        case .notFound: return nil
         }
     }
 
@@ -169,11 +224,12 @@ struct DetailCard: View {
         return String(first).uppercased(with: Locale(identifier: lang)) + word.dropFirst()
     }
 
-    /// "2 min · 12 tools": the time in the phase when it was seen entered,
-    /// and the turn's tool count when the source counts — `~` when the count
-    /// began mid-turn. `nil` when neither is known.
-    static func footer(enteredAt: Date?, activity: Signal.Activity?, now: Date,
-                       in lang: String = L10n.language) -> String? {
+    /// "2 min · 12 tools · Metalterm": the time in the phase when it was seen
+    /// entered, the turn's tool count when the source counts — `~` when the
+    /// count began mid-turn — and the terminal when one was found. `nil` when
+    /// none is known.
+    static func footer(enteredAt: Date?, activity: Signal.Activity?, terminal: String? = nil,
+                       now: Date, in lang: String = L10n.language) -> String? {
         var parts: [String] = []
         if let enteredAt {
             parts.append(StatusLine.duration(now.timeIntervalSince(enteredAt), in: lang))
@@ -184,6 +240,8 @@ struct DetailCard: View {
                 : L10n.t(toolsKey, ["count": String(count)], in: lang)
             parts.append((activity?.countIsPartial == true ? "~" : "") + text)
         }
+        // The app's name is data, like the session's: not translated.
+        if let terminal { parts.append(terminal) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

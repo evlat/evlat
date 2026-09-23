@@ -84,11 +84,25 @@ final class RowSwitchTests: XCTestCase {
         XCTAssertEqual(selections, ["c"])
     }
 
-    /// No card, nothing to follow: the list without a selection is hover only.
-    func testWithoutASelectionNothingIsScheduled() {
+    /// No card yet: staying on a row for the dwell brings its card up — the
+    /// card opens by hover, not by a click (`005`, user's decision).
+    func testWithoutASelectionTheDwellBringsTheCardUp() throws {
         let rowSwitch = makeSwitch()
         rowSwitch.hover("b", selected: nil)
-        XCTAssertEqual(scheduled.count, 0)
+        let pending = try XCTUnwrap(scheduled.last)
+        XCTAssertEqual(pending.delay, RowSwitch.dwell)
+        XCTAssertEqual(selections, [], "not on the move itself")
+        pending.item.perform()
+        XCTAssertEqual(selections, ["b"])
+    }
+
+    func testPassingOverARowBringsNoCard() throws {
+        let rowSwitch = makeSwitch()
+        rowSwitch.hover("b", selected: nil)
+        let pending = try XCTUnwrap(scheduled.last)
+        rowSwitch.hover(nil, selected: nil)   // off the rows, onto the mascot
+        pending.item.perform()
+        XCTAssertEqual(selections, [])
     }
 
     func testCancelDropsThePendingSwitch() throws {
@@ -101,8 +115,8 @@ final class RowSwitchTests: XCTestCase {
     }
 }
 
-/// The hover intent's one shortcut: a click on a closed bar's ring opens it
-/// at once, and the intent has to know, or the next leave would misfire.
+/// The hover intent's one shortcut: `EVLAT_SELECT` opens the bar at once,
+/// and the intent has to know, or the next leave would misfire.
 @MainActor
 final class HoverOpenNowTests: XCTestCase {
     func testOpenNowOpensWithoutTheDelayAndDropsThePendingOpen() {
@@ -376,9 +390,11 @@ final class SelectionTests: XCTestCase {
         XCTAssertFalse(panel.canBecomeKey)
     }
 
-    /// A click on a ring selects its session and opens the list, and the
-    /// whole path leaves the app inactive and the panel not key.
-    func testClickingARingSelectsWithoutActivating() throws {
+    /// A click on a ring takes nothing: the card comes by hover (`005`,
+    /// user's decision). The one click the bar takes, `[Go to session]`'s,
+    /// goes through the real view and leaves Evlat inactive and the panel
+    /// not key — only the target is activated.
+    func testOnlyTheGoButtonTakesAClickAndItActivatesNothingOfOurs() throws {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let wasActive = app.isActive
@@ -388,25 +404,79 @@ final class SelectionTests: XCTestCase {
         let panel = controller.installPanel()
         defer { panel.close() }
         panel.show()
+        var activated: [SessionHost.App] = []
+        let target = SessionHost.App(bundleID: "dev.metalterm.Metalterm", name: "Metalterm", pid: 500)
+        controller.detail.resolveHost = { _ in .app(target) }
+        controller.detail.activate = { activated.append($0); return true }
         provider.signals = [signal("a"), signal("b")]
         controller.refresh()
 
         let view = try XCTUnwrap(panel.contentView)
         let bounds = view.bounds
+        func click(_ inView: NSPoint) throws {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
+                                                         location: view.convert(inView, to: nil),
+                                                         modifierFlags: [], timestamp: 0,
+                                                         windowNumber: panel.windowNumber, context: nil,
+                                                         eventNumber: 0, clickCount: 1, pressure: 1))
+            view.mouseDown(with: event)
+        }
         // The second ring's centre, in the flipped view.
-        let inView = NSPoint(x: bounds.maxX - AppController.barWidth / 2,
-                             y: AppController.slotTop(1) + AppController.indicatorSize / 2)
-        let inWindow = view.convert(inView, to: nil)
-        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: inWindow,
-                                                     modifierFlags: [], timestamp: 0,
-                                                     windowNumber: panel.windowNumber, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1))
-        view.mouseDown(with: event)
-        XCTAssertEqual(controller.barState.selected, "b")
-        XCTAssertTrue(controller.barState.isOpen, "a ring on the closed bar opens it at once")
+        try click(NSPoint(x: bounds.maxX - AppController.barWidth / 2,
+                          y: AppController.slotTop(1) + AppController.indicatorSize / 2))
+        XCTAssertNil(controller.barState.selected, "a ring takes no click")
+        XCTAssertFalse(controller.barState.isOpen)
+
+        controller.select("b")
+        let button = CGRect(x: 40, y: AppController.slotTop(1) + 120, width: 230, height: 28)
+        controller.goButtonFrameChanged(button)
+        try click(NSPoint(x: button.midX, y: button.midY))
+        XCTAssertEqual(activated, [target])
+        XCTAssertFalse(controller.barState.isOpen, "gone to the session: the list and card close")
         XCTAssertEqual(app.isActive, wasActive, "the click must not activate the app")
         XCTAssertFalse(panel.isKeyWindow)
         XCTAssertEqual(app.activationPolicy(), .accessory)
+    }
+
+    /// The cursor over the open list: its row is marked at once, and its
+    /// card comes after the dwell — driven by the controller's own route,
+    /// with the scheduler handed in.
+    func testHoverMarksTheRowAtOnceAndBringsTheCardAfterTheDwell() throws {
+        var scheduled: [(delay: TimeInterval, item: DispatchWorkItem)] = []
+        let controller = AppController()
+        controller.rowSwitch = RowSwitch { scheduled.append(($0, $1)) }
+        let provider = Stub()
+        controller.registry.register(provider)
+        let panel = controller.installPanel()
+        defer { panel.close() }
+        provider.signals = [signal("a"), signal("b")]
+        controller.refresh()
+        controller.openBar()
+
+        let frame = panel.frame
+        func overRow(_ slot: Int) -> CGPoint {
+            CGPoint(x: frame.maxX - AppController.barWidth / 2,
+                    y: frame.maxY - AppController.slotTop(slot) - AppController.indicatorSize / 2)
+        }
+        controller.pointerMoved(overRow(1))
+        XCTAssertEqual(controller.barState.hovered, "b", "marked at once")
+        XCTAssertNil(controller.barState.selected, "the card waits for the dwell")
+        let dwell = try XCTUnwrap(scheduled.last)
+        XCTAssertEqual(dwell.delay, RowSwitch.dwell)
+        dwell.item.perform()
+        XCTAssertEqual(controller.barState.selected, "b")
+
+        // With the card up, another row takes it after the shorter switch.
+        controller.pointerMoved(overRow(0))
+        XCTAssertEqual(controller.barState.hovered, "a")
+        let move = try XCTUnwrap(scheduled.last)
+        XCTAssertEqual(move.delay, RowSwitch.delay)
+        move.item.perform()
+        XCTAssertEqual(controller.barState.selected, "a")
+
+        controller.closeBar()
+        XCTAssertNil(controller.barState.hovered, "the list and the mark go together")
+        XCTAssertNil(controller.barState.selected)
     }
 
     func testEvlatSelectIsReadFromTheEnvironment() {
