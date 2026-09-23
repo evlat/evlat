@@ -9,31 +9,14 @@ import Foundation
 /// No path has a default and nothing is read from the environment: the caller
 /// hands in the file, and a test hands in a temporary one.
 ///
-/// The transformations are pure (dictionary in, dictionary out); the file
-/// half reads, transforms and writes with the user's data as the first
-/// concern — a refused write is always better than a lost setting.
+/// The transformations are pure (dictionary in, dictionary out); how the
+/// file is read and written is `SettingsFile`'s.
 public enum HookSettings {
     public enum State: Equatable { case missing, current, outdated }
 
-    /// What a write did. `unchanged` means the file was never opened for
-    /// writing and its backup was not touched.
-    public enum Outcome: Equatable { case written, unchanged }
-
-    /// A closed set: the menu maps each case to a catalog string, so the text
-    /// the user sees never comes from `localizedDescription`.
-    public enum Failure: Error, Equatable {
-        /// The file exists but could not be read.
-        case unreadable
-        /// Not JSON, the root is not an object, or the hooks sit in a shape
-        /// the writer does not overwrite.
-        case malformed
-        /// The directory the file lives in does not exist; it is not created.
-        case noDirectory
-        /// The file changed between the read and the write; theirs is kept.
-        case changedUnderneath
-        /// The backup or the file itself could not be written.
-        case unwritable
-    }
+    /// The file half is `SettingsFile`'s; its outcome and failures are these.
+    public typealias Outcome = SettingsFile.Outcome
+    public typealias Failure = SettingsFile.Failure
 
     /// Ownership prefix. Derived, never spelled: it follows the port and the
     /// route the command itself is built from. Every source's path starts with
@@ -118,8 +101,7 @@ public enum HookSettings {
     // MARK: - Files
 
     public static func state(at url: URL, for source: AgentSource) throws -> State {
-        let target = try resolve(url)
-        return state(of: try parse(try bytes(at: target)), for: source)
+        state(of: try SettingsFile.read(url), for: source)
     }
 
     /// An install that changes nothing yet leaves the hooks short of current
@@ -138,88 +120,13 @@ public enum HookSettings {
         try apply(at: url) { removing(from: $0, for: source) }
     }
 
-    /// Resolve → read → transform → back up → re-read → write.
-    ///
-    /// - The link is resolved first: an atomic write replaces the file at its
-    ///   path, so writing to the link would turn a dotfile manager's link into
-    ///   a plain file.
-    /// - The backup sits next to the path the user knows (`url`), is made
-    ///   from the target's bytes (a copy of the link would be a link) and only
-    ///   when there is none: the first backup is the one worth keeping.
-    /// - The bytes are read again just before the write; if they differ, the
-    ///   user or the agent saved in between and their version wins.
-    ///
-    /// `beforeWrite` exists for the test that changes the file in that gap.
+    /// `SettingsFile.apply`, kept here so the test that changes the file in
+    /// the gap before the write names the writer it is about.
     static func apply(
         at url: URL,
         beforeWrite: () -> Void = {},
         _ transform: ([String: Any]) -> [String: Any]
     ) throws -> Outcome {
-        let target = try resolve(url)
-        let original = try bytes(at: target)
-        let settings = try parse(original)
-        let changed = transform(settings)
-        if NSDictionary(dictionary: changed).isEqual(to: settings) { return .unchanged }
-
-        let data: Data
-        do {
-            data = try JSONSerialization.data(
-                withJSONObject: changed, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        } catch {
-            throw Failure.unwritable
-        }
-
-        if let original {
-            let backup = url.appendingPathExtension("evlat.bak")
-            // `attributesOfItem` does not follow links: a dangling link there
-            // still counts as a backup and is not written through.
-            // The backup carries the target's mode: `settings.json` can hold
-            // keys under `env`, and a 0644 copy of a 0600 file would expose them.
-            let manager = FileManager.default
-            if (try? manager.attributesOfItem(atPath: backup.path)) == nil {
-                let mode = (try? manager.attributesOfItem(atPath: target.path))?[.posixPermissions] ?? 0o600
-                guard manager.createFile(atPath: backup.path, contents: original,
-                                         attributes: [.posixPermissions: mode]) else {
-                    throw Failure.unwritable
-                }
-            }
-        }
-
-        beforeWrite()
-        guard try bytes(at: target) == original else { throw Failure.changedUnderneath }
-        do { try data.write(to: target, options: .atomic) } catch { throw Failure.unwritable }
-        return .written
-    }
-
-    /// The path the write goes to. A link whose target is gone resolves to
-    /// itself, and the atomic write would then replace the link with a plain
-    /// file; it is refused instead.
-    private static func resolve(_ url: URL) throws -> URL {
-        let target = url.resolvingSymlinksInPath()
-        let type = (try? FileManager.default.attributesOfItem(atPath: target.path))?[.type] as? FileAttributeType
-        if type == .typeSymbolicLink { throw Failure.unreadable }
-        return target
-    }
-
-    /// `nil` when the file does not exist but its directory does. A missing
-    /// directory is an error, not an empty file: it means the agent is not
-    /// there, and the write would have to create it.
-    private static func bytes(at target: URL) throws -> Data? {
-        let manager = FileManager.default
-        var isDirectory: ObjCBool = false
-        guard manager.fileExists(atPath: target.deletingLastPathComponent().path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { throw Failure.noDirectory }
-        guard manager.fileExists(atPath: target.path) else { return nil }
-        do { return try Data(contentsOf: target) } catch { throw Failure.unreadable }
-    }
-
-    /// An absent or blank file is an empty object; anything else must be a
-    /// JSON object, or nothing is written over it.
-    private static func parse(_ data: Data?) throws -> [String: Any] {
-        guard let data, !String(decoding: data, as: UTF8.self)
-            .allSatisfy({ $0.isWhitespace }) else { return [:] }
-        guard let object = try? JSONSerialization.jsonObject(with: data),
-              let settings = object as? [String: Any] else { throw Failure.malformed }
-        return settings
+        try SettingsFile.apply(at: url, beforeWrite: beforeWrite, transform)
     }
 }

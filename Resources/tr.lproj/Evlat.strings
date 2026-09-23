@@ -55,3 +55,8 @@
 "menu.hooks.error.noDirectory" = "Aracın klasörü yok";
 "menu.hooks.error.changedUnderneath" = "Dosya yazılırken değişti; yeniden dene";
 "menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";
+
+"menu.usage.install" = "Kullanım satırını kur";
+"menu.usage.remove" = "Kullanım satırını kaldır";
+"menu.usage.modified" = "Kullanım satırı elle değiştirilmiş";
+"menu.usage.hint" = "Claude Code durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";

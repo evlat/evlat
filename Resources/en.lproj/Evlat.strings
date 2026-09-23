@@ -88,3 +88,11 @@
 "menu.hooks.error.noDirectory" = "The agent's folder is gone";
 "menu.hooks.error.changedUnderneath" = "The file changed while writing; try again";
 "menu.hooks.error.unwritable" = "The settings file could not be written";
+
+/* The usage line entry, under Claude Code's hook entry: it wraps the user's
+   status line command so its JSON also reaches Evlat. A wrapper changed by
+   hand is a dim line with no action. A refused write shows the hooks' lines. */
+"menu.usage.install" = "Install the usage line";
+"menu.usage.remove" = "Remove the usage line";
+"menu.usage.modified" = "Usage line edited by hand";
+"menu.usage.hint" = "Wraps your Claude Code status line; open sessions relay usage from their next message.";

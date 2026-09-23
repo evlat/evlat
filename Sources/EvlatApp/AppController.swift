@@ -28,6 +28,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// write, drawn as a dim line under its entry until a write succeeds.
     /// The state itself is read from the file every time a menu is built.
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
+    /// The same for the status line relay's entry.
+    private var usageFailure: SettingsFile.Failure?
     public let registry = Registry()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
@@ -1289,7 +1291,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                            "menu.hooks.hint.claude", "menu.hooks.hint.codex", "menu.hooks.hint.remove",
                            "menu.hooks.error.unreadable", "menu.hooks.error.malformed",
                            "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
-                           "menu.hooks.error.unwritable"]
+                           "menu.hooks.error.unwritable",
+                           "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint"]
 
     /// A refused write's line. A switch, not a string built from the case,
     /// so a new failure does not compile until it has a line.
@@ -1307,6 +1310,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// what its title said, even if the file changed while the menu was open.
     struct HookEntry {
         let source: AgentSource
+        let remove: Bool
+    }
+
+    /// The same for the status line relay's entry.
+    struct UsageEntry {
         let remove: Bool
     }
 
@@ -1399,13 +1407,40 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             case (_, .claude): entry.toolTip = L10n.t("menu.hooks.hint.claude", in: lang)
             case (_, .codex): entry.toolTip = L10n.t("menu.hooks.hint.codex", in: lang)
             }
-            if let failure = hookFailures[source] {
-                let line = menu.addItem(withTitle: L10n.t(Self.failureKey(failure), in: lang),
-                                        action: nil, keyEquivalent: "")
-                line.isEnabled = false
-                line.indentationLevel = 1
-            }
+            if let failure = hookFailures[source] { addFailureLine(failure, to: menu, in: lang) }
+            if source == .claude { addUsageEntry(to: menu, in: lang, home: home) }
         }
+    }
+
+    private func addFailureLine(_ failure: SettingsFile.Failure, to menu: NSMenu, in lang: String) {
+        let line = menu.addItem(withTitle: L10n.t(Self.failureKey(failure), in: lang),
+                                action: nil, keyEquivalent: "")
+        line.isEnabled = false
+        line.indentationLevel = 1
+    }
+
+    /// Under Claude's hook entry: the status line relay (`StatusLineRelay`),
+    /// titled by what the file holds now. A wrapper edited by hand is a dim
+    /// line with no action — it is neither installed over nor taken apart.
+    private func addUsageEntry(to menu: NSMenu, in lang: String, home: URL) {
+        let state = (try? StatusLineRelay.state(at: AgentSource.claude.settingsFile(home: home))) ?? .missing
+        let key: String
+        switch state {
+        case .missing: key = "menu.usage.install"
+        case .current: key = "menu.usage.remove"
+        case .modified: key = "menu.usage.modified"
+        }
+        let entry = menu.addItem(withTitle: L10n.t(key, in: lang),
+                                 action: state == .modified ? nil : #selector(changeUsageRelay(_:)),
+                                 keyEquivalent: "")
+        if state == .modified {
+            entry.isEnabled = false
+        } else {
+            entry.representedObject = UsageEntry(remove: state == .current)
+            entry.target = self
+            entry.toolTip = L10n.t("menu.usage.hint", in: lang)
+        }
+        if let usageFailure { addFailureLine(usageFailure, to: menu, in: lang) }
     }
 
     /// A hook entry: the writer, then the outcome kept for the next menu —
@@ -1426,6 +1461,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         hover.closeNow()
         // The intent may already have believed the bar closed.
+        if barState.isOpen { closeBar() }
+    }
+
+    /// The status line relay's entry, as `changeHooks` does it.
+    @objc func changeUsageRelay(_ sender: NSMenuItem) {
+        guard let home, let entry = sender.representedObject as? UsageEntry else { return }
+        let file = AgentSource.claude.settingsFile(home: home)
+        do {
+            if entry.remove {
+                try StatusLineRelay.remove(at: file)
+            } else {
+                try StatusLineRelay.install(at: file)
+            }
+            usageFailure = nil
+        } catch {
+            usageFailure = error as? SettingsFile.Failure ?? .unwritable
+        }
+        hover.closeNow()
         if barState.isOpen { closeBar() }
     }
 
