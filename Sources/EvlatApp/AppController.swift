@@ -71,8 +71,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public static let shadowGutter: CGFloat = 18
 
     /// The widest the open bar gets: the longest name `SessionColumn` draws.
-    /// The body opens only as far as the names it holds need
-    /// (`BarState.openWidth`); the window keeps room for this and the card
+    /// The body opens only as far as the names it holds, or the summary line
+    /// under them, need (`BarState.openWidth`); the window keeps room for this and the card
     /// beside it (`envelopeSize`). Opening lengthens the body too: the open
     /// list holds every session (`openLength`).
     public static let expandedBarWidth = SessionColumn.openWidth(namesWidth: SessionColumn.nameMaxWidth)
@@ -1034,8 +1034,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
 @MainActor
 final class BarState: ObservableObject {
     @Published var isOpen = false
-    /// How far the body opens: as wide as the names need, within
-    /// `SessionColumn`'s bounds.
+    /// How far the body opens: as wide as the names or the summary line
+    /// need, within `SessionColumn`'s bounds (`SessionColumn.openWidth(rows:)`).
     @Published var openWidth = SessionColumn.openWidth(namesWidth: 0)
     /// How long the closed body is drawn along the edge, from the head. The
     /// window is longer; this is the part that is bar.

@@ -10,7 +10,8 @@ import EvlatCore
 /// focus" lives here (`canBecomeKey`, `styleMask`, `level`,
 /// `collectionBehavior`). The end-to-end half — that clicking the bar really
 /// leaves the frontmost app focused — belongs to the user and is NOT faked with
-/// a synthetic click: `CGEvent` needs Accessibility permission, and
+/// a synthetic click: *posting* a `CGEvent` needs Accessibility permission
+/// (building one and handing it to a view, as `ScrollTests` does, does not), and
 /// permission-free design is this project's contract.
 @MainActor
 final class PanelConfigTests: XCTestCase {
