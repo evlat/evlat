@@ -48,8 +48,10 @@ bar sağ ya da sol kenara yaslanıyor (sol sağın aynası), seçim maskotun sa�
 menüsünde ve tepside, kalıcı (`bar.edge`); bar ana ekranda. Faz 2 kapandı. `008`'de
 menü, dizini olan her kaynak (Claude, Codex) için hook'ları kurar, günceller
 ya da kaldırır (`HookSettings`); elle denemede kök `EVLAT_HOME` ile geçici
-dizindir. `009` sürüyor: açık gövdede özetin altında kaynak başına ikonsuz
-kullanım bloğu (`UsageBlock`, 5h/7d satırları; bugün Codex, rollout'tan).
+dizindir. `009`'un kodu bitti: açık gövdede özetin altında kaynak başına
+ikonsuz kullanım bloğu (`UsageBlock`, 5h/7d); Codex rollout kuyruğundan,
+Claude menüden kurulan durum satırı sarmalayıcısının `POST /usage/claude`'undan
+(`StatusLineRelay`).
 Metinler katalogda (`L10n`, `en`/`tr`). Güncel durum ve açık
 kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
 
@@ -93,3 +95,8 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   (`KERN_PROCARGS2`) durur. Aynı ölçümde `claude`'un kendisi
   `~/.local/share/claude/ClaudeCode.app` içinden koşuyordu: bir yolun `.app`
   içinde olması onu terminal yapmaz.
+- **Codex'in `rollout-*.jsonl`'ı belgelenmemiş bir iç formattır ve büyür.**
+  `~/.codex/sessions/*/*/*/` altında, codex-cli 0.156.1'de görüldü; en yenisi
+  62 MB'a varan bir kopyada tamamını okumak yerine son 256 KB okundu (9–10 ms,
+  `009/phase-2`). `codex-usage` `.derived`'dır: biçim bozulursa susar, son iyi
+  okuma kalır, daha eski bir dosyaya düşülmez (eski gözlem yeni gibi okunurdu).
