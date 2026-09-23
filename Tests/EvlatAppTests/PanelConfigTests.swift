@@ -83,6 +83,27 @@ final class PanelConfigTests: XCTestCase {
                        AppController.barLength(slots: SessionRowsModel.slotCount), accuracy: 0.5)
     }
 
+    /// The margins are measured from the body, not the window: the flare
+    /// takes the same amount off both ends, and what is left above the mascot
+    /// equals what is left under the last slot.
+    func testTheBodyLeavesTheSameRoomAtBothEnds() {
+        let top = AppController.mascotTopInset - AppController.barFlare
+        XCTAssertEqual(top, AppController.bodyMargin, accuracy: 0.5)
+        for slots in 0...SessionRowsModel.slotCount {
+            let length = AppController.barLength(slots: slots)
+            var content = AppController.mascotSize
+            if slots > 0 {
+                content += AppController.indicatorTopGap
+                    + CGFloat(slots) * AppController.indicatorSize
+                    + CGFloat(slots - 1) * AppController.indicatorSpacing
+            }
+            let bottom = length - AppController.mascotTopInset - content - AppController.barFlare
+            XCTAssertEqual(bottom, top, accuracy: 0.5, "\(slots) slots")
+        }
+        XCTAssertGreaterThanOrEqual(top, (AppController.barWidth - AppController.mascotSize) / 2,
+                                    "no closer to the end than to the sides")
+    }
+
     /// The count's slot is part of the column the length is fitted to.
     func testTheCountTakesASlot() {
         let model = SessionRowsModel()

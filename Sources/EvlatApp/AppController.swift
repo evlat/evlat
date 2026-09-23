@@ -66,9 +66,20 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     /// The mascot sits at the head of the bar.
     public static let mascotSize: CGFloat = 34
-    /// Distance from the top of the bar to the top of the mascot. Shared with
-    /// the gaze anchor, which otherwise drifts whenever the layout changes.
-    public static let mascotTopInset: CGFloat = 26
+
+    /// The shape's inner corner radius and the inverse curve at its ends.
+    /// The flare takes `barFlare` off each end of the body: the window's top
+    /// is not the body's top.
+    public static let barCorner: CGFloat = 18
+    public static let barFlare: CGFloat = 20
+    /// Room between the body's end and what it holds, the same at both ends.
+    /// Measured from the **body**, not the window: counted from the window,
+    /// the flare ate 20 of 26 points and left the mascot 6 points under the
+    /// body's top edge, closer than the 10 at its sides.
+    public static let bodyMargin: CGFloat = 14
+    /// Distance from the top of the window to the top of the mascot. Shared
+    /// with the gaze anchor, which otherwise drifts whenever the layout changes.
+    public static let mascotTopInset: CGFloat = barFlare + bodyMargin
 
     /// The session rings under the mascot.
     public static let indicatorSize: CGFloat = 12
@@ -624,7 +635,8 @@ struct BarBody: View {
     }
 
     private var shapeLayer: some View {
-        let shape = BarShape(corner: 18, flare: 20, edge: edge)
+        let shape = BarShape(corner: AppController.barCorner,
+                             flare: AppController.barFlare, edge: edge)
         return shape
             .fill(Color.black.opacity(0.88))
             // A thin inner edge separates the body from a dark wall behind it
