@@ -913,6 +913,27 @@ enum BarMotion {
     /// The body lengthening or shortening as sessions come and go: the curve
     /// the window's own resize used to run on, now drawn.
     static let length = Animation.easeOut(duration: 0.22)
+    /// The card comes out of the bar's side: a few points of travel toward
+    /// the screen, a touch of growth and a fade on one soft curve. A plain
+    /// 0.1 s fade made it pop in (user's feedback, `005`).
+    static let cardIn = Animation.smooth(duration: 0.26)
+    /// It leaves quicker than it came, and more quietly.
+    static let cardOut = Animation.easeIn(duration: 0.14)
+    /// What the card says changing from one session to the next.
+    static let cardContent = Animation.easeOut(duration: 0.16)
+    static let cardTravel: CGFloat = 8
+
+    /// The card's arrival and departure. Attached to the card itself, not to
+    /// its placing, so the growth is anchored on the card's own edge beside
+    /// the bar rather than on the screen edge.
+    static let cardTransition = AnyTransition.asymmetric(
+        insertion: .opacity
+            .combined(with: .scale(scale: 0.96, anchor: .trailing))
+            .combined(with: .offset(x: cardTravel))
+            .animation(cardIn),
+        removal: .opacity
+            .combined(with: .scale(scale: 0.98, anchor: .trailing))
+            .animation(cardOut))
 }
 
 /// The bar's body: the shape, the mascot at its head, the session rings
@@ -976,14 +997,15 @@ struct BarBody: View {
     @ViewBuilder private var card: some View {
         if state.isOpen, state.selected != nil, let slot = state.selectedSlot {
             DetailCard(model: detail, onButtonFrame: onGoButtonFrame)
+                .animation(BarMotion.cardContent, value: state.selected)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     onCardFrame(rect)
                 }
                 .onDisappear { onCardFrame(nil) }
+                .transition(BarMotion.cardTransition)
                 .padding(.top, Self.cardTop(slot: slot))
                 .padding(.trailing, state.openWidth + AppController.detailCardGap)
                 .animation(BarMotion.length, value: slot)
-                .transition(.opacity.animation(BarMotion.namesOut))
         }
     }
 
