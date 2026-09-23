@@ -62,7 +62,125 @@ final class HookEventTests: XCTestCase {
         XCTAssertNil(HookEvent(json: [HookEvent.pidKey: 7747]).pid, "the server writes it as text")
     }
 
+    // MARK: - The card's fields
+
+    /// `Bash` as measured (Claude Code 2.1.280): the command is the subject and
+    /// the neighbouring `description` loses to it.
+    func testABashToolsSubjectIsItsCommand() {
+        let event = HookEvent(json: [
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": ["command": "swift test", "description": "Run the tests"],
+        ])
+        XCTAssertEqual(event.toolName, "Bash")
+        XCTAssertEqual(event.toolSubject, "swift test")
+    }
+
+    /// `Write` carries the whole file in `content`; the subject is the path and
+    /// the content is not kept anywhere on the event.
+    func testAWriteToolsSubjectIsItsPath() {
+        let event = HookEvent(json: [
+            "hook_event_name": "PermissionRequest", "tool_name": "Write",
+            "tool_input": ["file_path": "/tmp/project/a.swift", "content": "secret body\nline 2"],
+        ])
+        XCTAssertEqual(event.toolSubject, "/tmp/project/a.swift")
+        XCTAssertFalse(String(describing: event).contains("secret body"), "the raw input is not stored")
+    }
+
+    /// A tool whose input has none of the known keys has a name and no subject.
+    func testAToolWithoutASubjectKeepsOnlyItsName() {
+        let event = HookEvent(json: [
+            "hook_event_name": "PreToolUse", "tool_name": "TodoWrite",
+            "tool_input": ["todos": [["content": "x"]]],
+        ])
+        XCTAssertEqual(event.toolName, "TodoWrite")
+        XCTAssertNil(event.toolSubject)
+        XCTAssertNil(HookEvent(json: ["tool_name": "Bash", "tool_input": ["command": "  \n  "]]).toolSubject,
+                     "a blank value is no subject")
+    }
+
+    /// A heredoc or a multi-line script is reduced to its first line, trimmed.
+    func testAMultiLineCommandKeepsItsFirstLine() {
+        let event = HookEvent(json: [
+            "tool_name": "Bash", "tool_input": ["command": "  cat <<'EOF' > a.txt\nhello\nEOF"],
+        ])
+        XCTAssertEqual(event.toolSubject, "cat <<'EOF' > a.txt")
+    }
+
+    /// A single-line subject is capped too: a one-line script can be any size.
+    func testASubjectIsCapped() {
+        let long = String(repeating: "x", count: HookEvent.subjectLimit * 3)
+        let subject = HookEvent(json: ["tool_name": "Bash", "tool_input": ["command": long]]).toolSubject
+        XCTAssertLessThanOrEqual(subject?.count ?? 0, HookEvent.subjectLimit + 1)
+    }
+
+    /// `Stop`'s `last_assistant_message` is documented and was measured. Only
+    /// its first paragraph is kept, and that is capped at a named limit.
+    func testTheLastReplyIsItsFirstParagraphCapped() {
+        let short = HookEvent(json: ["hook_event_name": "Stop",
+                                     "last_assistant_message": "  Done: tests pass.\n\nDetails follow."])
+        XCTAssertEqual(short.lastReply, "Done: tests pass.")
+
+        let long = String(repeating: "word ", count: HookEvent.replyLimit)
+        let reply = HookEvent(json: ["hook_event_name": "Stop", "last_assistant_message": long]).lastReply
+        XCTAssertNotNil(reply)
+        XCTAssertLessThanOrEqual(reply?.count ?? .max, HookEvent.replyLimit + 1, "capped, plus the ellipsis")
+        XCTAssertTrue(reply?.hasSuffix("…") ?? false, "a cut reply says it was cut")
+        XCTAssertNil(HookEvent(json: ["last_assistant_message": " \n\n "]).lastReply)
+    }
+
     // MARK: - Sources
+
+    /// v1's measured rule (`008 phase-4`): `apply_patch` becomes the canonical
+    /// tool its first header names, with that file as the path. The patch
+    /// text itself does not survive the translation.
+    func testCodexApplyPatchBecomesEditOrWrite() {
+        func translated(_ patch: String) -> HookEvent {
+            HookEvent(json: AgentSource.codex.canonical([
+                "hook_event_name": "PreToolUse", "tool_name": "apply_patch",
+                "tool_input": ["command": patch],
+            ]), source: .codex)
+        }
+        let add = translated("*** Begin Patch\n*** Add File: docs/a.md\n+hello\n*** End Patch")
+        XCTAssertEqual(add.toolName, "Write")
+        XCTAssertEqual(add.toolSubject, "docs/a.md")
+
+        let update = translated("*** Begin Patch\n*** Update File: Sources/b.swift\n@@\n-x\n+y\n*** End Patch")
+        XCTAssertEqual(update.toolName, "Edit")
+        XCTAssertEqual(update.toolSubject, "Sources/b.swift")
+
+        let delete = translated("*** Begin Patch\n*** Delete File: old.txt\n*** End Patch")
+        XCTAssertEqual(delete.toolName, "Edit")
+        XCTAssertEqual(delete.toolSubject, "old.txt")
+
+        let headerless = translated("some patch without a header")
+        XCTAssertEqual(headerless.toolName, "Edit", "an unreadable patch is still an edit")
+        XCTAssertNil(headerless.toolSubject, "and the patch text is never the subject")
+    }
+
+    /// Codex's subagent tools read as the canonical `Agent`, with the task's
+    /// name as its description when there is one.
+    func testCodexSubagentToolsBecomeAgent() {
+        for tool in ["collaborationspawn_agent", "collaborationwait_agent"] {
+            let event = HookEvent(json: AgentSource.codex.canonical([
+                "hook_event_name": "PreToolUse", "tool_name": tool,
+                "tool_input": ["task_name": "review the diff", "message": "opaque"],
+            ]), source: .codex)
+            XCTAssertEqual(event.toolName, "Agent", tool)
+            XCTAssertEqual(event.toolSubject, "review the diff", tool)
+        }
+        let unnamed = HookEvent(json: AgentSource.codex.canonical([
+            "tool_name": "collaborationspawn_agent", "tool_input": ["message": "opaque"],
+        ]), source: .codex)
+        XCTAssertEqual(unnamed.toolName, "Agent")
+        XCTAssertNil(unnamed.toolSubject)
+    }
+
+    /// Claude's tools are already canonical and pass through untouched.
+    func testClaudeToolsAreNotTranslated() {
+        let json: [String: Any] = ["tool_name": "apply_patch", "tool_input": ["command": "x"]]
+        XCTAssertEqual(AgentSource.claude.canonical(json)["tool_name"] as? String, "apply_patch")
+    }
+
 
     /// Codex sends no `Stop` when a turn is interrupted; without the
     /// translation the session would sit at `working` forever (measured in v1).

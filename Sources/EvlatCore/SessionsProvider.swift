@@ -110,7 +110,10 @@ public final class SessionsProvider: Provider {
                 // to 188 690 ms. `updatedAt` moves when anything in the file
                 // is written — a session being renamed, for one — so with that
                 // stamp a rename reads three minutes fresher than a live state.
-                updatedAt: record.statusUpdatedAt
+                updatedAt: record.statusUpdatedAt,
+                // The record's only fact for the card is the process: it knows
+                // no tool, no count and no reply.
+                activity: Signal.Activity(pid: record.pid)
             )
         }
         .sorted { $0.entity < $1.entity }  // deterministic; display order is the Registry's job

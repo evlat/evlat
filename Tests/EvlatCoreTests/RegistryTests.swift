@@ -23,11 +23,13 @@ final class RegistryTests: XCTestCase {
                         provider: String = "stub", label: String? = nil,
                         detail: String? = nil, source: AgentSource? = nil,
                         rawStatus: String? = "said-so",
-                        at offset: TimeInterval = 0) -> Signal {
+                        at offset: TimeInterval = 0,
+                        activity: Signal.Activity? = nil) -> Signal {
         Signal(provider: provider, entity: entity, phase: phase,
                label: label ?? provider, detail: detail, source: source,
                fidelity: fidelity, rawStatus: rawStatus,
-               updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + offset))
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + offset),
+               activity: activity)
     }
 
     /// One registry per call, one provider per group. The assertions read
@@ -140,15 +142,84 @@ final class RegistryTests: XCTestCase {
         XCTAssertEqual(rows.first?.detail, "/file/cwd")
     }
 
-    /// The guard on the behaviour that did not change: a vetoed report leaves
-    /// no trace on the row, not even a borrowed field.
+    /// A vetoed report leaves the phase, the name, the detail and the stamp
+    /// the baseline's. Only its `activity` crosses, because the card is not
+    /// the phase: a Claude session whose `working` report is refused still
+    /// has a tool to show.
     func testARejectedReportLeavesTheBaselineUntouched() {
         let baseline = signal("s", .idle, .derived, provider: "file", label: "from-file",
-                              detail: "/file/cwd")
+                              detail: "/file/cwd", activity: Signal.Activity(pid: 7))
+        let reported = Signal.Activity(pid: 9, lastTool: .init(name: "Bash", subject: "ls"),
+                                       toolCount: 1)
         let rows = merged([baseline],
                           [signal("s", .working, .official, provider: "hook", label: "from-hook",
-                                  detail: "/hook/cwd", at: 600)])
-        XCTAssertEqual(rows, [baseline])
+                                  detail: "/hook/cwd", at: 600, activity: reported)])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.phase, .idle)
+        XCTAssertEqual(rows.first?.label, "from-file")
+        XCTAssertEqual(rows.first?.detail, "/file/cwd")
+        XCTAssertEqual(rows.first?.provider, "file")
+        XCTAssertEqual(rows.first?.rawStatus, "said-so")
+        XCTAssertEqual(rows.first?.updatedAt, baseline.updatedAt)
+        XCTAssertEqual(rows.first?.activity, reported, "the activity is the report's")
+    }
+
+    /// The case the rewrite is for: a `busy` file and a `PreToolUse` report
+    /// agree, so the report is refused — and the card still gets its tool.
+    func testAWorkingFileWithAToolReportCarriesTheActivity() {
+        let rows = merged([signal("s", .working, .derived, activity: Signal.Activity(pid: 7))],
+                          [signal("s", .working, .official,
+                                  activity: Signal.Activity(pid: 7, lastTool: .init(name: "Read", subject: "a.swift"),
+                                                            toolCount: 3))])
+        XCTAssertEqual(rows.first?.activity?.lastTool?.name, "Read")
+        XCTAssertEqual(rows.first?.activity?.toolCount, 3)
+    }
+
+    /// A report that decayed to `idle` next to an `idle` file is refused, and
+    /// the reply the turn ended with stays on the row.
+    func testADecayedReportKeepsItsReply() {
+        let rows = merged([signal("s", .idle, .derived)],
+                          [signal("s", .idle, .official, activity: Signal.Activity(lastReply: "Done."))])
+        XCTAssertEqual(rows.first?.activity?.lastReply, "Done.")
+    }
+
+    /// The pid is the file's fact when the hook did not send one.
+    func testAReportWithoutAPidTakesTheBaselines() {
+        for report in [Phase.working, .waiting] {
+            let rows = merged([signal("s", .working, .derived, activity: Signal.Activity(pid: 7))],
+                              [signal("s", report, .official, activity: Signal.Activity(lastReply: "x"))])
+            XCTAssertEqual(rows.first?.activity?.pid, 7, "\(report)")
+            XCTAssertEqual(rows.first?.activity?.lastReply, "x", "\(report)")
+        }
+        let own = merged([signal("s", .working, .derived, activity: Signal.Activity(pid: 7))],
+                         [signal("s", .waiting, .official, activity: Signal.Activity(pid: 9))])
+        XCTAssertEqual(own.first?.activity?.pid, 9, "a pid of its own wins: `--resume` moves it")
+    }
+
+    /// A stale `waiting` report that is refused must not leave its wait on a
+    /// row that is not waiting: the card would ask for an approval nobody is
+    /// asking for. The turn's facts still cross.
+    func testARefusedWaitLeavesNoWaitBehind() {
+        let stale = Signal.Activity(lastTool: .init(name: "Bash", subject: "ls"),
+                                    blockingTool: .init(name: "Bash", subject: "rm"),
+                                    waitKind: .approval, toolCount: 2)
+        let rows = merged([signal("s", .idle, .derived)],
+                          [signal("s", .waiting, .official, activity: stale)])
+        XCTAssertEqual(rows.first?.phase, .idle)
+        XCTAssertNil(rows.first?.activity?.waitKind)
+        XCTAssertNil(rows.first?.activity?.blockingTool)
+        XCTAssertEqual(rows.first?.activity?.lastTool?.subject, "ls")
+        XCTAssertEqual(rows.first?.activity?.toolCount, 2)
+
+        let admitted = merged([signal("s", .working, .derived)],
+                              [signal("s", .waiting, .official, activity: stale)])
+        XCTAssertEqual(admitted.first?.activity?.waitKind, .approval, "an admitted wait keeps it")
+    }
+
+    /// No report at all: the baseline's activity is the row's.
+    func testWithoutAReportTheBaselinesActivityStands() {
+        let rows = merged([signal("s", .working, .derived, activity: Signal.Activity(pid: 7))])
+        XCTAssertEqual(rows.first?.activity?.pid, 7)
     }
 
     /// With no baseline there is no other name to take: Codex keeps its own.

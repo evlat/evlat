@@ -5,9 +5,11 @@ import Foundation
 /// to `busy` and `idle` and never says "this one is asking you something".
 ///
 /// The event → phase core is v1's `SessionStore.handle` with everything else
-/// removed — no bubbles, no voice lines, no motion, no tool summaries, no
-/// subagent counters. What is left is the state machine and the two guards that
-/// keep it honest (`stop_hook_active`, liveness).
+/// removed — no bubbles, no voice lines, no motion, no subagent counters. What
+/// is left is the state machine, the two guards that keep it honest
+/// (`stop_hook_active`, liveness), and since `005` the detail card's facts
+/// (`Signal.Activity`): the turn's last tool and tool count, the tool a block
+/// is about, and the last reply.
 ///
 /// **Subagent events are not filtered** (`discussion.md` → Karar 8c). v1 fed
 /// them to nothing at all; the rule was carried here as a trap ("the mascot
@@ -159,6 +161,50 @@ public final class HooksProvider: Provider {
         return event.agentID == session.blockedBy
     }
 
+    /// Which kind of wait a blocking event puts up, and on which tool, as a
+    /// pair: both are written where `blockedBy` is, so all three share the
+    /// block's lifetime. `keep` is the tool already on the block — a
+    /// permission notification follows the request that named the tool and
+    /// names none itself.
+    private static func wait(for phase: Phase, from event: HookEvent,
+                             keep: Signal.Activity.Tool?) -> (Signal.Activity.Tool?, Signal.Activity.WaitKind?) {
+        guard phase == .waiting else { return (nil, nil) }
+        switch event.name {
+        case "PermissionRequest":
+            return (tool(of: event), .approval)
+        case "Notification" where event.notificationType == "permission_prompt":
+            return (keep, .approval)
+        default:
+            return (keep, .answer)
+        }
+    }
+
+    private static func tool(of event: HookEvent) -> Signal.Activity.Tool? {
+        event.toolName.map { Signal.Activity.Tool(name: $0, subject: event.toolSubject) }
+    }
+
+    /// The turn's facts. Written **whether or not the phase was accepted**:
+    /// `mayApply` guards the phase, and a sibling subagent's tool is still a
+    /// tool this turn ran. What it cannot touch is the block's own tool, which
+    /// is written with the phase.
+    private static func record(_ event: HookEvent, in session: inout Session) {
+        switch event.name {
+        case "PreToolUse":
+            // Subagents' tools included: they are part of the parent's turn.
+            session.lastTool = tool(of: event)
+            session.toolCount += 1
+        case "UserPromptSubmit":
+            session.toolCount = 0
+            session.countIsPartial = false
+            session.lastTool = nil
+            session.lastReply = nil
+        case "Stop" where !event.stopHookActive:
+            session.lastReply = event.lastReply
+        default:
+            break
+        }
+    }
+
     /// One event. Called on the main queue.
     public func handle(_ event: HookEvent) {
         // No id, no row. v1 filed every anonymous event under the placeholder
@@ -174,15 +220,22 @@ public final class HooksProvider: Provider {
             // An event that says nothing about the phase opens no row: there
             // would be no phase to put in it.
             guard case .set(let phase) = effect else { return }
-            sessions[entity] = Session(phase: phase, since: platform.now(),
-                                       word: event.name, source: event.source,
-                                       cwd: event.cwd,
-                                       pid: event.pid,
-                                       startedAt: event.pid.flatMap(platform.processStartedAt),
-                                       // The owner is recorded where the row is
-                                       // opened too: a subagent's prompt is
-                                       // often the first event of a session.
-                                       blockedBy: Self.blocks(phase) ? event.agentID : nil)
+            let (blockingTool, waitKind) = Self.wait(for: phase, from: event, keep: nil)
+            var session = Session(phase: phase, since: platform.now(),
+                                  word: event.name, source: event.source,
+                                  cwd: event.cwd,
+                                  pid: event.pid,
+                                  startedAt: event.pid.flatMap(platform.processStartedAt),
+                                  // The owner is recorded where the row is
+                                  // opened too: a subagent's prompt is often
+                                  // the first event of a session.
+                                  blockedBy: Self.blocks(phase) ? event.agentID : nil,
+                                  blockingTool: blockingTool, waitKind: waitKind,
+                                  // A row opened mid-turn missed the turn's
+                                  // start; `UserPromptSubmit` below clears it.
+                                  countIsPartial: true)
+            Self.record(event, in: &session)
+            sessions[entity] = session
             return
         }
 
@@ -198,6 +251,7 @@ public final class HooksProvider: Provider {
             session.pid = pid
             session.startedAt = platform.processStartedAt(pid)
         }
+        Self.record(event, in: &session)
         // The phase is what the guard refuses, not the event: the whereabouts
         // above are kept either way, because a row that sat out a prompt with a
         // stale `cwd` would be wrong about which project is blocked.
@@ -208,8 +262,11 @@ public final class HooksProvider: Provider {
             // an idle session would spring `review` back to life.
             session.since = platform.now()
             session.word = event.name
-            // A phase that does not block clears the ownership with it.
+            // A phase that does not block clears the ownership with it, and
+            // the block's tool and kind go the same way.
             session.blockedBy = Self.blocks(phase) ? event.agentID : nil
+            (session.blockingTool, session.waitKind) =
+                Self.wait(for: phase, from: event, keep: session.blockingTool)
         }
         sessions[entity] = session
     }
@@ -237,7 +294,10 @@ public final class HooksProvider: Provider {
                 // later is Evlat's inference, and the thing the source actually
                 // said stays on the row.
                 rawStatus: session.word,
-                updatedAt: session.since
+                // The stamp stays the phase's: the card's facts change at event
+                // rate and must not look like a fresher state.
+                updatedAt: session.since,
+                activity: session.activity
             )
         }
         .sorted { $0.entity < $1.entity }  // deterministic; display order is the Registry's job
@@ -262,9 +322,10 @@ public final class HooksProvider: Provider {
         return platform.sameProcess(pid: pid, startedAt: session.startedAt)
     }
 
-    /// What this source knows about one session. Deliberately small: no tool
-    /// name, no message, no subagent set — anything stored here would have to
-    /// be un-stored by a later phase.
+    /// What this source knows about one session. Deliberately small: the
+    /// card's facts are stored already reduced (a tool's name and one-line
+    /// subject, a capped reply), never the raw input or a transcript, and
+    /// there is no subagent set.
     private struct Session {
         var phase: Phase
         /// When the phase was assigned. Both the row's stamp and the decay read
@@ -284,6 +345,37 @@ public final class HooksProvider: Provider {
         /// the absence of one. Only read while `phase` blocks, so there is no
         /// third "nobody" case to tell apart from the main thread.
         var blockedBy: String?
+        /// The tool the block is about, and what it waits for. Written only
+        /// where `blockedBy` is, so they leave with the block.
+        var blockingTool: Signal.Activity.Tool?
+        var waitKind: Signal.Activity.WaitKind?
+        var lastTool: Signal.Activity.Tool?
+        var lastReply: String?
+        var toolCount = 0
+        var countIsPartial: Bool
+
+        init(phase: Phase, since: Date, word: String, source: AgentSource, cwd: String?,
+             pid: Int32?, startedAt: Date?, blockedBy: String?,
+             blockingTool: Signal.Activity.Tool?, waitKind: Signal.Activity.WaitKind?,
+             countIsPartial: Bool) {
+            self.phase = phase
+            self.since = since
+            self.word = word
+            self.source = source
+            self.cwd = cwd
+            self.pid = pid
+            self.startedAt = startedAt
+            self.blockedBy = blockedBy
+            self.blockingTool = blockingTool
+            self.waitKind = waitKind
+            self.countIsPartial = countIsPartial
+        }
+
+        var activity: Signal.Activity {
+            Signal.Activity(pid: pid, lastTool: lastTool, blockingTool: blockingTool,
+                            waitKind: waitKind, lastReply: lastReply,
+                            toolCount: toolCount, countIsPartial: countIsPartial)
+        }
 
         /// The phase as of now. Only `review` decays: `waiting` and `failed`
         /// are the user's business and wait for an event from whoever put them

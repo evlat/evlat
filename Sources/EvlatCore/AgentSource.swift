@@ -35,7 +35,9 @@ public enum AgentSource: String, CaseIterable {
 
 /// Codex's differences from the canonical vocabulary, and nothing else. Its
 /// schema is already shaped like Claude Code's; only what was **measured** to
-/// differ is translated here (v1, set 008 → M4).
+/// differ is translated here (v1, set 008 → M2, M4, M5). A tool failure is not
+/// translated: Codex sends no stable error field (`tool_response` is plain
+/// text) and nothing is guessed from text.
 enum CodexHookAdapter {
     static func canonical(_ json: [String: Any]) -> [String: Any] {
         var translated = json
@@ -45,6 +47,51 @@ enum CodexHookAdapter {
         if translated["hook_event_name"] as? String == "Interrupt" {
             translated["hook_event_name"] = "Stop"
         }
+        switch translated["tool_name"] as? String {
+        case "apply_patch": patch(&translated)
+        case "collaborationspawn_agent", "collaborationwait_agent": agent(&translated)
+        default: break
+        }
         return translated
+    }
+
+    /// Patch headers and their canonical tools. The first header wins: the
+    /// card names one file.
+    private static let headers: [(prefix: String, tool: String)] = [
+        ("*** Add File: ", "Write"), ("*** Update File: ", "Edit"), ("*** Delete File: ", "Edit"),
+    ]
+
+    /// `apply_patch` → `Write` or `Edit`, with `file_path` from the patch
+    /// header (a relative path). Codex's most frequent tool would otherwise
+    /// reach the card as `apply_patch` and a patch body. A patch with no
+    /// header is still an `Edit`.
+    ///
+    /// Unlike v1, the patch text itself (`command`) is **dropped**: it comes
+    /// first in `HookEvent.subjectKeys`, so leaving it would make the subject
+    /// `*** Begin Patch`, and it is the file's content besides — the part the
+    /// card promises not to hold.
+    private static func patch(_ json: inout [String: Any]) {
+        var input = json["tool_input"] as? [String: Any] ?? [:]
+        let text = input.removeValue(forKey: "command") as? String ?? ""
+        var tool = "Edit"
+        search: for line in text.split(whereSeparator: \.isNewline) {
+            for header in headers where line.hasPrefix(header.prefix) {
+                tool = header.tool
+                input["file_path"] = String(line.dropFirst(header.prefix.count))
+                break search
+            }
+        }
+        json["tool_name"] = tool
+        json["tool_input"] = input
+    }
+
+    /// Spawning and waiting on a subagent → `Agent`. The spawn's `message` is
+    /// opaque; the subject, when there is one, is `task_name`, and sometimes
+    /// there is none (M5) — then the card shows the name alone.
+    private static func agent(_ json: inout [String: Any]) {
+        var input = json["tool_input"] as? [String: Any] ?? [:]
+        if let name = input["task_name"] as? String { input["description"] = name }
+        json["tool_name"] = "Agent"
+        json["tool_input"] = input
     }
 }

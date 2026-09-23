@@ -4,11 +4,13 @@ import Foundation
 /// vocabulary (Claude Code's); another source's body arrives here after
 /// `AgentSource.canonical`.
 ///
-/// Only what `002` needs is read. v1 also carried `tool_name`, `tool_input`,
-/// `message`, `last_assistant_message`, `error` and `stop_hook_active`'s
-/// neighbours, but those fed bubbles, tool summaries and voice lines — none of
-/// which v2 has yet. They were left out deliberately, not overlooked; a phase
-/// that needs one adds it next to these.
+/// Only what a rule or the detail card reads is kept. The card (`005`) added
+/// `tool_name`, a one-line subject taken from `tool_input`, and
+/// `last_assistant_message` — all three measured on Claude Code 2.1.280 and
+/// documented. **The raw `tool_input` is not kept**: `Write` carries the whole
+/// file in it, so it is reduced to its subject here, at the moment it arrives,
+/// and nothing downstream ever holds more. v1's `message` and `error` fed
+/// bubbles and voice lines v2 does not have and stay out.
 ///
 /// **A missing or empty field is `nil`.** The typed view invents no stand-in:
 /// v1 called a session without an id `"unknown"`, which quietly merged every
@@ -43,6 +45,28 @@ public struct HookEvent: Equatable {
     public let pid: Int32?
     /// Where the event came from; a session takes it from its first event.
     public let source: AgentSource
+    /// `tool_name`, canonical spelling (`AgentSource.canonical` has already
+    /// turned Codex's `apply_patch` into `Edit` or `Write`).
+    public let toolName: String?
+    /// One line that says what the tool is working on: the first non-blank
+    /// value among `subjectKeys` in `tool_input`, first line only, trimmed and
+    /// capped at `subjectLimit`. `nil` when the input has none of them.
+    public let toolSubject: String?
+    /// `last_assistant_message` (on `Stop`), reduced to its first paragraph and
+    /// capped at `replyLimit`. The transcript is never read for it.
+    public let lastReply: String?
+
+    /// Where a tool's subject is looked for, in order. One list rather than a
+    /// table per tool: the keys already say what they hold, and a tool this
+    /// version does not know still gets a subject if it uses one of them.
+    public static let subjectKeys = ["command", "file_path", "pattern", "url", "query", "description"]
+
+    /// The longest subject kept. A one-line script can be any size.
+    public static let subjectLimit = 200
+
+    /// The longest reply kept, in characters. Named so the privacy promise has
+    /// a number and a test: the card needs a sentence, not the answer.
+    public static let replyLimit = 280
 
     /// The key under which the server writes the `X-Evlat-Task` header.
     public static let taskKey = "evlat_task"
@@ -61,6 +85,9 @@ public struct HookEvent: Equatable {
         notificationType = Self.text(json["notification_type"])
         stopHookActive = json["stop_hook_active"] as? Bool ?? false
         taskID = Self.text(json[Self.taskKey])
+        toolName = Self.text(json["tool_name"])
+        toolSubject = Self.subject(of: json["tool_input"] as? [String: Any])
+        lastReply = Self.firstParagraph(json["last_assistant_message"] as? String)
         // The pid arrives as text, because the header it comes from is text.
         // Anything that is not a plausible process is ignored: a session's
         // whereabouts are resolved by walking up from this pid, and `1`
@@ -70,6 +97,32 @@ public struct HookEvent: Equatable {
         } else {
             pid = nil
         }
+    }
+
+    private static func subject(of input: [String: Any]?) -> String? {
+        guard let input else { return nil }
+        for key in subjectKeys {
+            guard let value = input[key] as? String else { continue }
+            let line = value.split(whereSeparator: \.isNewline)
+                .lazy.map { $0.trimmingCharacters(in: .whitespaces) }
+                .first { !$0.isEmpty }
+            if let line { return capped(line, at: subjectLimit) }
+        }
+        return nil
+    }
+
+    private static func firstParagraph(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let paragraph = trimmed.components(separatedBy: "\n\n").first ?? trimmed
+        return capped(paragraph.trimmingCharacters(in: .whitespacesAndNewlines), at: replyLimit)
+    }
+
+    /// A cut text says it was cut.
+    private static func capped(_ text: String, at limit: Int) -> String {
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     /// A string field, with empty read as absent. The header case cannot

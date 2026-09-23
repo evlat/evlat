@@ -249,11 +249,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let snapshot = registry.snapshot()
         print("provider: \(SessionsProvider.id)  ·  directory: \(sessionsDirectory().path)")
         print("live sessions: \(snapshot.ordered.count)  ·  aggregate: \(snapshot.aggregate.rawValue)  ·  hasLive: \(snapshot.hasLive)")
-        for signal in snapshot.ordered {
-            let raw = signal.rawStatus.map { " (raw: \($0))" } ?? ""
-            let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
-            print("  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")")
-        }
+        for signal in snapshot.ordered { print(listLine(signal)) }
         if !provider.unrecognizedStatuses.isEmpty {
             print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
         }
@@ -271,6 +267,16 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
         printHookEndpoint(capturingFor: window)
         exit(0)
+    }
+
+    /// One `--list` row. Separate so its privacy has a test: the row names the
+    /// session and its phase, and **never** its `activity` — the tool, the
+    /// command and the last reply stay on the card. `--list` output is what
+    /// ends up pasted into bug reports.
+    nonisolated static func listLine(_ signal: Signal) -> String {
+        let raw = signal.rawStatus.map { " (raw: \($0))" } ?? ""
+        let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
+        return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")"
     }
 
     /// The hook endpoint's own diagnostics.

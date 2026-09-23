@@ -49,6 +49,13 @@ final class SessionsProviderTests: XCTestCase {
         XCTAssertEqual(signals[0].source, .claude, "session files are Claude Code's")
     }
 
+    /// The file record's only contribution to the card is the process: it
+    /// knows no tool and no reply.
+    func testTheRowCarriesOnlyThePid() throws {
+        try write(pid: 100, sessionId: "s-1", status: "busy")
+        XCTAssertEqual(provider().currentSignals().first?.activity, Signal.Activity(pid: 100))
+    }
+
     func testDeadPidIsDropped() throws {
         try write(pid: 100, sessionId: "live", status: "busy")
         try write(pid: 200, sessionId: "dead", status: "busy")

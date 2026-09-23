@@ -32,8 +32,12 @@ final class HooksProviderTests: XCTestCase {
     private func event(_ name: String, session: String? = "s-1", cwd: String? = "/tmp/project",
                        agent: String? = nil, notification: String? = nil,
                        stopHookActive: Bool = false, pid: Int32? = 4242,
-                       source: AgentSource = .claude) -> HookEvent {
+                       source: AgentSource = .claude, tool: String? = nil,
+                       command: String? = nil, reply: String? = nil) -> HookEvent {
         var json: [String: Any] = ["hook_event_name": name]
+        if let tool { json["tool_name"] = tool }
+        if let command { json["tool_input"] = ["command": command] }
+        if let reply { json["last_assistant_message"] = reply }
         if let session { json["session_id"] = session }
         if let cwd { json["cwd"] = cwd }
         if let agent { json["agent_id"] = agent }
@@ -437,6 +441,99 @@ final class HooksProviderTests: XCTestCase {
     /// The whole point of the set, exercised end to end in the pure layer: a
     /// file record says the session is busy, the hook says it is waiting on the
     /// user, and one row comes out saying `waiting`.
+    // MARK: - Activity (the card's data)
+
+    private func activity(_ hooks: HooksProvider) -> Signal.Activity? {
+        hooks.currentSignals().first?.activity
+    }
+
+    /// Every `PreToolUse` in the turn is counted — a subagent's too, since it
+    /// is part of the parent's turn — and the last one is the row's tool.
+    func testTheTurnCountsItsTools() {
+        let hooks = provider()
+        hooks.handle(event("UserPromptSubmit"))
+        hooks.handle(event("PreToolUse", tool: "Bash", command: "ls"))
+        hooks.handle(event("PostToolUse", tool: "Bash", command: "ls"))
+        hooks.handle(event("PreToolUse", agent: "agent-a", tool: "Grep"))
+        XCTAssertEqual(activity(hooks)?.toolCount, 2, "Post does not count, a subagent's Pre does")
+        XCTAssertEqual(activity(hooks)?.countIsPartial, false, "the turn's start was seen")
+        XCTAssertEqual(activity(hooks)?.lastTool, Signal.Activity.Tool(name: "Grep", subject: nil))
+        XCTAssertEqual(activity(hooks)?.pid, 4242)
+    }
+
+    /// A new prompt starts a new turn: count, last tool and last reply go.
+    func testANewPromptResetsTheTurn() {
+        let hooks = provider()
+        hooks.handle(event("PreToolUse", tool: "Bash", command: "ls"))
+        hooks.handle(event("Stop", reply: "All done."))
+        XCTAssertEqual(activity(hooks)?.lastReply, "All done.")
+        hooks.handle(event("UserPromptSubmit"))
+        XCTAssertEqual(activity(hooks)?.toolCount, 0)
+        XCTAssertNil(activity(hooks)?.lastTool)
+        XCTAssertNil(activity(hooks)?.lastReply)
+        XCTAssertEqual(activity(hooks)?.countIsPartial, false)
+    }
+
+    /// A session first heard of mid-turn has a count, but not the whole one.
+    func testACountWithoutTheTurnsStartIsPartial() {
+        let hooks = provider()
+        hooks.handle(event("PreToolUse", tool: "Bash", command: "ls"))
+        hooks.handle(event("PreToolUse", tool: "Read"))
+        XCTAssertEqual(activity(hooks)?.toolCount, 2)
+        XCTAssertEqual(activity(hooks)?.countIsPartial, true)
+    }
+
+    /// The `Stop` a `Stop` hook caused is not a reply.
+    func testOnlyARealStopWritesTheReply() {
+        let hooks = provider()
+        hooks.handle(event("UserPromptSubmit"))
+        hooks.handle(event("Stop", stopHookActive: true, reply: "looping"))
+        XCTAssertNil(activity(hooks)?.lastReply)
+        hooks.handle(event("Stop", reply: "Finished."))
+        XCTAssertEqual(activity(hooks)?.lastReply, "Finished.")
+    }
+
+    /// The scenario `mayApply` exists for, seen from the card: A asks to run a
+    /// command, sibling B keeps working. B's tool is the row's last tool, but
+    /// the command the user is asked about stays A's.
+    func testASiblingsToolDoesNotReplaceTheBlockingTool() {
+        let hooks = provider()
+        hooks.handle(event("UserPromptSubmit"))
+        hooks.handle(event("PermissionRequest", agent: "agent-a", tool: "Bash", command: "rm -rf build"))
+        hooks.handle(event("PreToolUse", agent: "agent-b", tool: "Bash", command: "ls"))
+        XCTAssertEqual(activity(hooks)?.blockingTool,
+                       Signal.Activity.Tool(name: "Bash", subject: "rm -rf build"))
+        XCTAssertEqual(activity(hooks)?.waitKind, .approval)
+        XCTAssertEqual(activity(hooks)?.lastTool, Signal.Activity.Tool(name: "Bash", subject: "ls"))
+        XCTAssertEqual(activity(hooks)?.toolCount, 1, "B's tool is still counted")
+    }
+
+    /// The blocking tool lives exactly as long as the block.
+    func testTheBlockingToolLeavesWithTheBlock() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", agent: "agent-a", tool: "Bash", command: "make"))
+        hooks.handle(event("PostToolUse", agent: "agent-a", tool: "Bash", command: "make"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .working)
+        XCTAssertNil(activity(hooks)?.blockingTool)
+        XCTAssertNil(activity(hooks)?.waitKind)
+    }
+
+    /// A permission notification after the request keeps the request's tool;
+    /// a question is a different kind of wait.
+    func testANotificationSaysWhatKindOfWaitItIs() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", tool: "Write"))
+        hooks.handle(event("Notification", notification: "permission_prompt"))
+        XCTAssertEqual(activity(hooks)?.waitKind, .approval)
+        XCTAssertEqual(activity(hooks)?.blockingTool?.name, "Write", "the request's tool is kept")
+
+        for type in ["elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"] {
+            let asked = provider()
+            asked.handle(event("Notification", notification: type))
+            XCTAssertEqual(activity(asked)?.waitKind, .answer, type)
+        }
+    }
+
     func testAWaitingReportReachesTheBarThroughTheMergeRule() {
         let hooks = provider()
         hooks.handle(event("PermissionRequest", session: "s-1"))

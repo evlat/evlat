@@ -64,6 +64,16 @@ public final class Registry {
     /// is not written at event rate. A report that has no `cwd` yet (it only
     /// learns one from an event that carries it) keeps the baseline's.
     ///
+    /// **`activity` is not admitted, it is carried** (`005`). The rule above
+    /// is about the phase; a report whose phase is vetoed still knows which
+    /// tool ran, and in practice that is most reports — a `working` hook next
+    /// to a `busy` file is refused, and so is a `review` that decayed to
+    /// `idle` beside an `idle` file. So the row's activity is the report's on
+    /// both branches, with the baseline's pid when the report has none; with no
+    /// report it is the baseline's. Only its wait is tied to the phase: a row
+    /// that does not wait shows no block (`shown`). This narrows "a rejected report leaves no
+    /// trace" to the phase, the name, `detail` and the stamp.
+    ///
     /// With no baseline the report passes untouched, and that branch is the
     /// whole of what a source without a file record gets.
     private static func reconcile(_ rows: [Signal]) -> Signal? {
@@ -80,12 +90,40 @@ public final class Registry {
         // it a row of its own instead of inheriting this.
         guard let baseline = newest(.derived) else { return newest(.official) ?? newest(.manual) }
         guard let report = newest(.official) else { return baseline }
-        guard admits(baseline, report.phase) else { return baseline }
+        let activity = carried(report.activity, baseline.activity)
+        guard admits(baseline, report.phase) else {
+            return baseline.with(activity: activity.map { shown($0, on: baseline.phase) })
+        }
         return Signal(provider: report.provider, entity: report.entity, kind: report.kind,
                       phase: report.phase, progress: report.progress, label: baseline.label,
                       detail: report.detail ?? baseline.detail,
                       source: report.source ?? baseline.source, fidelity: report.fidelity,
-                      rawStatus: report.rawStatus, updatedAt: report.updatedAt)
+                      rawStatus: report.rawStatus, updatedAt: report.updatedAt,
+                      activity: activity.map { shown($0, on: report.phase) })
+    }
+
+    /// A wait belongs to a row that waits. A refused report is a stale one
+    /// more often than not — a `waiting` whose answer never reached Evlat — and
+    /// its block would otherwise ask the card for an approval nobody is asking
+    /// for. The turn's facts (last tool, count, reply) are not tied to a
+    /// phase and stay.
+    private static func shown(_ activity: Signal.Activity, on phase: Phase) -> Signal.Activity {
+        guard phase != .waiting else { return activity }
+        var shown = activity
+        shown.blockingTool = nil
+        shown.waitKind = nil
+        return shown
+    }
+
+    /// The report's activity, with the baseline's pid when it has none of its
+    /// own; the baseline's when the report has no activity at all. A pid the
+    /// report does have wins: `claude --resume` moves a session to a new
+    /// process before the file record catches up.
+    private static func carried(_ report: Signal.Activity?,
+                                _ baseline: Signal.Activity?) -> Signal.Activity? {
+        guard var activity = report else { return baseline }
+        if activity.pid == nil { activity.pid = baseline?.pid }
+        return activity
     }
 
     /// Which reports a baseline can be reconciled with. `failed` sits in both
