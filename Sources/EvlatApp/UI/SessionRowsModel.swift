@@ -64,6 +64,11 @@ public final class SessionRowsModel: ObservableObject {
     @Published public private(set) var beat: Int = 0
 
     private var clock: Timer?
+    /// When each row entered its current phase, as a count of observed phase
+    /// changes — no clock needed, only an order. A row first seen gets 0.
+    private var entered: [String: Int] = [:]
+    private var lastPhase: [String: Phase] = [:]
+    private var changes = 0
     /// How many times a clock has been started. For the rhythm test: a list
     /// write that restarted the clock would push the next beat out every time
     /// a busy session writes — and a busy session writes constantly
@@ -92,11 +97,35 @@ public final class SessionRowsModel: ObservableObject {
 
     /// Writes what is drawn, and only when it changed.
     ///
-    /// `signals` is the snapshot's display order. Compared field by field, the
-    /// same deadband `AppController.refresh` keeps for the mascot: a moving
-    /// stamp never reaches `@Published`.
+    /// Compared field by field, the same deadband `AppController.refresh`
+    /// keeps for the mascot: a moving stamp never reaches `@Published`.
+    ///
+    /// **The order within a phase is the order rows entered it, newest
+    /// first.** The session that just finished leads the idle rows instead of
+    /// dropping back to its place by entity. The key moves only on a phase
+    /// change, never on the stamp a busy session refreshes with every tool
+    /// event, so the column stays still between changes; ties (rows never
+    /// seen changing) fall back to the entity.
     public func update(from signals: [Signal]) {
-        let next = Self.slots(signals.map(SessionRow.init))
+        for signal in signals where lastPhase[signal.entity] != signal.phase {
+            if lastPhase[signal.entity] == nil {
+                entered[signal.entity] = 0
+            } else {
+                changes += 1
+                entered[signal.entity] = changes
+            }
+            lastPhase[signal.entity] = signal.phase
+        }
+        let live = Set(signals.map(\.entity))
+        lastPhase = lastPhase.filter { live.contains($0.key) }
+        entered = entered.filter { live.contains($0.key) }
+
+        let ordered = signals.sorted { a, b in
+            if a.phase.priority != b.phase.priority { return a.phase.priority > b.phase.priority }
+            let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
+            return ea != eb ? ea > eb : a.entity < b.entity
+        }
+        let next = Self.slots(ordered.map(SessionRow.init))
         if rows != next.rows { rows = next.rows }
         if overflow != next.overflow { overflow = next.overflow }
         setBeating(next.rows.contains(where: \.beats))

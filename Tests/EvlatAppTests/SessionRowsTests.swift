@@ -96,6 +96,27 @@ final class SessionRowsTests: XCTestCase {
     // MARK: - The beat clock
 
     /// R6.1: with nothing to beat, there is no timer at all.
+    /// The session that just finished goes to the top of the idle rows, not
+    /// back to its place by entity: the order within a phase is the order the
+    /// rows entered it, newest first. Only a phase change moves a row — a
+    /// stamp moving on every tool event does not.
+    func testTheRowThatJustChangedPhaseLeadsItsPhase() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("a", .idle), signal("b", .idle), signal("c", .review)])
+        XCTAssertEqual(model.rows.map(\.entity), ["c", "a", "b"], "first sight: by entity")
+
+        model.update(from: [signal("a", .idle), signal("b", .idle), signal("c", .idle)])
+        XCTAssertEqual(model.rows.map(\.entity), ["c", "a", "b"], "c just finished: it leads the idle rows")
+
+        model.update(from: [signal("a", .idle, stamp: 9), signal("b", .idle, stamp: 5),
+                            signal("c", .idle, stamp: 1)])
+        XCTAssertEqual(model.rows.map(\.entity), ["c", "a", "b"], "stamps do not reorder")
+
+        model.update(from: [signal("a", .idle), signal("b", .working), signal("c", .idle)])
+        model.update(from: [signal("a", .idle), signal("b", .idle), signal("c", .idle)])
+        XCTAssertEqual(model.rows.map(\.entity), ["b", "c", "a"], "b finished last")
+    }
+
     func testNothingToBeatMeansNoClock() {
         let model = SessionRowsModel()
         model.update(from: [])
@@ -131,13 +152,15 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.clockStarts, 2, "a new beating stretch is a new clock")
     }
 
-    /// A row beyond the slots does not beat: it is not drawn.
-    func testAHiddenRowDoesNotStartTheClock() {
+    /// A beating row is never hidden behind still ones: the model orders by
+    /// phase itself, so a working session handed in last still takes a slot
+    /// and starts the clock, and the count stands for idle rows.
+    func testABeatingRowIsNeverBehindTheCount() {
         let model = SessionRowsModel()
-        // Five rows in display order: the working one is fifth, behind "+2".
         model.update(from: (1...4).map { signal("s\($0)", .idle) } + [signal("s5", .working)])
         XCTAssertEqual(model.overflow, 2)
-        XCTAssertFalse(model.isBeating)
+        XCTAssertEqual(model.rows.first?.entity, "s5")
+        XCTAssertTrue(model.isBeating)
     }
 
     // MARK: - The gesture table
