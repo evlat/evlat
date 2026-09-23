@@ -76,6 +76,17 @@ final class HooksProviderTests: XCTestCase {
 
     /// Which `Notification` blocks the user is the notification *type*'s
     /// question, not the event's.
+    /// The row says which tool the session runs in: the source of the event
+    /// that opened it.
+    func testTheRowCarriesTheEventsSource() {
+        let hooks = provider()
+        hooks.handle(event("UserPromptSubmit", session: "a"))
+        hooks.handle(event("UserPromptSubmit", session: "b", source: .codex))
+        let bySession = Dictionary(uniqueKeysWithValues: hooks.currentSignals().map { ($0.entity, $0.source) })
+        XCTAssertEqual(bySession["a"], .claude)
+        XCTAssertEqual(bySession["b"], .codex)
+    }
+
     func testBlockingNotificationsWait() {
         for type in ["permission_prompt", "elicitation_dialog",
                      "elicitation_url_dialog", "agent_needs_input"] {

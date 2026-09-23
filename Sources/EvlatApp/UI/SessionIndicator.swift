@@ -28,17 +28,29 @@ struct SessionColumn: View {
     /// reads as a panel rather than a ragged tab.
     static let minOpenWidth: CGFloat = 110
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    /// The small raised number after a repeated name.
+    static let numberFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
     /// The ring's leading edge inside the bar's width (it is centred there).
     static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
 
     /// The width the names need, as drawn: the longest one, capped at
     /// `nameMaxWidth`.
     static func namesWidth(_ labels: [String]) -> CGFloat {
-        let widest = labels.map {
-            ($0 as NSString).size(withAttributes: [.font: nameFont]).width
+        namesWidth(labels.map { SessionRow(entity: $0, label: $0, phase: .idle) })
+    }
+
+    /// The same, for rows: a repeated name is measured with its number.
+    static func namesWidth(_ rows: [SessionRow]) -> CGFloat {
+        let widest = rows.map { row -> CGFloat in
+            let name = (row.label as NSString).size(withAttributes: [.font: nameFont]).width
+            guard row.duplicate > 0 else { return name }
+            let number = ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
+            return name + numberGap + number
         }.max() ?? 0
         return min(ceil(widest), nameMaxWidth)
     }
+
+    static let numberGap: CGFloat = 2
 
     /// The open body's width for names this wide: the part of the bar right
     /// of the ring's leading edge, the gap, the names and the inset.
@@ -54,14 +66,14 @@ struct SessionColumn: View {
             ForEach(model.rows) { row in
                 // Centred in the collapsed bar's width, the same column the
                 // mascot sits in.
-                SessionIndicator(phase: row.phase,
+                SessionIndicator(phase: row.phase, source: row.source,
                                  // Only a beating row sees the counter move. A
                                  // still row's trigger never changes on the
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0)
                     .frame(width: AppController.barWidth)
                     .overlay(alignment: .leading) {
-                        name(row.label, color: row.phase == .idle
+                        name(row.label, duplicate: row.duplicate, color: row.phase == .idle
                              ? BarPalette.textSecondary : BarPalette.textPrimary)
                     }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
@@ -94,15 +106,27 @@ struct SessionColumn: View {
     ///
     /// Idle sessions are grey and the rest white: the same split the rings
     /// make, so the eye lands on what is doing something.
-    private func name(_ label: String, color: Color) -> some View {
-        // The name is data, not text of ours: it is what the user called the
-        // session, so it bypasses the string lookup (`verbatim`) and needs no
-        // catalogue entry.
-        Text(verbatim: label)
-            .font(Font(Self.nameFont))
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .truncationMode(.tail)
+    ///
+    /// A repeated name in the same tool carries a small raised number after
+    /// it — only then, so a unique name stays bare.
+    private func name(_ label: String, duplicate: Int, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
+            // The name is data, not text of ours: it is what the user called
+            // the session, so it bypasses the string lookup (`verbatim`) and
+            // needs no catalogue entry.
+            Text(verbatim: label)
+                .font(Font(Self.nameFont))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if duplicate > 0 {
+                Text(verbatim: "\(duplicate)")
+                    .font(Font(Self.numberFont))
+                    .foregroundStyle(BarPalette.textSecondary)
+                    .baselineOffset(4)
+                    .fixedSize()
+            }
+        }
             .frame(width: Self.nameMaxWidth, alignment: .trailing)
             // Held to a ring's height: a taller line would push the rings
             // apart the moment the bar opens.
@@ -124,6 +148,7 @@ struct SessionColumn: View {
 /// beat, still in between; `review` flares once on arrival and fades.
 struct SessionIndicator: View {
     let phase: Phase
+    var source: AgentSource? = nil
     let beat: Int
 
     private var size: CGFloat { AppController.indicatorSize }
@@ -141,7 +166,10 @@ struct SessionIndicator: View {
             .keyframeAnimator(initialValue: IndicatorGesture(),
                               trigger: IndicatorTrigger(phase: phase, beat: beat)) { view, g in
                 view
+                    // The turn is the ring's alone: the mark inside stays
+                    // upright, which is what keeps it readable while it works.
                     .rotationEffect(.degrees(g.spin))
+                    .overlay { mark }
                     .scaleEffect(g.pulse)
                     .shadow(color: glowColor.opacity(g.glow), radius: size * 0.35)
             } keyframes: { _ in
@@ -163,7 +191,27 @@ struct SessionIndicator: View {
             }
     }
 
-    private var line: CGFloat { max(1.5, size * 0.13) }
+    private var line: CGFloat { 1.6 }
+
+    /// The tool's mark, in the phase's colour: the ring and the mark say the
+    /// same state, the mark alone says where the session runs.
+    @ViewBuilder private var mark: some View {
+        if let source {
+            SourceGlyph(source: source)
+                .fill(markColor, style: FillStyle(eoFill: true))
+                .frame(width: size * 0.56, height: size * 0.56)
+        }
+    }
+
+    private var markColor: Color {
+        switch phase {
+        case .idle: return BarPalette.textSecondary
+        case .working: return BarPalette.textPrimary
+        case .waiting: return Self.amber
+        case .review: return Self.green
+        case .failed: return Self.red
+        }
+    }
 
     @ViewBuilder private var ring: some View {
         // Exhaustive on purpose: a new `Phase` must not compile until it has
@@ -183,13 +231,14 @@ struct SessionIndicator: View {
         case .waiting:
             Circle()
                 .stroke(Self.amber, lineWidth: line)
-                .background(Circle().fill(Self.amber.opacity(0.35)))
+                // Faint: the amber mark sits on it and has to stay readable.
+                .background(Circle().fill(Self.amber.opacity(0.18)))
         case .review:
             Circle().stroke(Self.green.opacity(0.8), lineWidth: line)
         case .failed:
             Circle()
                 .stroke(Self.red, lineWidth: line)
-                .background(Circle().fill(Self.red.opacity(0.3)))
+                .background(Circle().fill(Self.red.opacity(0.18)))
         }
     }
 

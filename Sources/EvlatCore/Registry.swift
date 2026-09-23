@@ -83,7 +83,8 @@ public final class Registry {
         guard admits(baseline, report.phase) else { return baseline }
         return Signal(provider: report.provider, entity: report.entity, kind: report.kind,
                       phase: report.phase, progress: report.progress, label: baseline.label,
-                      detail: report.detail ?? baseline.detail, fidelity: report.fidelity,
+                      detail: report.detail ?? baseline.detail,
+                      source: report.source ?? baseline.source, fidelity: report.fidelity,
                       rawStatus: report.rawStatus, updatedAt: report.updatedAt)
     }
 

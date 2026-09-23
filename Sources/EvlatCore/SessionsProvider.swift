@@ -101,6 +101,8 @@ public final class SessionsProvider: Provider {
                 phase: phase ?? .idle,
                 label: record.label,
                 detail: record.cwd,
+                // The session files are Claude Code's own.
+                source: .claude,
                 fidelity: .derived,
                 rawStatus: record.status,
                 // The **status** stamp, not the record's. Measured in

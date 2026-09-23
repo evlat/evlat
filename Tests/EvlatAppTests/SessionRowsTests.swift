@@ -18,14 +18,15 @@ final class SessionRowsTests: XCTestCase {
         func currentSignals() -> [Signal] { signals }
     }
 
-    private func signal(_ entity: String, _ phase: Phase, stamp: TimeInterval = 0) -> Signal {
-        Signal(provider: "stub", entity: entity, phase: phase, label: "name-\(entity)",
-               fidelity: .official,
+    private func signal(_ entity: String, _ phase: Phase, stamp: TimeInterval = 0,
+                        label: String? = nil, source: AgentSource? = .claude) -> Signal {
+        Signal(provider: "stub", entity: entity, phase: phase, label: label ?? "name-\(entity)",
+               source: source, fidelity: .official,
                updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + stamp))
     }
 
     private func row(_ entity: String, _ phase: Phase = .idle) -> SessionRow {
-        SessionRow(entity: entity, label: "name-\(entity)", phase: phase)
+        SessionRow(entity: entity, label: "name-\(entity)", phase: phase, source: .claude)
     }
 
     // MARK: - Slots
@@ -150,6 +151,28 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertFalse(model.isBeating)
         model.update(from: [signal("a", .working)])
         XCTAssertEqual(model.clockStarts, 2, "a new beating stretch is a new clock")
+    }
+
+    /// Two sessions with the same name in the same tool get a number, from the
+    /// second one on; the same name in two tools does not — the mark already
+    /// tells them apart. The number follows the entity, so it does not move
+    /// when the rows reorder.
+    func testOnlyASameNameInTheSameToolIsNumbered() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("a", .idle, label: "evlat-v2"),
+                            signal("b", .idle, label: "evlat-v2", source: .codex),
+                            signal("c", .idle, label: "evlat-v2", source: .codex)])
+        let byEntity = Dictionary(uniqueKeysWithValues: model.rows.map { ($0.entity, $0) })
+        XCTAssertEqual(byEntity["a"]?.source, .claude)
+        XCTAssertEqual(byEntity["a"]?.duplicate, 0, "alone in its tool")
+        XCTAssertEqual(byEntity["b"]?.duplicate, 0, "the first of two keeps the bare name")
+        XCTAssertEqual(byEntity["c"]?.duplicate, 2)
+
+        model.update(from: [signal("a", .idle, label: "evlat-v2"),
+                            signal("b", .working, label: "evlat-v2", source: .codex),
+                            signal("c", .idle, label: "evlat-v2", source: .codex)])
+        XCTAssertEqual(model.rows.first?.entity, "b")
+        XCTAssertEqual(model.rows.first { $0.entity == "c" }?.duplicate, 2, "reordering keeps the number")
     }
 
     /// A beating row is never hidden behind still ones: the model orders by

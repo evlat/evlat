@@ -11,17 +11,26 @@ public struct SessionRow: Equatable, Identifiable {
     public let entity: String
     public let label: String
     public let phase: Phase
+    /// The tool the session runs in; its mark is drawn inside the ring.
+    public let source: AgentSource?
+    /// 0, or this row's number among rows with the same name in the same tool
+    /// (2, 3, …). The first of them keeps the bare name.
+    public let duplicate: Int
 
     public var id: String { entity }
 
-    public init(entity: String, label: String, phase: Phase) {
+    public init(entity: String, label: String, phase: Phase,
+                source: AgentSource? = nil, duplicate: Int = 0) {
         self.entity = entity
         self.label = label
         self.phase = phase
+        self.source = source
+        self.duplicate = duplicate
     }
 
-    public init(_ signal: Signal) {
-        self.init(entity: signal.entity, label: signal.label, phase: signal.phase)
+    public init(_ signal: Signal, duplicate: Int = 0) {
+        self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
+                  source: signal.source, duplicate: duplicate)
     }
 
     /// Whether this row moves on the beat. `working` turns its arc, `waiting`
@@ -95,6 +104,25 @@ public final class SessionRowsModel: ObservableObject {
         return (shown, all.count - shown.count)
     }
 
+    /// Numbers for rows that share a name **and** a tool — two Codex sessions
+    /// in one folder are both called after it. The same name in two tools
+    /// needs none: the mark in the ring tells them apart. Counted over every
+    /// live row, not the visible ones, and in entity order, so a number does
+    /// not change when the rows reorder or scroll into the count.
+    nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
+        var groups: [String: [String]] = [:]
+        for signal in signals {
+            groups["\(signal.source?.rawValue ?? "-")/\(signal.label)", default: []].append(signal.entity)
+        }
+        var numbers: [String: Int] = [:]
+        for entities in groups.values where entities.count > 1 {
+            for (index, entity) in entities.sorted().enumerated() where index > 0 {
+                numbers[entity] = index + 1
+            }
+        }
+        return numbers
+    }
+
     /// Writes what is drawn, and only when it changed.
     ///
     /// Compared field by field, the same deadband `AppController.refresh`
@@ -125,7 +153,8 @@ public final class SessionRowsModel: ObservableObject {
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity
         }
-        let next = Self.slots(ordered.map(SessionRow.init))
+        let numbers = Self.duplicateNumbers(signals)
+        let next = Self.slots(ordered.map { SessionRow($0, duplicate: numbers[$0.entity] ?? 0) })
         if rows != next.rows { rows = next.rows }
         if overflow != next.overflow { overflow = next.overflow }
         setBeating(next.rows.contains(where: \.beats))

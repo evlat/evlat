@@ -46,6 +46,7 @@ final class SessionsProviderTests: XCTestCase {
         XCTAssertEqual(signals[0].fidelity, .derived, "the format is undocumented")
         XCTAssertEqual(signals[0].provider, SessionsProvider.id)
         XCTAssertNil(signals[0].progress, "sessions produce no percentage")
+        XCTAssertEqual(signals[0].source, .claude, "session files are Claude Code's")
     }
 
     func testDeadPidIsDropped() throws {

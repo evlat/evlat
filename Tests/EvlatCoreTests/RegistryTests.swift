@@ -21,10 +21,12 @@ final class RegistryTests: XCTestCase {
     /// table below is about a baseline that did say something.
     private func signal(_ entity: String, _ phase: Phase, _ fidelity: Signal.Fidelity,
                         provider: String = "stub", label: String? = nil,
-                        detail: String? = nil, rawStatus: String? = "said-so",
+                        detail: String? = nil, source: AgentSource? = nil,
+                        rawStatus: String? = "said-so",
                         at offset: TimeInterval = 0) -> Signal {
         Signal(provider: provider, entity: entity, phase: phase,
-               label: label ?? provider, detail: detail, fidelity: fidelity, rawStatus: rawStatus,
+               label: label ?? provider, detail: detail, source: source,
+               fidelity: fidelity, rawStatus: rawStatus,
                updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + offset))
     }
 
@@ -120,6 +122,18 @@ final class RegistryTests: XCTestCase {
     }
 
     /// A report that has not learnt a `cwd` yet does not blank the file's.
+    /// The tool a session runs in rides along with the row: from the report
+    /// when it knows, from the baseline otherwise. The rule carries it and
+    /// never reads it — merging is the same for every source.
+    func testTheSourceRidesAlongWithTheMerge() {
+        let known = merged([signal("s", .working, .derived, source: .claude)],
+                           [signal("s", .waiting, .official, source: .codex)])
+        XCTAssertEqual(known.first?.source, .codex)
+        let unknown = merged([signal("s", .working, .derived, source: .claude)],
+                             [signal("s", .waiting, .official)])
+        XCTAssertEqual(unknown.first?.source, .claude)
+    }
+
     func testAnAdmittedReportWithoutDetailKeepsTheBaselineDetail() {
         let rows = merged([signal("s", .working, .derived, provider: "file", detail: "/file/cwd")],
                           [signal("s", .waiting, .official, provider: "hook")])

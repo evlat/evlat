@@ -18,6 +18,11 @@ public struct Signal: Equatable {
     /// Short name, the one shown in the list.
     public let label: String
     public let detail: String?
+    /// The tool the thing runs in, when it runs in one: which agent a session
+    /// belongs to. Drawn, never decided on — a rule that branches on it is the
+    /// finding `AgentSource` warns about. `nil` for signals that are not an
+    /// agent's.
+    public let source: AgentSource?
     public let fidelity: Fidelity
     /// The source's own word, untranslated. An unrecognised value stays
     /// **visible** here so `phase` cannot swallow it silently.
@@ -31,7 +36,7 @@ public struct Signal: Equatable {
 
     public init(provider: String, entity: String, kind: Kind = .session,
                 phase: Phase, progress: Double? = nil, label: String,
-                detail: String? = nil, fidelity: Fidelity,
+                detail: String? = nil, source: AgentSource? = nil, fidelity: Fidelity,
                 rawStatus: String? = nil, updatedAt: Date) {
         self.provider = provider
         self.entity = entity
@@ -40,6 +45,7 @@ public struct Signal: Equatable {
         self.progress = progress
         self.label = label
         self.detail = detail
+        self.source = source
         self.fidelity = fidelity
         self.rawStatus = rawStatus
         self.updatedAt = updatedAt

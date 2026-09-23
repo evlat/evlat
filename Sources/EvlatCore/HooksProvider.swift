@@ -175,7 +175,8 @@ public final class HooksProvider: Provider {
             // would be no phase to put in it.
             guard case .set(let phase) = effect else { return }
             sessions[entity] = Session(phase: phase, since: platform.now(),
-                                       word: event.name, cwd: event.cwd,
+                                       word: event.name, source: event.source,
+                                       cwd: event.cwd,
                                        pid: event.pid,
                                        startedAt: event.pid.flatMap(platform.processStartedAt),
                                        // The owner is recorded where the row is
@@ -229,6 +230,7 @@ public final class HooksProvider: Provider {
                 phase: session.shownPhase(now: now),
                 label: session.label(entity: entity),
                 detail: session.cwd,
+                source: session.source,
                 fidelity: .official,
                 // The source's own word for this phase — the event name. It
                 // survives the decay on purpose: `review` reading as `idle`
@@ -270,6 +272,9 @@ public final class HooksProvider: Provider {
         var since: Date
         /// The event name that assigned the phase.
         var word: String
+        /// Which agent the session runs in: the source of the event that
+        /// opened the row. A session does not change tools.
+        let source: AgentSource
         var cwd: String?
         var pid: Int32?
         /// The process start time as read at first sight of this pid.

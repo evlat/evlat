@@ -86,8 +86,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// with the gaze anchor, which otherwise drifts whenever the layout changes.
     public static let mascotTopInset: CGFloat = barFlare + bodyMargin
 
-    /// The session rings under the mascot.
-    public static let indicatorSize: CGFloat = 12
+    /// The session rings under the mascot. Large enough that the tool's mark
+    /// inside reads: at 12 pt the two marks were only a texture, and 16 still
+    /// looked too small on the live bar.
+    public static let indicatorSize: CGFloat = 20
     public static let indicatorSpacing: CGFloat = 10
     /// From the mascot's bottom edge to the first ring.
     public static let indicatorTopGap: CGFloat = 18
@@ -563,7 +565,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
             panel?.setLength(Self.barLength(slots: sessionRows.slotsInUse))
             // The open body is as wide as the names it holds.
             let width = SessionColumn.openWidth(
-                namesWidth: SessionColumn.namesWidth(sessionRows.rows.map(\.label)))
+                namesWidth: SessionColumn.namesWidth(sessionRows.rows))
             if abs(barState.openWidth - width) > 0.5 {
                 barState.openWidth = width
                 if barState.isOpen { panel?.setVisibleWidth(width) }
