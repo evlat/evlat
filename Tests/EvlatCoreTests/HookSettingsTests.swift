@@ -271,6 +271,24 @@ final class HookSettingsTests: XCTestCase {
         }
     }
 
+    /// A shape the writer leaves alone must not read as a quiet success: the
+    /// menu would clear its line and offer the same entry on every click.
+    func testAnInstallBlockedByAShapeItLeavesIsRefused() throws {
+        let url = try settingsFile(.claude)
+        for text in [#"{"hooks":[]}"#, #"{"hooks":{"Notification":"not an array"}}"#] {
+            try write(text, to: url)
+            // The second shape writes the other events once; the click after
+            // that has nothing left it may do.
+            _ = try? HookSettings.install(at: url, for: .claude)
+            let bytes = try Data(contentsOf: url)
+            XCTAssertThrowsError(try HookSettings.install(at: url, for: .claude)) {
+                XCTAssertEqual($0 as? HookSettings.Failure, .malformed)
+            }
+            XCTAssertEqual(try Data(contentsOf: url), bytes)
+            try? FileManager.default.removeItem(at: backup(url))
+        }
+    }
+
     func testAnEmptyFileCountsAsAnEmptyObject() throws {
         let url = try settingsFile(.claude)
         try write("  \n", to: url)
@@ -342,7 +360,9 @@ final class HookSettingsTests: XCTestCase {
     func testANonObjectHooksValueIsLeftAlone() throws {
         let url = try settingsFile(.claude)
         try write(#"{"hooks":["someone else's"]}"#, to: url)
-        XCTAssertEqual(try HookSettings.install(at: url, for: .claude), .unchanged)
+        XCTAssertThrowsError(try HookSettings.install(at: url, for: .claude)) {
+            XCTAssertEqual($0 as? HookSettings.Failure, .malformed)
+        }
         XCTAssertEqual(try Data(contentsOf: url), Data(#"{"hooks":["someone else's"]}"#.utf8))
     }
 

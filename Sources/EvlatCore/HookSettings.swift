@@ -24,7 +24,8 @@ public enum HookSettings {
     public enum Failure: Error, Equatable {
         /// The file exists but could not be read.
         case unreadable
-        /// Not JSON, or the root is not an object.
+        /// Not JSON, the root is not an object, or the hooks sit in a shape
+        /// the writer does not overwrite.
         case malformed
         /// The directory the file lives in does not exist; it is not created.
         case noDirectory
@@ -121,9 +122,15 @@ public enum HookSettings {
         return state(of: try parse(try bytes(at: target)), for: source)
     }
 
+    /// An install that changes nothing yet leaves the hooks short of current
+    /// met a value that is not ours to overwrite (a `hooks` that is not an
+    /// object, an event that is not an array). Returning `unchanged` would
+    /// clear the menu's line and offer the same entry forever; it is refused.
     @discardableResult
     public static func install(at url: URL, for source: AgentSource) throws -> Outcome {
-        try apply(at: url) { installing(into: $0, for: source) }
+        let outcome = try apply(at: url) { installing(into: $0, for: source) }
+        if outcome == .unchanged, try state(at: url, for: source) != .current { throw Failure.malformed }
+        return outcome
     }
 
     @discardableResult

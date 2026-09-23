@@ -43,7 +43,7 @@
 "menu.hooks.hint.codex" = "Codex yeni hook'lara güvenip güvenmediğini soracak.";
 "menu.hooks.hint.remove" = "Codex diğer hook'larına yeniden güvenmeni isteyebilir.";
 "menu.hooks.error.unreadable" = "Ayar dosyası okunamadı";
-"menu.hooks.error.malformed" = "Ayar dosyası geçerli JSON değil; olduğu gibi bırakıldı";
+"menu.hooks.error.malformed" = "Ayar dosyası Evlat'ın düzenleyebileceği biçimde değil; olduğu gibi bırakıldı";
 "menu.hooks.error.noDirectory" = "Aracın klasörü yok";
 "menu.hooks.error.changedUnderneath" = "Dosya yazılırken değişti; yeniden dene";
 "menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";

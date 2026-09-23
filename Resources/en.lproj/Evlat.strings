@@ -68,7 +68,7 @@
 /* A refused write: one dim line under the entry, until a write succeeds.
    The file is left as it was in every case. */
 "menu.hooks.error.unreadable" = "The settings file could not be read";
-"menu.hooks.error.malformed" = "The settings file is not valid JSON; left as is";
+"menu.hooks.error.malformed" = "The settings file is not in a form Evlat can edit; left as is";
 "menu.hooks.error.noDirectory" = "The agent's folder is gone";
 "menu.hooks.error.changedUnderneath" = "The file changed while writing; try again";
 "menu.hooks.error.unwritable" = "The settings file could not be written";
