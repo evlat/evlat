@@ -21,12 +21,31 @@ struct SessionColumn: View {
     static let nameInset: CGFloat = 14
     /// How far a name travels as it comes in: from under its ring's side.
     static let nameTravel: CGFloat = 10
+    /// The widest a name is drawn; a longer one is cut with "…". It also caps
+    /// how far the body opens.
+    static let nameMaxWidth: CGFloat = 140
+    /// The narrowest the open body gets, so a column of short names still
+    /// reads as a panel rather than a ragged tab.
+    static let minOpenWidth: CGFloat = 110
+    static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// The ring's leading edge inside the bar's width (it is centred there).
     static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
-    /// Room for a name: the open body minus the collapsed bar, plus the part
-    /// of the bar left of the ring, minus the gaps on either side.
-    static var nameWidth: CGFloat {
-        AppController.expandedBarWidth - AppController.barWidth + ringLead - nameGap - nameInset
+
+    /// The width the names need, as drawn: the longest one, and the count
+    /// when it has moved into the name column. Capped at `nameMaxWidth`.
+    static func namesWidth(_ labels: [String], overflow: Int) -> CGFloat {
+        let texts = labels + (overflow > 0 ? ["+\(overflow)"] : [])
+        let widest = texts.map {
+            ($0 as NSString).size(withAttributes: [.font: nameFont]).width
+        }.max() ?? 0
+        return min(ceil(widest), nameMaxWidth)
+    }
+
+    /// The open body's width for names this wide: the part of the bar right
+    /// of the ring's leading edge, the gap, the names and the inset.
+    static func openWidth(namesWidth: CGFloat) -> CGFloat {
+        let width = AppController.barWidth - ringLead + nameGap + namesWidth + nameInset
+        return max(minOpenWidth, width)
     }
 
     var body: some View {
@@ -42,21 +61,31 @@ struct SessionColumn: View {
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0)
                     .frame(width: AppController.barWidth)
-                    .overlay(alignment: .leading) { name(row.label) }
+                    .overlay(alignment: .leading) {
+                        name(row.label, color: row.phase == .idle
+                             ? BarPalette.textSecondary : BarPalette.textPrimary)
+                    }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
             if model.overflow > 0 {
                 // A number, not a word: no user text until the catalogue.
+                // Closed, it sits in the ring column; open, it moves into the
+                // name column and reads as the list's last line.
                 Text("+\(model.overflow)")
                     .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(BarPalette.textSecondary)
                     // Wider than a ring: in a ring-sized frame a two-digit
                     // count truncated to "…" (seen on the live bar).
                     .lineLimit(1)
                     .fixedSize()
                     .frame(height: AppController.indicatorSize)
                     .frame(width: AppController.barWidth)
+                    .opacity(showsNames ? 0 : 1)
+                    .animation(showsNames ? BarMotion.namesOut : BarMotion.namesIn, value: showsNames)
+                    .overlay(alignment: .leading) {
+                        name("+\(model.overflow)", color: BarPalette.textSecondary)
+                    }
                     .transition(.opacity)
             }
         }
@@ -68,20 +97,23 @@ struct SessionColumn: View {
     /// `showsNames` alone: it comes in just after the body starts to open and
     /// goes out before the body starts to close, so no name is ever drawn
     /// past the body's edge.
-    private func name(_ label: String) -> some View {
+    ///
+    /// Idle sessions are grey and the rest white: the same split the rings
+    /// make, so the eye lands on what is doing something.
+    private func name(_ label: String, color: Color) -> some View {
         // The name is data, not text of ours: it is what the user called the
         // session, so it bypasses the string lookup (`verbatim`) and needs no
         // catalogue entry.
         Text(verbatim: label)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color.white.opacity(0.85))
+            .font(Font(Self.nameFont))
+            .foregroundStyle(color)
             .lineLimit(1)
             .truncationMode(.tail)
-            .frame(width: Self.nameWidth, alignment: .trailing)
+            .frame(width: Self.nameMaxWidth, alignment: .trailing)
             // Held to a ring's height: a taller line would push the rings
             // apart the moment the bar opens.
             .frame(height: AppController.indicatorSize)
-            .offset(x: Self.ringLead - Self.nameGap - Self.nameWidth
+            .offset(x: Self.ringLead - Self.nameGap - Self.nameMaxWidth
                         + (showsNames ? 0 : Self.nameTravel))
             .opacity(showsNames ? 1 : 0)
             .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)

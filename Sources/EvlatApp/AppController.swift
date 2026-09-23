@@ -61,10 +61,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public static let collapsedSize = CGSize(width: barWidth + shadowGutter,
                                              height: barLength(slots: 0))
 
-    /// The bar's width while the cursor is over it: room for a session's name
-    /// to the left of its ring. Opening does not change the length — the rows
-    /// are the same rows, only named.
-    public static let expandedBarWidth: CGFloat = 200
+    /// The widest the open bar gets: the longest name `SessionColumn` draws.
+    /// The window is always this wide; the body opens only as far as the
+    /// names it holds need (`BarState.openWidth`). Opening does not change the
+    /// length — the rows are the same rows, only named.
+    public static let expandedBarWidth = SessionColumn.openWidth(namesWidth: SessionColumn.nameMaxWidth)
     public static let expandedSize = CGSize(width: expandedBarWidth + shadowGutter,
                                             height: barLength(slots: 0))
 
@@ -560,6 +561,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
             // The body follows the column. Only on a change: the panel keeps
             // its own deadband, but there is no reason to ask it every poll.
             panel?.setLength(Self.barLength(slots: sessionRows.slotsInUse))
+            // The open body is as wide as the names it holds.
+            let width = SessionColumn.openWidth(namesWidth: SessionColumn.namesWidth(
+                sessionRows.rows.map(\.label), overflow: sessionRows.overflow))
+            if abs(barState.openWidth - width) > 0.5 {
+                barState.openWidth = width
+                if barState.isOpen { panel?.setVisibleWidth(width) }
+            }
             // The rows' trace on stderr, for the same reason as the line above.
             let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
             NSLog("Evlat: rows [%@] +%ld", rows.joined(separator: ", "), sessionRows.overflow)
@@ -570,7 +578,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// hover area takes the open width at once, so the cursor following the
     /// body's edge as it travels is still over the bar.
     private func openBar() {
-        panel?.setVisibleWidth(Self.expandedBarWidth)
+        panel?.setVisibleWidth(barState.openWidth)
         barState.isOpen = true
     }
 
@@ -627,6 +635,18 @@ public final class AppController: NSObject, NSApplicationDelegate {
 @MainActor
 final class BarState: ObservableObject {
     @Published var isOpen = false
+    /// How far the body opens: as wide as the names need, within
+    /// `SessionColumn`'s bounds.
+    @Published var openWidth = SessionColumn.openWidth(namesWidth: 0)
+}
+
+/// The bar's colours: codenotch's. The body is pure, opaque black so it reads
+/// as the bezel rather than something laid over the desktop; text is white,
+/// and secondary text the reference frame's `#808080`.
+enum BarPalette {
+    static let body = Color.black
+    static let textPrimary = Color.white
+    static let textSecondary = Color(.sRGB, red: 128 / 255, green: 128 / 255, blue: 128 / 255)
 }
 
 /// The bar's motion, in one place.
@@ -657,9 +677,10 @@ struct BarBody: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             shapeLayer
-                .frame(width: state.isOpen ? AppController.expandedBarWidth : AppController.barWidth)
+                .frame(width: state.isOpen ? state.openWidth : AppController.barWidth)
                 .frame(maxHeight: .infinity)
                 .animation(BarMotion.body, value: state.isOpen)
+                .animation(BarMotion.body, value: state.openWidth)
             VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
                 // The mascot is the head of the bar; the rings line up beneath.
                 MascotView(model: mascot, size: AppController.mascotSize)
@@ -677,7 +698,7 @@ struct BarBody: View {
         let shape = BarShape(corner: AppController.barCorner,
                              flare: AppController.barFlare, edge: edge)
         return shape
-            .fill(Color.black.opacity(0.88))
+            .fill(BarPalette.body)
             // A thin inner edge separates the body from a dark wall behind it
             // and makes the flare's curve readable. `outline` drops the segment
             // that lies on the screen edge: stroking the closed path put a
