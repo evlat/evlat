@@ -58,16 +58,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// the shape is inset by the same amount.
     public static let shadowGutter: CGFloat = 18
 
-    public static let collapsedSize = CGSize(width: barWidth + shadowGutter,
-                                             height: barLength(slots: 0))
-
     /// The widest the open bar gets: the longest name `SessionColumn` draws.
-    /// The window is always this wide; the body opens only as far as the
-    /// names it holds need (`BarState.openWidth`). Opening does not change the
-    /// length — the rows are the same rows, only named.
+    /// The body opens only as far as the names it holds need
+    /// (`BarState.openWidth`); the window keeps room for this and the card
+    /// beside it (`envelopeSize`). Opening does not change the length — the
+    /// rows are the same rows, only named.
     public static let expandedBarWidth = SessionColumn.openWidth(namesWidth: SessionColumn.nameMaxWidth)
-    public static let expandedSize = CGSize(width: expandedBarWidth + shadowGutter,
-                                            height: barLength(slots: 0))
 
     /// The mascot sits at the head of the bar.
     public static let mascotSize: CGFloat = 34
@@ -109,6 +105,37 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// Where the bar's head is laid out from: a full bar is centred on the
     /// edge, a shorter one hangs from the same head, so the mascot never moves.
     public static let anchorLength = barLength(slots: SessionRowsModel.slotCount)
+
+    /// The top of a slot's ring, from the window's top. The card opens level
+    /// with its row, so the lowest slot is where the tallest card hangs from.
+    public static func slotTop(_ index: Int) -> CGFloat {
+        mascotTopInset + mascotSize + indicatorTopGap
+            + CGFloat(index) * (indicatorSize + indicatorSpacing)
+    }
+
+    /// The detail card beside the open list (`phase-4` draws it). Fixed here
+    /// because the window is sized for it once and never again.
+    public static let detailCardWidth: CGFloat = 260
+    /// The tallest the card gets: header, status title, the tool and its
+    /// subject or a few lines of the last reply, the footer and the button —
+    /// about 180 pt at the card's type sizes, with room to spare. The card
+    /// caps its text lines to stay inside it.
+    public static let detailCardMaxHeight: CGFloat = 200
+
+    /// The window, built once and never resized: as wide as the widest open
+    /// list with the card beside it and the card's shadow, and as long as the
+    /// full bar or the tallest card hanging from the lowest slot (and its
+    /// shadow), whichever reaches further. The head is still laid out from
+    /// `anchorLength`, so everything past the full bar hangs below it,
+    /// transparent: clicks fall through, hover is only the drawn part.
+    ///
+    /// Resizing at interaction time is what `004` could not make smooth — a
+    /// window growing leftward showed its old content one frame at the old
+    /// origin — and a card that lengthened the window would repeat it downward.
+    public static let envelopeSize = CGSize(
+        width: expandedBarWidth + detailCardWidth + shadowGutter,
+        height: max(anchorLength,
+                    slotTop(SessionRowsModel.slotCount - 1) + detailCardMaxHeight + shadowGutter))
 
     /// No directory watching, just polling.
     /// `DispatchSource.makeFileSystemObjectSource` needs an `open()` file
@@ -389,21 +416,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         startHookListener()
         installStatusItem()
 
-        // Always as wide as the open bar. Hover never resizes the window: a
-        // window growing leftward shows its old content one frame at the old
-        // origin, and the body teleported left before sliding back. The room
-        // the open body needs is kept, transparent, and only the drawn body
-        // moves. Clicks on the transparent part fall through to the window
-        // below; the hover area is held to the drawn body (`setVisibleWidth`).
-        let panel = BarPanel(edge: .right,
-                             size: Self.expandedSize,
-                             anchorLength: Self.anchorLength,
-                             trackingInset: Self.shadowGutter,
-                             content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
-                                              state: barState))
-        panel.setVisibleWidth(Self.barWidth)
+        let panel = installPanel()
         panel.show()
-        self.panel = panel
         hover.onChange = { [weak self] open in
             if open { self?.openBar() } else { self?.closeBar() }
         }
@@ -460,6 +474,28 @@ public final class AppController: NSObject, NSApplicationDelegate {
         ) { [weak panel] _ in
             MainActor.assumeIsolated { panel?.reposition() }
         }
+    }
+
+    /// Builds the window at the envelope's size, once. Nothing resizes it
+    /// afterwards: a window growing leftward showed its old content one frame
+    /// at the old origin, and the body teleported left before sliding back.
+    /// The room the open body and the card need is kept, transparent, and only
+    /// the drawn parts move. Clicks on the transparent part fall through to
+    /// the window below; the hover areas are held to what is drawn
+    /// (`setVisibleWidth`, `setVisibleLength`). Internal so a test can hold
+    /// the frame still across sessions arriving and the bar opening.
+    @discardableResult
+    func installPanel() -> BarPanel {
+        let panel = BarPanel(edge: .right,
+                             size: Self.envelopeSize,
+                             anchorLength: Self.anchorLength,
+                             trackingInset: Self.shadowGutter,
+                             content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
+                                              state: barState))
+        panel.setVisibleWidth(Self.barWidth)
+        panel.setVisibleLength(barState.length)
+        self.panel = panel
+        return panel
     }
 
     /// Binds the hook port. Every event that arrives goes to
@@ -566,9 +602,14 @@ public final class AppController: NSObject, NSApplicationDelegate {
         let before = (sessionRows.rows, sessionRows.overflow)
         sessionRows.update(from: snapshot.ordered)
         if before.0 != sessionRows.rows || before.1 != sessionRows.overflow {
-            // The body follows the column. Only on a change: the panel keeps
-            // its own deadband, but there is no reason to ask it every poll.
-            panel?.setLength(Self.barLength(slots: sessionRows.slotsInUse))
+            // The body follows the column — drawn, not the window. The hover
+            // area is AppKit's and hears nothing from SwiftUI, so it is told
+            // the same length.
+            let length = Self.barLength(slots: sessionRows.slotsInUse)
+            if abs(barState.length - length) > 0.5 {
+                barState.length = length
+                panel?.setVisibleLength(length)
+            }
             // The open body is as wide as the names it holds.
             let width = SessionColumn.openWidth(
                 namesWidth: SessionColumn.namesWidth(sessionRows.rows))
@@ -585,13 +626,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// Opening is the drawn body widening; the window is already wide. The
     /// hover area takes the open width at once, so the cursor following the
     /// body's edge as it travels is still over the bar.
-    private func openBar() {
+    func openBar() {
         panel?.setVisibleWidth(barState.openWidth)
         barState.isOpen = true
     }
 
     /// Closing: the body narrows back to the edge and the hover area with it.
-    private func closeBar() {
+    func closeBar() {
         barState.isOpen = false
         panel?.setVisibleWidth(Self.barWidth)
     }
@@ -646,6 +687,9 @@ final class BarState: ObservableObject {
     /// How far the body opens: as wide as the names need, within
     /// `SessionColumn`'s bounds.
     @Published var openWidth = SessionColumn.openWidth(namesWidth: 0)
+    /// How long the body is drawn along the edge, from the head. The window
+    /// is longer; this is the part that is bar.
+    @Published var length = AppController.barLength(slots: 0)
 }
 
 /// The bar's colours: codenotch's. The body is pure, opaque black so it reads
@@ -666,6 +710,9 @@ enum BarMotion {
     /// Names arrive once the body has made some room, and leave at once.
     static let namesIn = Animation.easeOut(duration: 0.18).delay(0.07)
     static let namesOut = Animation.easeIn(duration: 0.1)
+    /// The body lengthening or shortening as sessions come and go: the curve
+    /// the window's own resize used to run on, now drawn.
+    static let length = Animation.easeOut(duration: 0.22)
 }
 
 /// The bar's body: the shape, the mascot at its head, the session rings
@@ -684,11 +731,15 @@ struct BarBody: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
+            // Top-aligned in the envelope: the far end moves, the head stays.
+            // The shadow and the inner edge are the shape's, so they shorten
+            // with it.
             shapeLayer
-                .frame(width: state.isOpen ? state.openWidth : AppController.barWidth)
-                .frame(maxHeight: .infinity)
+                .frame(width: state.isOpen ? state.openWidth : AppController.barWidth,
+                       height: state.length)
                 .animation(BarMotion.body, value: state.isOpen)
                 .animation(BarMotion.body, value: state.openWidth)
+                .animation(BarMotion.length, value: state.length)
             VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
                 // The mascot is the head of the bar; the rings line up beneath.
                 MascotView(model: mascot, size: AppController.mascotSize)
@@ -697,8 +748,9 @@ struct BarBody: View {
             }
             .padding(.top, AppController.mascotTopInset)
         }
-        // Pinned to the screen edge. What is left on the other side is the
-        // shadow's room, and the open body's.
+        // Pinned to the screen edge and the head. What is left on the other
+        // side is the shadow's room, the open body's and the card's; what is
+        // left below is the card's.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 

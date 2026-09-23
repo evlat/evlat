@@ -162,28 +162,170 @@ final class PanelConfigTests: XCTestCase {
                        "three rings and the count")
     }
 
-    /// The length changes at the far end. The head — the mascot and the gaze
-    /// anchor, read off `maxY` — does not move, open or closed.
-    func testChangingTheLengthKeepsTheHead() throws {
+    // MARK: - The envelope: one window, never resized
+
+    /// The window is built once, big enough for the widest open list with the
+    /// card beside it and the card's shadow, and long enough for the tallest
+    /// card hanging from the lowest slot — so no interaction has to resize it.
+    func testTheEnvelopeHoldsTheWidestListAndTheTallestCard() {
+        let envelope = AppController.envelopeSize
+        XCTAssertEqual(envelope.width,
+                       AppController.expandedBarWidth + AppController.detailCardWidth
+                           + AppController.shadowGutter, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(envelope.height, AppController.anchorLength,
+                                    "a full bar still fits")
+        XCTAssertGreaterThanOrEqual(envelope.height,
+                                    AppController.slotTop(SessionRowsModel.slotCount - 1)
+                                        + AppController.detailCardMaxHeight,
+                                    "the tallest card from the lowest slot fits")
+        XCTAssertEqual(AppController.slotTop(0),
+                       AppController.mascotTopInset + AppController.mascotSize
+                           + AppController.indicatorTopGap, accuracy: 0.5)
+    }
+
+    /// The head is where today's full bar put it: the envelope's extra length
+    /// hangs below, so the mascot and the gaze anchor (read off `maxX`/`maxY`)
+    /// land on the same screen point as the 4-slot window did.
+    func testTheEnvelopeKeepsTheHeadWhereTheFullBarHadIt() throws {
         let screen = try XCTUnwrap(NSScreen.main)
-        let panel = makePanel(edge: .right)
-        panel.reposition(on: screen)
+        let full = BarPanel(edge: .right,
+                            size: CGSize(width: AppController.expandedBarWidth + AppController.shadowGutter,
+                                         height: AppController.anchorLength),
+                            anchorLength: AppController.anchorLength,
+                            trackingInset: Self.gutter, content: EmptyView())
+        full.reposition(on: screen)
+        let envelope = BarPanel(edge: .right, size: AppController.envelopeSize,
+                                anchorLength: AppController.anchorLength,
+                                trackingInset: Self.gutter, content: EmptyView())
+        envelope.reposition(on: screen)
+        XCTAssertEqual(envelope.frame.maxY, full.frame.maxY, accuracy: 0.5)
+        XCTAssertEqual(envelope.frame.maxX, full.frame.maxX, accuracy: 0.5)
+        XCTAssertEqual(envelope.frame.maxY, screen.frame.midY + AppController.anchorLength / 2,
+                       accuracy: 0.5)
+        XCTAssertEqual(envelope.frame.size.height, AppController.envelopeSize.height, accuracy: 0.5)
+    }
+
+    /// Sessions arriving and leaving, the bar opening and closing: the window
+    /// frame is the same throughout. The body's length is drawn instead.
+    func testTheWindowFrameNeverChanges() throws {
+        final class Stub: Provider {
+            let id = "stub"
+            var signals: [Signal] = []
+            func currentSignals() -> [Signal] { signals }
+        }
+        let controller = AppController()
+        let provider = Stub()
+        controller.registry.register(provider)
+        controller.installPanel()
+        let panel = try XCTUnwrap(controller.panel)
         let before = panel.frame
+        XCTAssertEqual(before.size, AppController.envelopeSize)
 
-        panel.setLength(300, animated: false)
-        XCTAssertEqual(panel.frame.height, 300, accuracy: 0.5)
-        XCTAssertEqual(panel.frame.maxY, before.maxY, accuracy: 0.5, "the head stays")
-        XCTAssertEqual(panel.frame.maxX, before.maxX, accuracy: 0.5)
+        provider.signals = (0..<4).map { index in
+            Signal(provider: "stub", entity: "e\(index)", phase: .idle, label: "s\(index)",
+                   fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
+        }
+        controller.refresh()
+        XCTAssertEqual(controller.barState.length, AppController.barLength(slots: 4), accuracy: 0.5)
+        XCTAssertEqual(panel.frame, before, "four sessions arrived")
 
-        panel.setExpanded(true)
-        XCTAssertEqual(panel.frame.height, 300, accuracy: 0.5, "opening keeps the length")
-        panel.setLength(120, animated: false)
-        XCTAssertEqual(panel.frame.width, Self.expanded.width, accuracy: 0.5,
-                       "a length change while open stays open")
-        XCTAssertEqual(panel.frame.maxY, before.maxY, accuracy: 0.5)
-        panel.setExpanded(false)
-        XCTAssertEqual(panel.frame.height, 120, accuracy: 0.5)
-        XCTAssertEqual(panel.frame.maxY, before.maxY, accuracy: 0.5)
+        controller.openBar()
+        XCTAssertEqual(panel.frame, before, "opened")
+        controller.closeBar()
+        XCTAssertEqual(panel.frame, before, "closed")
+
+        provider.signals = []
+        controller.refresh()
+        XCTAssertEqual(controller.barState.length, AppController.barLength(slots: 0), accuracy: 0.5)
+        XCTAssertEqual(panel.frame, before, "the sessions left")
+        panel.close()
+    }
+
+    // MARK: - Two tracking areas: the drawn body and the card
+
+    /// The body's rectangle is what is drawn: its width from the docked edge
+    /// and its length from the head. The envelope below a short bar and the
+    /// shadow gutter beside it are not hover.
+    func testTheBodyRectIsTheDrawnBody() {
+        let bounds = NSRect(x: 0, y: 0, width: 477, height: 394)
+        let rects = BarHostingView.trackingRects(in: bounds, inset: 18, visibleWidth: 54,
+                                                 visibleLength: 120, card: nil,
+                                                 flipped: true, edge: .right)
+        XCTAssertEqual(rects.body, NSRect(x: 423, y: 0, width: 54, height: 120))
+        XCTAssertNil(rects.card, "no card, only the body")
+        let unflipped = BarHostingView.trackingRects(in: bounds, inset: 18, visibleWidth: 54,
+                                                     visibleLength: 120, card: nil,
+                                                     flipped: false, edge: .right)
+        XCTAssertEqual(unflipped.body, NSRect(x: 423, y: 274, width: 54, height: 120),
+                       "unflipped, the head is at maxY")
+        let card = NSRect(x: 100, y: 60, width: 260, height: 150)
+        let both = BarHostingView.trackingRects(in: bounds, inset: 18, visibleWidth: 199,
+                                                visibleLength: 230, card: card,
+                                                flipped: true, edge: .right)
+        XCTAssertEqual(both.body, NSRect(x: 278, y: 0, width: 199, height: 230))
+        XCTAssertEqual(both.card, card)
+    }
+
+    /// The body rect is laid out from the top, which is only right because
+    /// the hosting view is flipped. If it ever were not, hover would sit at
+    /// the envelope's bottom and die silently.
+    func testTheHostingViewIsFlipped() throws {
+        let panel = BarPanel(edge: .right, size: AppController.envelopeSize,
+                             trackingInset: Self.gutter, content: EmptyView())
+        XCTAssertTrue(try XCTUnwrap(panel.contentView).isFlipped)
+    }
+
+    /// One area per drawn part: the body alone, then body and card.
+    func testTheTrackingAreasFollowTheBodyAndTheCard() throws {
+        let panel = BarPanel(edge: .right, size: AppController.envelopeSize,
+                             trackingInset: Self.gutter, content: EmptyView())
+        let view = try XCTUnwrap(panel.contentView)
+        func owned() -> [NSTrackingArea] {
+            view.trackingAreas.filter { $0.owner is BarHostingView.PointerRelay }
+        }
+        panel.setVisibleWidth(54)
+        panel.setVisibleLength(120)
+        view.updateTrackingAreas()
+        XCTAssertEqual(owned().count, 1)
+        let body = try XCTUnwrap(owned().first).rect
+        XCTAssertEqual(body.height, 120, accuracy: 0.5)
+        XCTAssertEqual(body.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(body.maxX, AppController.envelopeSize.width, accuracy: 0.5)
+
+        panel.setCardRect(NSRect(x: 100, y: 60, width: 260, height: 150))
+        XCTAssertEqual(owned().count, 2)
+        panel.setCardRect(nil)
+        XCTAssertEqual(owned().count, 1)
+    }
+
+    /// The two areas reach `HoverIntent` as one "inside": crossing from the
+    /// body onto the card is not a leave, leaving both is.
+    func testTwoAreasReportOneInside() {
+        let relay = BarHostingView.PointerRelay()
+        var events: [String] = []
+        relay.handler = { pointer in
+            switch pointer {
+            case .entered: events.append("in")
+            case .exited: events.append("out")
+            case .moved: break
+            }
+        }
+        relay.entered(.body)
+        relay.entered(.card)
+        relay.exited(.body)
+        XCTAssertEqual(events, ["in"], "body → card is not a leave")
+        relay.exited(.card)
+        XCTAssertEqual(events, ["in", "out"])
+
+        // An exit never goes missing: one without a matching enter (an area
+        // installed under the cursor) still closes.
+        relay.exited(.body)
+        XCTAssertEqual(events, ["in", "out", "out"])
+
+        // The card going away under the cursor is leaving it.
+        relay.entered(.card)
+        relay.keep([.body])
+        XCTAssertEqual(events, ["in", "out", "out", "in", "out"])
     }
 
     /// With an anchor the head sits where a bar of the anchor's length,
