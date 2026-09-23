@@ -28,3 +28,10 @@
 "summary.sessions.one" = "1 oturum";
 "summary.sessions" = "{count} oturum";
 "summary.working" = "{count} çalışıyor";
+
+"menu.edge" = "Kenar";
+"menu.edge.right" = "Sağ";
+"menu.edge.left" = "Sol";
+"menu.quit" = "Evlat'tan Çık";
+"menu.force" = "Durumu zorla";
+"menu.force.follow" = "Oturumları izle";

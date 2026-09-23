@@ -43,3 +43,14 @@
 "summary.sessions.one" = "1 session";
 "summary.sessions" = "{count} sessions";
 "summary.working" = "{count} working";
+
+/* The menu: the mascot's right click, and the menu-bar icon's. The edge the
+   bar is docked to, with its two choices. */
+"menu.edge" = "Edge";
+"menu.edge.right" = "Right";
+"menu.edge.left" = "Left";
+"menu.quit" = "Quit Evlat";
+/* The menu-bar icon's only: a diagnostic that fixes the mascot on one phase
+   (the phases are the status line's words), and the entry that lets it go. */
+"menu.force" = "Force state";
+"menu.force.follow" = "Follow sessions";

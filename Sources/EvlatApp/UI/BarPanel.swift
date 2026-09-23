@@ -60,6 +60,13 @@ public final class BarPanel: NSPanel {
         set { hosting.onScroll = newValue }
     }
 
+    /// A right click (or ctrl-click) on the bar, in the content view's
+    /// (flipped) coordinates: the menu to open there, or `nil` for none.
+    public var onMenu: ((CGPoint) -> NSMenu?)? {
+        get { hosting.onMenu }
+        set { hosting.onMenu = newValue }
+    }
+
     private let hosting: BarHostingView
 
     /// - Parameter trackingInset: the transparent margin on the bar's inner
@@ -383,6 +390,16 @@ public final class BarHostingView: NSHostingView<AnyView> {
         let point = convert(event.locationInWindow, from: nil)
         if onClick?(point) == true { return }
         super.mouseDown(with: event)
+    }
+
+    /// See `BarPanel.onMenu`.
+    var onMenu: ((CGPoint) -> NSMenu?)?
+
+    /// AppKit's own route for a context menu: a right click and a
+    /// ctrl-click both ask here. Read from geometry like a click; where
+    /// nothing answers there is no menu — not SwiftUI's either.
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        onMenu?(convert(event.locationInWindow, from: nil))
     }
 
     /// See `BarPanel.onScroll`.

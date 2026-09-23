@@ -12,8 +12,13 @@ import EvlatCore
 /// The pure statics below stay `nonisolated` — they touch no state and tests
 /// call them directly.
 @MainActor
-public final class AppController: NSObject, NSApplicationDelegate {
+public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     public private(set) var panel: BarPanel?
+    /// Where the edge is stored. Handed in: `.standard` is given only by
+    /// `launch()`, so a test never reads or writes the user's domain. `nil`
+    /// stores nothing — a controller built without it reads no edge and
+    /// writes none.
+    private let defaults: UserDefaults?
     public let registry = Registry()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
@@ -401,6 +406,28 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The stored edge's key. The domain is shared with v1
+    /// (`dev.kalaomer.evlat`), whose keys are plain camelCase; the dotted
+    /// prefix keeps the two apart.
+    nonisolated static let edgeKey = "bar.edge"
+
+    /// The edge the user chose, `right` or `left`; anything else — nothing
+    /// stored, `top`, a number — is `nil`, and the caller falls back to the
+    /// right. Reading writes nothing: an unknown value stays as it is, and
+    /// the menu is the only writer (`chooseEdge`).
+    nonisolated static func storedEdge(_ defaults: UserDefaults?) -> BarPanel.Edge? {
+        switch defaults?.string(forKey: edgeKey) {
+        case "left": return .left
+        case "right": return .right
+        default: return nil
+        }
+    }
+
+    /// The stored form of an edge the menu offers.
+    private nonisolated static func storedValue(_ edge: BarPanel.Edge) -> String {
+        edge.isLeft ? "left" : "right"
+    }
+
     /// The eyes' real centre, not an approximation of it: the inset and half
     /// the mascot below the top, and half the bar's width in from the docked
     /// edge (the window is wider than the bar). Read off shared constants so
@@ -583,6 +610,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
         return lock.withLock { answer } ?? "no answer within \(timeout + 2) s"
     }
 
+    public init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults
+        super.init()
+    }
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // .accessory: no Dock icon, no Cmd-Tab entry. The bar should behave
         // like part of the system rather than like an app.
@@ -595,8 +627,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         startHookListener()
         installStatusItem()
 
-        // Resolved at launch and never written back.
-        let panel = installPanel(edge: Self.forcedEdge() ?? .right)
+        // The environment over the stored choice, the right over nothing.
+        // Read here, never written back: only the menu writes.
+        let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right)
         panel.show()
         hover.onChange = { [weak self] open in
             guard let self else { return }
@@ -711,6 +744,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         panel.onScroll = { [weak self] point, deltaY, precise in
             self?.scroll(at: point, deltaY: deltaY, precise: precise) ?? false
         }
+        panel.onMenu = { [weak self] point in
+            self?.menu(at: point)
+        }
         rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
         self.panel = panel
         return panel
@@ -764,7 +800,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     nonisolated public static func launch() -> Never {
         MainActor.assumeIsolated {
             let app = NSApplication.shared
-            let controller = AppController()
+            // The one place the user's domain is handed in.
+            let controller = AppController(defaults: .standard)
             app.delegate = controller
             app.run()
         }
@@ -1033,39 +1070,115 @@ public final class AppController: NSObject, NSApplicationDelegate {
         panel?.setVisibleLength(barState.length)
     }
 
-    /// Menu-bar entry. A diagnostic, not a user surface: a real tray menu, the
-    /// bar's right-click menu and the settings window are out of scope for
-    /// now, so these titles stay English and outside the catalogue.
+    /// Menu-bar entry. Its menu is rebuilt each time it opens
+    /// (`menuNeedsUpdate`), so the edge's mark is never stale.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "square.on.square",
                                      accessibilityDescription: "Evlat")
-        let menu = NSMenu()
+        item.menu = trayMenu()
+        statusItem = item
+    }
 
-        // Forcing a phase so it can be looked at. `waiting` and `failed` cannot
-        // be produced without hooks (`002`), so those two expressions would
-        // otherwise never be visible.
-        let forced = NSMenu()
-        let follow = forced.addItem(withTitle: "Follow sessions",
-                                    action: #selector(clearOverride), keyEquivalent: "")
-        follow.target = self
-        forced.addItem(.separator())
-        for phase in Phase.allCases {
-            let entry = forced.addItem(withTitle: phase.rawValue.capitalized,
-                                       action: #selector(setOverride(_:)), keyEquivalent: "")
-            entry.representedObject = phase.rawValue
+    /// The tray's menu: empty until it opens, filled by `menuNeedsUpdate`.
+    func trayMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        return menu
+    }
+
+    /// Only the tray's root menu has this delegate; its submenus are rebuilt
+    /// with it.
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        fill(menu, diagnostics: true, in: L10n.language)
+    }
+
+    /// Every title the menus ask the catalogue for; the phases' are
+    /// `StatusLine`'s.
+    static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
+                           "menu.quit", "menu.force", "menu.force.follow"]
+
+    /// The one menu: *Edge ▸ Right / Left*, the current one marked, and
+    /// *Quit*. The tray's (`diagnostics`) adds *Force state ▸*. No hook
+    /// setup entry: that flow is Faz 4's, and an entry with nowhere to go
+    /// promises what it cannot keep.
+    func makeMenu(diagnostics: Bool, in lang: String = L10n.language) -> NSMenu {
+        let menu = NSMenu()
+        fill(menu, diagnostics: diagnostics, in: lang)
+        return menu
+    }
+
+    private func fill(_ menu: NSMenu, diagnostics: Bool, in lang: String) {
+        let edges = NSMenu()
+        for (edge, key) in [(BarPanel.Edge.right, "menu.edge.right"), (.left, "menu.edge.left")] {
+            let entry = edges.addItem(withTitle: L10n.t(key, in: lang),
+                                      action: #selector(chooseEdge(_:)), keyEquivalent: "")
+            entry.representedObject = Self.storedValue(edge)
+            entry.state = barState.edge == edge ? .on : .off
             entry.target = self
         }
-        let forcedItem = NSMenuItem(title: "Force state", action: nil, keyEquivalent: "")
-        forcedItem.submenu = forced
-        menu.addItem(forcedItem)
-        menu.addItem(.separator())
+        let edgeItem = menu.addItem(withTitle: L10n.t("menu.edge", in: lang), action: nil,
+                                    keyEquivalent: "")
+        edgeItem.submenu = edges
 
-        menu.addItem(NSMenuItem(title: "Quit Evlat",
-                                action: #selector(NSApplication.terminate(_:)),
-                                keyEquivalent: "q"))
-        item.menu = menu
-        statusItem = item
+        if diagnostics {
+            // Forcing a phase so it can be looked at: `waiting` and `failed`
+            // need a live session to be seen otherwise.
+            let forced = NSMenu()
+            let follow = forced.addItem(withTitle: L10n.t("menu.force.follow", in: lang),
+                                        action: #selector(clearOverride), keyEquivalent: "")
+            follow.target = self
+            forced.addItem(.separator())
+            let locale = Locale(identifier: lang)
+            for phase in Phase.allCases {
+                let name = L10n.t(StatusLine.statusKey(phase: phase, waitKind: nil), in: lang)
+                let entry = forced.addItem(withTitle: name.prefix(1).uppercased(with: locale) + name.dropFirst(),
+                                           action: #selector(setOverride(_:)), keyEquivalent: "")
+                entry.representedObject = phase.rawValue
+                entry.target = self
+            }
+            let forcedItem = menu.addItem(withTitle: L10n.t("menu.force", in: lang), action: nil,
+                                          keyEquivalent: "")
+            forcedItem.submenu = forced
+        }
+
+        menu.addItem(.separator())
+        let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
+                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+
+    }
+
+    /// A right click (or ctrl-click) on the bar, in the content view's
+    /// (flipped) coordinates: the menu over the mascot, nothing anywhere
+    /// else. A left click on the mascot stays reserved.
+    func menu(at point: CGPoint) -> NSMenu? {
+        guard let panel, let bounds = panel.contentView?.bounds,
+              Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
+                                fromTop: point.y - bounds.minY) else { return nil }
+        return makeMenu(diagnostics: false)
+    }
+
+    /// Room around the mascot a right click still counts on.
+    static let mascotHitSlack: CGFloat = 4
+
+    /// Whether a point, measured from the docked edge and the window's top,
+    /// is on the mascot: the closed bar's width, and the mascot's height
+    /// with a little room.
+    static func isOverMascot(fromEdge x: CGFloat, fromTop y: CGFloat) -> Bool {
+        x >= 0 && x <= barWidth
+            && y >= mascotTopInset - mascotHitSlack
+            && y <= mascotTopInset + mascotSize + mascotHitSlack
+    }
+
+    /// The edge entry: stored, then applied at once. Stored even under
+    /// `EVLAT_EDGE`, which only overrides the launch. Activates nothing.
+    @objc private func chooseEdge(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String else { return }
+        let edge: BarPanel.Edge = raw == "left" ? .left : .right
+        defaults?.set(Self.storedValue(edge), forKey: Self.edgeKey)
+        dock(edge)
     }
 
     @objc private func clearOverride() { mascot.override = nil }
