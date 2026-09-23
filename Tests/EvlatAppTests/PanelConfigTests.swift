@@ -539,4 +539,245 @@ final class PanelConfigTests: XCTestCase {
         XCTAssertTrue(panel.isVisible)
         panel.close()
     }
+
+    // MARK: - Placement: pure, on the main screen, either edge
+
+    /// A 1440×900 screen with a 25 pt menu bar; the Dock where the test puts it.
+    private static let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 900)
+    private static let dockBottom = NSRect(x: 0, y: 80, width: 1440, height: 795)
+    private static let noDock = NSRect(x: 0, y: 0, width: 1440, height: 875)
+    private static let dockRight = NSRect(x: 0, y: 0, width: 1360, height: 875)
+    private static let dockLeft = NSRect(x: 80, y: 0, width: 1360, height: 875)
+    private static let size = AppController.envelopeSize
+
+    private func origin(_ edge: BarPanel.Edge, visible: NSRect) -> NSPoint {
+        BarPanel.origin(edge: edge, visibleFrame: visible, frame: Self.screenFrame,
+                        size: Self.size, anchorLength: AppController.anchorLength)
+    }
+
+    /// Either bar sits against the usable part of its edge, and its head is
+    /// where a full bar centred on the whole screen would start.
+    func testTheBarHugsTheUsableEdgeOnEitherSide() {
+        let right = origin(.right, visible: Self.dockBottom)
+        XCTAssertEqual(right.x + Self.size.width, Self.dockBottom.maxX, accuracy: 0.5)
+        let left = origin(.left, visible: Self.dockBottom)
+        XCTAssertEqual(left.x, Self.dockBottom.minX, accuracy: 0.5)
+        for point in [right, left] {
+            XCTAssertEqual(point.y + Self.size.height,
+                           Self.screenFrame.midY + AppController.anchorLength / 2, accuracy: 0.5)
+        }
+    }
+
+    /// The Dock at the bottom coming and going moves neither bar: along the
+    /// edge the whole frame is read, not `visibleFrame`.
+    func testTheDockAtTheBottomMovesNeitherBar() {
+        for edge in [BarPanel.Edge.right, .left] {
+            XCTAssertEqual(origin(edge, visible: Self.dockBottom), origin(edge, visible: Self.noDock),
+                           "\(edge)")
+        }
+    }
+
+    /// Only the Dock on the bar's own edge pushes it; the other bar stays.
+    func testOnlyTheDockOnItsOwnEdgePushesTheBar() {
+        XCTAssertEqual(origin(.right, visible: Self.dockRight).x + Self.size.width,
+                       Self.dockRight.maxX, accuracy: 0.5, "the right bar leans on the Dock")
+        XCTAssertEqual(origin(.left, visible: Self.dockRight), origin(.left, visible: Self.noDock),
+                       "the left bar does not move for a Dock on the right")
+        XCTAssertEqual(origin(.left, visible: Self.dockLeft).x, Self.dockLeft.minX, accuracy: 0.5,
+                       "the left bar leans on a Dock on the left")
+        XCTAssertEqual(origin(.right, visible: Self.dockLeft), origin(.right, visible: Self.noDock))
+    }
+
+    /// The main screen — the first, the menu bar's — whatever else is
+    /// attached: a secondary screen to the lower left has a negative origin,
+    /// and neither it nor the focus decides where the bar goes.
+    func testTheBarGoesOnTheMainScreenBesideASecondaryOne() throws {
+        let secondary = NSRect(x: -1920, y: -300, width: 1920, height: 1080)
+        let screens = [(frame: Self.screenFrame, visibleFrame: Self.dockBottom),
+                       (frame: secondary, visibleFrame: secondary)]
+        for edge in [BarPanel.Edge.right, .left] {
+            let point = try XCTUnwrap(BarPanel.origin(edge: edge, screens: screens, size: Self.size,
+                                                      anchorLength: AppController.anchorLength))
+            XCTAssertEqual(point, origin(edge, visible: Self.dockBottom), "\(edge)")
+            XCTAssertTrue(Self.screenFrame.contains(NSRect(origin: point, size: Self.size)), "\(edge)")
+        }
+        XCTAssertNil(BarPanel.origin(edge: .right, screens: [], size: Self.size,
+                                     anchorLength: AppController.anchorLength),
+                     "no screen: nothing to place on")
+    }
+
+    /// A panel whose origin is on no screen goes back to the main one.
+    func testRepositionBringsABrokenOriginBackToTheMainScreen() throws {
+        let main = try XCTUnwrap(NSScreen.screens.first)
+        for edge in [BarPanel.Edge.right, .left] {
+            let panel = BarPanel(edge: edge, size: Self.size, anchorLength: AppController.anchorLength,
+                                 trackingInset: Self.gutter, content: EmptyView())
+            panel.setFrameOrigin(NSPoint(x: -40_000, y: -40_000))
+            panel.reposition()
+            XCTAssertEqual(panel.frame.origin,
+                           BarPanel.origin(edge: edge, visibleFrame: main.visibleFrame, frame: main.frame,
+                                           size: Self.size, anchorLength: AppController.anchorLength),
+                           "\(edge)")
+        }
+    }
+
+    // MARK: - The left edge: the mirror of the right
+
+    /// Distance in from the docked edge, and back: one helper for every
+    /// hit test, the gaze anchor and the card's hover area.
+    func testTheDistanceFromTheEdgeMirrors() {
+        let rect = NSRect(x: 100, y: 0, width: 400, height: 300)
+        XCTAssertEqual(BarPanel.Edge.right.inset(of: 470, in: rect), 30)
+        XCTAssertEqual(BarPanel.Edge.left.inset(of: 130, in: rect), 30)
+        XCTAssertEqual(BarPanel.Edge.right.x(atInset: 30, in: rect), 470)
+        XCTAssertEqual(BarPanel.Edge.left.x(atInset: 30, in: rect), 130)
+        XCTAssertTrue(BarPanel.Edge.left.isLeft)
+        XCTAssertFalse(BarPanel.Edge.right.isLeft)
+    }
+
+    /// The eyes' centre is half a bar in from whichever edge the bar is on.
+    func testTheGazeAnchorIsHalfABarInFromTheEdge() {
+        let frame = NSRect(x: 0, y: 100, width: 477, height: 394)
+        let left = AppController.gazeAnchor(frame: frame, edge: .left)
+        XCTAssertEqual(left.x, AppController.barWidth / 2, accuracy: 0.5)
+        let right = AppController.gazeAnchor(frame: frame, edge: .right)
+        XCTAssertEqual(right.x, frame.maxX - AppController.barWidth / 2, accuracy: 0.5)
+        for anchor in [left, right] {
+            XCTAssertEqual(anchor.y, frame.maxY - AppController.mascotTopInset - AppController.mascotSize / 2,
+                           accuracy: 0.5)
+        }
+    }
+
+    /// On the left the hover areas start at the window's left edge; the
+    /// gutter is on the right.
+    func testTheTrackingAreasSitOnTheLeftEdge() throws {
+        let panel = BarPanel(edge: .left, size: AppController.envelopeSize,
+                             trackingInset: Self.gutter, content: EmptyView())
+        let view = try XCTUnwrap(panel.contentView)
+        panel.setVisibleWidth(54)
+        panel.setVisibleLength(120)
+        view.updateTrackingAreas()
+        let owned = view.trackingAreas.filter { $0.owner is BarHostingView.PointerRelay }
+        let body = try XCTUnwrap(owned.first).rect
+        XCTAssertEqual(body, NSRect(x: 0, y: 0, width: 54, height: 120))
+    }
+
+    /// The gap between body and card is hover on the body's side of the
+    /// card: right of it on the right edge, left of it on the left.
+    func testTheCardsHoverGapIsOnTheBodysSide() {
+        let card = NSRect(x: 200, y: 60, width: AppController.detailCardWidth, height: 140)
+        let gap = AppController.detailCardGap
+        let right = AppController.cardHoverRect(card, edge: .right)
+        XCTAssertEqual(right.minX, card.minX, accuracy: 0.5)
+        XCTAssertEqual(right.maxX, card.maxX + gap, accuracy: 0.5)
+        let left = AppController.cardHoverRect(card, edge: .left)
+        XCTAssertEqual(left.minX, card.minX - gap, accuracy: 0.5)
+        XCTAssertEqual(left.maxX, card.maxX, accuracy: 0.5)
+        XCTAssertEqual(left.height, card.height)
+    }
+
+    private final class Stub: Provider {
+        let id = "stub"
+        var signals: [Signal] = []
+        func currentSignals() -> [Signal] { signals }
+    }
+
+    private func controller(edge: BarPanel.Edge, rows: Int) -> AppController {
+        let controller = AppController()
+        let provider = Stub()
+        controller.registry.register(provider)
+        controller.installPanel(edge: edge)
+        provider.signals = (0..<rows).map { index in
+            Signal(provider: "stub", entity: "e\(index)", phase: .idle, label: "s\(index)",
+                   fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
+        }
+        controller.refresh()
+        return controller
+    }
+
+    /// On a left panel the row under the cursor and the list a scroll
+    /// counts over are measured from the left edge.
+    func testRowsAndScrollingAreReadFromTheLeftEdge() throws {
+        let controller = controller(edge: .left, rows: 4)
+        let panel = try XCTUnwrap(controller.panel)
+        defer { panel.close() }
+        XCTAssertEqual(controller.barState.edge, .left)
+        controller.openBar()
+        let frame = panel.frame
+        let y = frame.maxY - AppController.slotTop(1) - AppController.indicatorSize / 2
+        controller.pointerMoved(CGPoint(x: frame.minX + AppController.barWidth / 2, y: y))
+        XCTAssertEqual(controller.barState.hovered, "e1", "the ring near the left edge")
+        controller.pointerMoved(CGPoint(x: frame.maxX - AppController.barWidth / 2, y: y))
+        XCTAssertNil(controller.barState.hovered, "the far side of the window is no row")
+
+        let bounds = try XCTUnwrap(panel.contentView).bounds
+        let listY = AppController.slotTop(1) + 5
+        XCTAssertTrue(controller.scroll(at: CGPoint(x: bounds.minX + 10, y: listY), deltaY: 0, precise: true))
+        XCTAssertFalse(controller.scroll(at: CGPoint(x: bounds.minX + controller.barState.openWidth + 4,
+                                                     y: listY), deltaY: 0, precise: true),
+                       "past the open body")
+    }
+
+    /// Whether this process is the active application, as the system sees
+    /// it. `NSApp.isActive` is not enough inside a test: no event loop runs,
+    /// so it stayed `false` even after `activate` had made the test runner
+    /// frontmost (measured). The run loop is turned briefly first.
+    private func isFrontmost() -> Bool {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        return NSRunningApplication.current.isActive || NSApplication.shared.isActive
+    }
+
+    /// Changing the edge moves the same panel: an open bar closes through
+    /// the intent (the next entry opens it again), the window lands on the
+    /// new edge of the main screen, the body is told — and nothing is
+    /// activated, the panel never key.
+    func testDockingClosesMovesAndTakesNoFocus() throws {
+        // The app's own policy. A test runner's default is `.prohibited`,
+        // under which `activate` does nothing and this test would pass over
+        // a `dock` that activates (measured: the mutation went unseen).
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let controller = controller(edge: .right, rows: 4)
+        let panel = try XCTUnwrap(controller.panel)
+        defer { panel.close() }
+        panel.show()
+        XCTAssertFalse(isFrontmost(), "precondition: the test runner is not frontmost")
+        let main = try XCTUnwrap(NSScreen.screens.first)
+        // Wired as launch wires it: the intent opens and closes the body.
+        controller.hover.onChange = { [unowned controller] open in
+            open ? controller.openBar() : controller.closeBar()
+        }
+        controller.hover.openNow()
+        XCTAssertTrue(controller.barState.isOpen)
+        let rects = { () -> NSRect? in
+            panel.contentView?.trackingAreas.first { $0.owner is BarHostingView.PointerRelay }?.rect
+        }
+
+        controller.dock(.left)
+        XCTAssertFalse(controller.barState.isOpen, "the open list closes")
+        XCTAssertFalse(controller.hover.isOpen, "and the intent knows it")
+        XCTAssertTrue(controller.panel === panel, "the same panel, not a new one")
+        XCTAssertEqual(panel.edge, .left)
+        XCTAssertEqual(controller.barState.edge, .left)
+        XCTAssertEqual(panel.frame.minX, main.visibleFrame.minX, accuracy: 0.5)
+        panel.contentView?.updateTrackingAreas()
+        XCTAssertEqual(try XCTUnwrap(rects()).minX, 0, accuracy: 0.5, "hover on the left edge")
+        XCTAssertFalse(isFrontmost(), "docking must not activate Evlat")
+        XCTAssertFalse(panel.isKeyWindow)
+
+        controller.hover.openNow()
+        XCTAssertTrue(controller.barState.isOpen, "the next entry opens the bar")
+        controller.dock(.right)
+        XCTAssertEqual(panel.frame.maxX, main.visibleFrame.maxX, accuracy: 0.5)
+        XCTAssertFalse(isFrontmost())
+    }
+
+    // MARK: - EVLAT_EDGE
+
+    func testTheForcedEdgeIsReadFromTheEnvironment() {
+        XCTAssertEqual(AppController.forcedEdge(["EVLAT_EDGE": "left"]), .left)
+        XCTAssertEqual(AppController.forcedEdge(["EVLAT_EDGE": " Right "]), .right)
+        XCTAssertNil(AppController.forcedEdge(["EVLAT_EDGE": "top"]), "not a supported edge")
+        XCTAssertNil(AppController.forcedEdge(["EVLAT_EDGE": ""]))
+        XCTAssertNil(AppController.forcedEdge([:]))
+    }
 }

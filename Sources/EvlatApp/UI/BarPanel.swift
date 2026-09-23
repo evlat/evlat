@@ -9,11 +9,20 @@ import SwiftUI
 /// cover menus. The bar behaves like a **system strip**, so it sits one level
 /// higher.
 public final class BarPanel: NSPanel {
-    /// Which edge the bar is docked to. Only `right` is used today; the
-    /// abstraction that draws all four with one code path is `003`'s work.
+    /// Which edge the bar is docked to. Right and left are built — the left
+    /// is the right's mirror; top and bottom are a design of their own (where
+    /// names open and the list scrolls along a horizontal bar) and are not.
     public enum Edge: Sendable { case right, left, top, bottom }
 
-    public let edge: Edge
+    /// Changed in place (`AppController.dock`): the same panel moves, so
+    /// everything wired to it at launch — hover, the gaze anchor, the screen
+    /// observer — stays wired. The focus settings above do not change.
+    public var edge: Edge {
+        didSet {
+            hosting.edge = edge
+            reposition()
+        }
+    }
     /// The two sizes the window can take. The panel is their only owner: the
     /// hosting view never resizes the window (see `sizingOptions` below). The
     /// app builds both at the envelope's size and never resizes (`005`); the
@@ -101,38 +110,51 @@ public final class BarPanel: NSPanel {
     public override var canBecomeKey: Bool { false }
     public override var canBecomeMain: Bool { false }
 
-    /// `visibleFrame` along the docked axis (above the Dock, below the menu
-    /// bar), the full `frame` along the other one. The second half is
-    /// deliberate: centring off `visibleFrame` would make the bar shift
-    /// whenever the Dock appears or hides.
+    /// Places the bar on `screen`, or else on the **main screen** — the
+    /// first, the one with the menu bar. Not `NSScreen.main`, which is the
+    /// key window's screen and moves with focus, and not the window's own
+    /// screen, which is no screen at all once its display is gone. With no
+    /// screen the bar stays where it is.
     public func reposition(on screen: NSScreen? = nil) {
-        guard let screen = screen ?? self.screen ?? NSScreen.main else { return }
-        let usable = screen.visibleFrame
-        let full = screen.frame
+        let screens = screen.map { [$0] } ?? NSScreen.screens
         // The size it has now, not the one it was built with: a screen
         // change while the bar is open keeps it open.
-        let size = frame.size
-        let origin: NSPoint
+        guard let origin = Self.origin(edge: edge,
+                                       screens: screens.map { ($0.frame, $0.visibleFrame) },
+                                       size: frame.size, anchorLength: anchorLength) else { return }
+        setFrameOrigin(origin)
+    }
 
+    /// The origin on the first of `screens`; `nil` without one. Apart from
+    /// `reposition` so the choice of screen is tested without real displays.
+    nonisolated static func origin(edge: Edge, screens: [(frame: NSRect, visibleFrame: NSRect)],
+                                   size: CGSize, anchorLength: CGFloat?) -> NSPoint? {
+        guard let main = screens.first else { return nil }
+        return origin(edge: edge, visibleFrame: main.visibleFrame, frame: main.frame,
+                      size: size, anchorLength: anchorLength)
+    }
+
+    /// Where a bar of `size` docked to `edge` goes: `visibleFrame` along the
+    /// docked axis (above the Dock, below the menu bar), the full `frame`
+    /// along the other one. The second half is deliberate: centring off
+    /// `visibleFrame` would make the bar shift whenever the Dock appears or
+    /// hides — only a Dock on the bar's own edge pushes it.
+    nonisolated static func origin(edge: Edge, visibleFrame usable: NSRect, frame full: NSRect,
+                                   size: CGSize, anchorLength: CGFloat?) -> NSPoint {
         // The head: the top of a vertical bar, the leading end of a
         // horizontal one, placed as if the bar were `anchorLength` long.
         let vertical = (anchorLength ?? size.height) / 2
         let horizontal = (anchorLength ?? size.width) / 2
         switch edge {
         case .right:
-            origin = NSPoint(x: usable.maxX - size.width,
-                             y: full.midY + vertical - size.height)
+            return NSPoint(x: usable.maxX - size.width, y: full.midY + vertical - size.height)
         case .left:
-            origin = NSPoint(x: usable.minX,
-                             y: full.midY + vertical - size.height)
+            return NSPoint(x: usable.minX, y: full.midY + vertical - size.height)
         case .top:
-            origin = NSPoint(x: full.midX - horizontal,
-                             y: usable.maxY - size.height)
+            return NSPoint(x: full.midX - horizontal, y: usable.maxY - size.height)
         case .bottom:
-            origin = NSPoint(x: full.midX - horizontal,
-                             y: usable.minY)
+            return NSPoint(x: full.midX - horizontal, y: usable.minY)
         }
-        setFrameOrigin(origin)
     }
 
     /// Opens or closes the bar by resizing the window, **pinning the docked
@@ -406,5 +428,23 @@ public final class BarHostingView: NSHostingView<AnyView> {
             kept = Set(parts.filter { $0.1.contains(cursor) }.map(\.0))
         }
         relay.keep(kept)
+    }
+}
+
+/// Distance in from the docked edge — the one measure every hit test, the
+/// gaze anchor and the card's hover area take, so the left edge is the
+/// right's mirror in one place instead of five. Top and bottom are measured
+/// like the right: no horizontal bar is built.
+extension BarPanel.Edge {
+    var isLeft: Bool { self == .left }
+
+    /// How far `x` is in from this edge of `rect`.
+    func inset(of x: CGFloat, in rect: CGRect) -> CGFloat {
+        isLeft ? x - rect.minX : rect.maxX - x
+    }
+
+    /// The `x` that is `inset` in from this edge of `rect`.
+    func x(atInset inset: CGFloat, in rect: CGRect) -> CGFloat {
+        isLeft ? rect.minX + inset : rect.maxX - inset
     }
 }

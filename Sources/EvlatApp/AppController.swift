@@ -38,7 +38,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
-    private let hover = HoverIntent()
+    /// Internal so a test can open and close through it.
+    let hover = HoverIntent()
     /// When a cursor staying on a row brings its card up, or takes the card
     /// there. A `var` so a test can hand it a scheduler before `installPanel`.
     var rowSwitch = RowSwitch()
@@ -224,10 +225,13 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The card's hover area: the drawn card and the gap to the body, so a
     /// cursor on its way from a row to the card never leaves the bar. In the
     /// gap it is over no row (`slot` stops at the body's width), which drops
-    /// a pending row switch like the card itself does.
-    static func cardHoverRect(_ card: CGRect) -> CGRect {
+    /// a pending row switch like the card itself does. The gap is on the
+    /// card's side toward the docked edge — right of it on the right edge,
+    /// left of it on the left.
+    static func cardHoverRect(_ card: CGRect, edge: BarPanel.Edge) -> CGRect {
         var rect = card
         rect.size.width += detailCardGap
+        if edge.isLeft { rect.origin.x -= detailCardGap }
         return rect
     }
     /// The tallest the card gets: header, status title, the tool and its
@@ -380,6 +384,30 @@ public final class AppController: NSObject, NSApplicationDelegate {
         guard let raw = environment["EVLAT_SCROLL"]?.trimmingCharacters(in: .whitespaces),
               let value = Double(raw), value.isFinite else { return nil }
         return CGFloat(value)
+    }
+
+    /// `EVLAT_EDGE=left|right` docks the bar there at launch, over what is
+    /// stored — for looking at and measuring one edge from a script, the
+    /// same pattern as `EVLAT_PHASE`. It is read, never written: the next
+    /// launch without it is back to the stored edge. Any other value is
+    /// ignored.
+    nonisolated static func forcedEdge(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BarPanel.Edge? {
+        switch environment["EVLAT_EDGE"]?.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "left": return .left
+        case "right": return .right
+        default: return nil
+        }
+    }
+
+    /// The eyes' real centre, not an approximation of it: the inset and half
+    /// the mascot below the top, and half the bar's width in from the docked
+    /// edge (the window is wider than the bar). Read off shared constants so
+    /// the anchor does not drift when the layout moves.
+    static func gazeAnchor(frame: NSRect, edge: BarPanel.Edge) -> CGPoint {
+        CGPoint(x: edge.x(atInset: barWidth / 2, in: frame),
+                y: frame.maxY - mascotTopInset - mascotSize / 2)
     }
 
     /// How long `--capture` listens when no number follows it.
@@ -567,7 +595,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
         startHookListener()
         installStatusItem()
 
-        let panel = installPanel()
+        // Resolved at launch and never written back.
+        let panel = installPanel(edge: Self.forcedEdge() ?? .right)
         panel.show()
         hover.onChange = { [weak self] open in
             guard let self else { return }
@@ -604,15 +633,10 @@ public final class AppController: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.refresh() }  // Timer callback is nonisolated
         }
 
+        // The edge is read at each call: `dock` moves this same panel.
         let tracker = GazeTracker(model: mascot) { [weak panel] in
-            guard let frame = panel?.frame else { return .zero }
-            // The eyes' real centre, not an approximation of it: the inset and
-            // half the mascot below the top, and half the bar's width in from
-            // the screen edge (the window is wider than the bar by the shadow
-            // gutter). Reading it off shared constants keeps the anchor from
-            // drifting when the layout moves.
-            return CGPoint(x: frame.maxX - Self.barWidth / 2,
-                           y: frame.maxY - Self.mascotTopInset - Self.mascotSize / 2)
+            guard let panel else { return .zero }
+            return Self.gazeAnchor(frame: panel.frame, edge: panel.edge)
         }
         tracker.start()
         gaze = tracker
@@ -659,13 +683,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// the window below; the hover areas are held to what is drawn
     /// (`setVisibleWidth`, `setVisibleLength`). Internal so a test can hold
     /// the frame still across sessions arriving and the bar opening.
+    ///
+    /// The edge is handed in: this reads neither the environment nor the
+    /// stored setting, so a test never docks by the user's choice.
     @discardableResult
-    func installPanel() -> BarPanel {
-        let panel = BarPanel(edge: .right,
+    func installPanel(edge: BarPanel.Edge = .right) -> BarPanel {
+        // The body's edge is written here once, before it is drawn; after
+        // this only `dock` writes it.
+        barState.edge = edge
+        let panel = BarPanel(edge: edge,
                              size: Self.envelopeSize,
                              anchorLength: Self.anchorLength,
                              trackingInset: Self.shadowGutter,
-                             content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
+                             content: BarBody(mascot: mascot, rows: sessionRows,
                                               state: barState, scroll: listScroll, detail: detail,
                                               onCardFrame: { [weak self] rect in
                                                   self?.cardFrameChanged(rect)
@@ -684,6 +714,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
         rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
         self.panel = panel
         return panel
+    }
+
+    /// Moves the bar to another edge, live: the same panel, so hover, the
+    /// gaze anchor and the screen observer stay wired to it. An open list and
+    /// card close first, through the intent — a closed bar the intent
+    /// believed open would ignore the next enter — then the window, its hover
+    /// areas and the body take the new edge. Activates nothing.
+    func dock(_ edge: BarPanel.Edge) {
+        hover.closeNow()
+        // The intent may already have believed the bar closed.
+        if barState.isOpen { closeBar() }
+        panel?.edge = edge
+        if barState.edge != edge { barState.edge = edge }
     }
 
     /// Binds the hook port. Every event that arrives goes to
@@ -891,8 +934,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// A scroll over the bar, from the hosting view. Taken only over the
     /// open list; anywhere else it goes on to SwiftUI.
     func scroll(at point: CGPoint, deltaY: CGFloat, precise: Bool) -> Bool {
-        guard barState.isOpen, let bounds = panel?.contentView?.bounds,
-              Self.isOverList(fromEdge: bounds.maxX - point.x, fromTop: point.y - bounds.minY,
+        guard barState.isOpen, let panel, let bounds = panel.contentView?.bounds,
+              Self.isOverList(fromEdge: panel.edge.inset(of: point.x, in: bounds),
+                              fromTop: point.y - bounds.minY,
                               width: barState.openWidth, rows: sessionRows.rows.count) else {
             return false
         }
@@ -919,8 +963,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     /// The row under a screen point, while the bar is open.
     private func row(atScreen point: CGPoint) -> String? {
-        guard let frame = panel?.frame, barState.isOpen,
-              let slot = Self.slot(fromEdge: frame.maxX - point.x, fromTop: frame.maxY - point.y,
+        guard let panel, barState.isOpen,
+              let slot = Self.slot(fromEdge: panel.edge.inset(of: point.x, in: panel.frame),
+                                   fromTop: panel.frame.maxY - point.y,
                                    width: barState.openWidth, rows: sessionRows.rows.count,
                                    offset: listScroll.offset),
               sessionRows.rows.indices.contains(slot) else { return nil }
@@ -941,7 +986,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The card's drawn rectangle, from the view: with the gap, the second
     /// hover area.
     private func cardFrameChanged(_ rect: CGRect?) {
-        panel?.setCardRect(barState.selected == nil ? nil : rect.map(Self.cardHoverRect))
+        panel?.setCardRect(barState.selected == nil ? nil
+                           : rect.map { Self.cardHoverRect($0, edge: barState.edge) })
     }
 
     /// `[Go to session]`'s drawn rectangle, in the content view's (flipped)
@@ -1033,6 +1079,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
 /// reads it — `BarBody` — is the only one rebuilt when it flips.
 @MainActor
 final class BarState: ObservableObject {
+    /// The edge the body is drawn against. Written by `installPanel` before
+    /// the first frame and by `dock` after it, nowhere else.
+    @Published var edge: BarPanel.Edge = .right
     @Published var isOpen = false
     /// How far the body opens: as wide as the names or the summary line
     /// need, within `SessionColumn`'s bounds (`SessionColumn.openWidth(rows:)`).
@@ -1090,27 +1139,36 @@ enum BarMotion {
 
     /// The card's arrival and departure. Attached to the card itself, not to
     /// its placing, so the growth is anchored on the card's own edge beside
-    /// the bar rather than on the screen edge.
-    static let cardTransition = AnyTransition.asymmetric(
-        insertion: .opacity
-            .combined(with: .scale(scale: 0.96, anchor: .trailing))
-            .combined(with: .offset(x: cardTravel))
-            .animation(cardIn),
-        removal: .opacity
-            .combined(with: .scale(scale: 0.98, anchor: .trailing))
-            .animation(cardOut))
+    /// the bar rather than on the screen edge, and it travels out of the bar
+    /// — leftward from a right bar, rightward from a left one.
+    static func cardTransition(edge: BarPanel.Edge) -> AnyTransition {
+        let anchor: UnitPoint = edge.isLeft ? .leading : .trailing
+        return .asymmetric(
+            insertion: .opacity
+                .combined(with: .scale(scale: 0.96, anchor: anchor))
+                .combined(with: .offset(x: edge.isLeft ? -cardTravel : cardTravel))
+                .animation(cardIn),
+            removal: .opacity
+                .combined(with: .scale(scale: 0.98, anchor: anchor))
+                .animation(cardOut))
+    }
 }
 
 /// The bar's body: the shape, the mascot at its head, the session rings
 /// beneath it, and — while the bar is open — their names.
 ///
 /// **Everything is laid out from the screen edge.** The shape, the mascot and
-/// the rings hang off the trailing side, so the window growing or shrinking
-/// moves none of them; opening is the shape's inner edge travelling left and
-/// the names fading in. The mascot and the column observe their own models,
-/// so a gaze write re-evaluates the mascot alone and a beat the rings alone.
+/// the rings hang off the docked side — trailing on the right, leading on the
+/// left — so the window growing or shrinking moves none of them; opening is
+/// the shape's inner edge travelling into the screen and the names fading in.
+/// The mascot and the column observe their own models, so a gaze write
+/// re-evaluates the mascot alone and a beat the rings alone.
+///
+/// The left is the right's mirror by alignments and the sign of `x`, all
+/// read off one `isLeft` — not `layoutDirection`, which would also reverse
+/// the card's text and the name's raised number, and not a flipped scale,
+/// which would mirror the text and the mascot's gaze.
 struct BarBody: View {
-    var edge: BarPanel.Edge = .right
     let mascot: MascotModel
     let rows: SessionRowsModel
     @ObservedObject var state: BarState
@@ -1140,8 +1198,13 @@ struct BarBody: View {
         AppController.envelopeSize.height - AppController.shadowGutter - AppController.detailCardMaxHeight
     }
 
+    private var isLeft: Bool { state.edge.isLeft }
+    /// The docked side's top corner: where the body, the mascot and the
+    /// column hang from.
+    private var head: Alignment { isLeft ? .topLeading : .topTrailing }
+
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: head) {
             // Top-aligned in the envelope: the far end moves, the head stays.
             // The shadow and the inner edge are the shape's, so they shorten
             // with it.
@@ -1160,7 +1223,7 @@ struct BarBody: View {
             MascotView(model: mascot, size: AppController.mascotSize)
                 .frame(width: AppController.barWidth)
                 .padding(.top, AppController.mascotTopInset)
-            SessionColumn(model: rows, scroll: scroll, showsNames: state.isOpen,
+            SessionColumn(model: rows, scroll: scroll, edge: state.edge, showsNames: state.isOpen,
                           selected: state.selected, hovered: state.hovered,
                           openWidth: state.openWidth)
                 .padding(.top, AppController.listTop)
@@ -1168,7 +1231,7 @@ struct BarBody: View {
         // Pinned to the screen edge and the head. What is left on the other
         // side is the shadow's room, the open body's and the card's; what is
         // left below is the card's.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: head)
     }
 
     /// Beside the open body, `detailCardGap` from its inner edge, level with
@@ -1182,9 +1245,9 @@ struct BarBody: View {
                     onCardFrame(rect)
                 }
                 .onDisappear { onCardFrame(nil) }
-                .transition(BarMotion.cardTransition)
+                .transition(BarMotion.cardTransition(edge: state.edge))
                 .modifier(CardPlacing(scroll: scroll, slot: slot))
-                .padding(.trailing, state.openWidth + AppController.detailCardGap)
+                .padding(isLeft ? .leading : .trailing, state.openWidth + AppController.detailCardGap)
                 .animation(BarMotion.length, value: slot)
         }
     }
@@ -1205,7 +1268,7 @@ struct BarBody: View {
 
     private var shapeLayer: some View {
         let shape = BarShape(corner: AppController.barCorner,
-                             flare: AppController.barFlare, edge: edge)
+                             flare: AppController.barFlare, edge: state.edge)
         return shape
             .fill(BarPalette.body)
             // A thin inner edge separates the body from a dark wall behind it
@@ -1215,6 +1278,7 @@ struct BarBody: View {
             .overlay(shape.outline.stroke(Color.white.opacity(0.10), lineWidth: 1))
             // The shadow deepens the curve; it is what sells "growing out of the
             // bezel". It needs the gutter above to render at all.
-            .shadow(color: .black.opacity(0.35), radius: 10, x: -3, y: 0)
+            // Cast into the screen, away from the docked edge.
+            .shadow(color: .black.opacity(0.35), radius: 10, x: isLeft ? 3 : -3, y: 0)
     }
 }

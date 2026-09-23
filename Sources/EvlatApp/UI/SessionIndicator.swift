@@ -2,8 +2,9 @@ import SwiftUI
 import EvlatCore
 
 /// The column under the mascot. Closed: one ring per slot, and the overflow
-/// count. Open: every session, each ring's name to its left, in a visible
-/// area of at most seven and a half rows, and the summary line under it.
+/// count. Open: every session, each ring's name on its inner side (left of it
+/// on the right edge, right of it on the left), in a visible area of at most
+/// seven and a half rows, and the summary line under it.
 ///
 /// It observes `SessionRowsModel` and nothing else — the mascot's gaze moves
 /// with the cursor, and a column that observed the mascot would be rebuilt at
@@ -23,6 +24,10 @@ struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
     /// How far the open list is scrolled (`AppController.scrolled`).
     @ObservedObject var scroll = ListScroll()
+    /// The docked edge. The left is the right's mirror: every alignment and
+    /// every sign of `x` below is read off `isLeft`; the order inside a name
+    /// (the name, then its raised number) is not.
+    var edge: BarPanel.Edge = .right
     var showsNames = false
     /// The session whose card is up: its row gets a faint ground.
     var selected: String? = nil
@@ -124,6 +129,13 @@ struct SessionColumn: View {
         return max(minOpenWidth, width)
     }
 
+    private var isLeft: Bool { edge.isLeft }
+    /// The docked side.
+    private var docked: HorizontalAlignment { isLeft ? .leading : .trailing }
+    /// The sign an `x` written for the right edge takes: 1 there, −1 on the
+    /// left.
+    private var mirror: CGFloat { isLeft ? -1 : 1 }
+
     /// The visible area's height: the open list's, or the closed slots'.
     private var clipHeight: CGFloat {
         showsNames ? AppController.listHeight(rows: model.rows.count)
@@ -154,11 +166,11 @@ struct SessionColumn: View {
             // is written with no animation and the ones below are keyed on
             // other values, so the list follows the finger.
             .offset(y: -offset)
-            .frame(width: openWidth, height: clipHeight, alignment: .topTrailing)
+            .frame(width: openWidth, height: clipHeight, alignment: Alignment(horizontal: docked, vertical: .top))
             .clipped()
             .overlay(alignment: .top) { fade(.top, strength: fadeStrength.top) }
             .overlay(alignment: .bottom) { fade(.bottom, strength: fadeStrength.bottom) }
-            .overlay(alignment: .bottomTrailing) { summary }
+            .overlay(alignment: Alignment(horizontal: docked, vertical: .bottom)) { summary }
             .animation(BarMotion.body, value: showsNames)
             .animation(BarMotion.length, value: model.rows.count)
     }
@@ -173,13 +185,13 @@ struct SessionColumn: View {
                            startPoint: edge == .top ? .bottom : .top,
                            endPoint: edge == .top ? .top : .bottom)
                 .frame(height: Self.fadeHeight)
-                .padding(.leading, 1)
+                .padding(isLeft ? .trailing : .leading, 1)
                 .opacity(strength)
                 .allowsHitTesting(false)
         }
     }
 
-    /// "20 sessions · 3 working" under the list, trailing with the rings.
+    /// "20 sessions · 3 working" under the list, on the rings' side.
     /// With the names: it comes and goes with them.
     @ViewBuilder private var summary: some View {
         if let text = SummaryLine.attributed(rows: model.rows) {
@@ -187,7 +199,7 @@ struct SessionColumn: View {
                 .lineLimit(1)
                 .fixedSize()
                 .frame(height: AppController.summaryHeight)
-                .padding(.trailing, Self.ringLead)
+                .padding(isLeft ? .leading : .trailing, Self.ringLead)
                 .offset(y: AppController.summaryGap + AppController.summaryHeight)
                 .opacity(showsNames ? 1 : 0)
                 .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
@@ -196,7 +208,7 @@ struct SessionColumn: View {
     }
 
     private var rowsColumn: some View {
-        VStack(alignment: .trailing, spacing: AppController.indicatorSpacing) {
+        VStack(alignment: docked, spacing: AppController.indicatorSpacing) {
             // Identity is the session, so a reorder travels on the spring
             // rather than snapping rings into each other's places.
             ForEach(showsNames ? model.rows : model.closedRows) { row in
@@ -208,10 +220,14 @@ struct SessionColumn: View {
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0)
                     .frame(width: AppController.barWidth)
-                    .background(alignment: .trailing) { ground(selected: showsNames && row.entity == selected,
-                                                        hovered: showsNames && row.entity == hovered) }
-                    .overlay(alignment: .leading) { label(row) }
-                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
+                    .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
+                        ground(selected: showsNames && row.entity == selected,
+                               hovered: showsNames && row.entity == hovered)
+                    }
+                    // The name's box starts at the ring's far side and is
+                    // pushed across it by the offset in `label`.
+                    .overlay(alignment: isLeft ? .trailing : .leading) { label(row) }
+                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: isLeft ? .leading : .trailing)))
             }
             if !showsNames, model.overflow > 0 {
                 // A number, not a word, so it needs no catalogue entry. The
@@ -241,14 +257,14 @@ struct SessionColumn: View {
             .fill(Color.white.opacity(0.09))
             .frame(width: max(0, openWidth - 2 * Self.groundInset),
                    height: Self.labelHeight + 6)
-            .offset(x: -Self.groundInset)
+            .offset(x: -mirror * Self.groundInset)
             .opacity(selected ? 1 : hovered ? 0.5 : 0)
             .animation(BarMotion.namesOut, value: selected)
             .animation(BarMotion.namesOut, value: hovered)
             .allowsHitTesting(false)
     }
 
-    /// The name, right-aligned against its ring. Its own animation, keyed on
+    /// The name, aligned against its ring. Its own animation, keyed on
     /// `showsNames` alone: it comes in just after the body starts to open and
     /// goes out before the body starts to close, so no name is ever drawn
     /// past the body's edge.
@@ -262,7 +278,7 @@ struct SessionColumn: View {
     /// The block is top-aligned in a fixed height, so the name sits in the
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow) -> some View {
-        VStack(alignment: .trailing, spacing: 1) {
+        VStack(alignment: docked, spacing: 1) {
             name(row.label, duplicate: row.duplicate, color: row.phase == .idle
                  ? BarPalette.textSecondary : BarPalette.textPrimary)
             if showsNames {
@@ -282,9 +298,13 @@ struct SessionColumn: View {
                 .transition(.opacity)
             }
         }
-            .frame(width: Self.nameMaxWidth, height: Self.labelHeight, alignment: .topTrailing)
-            .offset(x: Self.ringLead - Self.nameGap - Self.nameMaxWidth
-                        + (showsNames ? 0 : Self.nameTravel))
+            .frame(width: Self.nameMaxWidth, height: Self.labelHeight,
+                   alignment: Alignment(horizontal: docked, vertical: .top))
+            // Written for the right edge — the box's trailing side `nameGap`
+            // short of the ring, arriving from `nameTravel` nearer it — and
+            // mirrored whole on the left.
+            .offset(x: mirror * (Self.ringLead - Self.nameGap - Self.nameMaxWidth
+                                 + (showsNames ? 0 : Self.nameTravel)))
             .opacity(showsNames ? 1 : 0)
             .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
             .allowsHitTesting(false)
@@ -308,7 +328,7 @@ struct SessionColumn: View {
                     .fixedSize()
             }
         }
-            .frame(width: Self.nameMaxWidth, alignment: .trailing)
+            .frame(width: Self.nameMaxWidth, alignment: isLeft ? .leading : .trailing)
     }
 }
 

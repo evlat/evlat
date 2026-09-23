@@ -395,7 +395,7 @@ final class SelectionTests: XCTestCase {
                            width: AppController.detailCardWidth, height: 140)
         let rects = BarHostingView.trackingRects(in: bounds, inset: 18, visibleWidth: openWidth,
                                                  visibleLength: AppController.barLength(slots: 4),
-                                                 card: AppController.cardHoverRect(drawn),
+                                                 card: AppController.cardHoverRect(drawn, edge: .right),
                                                  flipped: true, edge: .right)
         let card = try XCTUnwrap(rects.card)
         XCTAssertEqual(card.maxX, rects.body.minX, accuracy: 0.5, "no hole between card and body")
