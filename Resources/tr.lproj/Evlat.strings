@@ -15,3 +15,8 @@
 "time.minutes" = "{count} dk";
 "time.hours" = "{count} sa";
 "time.days" = "{count} g";
+
+"source.claude" = "Claude Code";
+"source.codex" = "Codex";
+"card.tools.one" = "1 araç";
+"card.tools" = "{count} araç";

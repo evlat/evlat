@@ -35,6 +35,13 @@ public final class BarPanel: NSPanel {
         set { hosting.onPointer = newValue }
     }
 
+    /// A click on the bar, in the content view's (flipped) coordinates.
+    /// `true` means it was taken; otherwise SwiftUI gets it.
+    public var onClick: ((CGPoint) -> Bool)? {
+        get { hosting.onClick }
+        set { hosting.onClick = newValue }
+    }
+
     private let hosting: BarHostingView
 
     /// - Parameter trackingInset: the transparent margin on the bar's inner
@@ -325,6 +332,25 @@ public final class BarHostingView: NSHostingView<AnyView> {
     var onPointer: ((Pointer) -> Void)? {
         get { relay.handler }
         set { relay.handler = newValue }
+    }
+
+    /// See `BarPanel.onClick`.
+    var onClick: ((CGPoint) -> Bool)?
+
+    /// The app is never active, so every click on the bar is a "first" click
+    /// — and AppKit swallows a first click into an inactive app's window
+    /// unless the view accepts it. Accepting it activates nothing: the panel
+    /// is `.nonactivatingPanel` and cannot become key.
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Clicks are read from geometry, like the hovered row: the rows are laid
+    /// out from constants (`AppController.slotTop`), and one route for both
+    /// means a click and a hover can never disagree about which row is where.
+    /// A click on no row goes on to SwiftUI.
+    public override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if onClick?(point) == true { return }
+        super.mouseDown(with: event)
     }
 
     private let relay = PointerRelay()

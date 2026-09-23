@@ -22,3 +22,11 @@
 "time.minutes" = "{count} min";
 "time.hours" = "{count} h";
 "time.days" = "{count} d";
+
+/* The detail card's header: the tool the session runs in. */
+"source.claude" = "Claude Code";
+"source.codex" = "Codex";
+/* The card's footer: tools started in this turn. A count that began mid-turn
+   is shown with a leading "~". */
+"card.tools.one" = "1 tool";
+"card.tools" = "{count} tools";

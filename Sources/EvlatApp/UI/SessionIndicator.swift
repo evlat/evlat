@@ -18,6 +18,13 @@ import EvlatCore
 struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
     var showsNames = false
+    /// The session whose card is up: its row gets a faint ground.
+    var selected: String? = nil
+    /// The open body's width, which the ground spans.
+    var openWidth: CGFloat = SessionColumn.minOpenWidth
+
+    /// The selected row's ground: inside the open body by this much.
+    static let groundInset: CGFloat = 5
 
     /// Between a name's end and its ring.
     static let nameGap: CGFloat = 8
@@ -96,6 +103,7 @@ struct SessionColumn: View {
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0)
                     .frame(width: AppController.barWidth)
+                    .background(alignment: .trailing) { ground(selected: showsNames && row.entity == selected) }
                     .overlay(alignment: .leading) { label(row) }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
@@ -118,6 +126,20 @@ struct SessionColumn: View {
         }
         .animation(MascotPose.transition, value: model.rows)
         .animation(MascotPose.transition, value: model.overflow)
+    }
+
+    /// Behind the selected row, as wide as the open body less an inset: the
+    /// row the card speaks for. Clicks are not taken here — the panel reads
+    /// them from geometry (`AppController.slot`).
+    private func ground(selected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.09))
+            .frame(width: max(0, openWidth - 2 * Self.groundInset),
+                   height: Self.labelHeight + 6)
+            .offset(x: -Self.groundInset)
+            .opacity(selected ? 1 : 0)
+            .animation(BarMotion.namesOut, value: selected)
+            .allowsHitTesting(false)
     }
 
     /// The name, right-aligned against its ring. Its own animation, keyed on

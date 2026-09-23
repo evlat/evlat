@@ -19,6 +19,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// The indicators under the mascot. Fed from the same snapshot as the
     /// mascot in `refresh()`, observed by its own column.
     public let sessionRows = SessionRowsModel()
+    /// The card's facts for the selected session. Written only while one is
+    /// selected (`syncSelection`), observed by the card alone.
+    public let detail = DetailModel()
     /// `phase-3`'s bucket: a counter and the last few lines. It feeds nothing
     /// into `registry` and never will — turning events into phases is the
     /// provider's job, one line below.
@@ -36,6 +39,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
     private let hover = HoverIntent()
+    /// With the card open, when a cursor on another row takes the card there.
+    private let rowSwitch = RowSwitch()
     /// Whether the body is drawn open. Apart from the window's size on purpose:
     /// the window is resized when nothing on screen moves, and this is what the
     /// eye sees move (`openBar`, `closeBar`).
@@ -113,9 +118,37 @@ public final class AppController: NSObject, NSApplicationDelegate {
             + CGFloat(index) * (indicatorSize + indicatorSpacing)
     }
 
+    /// The slot under a point, measured from the docked edge and the window's
+    /// top; `nil` over the mascot, past the last slot or past `width` — the
+    /// drawn body's. A slot is its ring and half the gap each side, so the
+    /// cursor moving down the column is always over some row. Rows are
+    /// fixed-height (`SessionColumn`), so this is the whole geometry.
+    static func slot(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat) -> Int? {
+        guard x >= 0, x <= width else { return nil }
+        let pitch = indicatorSize + indicatorSpacing
+        let offset = y - (slotTop(0) - indicatorSpacing / 2)
+        guard offset >= 0 else { return nil }
+        let index = Int(offset / pitch)
+        return index < SessionRowsModel.slotCount ? index : nil
+    }
+
     /// The detail card beside the open list (`phase-4` draws it). Fixed here
     /// because the window is sized for it once and never again.
     public static let detailCardWidth: CGFloat = 260
+    /// Between the open body's inner edge and the card: the card stands
+    /// apart (`005`, user's decision). The gap is still "on the bar" for
+    /// hover (`cardHoverRect`), so crossing it closes nothing.
+    public static let detailCardGap: CGFloat = 8
+
+    /// The card's hover area: the drawn card and the gap to the body, so a
+    /// cursor on its way from a row to the card never leaves the bar. In the
+    /// gap it is over no row (`slot` stops at the body's width), which drops
+    /// a pending row switch like the card itself does.
+    static func cardHoverRect(_ card: CGRect) -> CGRect {
+        var rect = card
+        rect.size.width += detailCardGap
+        return rect
+    }
     /// The tallest the card gets: header, status title, the tool and its
     /// subject or a few lines of the last reply, the footer and the button —
     /// about 180 pt at the card's type sizes, with room to spare. The card
@@ -123,7 +156,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public static let detailCardMaxHeight: CGFloat = 200
 
     /// The window, built once and never resized: as wide as the widest open
-    /// list with the card beside it and the card's shadow, and as long as the
+    /// list with the card beside it (and the gap between) and the card's
+    /// shadow, and as long as the
     /// full bar or the tallest card hanging from the lowest slot (and its
     /// shadow), whichever reaches further. The head is still laid out from
     /// `anchorLength`, so everything past the full bar hangs below it,
@@ -133,7 +167,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// window growing leftward showed its old content one frame at the old
     /// origin — and a card that lengthened the window would repeat it downward.
     public static let envelopeSize = CGSize(
-        width: expandedBarWidth + detailCardWidth + shadowGutter,
+        width: expandedBarWidth + detailCardGap + detailCardWidth + shadowGutter,
         height: max(anchorLength,
                     slotTop(SessionRowsModel.slotCount - 1) + detailCardMaxHeight + shadowGutter))
 
@@ -234,6 +268,23 @@ public final class AppController: NSObject, NSApplicationDelegate {
         guard let raw = environment["EVLAT_PHASE"]?
             .trimmingCharacters(in: .whitespaces).lowercased(), !raw.isEmpty else { return nil }
         return Phase(rawValue: raw)
+    }
+
+    /// `EVLAT_SELECT=<entity|first>` opens the list at launch with that
+    /// session's card up — the scriptable way to measure and look at the
+    /// card, the same pattern as `EVLAT_PHASE`. An unknown entity selects
+    /// nothing.
+    enum ForcedSelection: Equatable {
+        case first
+        case entity(String)
+    }
+
+    nonisolated static func forcedSelection(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> ForcedSelection? {
+        guard let raw = environment["EVLAT_SELECT"]?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+        return raw.lowercased() == "first" ? .first : .entity(raw)
     }
 
     /// How long `--capture` listens when no number follows it.
@@ -429,6 +480,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         // The seam runs here: provider → Registry → MascotModel → view.
         refresh()
+        switch Self.forcedSelection() {
+        case .first?: sessionRows.rows.first.map { select($0.entity) }
+        case .entity(let entity)?: select(entity)
+        case nil: break
+        }
         poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) {
             [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }  // Timer callback is nonisolated
@@ -453,6 +509,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
             case .entered:
                 self.hover.pointerEntered()
             case .exited:
+                // Off the bar is off every row: a switch still pending
+                // would otherwise select after the cursor has gone.
+                self.rowSwitch.cancel()
                 self.hover.pointerExited()
             case .moved(let point):
                 // A move is only reported inside the bar, so it also says
@@ -460,6 +519,7 @@ public final class AppController: NSObject, NSApplicationDelegate {
                 // missed exit/enter pair.
                 self.hover.pointerEntered()
                 self.gaze?.observe(point)
+                self.rowSwitch.hover(self.row(atScreen: point), selected: self.barState.selected)
             }
         }
 
@@ -491,9 +551,16 @@ public final class AppController: NSObject, NSApplicationDelegate {
                              anchorLength: Self.anchorLength,
                              trackingInset: Self.shadowGutter,
                              content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
-                                              state: barState))
+                                              state: barState, detail: detail,
+                                              onCardFrame: { [weak self] rect in
+                                                  self?.cardFrameChanged(rect)
+                                              }))
         panel.setVisibleWidth(Self.barWidth)
         panel.setVisibleLength(barState.length)
+        panel.onClick = { [weak self] point in
+            self?.click(at: point) ?? false
+        }
+        rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
         self.panel = panel
         return panel
     }
@@ -621,6 +688,69 @@ public final class AppController: NSObject, NSApplicationDelegate {
             let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
             NSLog("Evlat: rows [%@] +%ld", rows.joined(separator: ", "), sessionRows.overflow)
         }
+        syncSelection(snapshot.ordered)
+    }
+
+    /// The card follows the selected session through the same snapshot: its
+    /// slot when the column reorders, its facts when they move. Nothing is
+    /// written without a selection. A session that has no drawn row any more
+    /// — gone, or pushed into the "+N" count — has nothing for the card to
+    /// hang from, so the card closes.
+    private func syncSelection(_ signals: [Signal]) {
+        guard let selected = barState.selected else { return }
+        guard let slot = sessionRows.rows.firstIndex(where: { $0.entity == selected }) else {
+            deselect()
+            return
+        }
+        if barState.selectedSlot != slot { barState.selectedSlot = slot }
+        detail.update(row: sessionRows.rows[slot],
+                      signal: signals.first { $0.entity == selected })
+    }
+
+    /// Selects a drawn row's session: the list opens (at once, if it was
+    /// closed), the row is marked and the card comes up level with it.
+    /// Activates nothing — the app stays in the background, the panel is
+    /// never key.
+    func select(_ entity: String) {
+        guard sessionRows.rows.contains(where: { $0.entity == entity }) else { return }
+        rowSwitch.cancel()
+        hover.openNow()
+        if !barState.isOpen { openBar() }
+        if barState.selected != entity { barState.selected = entity }
+        syncSelection(registry.snapshot().ordered)
+    }
+
+    private func deselect() {
+        rowSwitch.cancel()
+        if barState.selected != nil { barState.selected = nil }
+        if barState.selectedSlot != nil { barState.selectedSlot = nil }
+        panel?.setCardRect(nil)
+    }
+
+    /// The row under a screen point, while the bar is open.
+    private func row(atScreen point: CGPoint) -> String? {
+        guard let frame = panel?.frame, barState.isOpen,
+              let slot = Self.slot(fromEdge: frame.maxX - point.x, fromTop: frame.maxY - point.y,
+                                   width: barState.openWidth),
+              sessionRows.rows.indices.contains(slot) else { return nil }
+        return sessionRows.rows[slot].entity
+    }
+
+    /// A click on a ring — or, on the open bar, anywhere along its row —
+    /// selects that session. Anything else is not ours.
+    private func click(at point: CGPoint) -> Bool {
+        guard let bounds = panel?.contentView?.bounds else { return false }
+        let width = barState.isOpen ? barState.openWidth : Self.barWidth
+        guard let slot = Self.slot(fromEdge: bounds.maxX - point.x, fromTop: point.y, width: width),
+              sessionRows.rows.indices.contains(slot) else { return false }
+        select(sessionRows.rows[slot].entity)
+        return true
+    }
+
+    /// The card's drawn rectangle, from the view: with the gap, the second
+    /// hover area.
+    private func cardFrameChanged(_ rect: CGRect?) {
+        panel?.setCardRect(barState.selected == nil ? nil : rect.map(Self.cardHoverRect))
     }
 
     /// Opening is the drawn body widening; the window is already wide. The
@@ -633,6 +763,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
     /// Closing: the body narrows back to the edge and the hover area with it.
     func closeBar() {
+        // The list and the card close together; the selection does not
+        // outlive them.
+        deselect()
         barState.isOpen = false
         panel?.setVisibleWidth(Self.barWidth)
     }
@@ -690,6 +823,11 @@ final class BarState: ObservableObject {
     /// How long the body is drawn along the edge, from the head. The window
     /// is longer; this is the part that is bar.
     @Published var length = AppController.barLength(slots: 0)
+    /// The session whose card is up, by entity; `nil`: no card.
+    @Published var selected: String?
+    /// Its row's slot, which the card hangs from. Follows the row as the
+    /// column reorders.
+    @Published var selectedSlot: Int?
 }
 
 /// The bar's colours: codenotch's. The body is pure, opaque black so it reads
@@ -728,6 +866,17 @@ struct BarBody: View {
     let mascot: MascotModel
     let rows: SessionRowsModel
     @ObservedObject var state: BarState
+    var detail = DetailModel()
+    /// The card's drawn rectangle as it lays out, `nil` when it goes: the
+    /// panel's second hover area is held to it.
+    var onCardFrame: (CGRect?) -> Void = { _ in }
+    /// The card's top above its row's ring: its header lines up with the
+    /// row's name.
+    static let cardLead: CGFloat = 16
+
+    static func cardTop(slot: Int) -> CGFloat {
+        max(0, AppController.slotTop(slot) - cardLead)
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -740,11 +889,13 @@ struct BarBody: View {
                 .animation(BarMotion.body, value: state.isOpen)
                 .animation(BarMotion.body, value: state.openWidth)
                 .animation(BarMotion.length, value: state.length)
+            card
             VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
                 // The mascot is the head of the bar; the rings line up beneath.
                 MascotView(model: mascot, size: AppController.mascotSize)
                     .frame(width: AppController.barWidth)
-                SessionColumn(model: rows, showsNames: state.isOpen)
+                SessionColumn(model: rows, showsNames: state.isOpen,
+                              selected: state.selected, openWidth: state.openWidth)
             }
             .padding(.top, AppController.mascotTopInset)
         }
@@ -752,6 +903,23 @@ struct BarBody: View {
         // side is the shadow's room, the open body's and the card's; what is
         // left below is the card's.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+    }
+
+    /// Beside the open body, `detailCardGap` from its inner edge, level with
+    /// the selected row. The window already has room for it at every slot
+    /// (`AppController.envelopeSize`), so it is never pushed around.
+    @ViewBuilder private var card: some View {
+        if state.isOpen, state.selected != nil, let slot = state.selectedSlot {
+            DetailCard(model: detail)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                    onCardFrame(rect)
+                }
+                .onDisappear { onCardFrame(nil) }
+                .padding(.top, Self.cardTop(slot: slot))
+                .padding(.trailing, state.openWidth + AppController.detailCardGap)
+                .animation(BarMotion.length, value: slot)
+                .transition(.opacity.animation(BarMotion.namesOut))
+        }
     }
 
     private var shapeLayer: some View {

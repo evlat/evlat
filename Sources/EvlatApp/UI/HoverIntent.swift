@@ -47,6 +47,21 @@ final class HoverIntent {
 
     func pointerExited() { want(false) }
 
+    /// Open at once: a click on a closed bar's ring does not wait out the
+    /// opening delay. Through the intent, not around it — an open bar the
+    /// intent believed closed would ignore the next leave.
+    ///
+    /// On an open bar it does nothing, and in particular it leaves a pending
+    /// close alone: a row switch firing just after the cursor left selects
+    /// through here, and cancelling that close would strand the bar open with
+    /// no leave left to come.
+    func openNow() {
+        guard !isOpen else { return }
+        cancelPending()
+        isOpen = true
+        onChange?(true)
+    }
+
     private func want(_ open: Bool) {
         if open == isOpen {
             // Already there: whatever was pending was the other way (a close

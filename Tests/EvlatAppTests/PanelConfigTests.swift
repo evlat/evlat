@@ -170,8 +170,9 @@ final class PanelConfigTests: XCTestCase {
     func testTheEnvelopeHoldsTheWidestListAndTheTallestCard() {
         let envelope = AppController.envelopeSize
         XCTAssertEqual(envelope.width,
-                       AppController.expandedBarWidth + AppController.detailCardWidth
-                           + AppController.shadowGutter, accuracy: 0.5)
+                       AppController.expandedBarWidth + AppController.detailCardGap
+                           + AppController.detailCardWidth + AppController.shadowGutter,
+                       accuracy: 0.5)
         XCTAssertGreaterThanOrEqual(envelope.height, AppController.anchorLength,
                                     "a full bar still fits")
         XCTAssertGreaterThanOrEqual(envelope.height,
