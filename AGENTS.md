@@ -48,7 +48,8 @@ bar sağ ya da sol kenara yaslanıyor (sol sağın aynası), seçim maskotun sa�
 menüsünde ve tepside, kalıcı (`bar.edge`); bar ana ekranda. Faz 2 kapandı. `008`'de
 menü, dizini olan her kaynak (Claude, Codex) için hook'ları kurar, günceller
 ya da kaldırır (`HookSettings`); elle denemede kök `EVLAT_HOME` ile geçici
-dizindir.
+dizindir. `009` sürüyor: açık gövdede özetin altında kaynak başına ikonsuz
+kullanım bloğu (`UsageBlock`, 5h/7d satırları; bugün Codex, rollout'tan).
 Metinler katalogda (`L10n`, `en`/`tr`). Güncel durum ve açık
 kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
 

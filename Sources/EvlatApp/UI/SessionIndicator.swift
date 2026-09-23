@@ -467,6 +467,97 @@ enum StatusLine {
     }
 }
 
+/// The usage block's text: "5h", "25%", "↻ 1h 12m", "2h ago". Pure, like
+/// `StatusLine`, so the minute tick only hands it a date.
+///
+/// **Compact units**, not the status line's "14 min": the block is a table,
+/// and "1 h 12 min" would not fit its column. Every time here rounds down,
+/// so a countdown never promises more than is left.
+///
+/// **The keys are literals**, listed in `keys`, so a test reaches all of them.
+enum UsageText {
+    static let pairKey = "usage.pair"
+    static let percentKey = "usage.percent"
+    static let resetsKey = "usage.resets"
+    static let agoKey = "usage.ago"
+    static var keys: [String] {
+        [pairKey, percentKey, resetsKey, agoKey] + StatusLine.Unit.allCases.map(\.compactKey)
+    }
+
+    /// A span in its largest unit and, if not zero, the next one down:
+    /// "4d 16h", "1h 12m", "38m", "2h". Under a minute is "0m" — a window is
+    /// no longer drawn once it resets, so that is the last minute of one.
+    static func compact(_ seconds: TimeInterval, in lang: String) -> String {
+        let s = max(0, seconds.isFinite ? seconds : 0)
+        func part(_ unit: StatusLine.Unit, _ count: Int) -> String {
+            L10n.t(unit.compactKey, ["count": String(count)], in: lang)
+        }
+        let (major, minor): (StatusLine.Unit, StatusLine.Unit?) =
+            s >= StatusLine.Unit.days.seconds ? (.days, .hours)
+            : s >= StatusLine.Unit.hours.seconds ? (.hours, .minutes) : (.minutes, nil)
+        let count = Int(s / major.seconds)
+        guard let minor else { return part(major, count) }
+        let rest = Int((s - Double(count) * major.seconds) / minor.seconds)
+        guard rest > 0 else { return part(major, count) }
+        return L10n.t(pairKey, ["first": part(major, count), "second": part(minor, rest)], in: lang)
+    }
+
+    /// The window's name, from its length: 300 → "5h", 10080 → "7d",
+    /// 90 → "1h 30m". A window nobody planned for still gets one.
+    static func windowLabel(minutes: Int, in lang: String = L10n.language) -> String {
+        compact(TimeInterval(minutes) * 60, in: lang)
+    }
+
+    /// "↻ 1h 12m": time left until the window starts over.
+    static func resets(in seconds: TimeInterval, in lang: String = L10n.language) -> String {
+        L10n.t(resetsKey, ["time": compact(seconds, in: lang)], in: lang)
+    }
+
+    /// "2h ago": how old a stale reading is. One unit — an age, not a
+    /// countdown to plan by.
+    static func ago(_ seconds: TimeInterval, in lang: String = L10n.language) -> String {
+        let s = max(0, seconds.isFinite ? seconds : 0)
+        let unit: StatusLine.Unit = s < StatusLine.Unit.hours.seconds ? .minutes
+            : s < StatusLine.Unit.days.seconds ? .hours : .days
+        let time = L10n.t(unit.compactKey, ["count": String(Int(s / unit.seconds))], in: lang)
+        return L10n.t(agoKey, ["time": time], in: lang)
+    }
+
+    /// "25%" — "%25" in Turkish; "~25%" when the number is Evlat's reading
+    /// (`UsageBlockModel.isApproximate`). Past 100 it says so.
+    static func percent(_ value: Int, approximate: Bool, in lang: String = L10n.language) -> String {
+        (approximate ? "~" : "") + L10n.t(percentKey, ["value": String(value)], in: lang)
+    }
+
+    /// Every form the right-hand column can take, with the widest counts —
+    /// what the column is fitted to, so it does not move as time passes.
+    static func widestTails(in lang: String) -> [String] {
+        let wide = "00"
+        func part(_ unit: StatusLine.Unit) -> String { L10n.t(unit.compactKey, ["count": wide], in: lang) }
+        let spans = [part(.minutes), part(.hours), part(.days),
+                     L10n.t(pairKey, ["first": part(.hours), "second": part(.minutes)], in: lang),
+                     L10n.t(pairKey, ["first": part(.days), "second": part(.hours)], in: lang)]
+        return spans.map { L10n.t(resetsKey, ["time": $0], in: lang) }
+            + spans.prefix(3).map { L10n.t(agoKey, ["time": $0], in: lang) }
+    }
+
+    /// The widest percent: three digits, approximate.
+    static func widestPercent(in lang: String) -> String {
+        percent(100, approximate: true, in: lang)
+    }
+}
+
+extension StatusLine.Unit {
+    /// The unit's compact form, for the usage block: "12m", "5h", "7d".
+    var compactKey: String {
+        switch self {
+        case .minutes: return "usage.unit.minutes"
+        case .hours: return "usage.unit.hours"
+        case .days: return "usage.unit.days"
+        }
+    }
+}
+
 /// One session's ring. The phase picks the look (ROADMAP → the indicator's
 /// language); the beat plays the gesture.
 ///

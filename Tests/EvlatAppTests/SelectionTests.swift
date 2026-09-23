@@ -214,8 +214,7 @@ final class SlotGeometryTests: XCTestCase {
     /// at a constant — not the measured height, which moves with each tool
     /// event and would make the top jump. The held card still spans the row.
     func testTheCardIsHeldInsideTheEnvelope() {
-        let limit = AppController.envelopeSize.height - AppController.shadowGutter
-            - AppController.detailCardMaxHeight
+        let limit = BarBody.cardTopLimit
         for slot in 0..<SessionRowsModel.slotCount {
             XCTAssertEqual(BarBody.cardTop(slot: slot),
                            max(0, AppController.slotTop(slot) - BarBody.cardLead), accuracy: 0.5,
@@ -226,6 +225,8 @@ final class SlotGeometryTests: XCTestCase {
             XCTAssertLessThanOrEqual(top + AppController.detailCardMaxHeight + AppController.shadowGutter,
                                      AppController.envelopeSize.height + 0.5, "slot \(slot)")
         }
+        // The window grew for the usage block (`009`); the floor did not.
+        XCTAssertEqual(limit, AppController.slotTop(SessionRowsModel.slotCount - 1), accuracy: 0.5)
         XCTAssertEqual(BarBody.cardTop(slot: 6), limit, accuracy: 0.5, "held")
         for slot in 0...6 {
             XCTAssertLessThanOrEqual(BarBody.cardTop(slot: slot), AppController.slotTop(slot),

@@ -44,6 +44,22 @@
 "summary.sessions" = "{count} sessions";
 "summary.working" = "{count} working";
 
+/* The usage block under the open list: one group per source, one line per
+   rate-limit window. Compact units, for a table's column: a window's name
+   ("5h", "7d") and the time left ("1h 12m") are built from them. */
+"usage.unit.minutes" = "{count}m";
+"usage.unit.hours" = "{count}h";
+"usage.unit.days" = "{count}d";
+/* Two units of one span: "1h 12m". */
+"usage.pair" = "{first} {second}";
+/* How much of the window is used. A reading Evlat derived is shown with a
+   leading "~". */
+"usage.percent" = "{value}%";
+/* Time left until the window starts over. */
+"usage.resets" = "↻ {time}";
+/* In place of the countdown, when the reading is over an hour old. */
+"usage.ago" = "{time} ago";
+
 /* The menu: the mascot's right click, and the menu-bar icon's. The edge the
    bar is docked to, with its two choices. */
 "menu.edge" = "Edge";

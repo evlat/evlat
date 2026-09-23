@@ -29,6 +29,14 @@
 "summary.sessions" = "{count} oturum";
 "summary.working" = "{count} çalışıyor";
 
+"usage.unit.minutes" = "{count}dk";
+"usage.unit.hours" = "{count}sa";
+"usage.unit.days" = "{count}g";
+"usage.pair" = "{first} {second}";
+"usage.percent" = "%{value}";
+"usage.resets" = "↻ {time}";
+"usage.ago" = "{time} önce";
+
 "menu.edge" = "Kenar";
 "menu.edge.right" = "Sağ";
 "menu.edge.left" = "Sol";

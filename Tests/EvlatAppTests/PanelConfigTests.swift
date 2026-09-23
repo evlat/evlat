@@ -185,15 +185,19 @@ final class PanelConfigTests: XCTestCase {
                            + AppController.indicatorTopGap, accuracy: 0.5)
     }
 
-    /// The whole list did not grow the window: the envelope is still the
-    /// tallest card hanging from the fourth slot, and the longest open list
-    /// fits inside it. Growing it would put the window's foot at the Dock
-    /// (`006` context → Ekran payı).
-    func testTheEnvelopeDidNotGrowForTheWholeList() {
+    /// The whole list did not grow the window; the usage block did, once
+    /// (`009`): the envelope is the longest open body — seven and a half
+    /// rows, the summary and a full block — with the shadow's room, and no
+    /// more. Every open list fits inside it. Growing it past that would put
+    /// the window's foot at the Dock (`006` context → Ekran payı).
+    func testTheEnvelopeGrewOnceForTheLongestOpenBody() {
         XCTAssertEqual(AppController.envelopeSize.height,
-                       AppController.slotTop(SessionRowsModel.slotCount - 1)
-                           + AppController.detailCardMaxHeight + AppController.shadowGutter,
+                       AppController.openLength(rows: 1000, usageLines: UsageBlockModel.maxLines)
+                           + AppController.shadowGutter,
                        accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(AppController.envelopeSize.height,
+                                    AppController.slotTop(SessionRowsModel.slotCount - 1)
+                                        + AppController.detailCardMaxHeight + AppController.shadowGutter)
         XCTAssertLessThanOrEqual(AppController.openLength(rows: 1000),
                                  AppController.envelopeSize.height)
     }

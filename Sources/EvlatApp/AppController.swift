@@ -36,6 +36,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The card's facts for the selected session. Written only while one is
     /// selected (`syncSelection`), observed by the card alone.
     public let detail = DetailModel()
+    /// The usage block's lines. Fed from the same snapshot in `refresh()`,
+    /// observed by the open bar's block alone.
+    let usageBlock = UsageBlockModel()
     /// `phase-3`'s bucket: a counter and the last few lines. It feeds nothing
     /// into `registry` and never will — turning events into phases is the
     /// provider's job, one line below.
@@ -60,6 +63,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Where the cursor is now, for re-reading the row under a cursor that
     /// has not moved. A `var` so a test can hold it over a row.
     var mouseLocation: () -> CGPoint = { NSEvent.mouseLocation }
+    /// The clock the usage block is read against. A `var` so a test can
+    /// hold it still: its windows reset at fixed dates.
+    var now: () -> Date = Date.init
     /// Whether the body is drawn open. Apart from the window's size on purpose:
     /// the window is resized when nothing on screen moves, and this is what the
     /// eye sees move (`openBar`, `closeBar`).
@@ -163,12 +169,46 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         listTop + listHeight(rows: rows) + summaryGap
     }
 
+    /// The usage block (`UsageBlock`): under the summary, or under the mascot
+    /// when there is no session. From what is above to the block's hairline:
+    public static let usageGap: CGFloat = 10
+    /// From the hairline to the first line.
+    public static let usageInset: CGFloat = 6
+    /// One line of the block, a group's heading or a window alike, so the
+    /// block's length is its line count.
+    public static let usageLineHeight: CGFloat = 14
+
+    /// The block's hairline, from the window's top. With no session there is
+    /// no list and no summary: the block starts where the first ring would.
+    public static func usageTop(rows: Int) -> CGFloat {
+        let above = rows > 0 ? summaryTop(rows: rows) + summaryHeight : mascotTopInset + mascotSize
+        return above + usageGap
+    }
+
+    /// The block's length from its hairline; nothing without a line.
+    public static func usageHeight(lines: Int) -> CGFloat {
+        lines > 0 ? usageInset + CGFloat(lines) * usageLineHeight : 0
+    }
+
     /// The open body's length: the head, the visible list and the summary,
-    /// closed by the same margin as the head opens with. Kept apart from the
-    /// closed length (`BarState.openLength`), which is unchanged.
-    public static func openLength(rows: Int) -> CGFloat {
+    /// the usage block under them, closed by the same margin as the head
+    /// opens with. With no session the block hangs under the mascot; with
+    /// neither, the head alone. Kept apart from the closed length
+    /// (`BarState.openLength`), which the block never changes.
+    public static func openLength(rows: Int, usageLines: Int = 0) -> CGFloat {
+        if usageLines > 0 {
+            return usageTop(rows: rows) + usageHeight(lines: usageLines) + mascotTopInset
+        }
         guard rows > 0 else { return barLength(slots: 0) }
         return summaryTop(rows: rows) + summaryHeight + mascotTopInset
+    }
+
+    /// The open body's width: the names', the summary's or the block's,
+    /// whichever needs most, within the window's room.
+    static func openWidth(rows: [SessionRow], usage: [UsageLine],
+                          in lang: String = L10n.language) -> CGFloat {
+        min(max(SessionColumn.openWidth(rows: rows, in: lang), UsageBlock.minWidth(lines: usage, in: lang)),
+            expandedBarWidth)
     }
 
     /// How far the open list scrolls: until the last row is whole, with half
@@ -267,10 +307,21 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Resizing at interaction time is what `004` could not make smooth — a
     /// window growing leftward showed its old content one frame at the old
     /// origin — and a card that lengthened the window would repeat it downward.
+    ///
+    /// The usage block (`009`) grew it once, downward: the longest open body
+    /// is now seven and a half rows, the summary and a full block
+    /// (`UsageBlockModel.maxLines`), with the shadow's room under it. What is
+    /// added is transparent and hangs below the head, like the rest.
     public static let envelopeSize = CGSize(
         width: expandedBarWidth + detailCardGap + detailCardWidth + shadowGutter,
         height: max(anchorLength,
-                    slotTop(SessionRowsModel.slotCount - 1) + detailCardMaxHeight + shadowGutter))
+                    slotTop(SessionRowsModel.slotCount - 1) + detailCardMaxHeight + shadowGutter,
+                    longestOpenLength + shadowGutter))
+
+    /// The longest the open body gets: the visible list full, and the block.
+    static var longestOpenLength: CGFloat {
+        openLength(rows: Int(visibleRows.rounded(.up)), usageLines: UsageBlockModel.maxLines)
+    }
 
     /// No directory watching, just polling.
     /// `DispatchSource.makeFileSystemObjectSource` needs an `open()` file
@@ -801,6 +852,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                              trackingInset: Self.shadowGutter,
                              content: BarBody(mascot: mascot, rows: sessionRows,
                                               state: barState, scroll: listScroll, detail: detail,
+                                              usage: usageBlock,
                                               onCardFrame: { [weak self] rect in
                                                   self?.cardFrameChanged(rect)
                                               },
@@ -940,13 +992,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // keeps its own deadband over what it draws.
         let before = sessionRows.rows
         sessionRows.update(from: snapshot.ordered)
-        if before != sessionRows.rows {
-            // The body follows the column — drawn, not the window. Both
-            // lengths are kept, the closed and the open one; the hover area is
-            // AppKit's and hears nothing from SwiftUI, so it is told the one
-            // drawn.
+        // The block's own deadband: its lines move with the drawn percent and
+        // the minute, not with a relay's stamp. The clock is read here, so a
+        // window that resets leaves within one poll.
+        let usageBefore = usageBlock.lines
+        usageBlock.update(from: snapshot.usage, now: now())
+        let rowsChanged = before != sessionRows.rows
+        if rowsChanged || usageBefore != usageBlock.lines {
+            // The body follows the column and the block — drawn, not the
+            // window. Both lengths are kept, the closed and the open one; the
+            // block is only in the open one. The hover area is AppKit's and
+            // hears nothing from SwiftUI, so it is told the one drawn.
+            let rowCount = sessionRows.rows.count
             let length = Self.barLength(slots: sessionRows.slotsInUse)
-            let openLength = Self.openLength(rows: sessionRows.rows.count)
+            let openLength = Self.openLength(rows: rowCount, usageLines: usageBlock.lines.count)
+            let usageTop = Self.usageTop(rows: rowCount)
+            if abs(barState.usageTop - usageTop) > 0.5 { barState.usageTop = usageTop }
             var lengthChanged = false
             if abs(barState.length - length) > 0.5 {
                 barState.length = length
@@ -960,20 +1021,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // A shorter list takes the offset back to its new end, so the
             // last row stays whole and nothing is scrolled past.
             listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
-            // The open body is as wide as the names it holds, and the summary.
-            let width = SessionColumn.openWidth(rows: sessionRows.rows)
+            // The open body is as wide as the names it holds, the summary and
+            // the block.
+            let width = Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines)
             if abs(barState.openWidth - width) > 0.5 {
                 barState.openWidth = width
                 if barState.isOpen { panel?.setVisibleWidth(width) }
             }
-            // The rows' trace on stderr, for the same reason as the line above.
-            let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
-            NSLog("Evlat: rows [%@] closed +%ld", rows.joined(separator: ", "), sessionRows.overflow)
-            // The mark and a pending switch are keyed by session, and only a
-            // move re-reads them. A column that reorders under a still cursor
-            // would otherwise leave the mark on a row the cursor has left and
-            // bring up the card of a session it no longer points at.
-            if barState.isOpen { pointerMoved(mouseLocation()) }
+            if rowsChanged {
+                // The rows' trace on stderr, for the same reason as the line above.
+                let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
+                NSLog("Evlat: rows [%@] closed +%ld", rows.joined(separator: ", "), sessionRows.overflow)
+                // The mark and a pending switch are keyed by session, and only a
+                // move re-reads them. A column that reorders under a still cursor
+                // would otherwise leave the mark on a row the cursor has left and
+                // bring up the card of a session it no longer points at.
+                if barState.isOpen { pointerMoved(mouseLocation()) }
+            }
         }
         syncSelection(snapshot.ordered)
     }
@@ -1376,6 +1440,9 @@ final class BarState: ObservableObject {
     /// beside the closed width, so `refresh` never writes the open body back
     /// to the closed length.
     @Published var openLength = AppController.openLength(rows: 0)
+    /// Where the usage block's hairline is: under the summary, or under the
+    /// mascot with no session. Written by `refresh` with the lengths.
+    @Published var usageTop = AppController.usageTop(rows: 0)
     /// The length the body is drawn at now.
     var drawnLength: CGFloat { isOpen ? openLength : length }
     /// The session whose card is up, by entity; `nil`: no card.
@@ -1458,6 +1525,9 @@ struct BarBody: View {
     /// with a scroll.
     var scroll = ListScroll()
     var detail = DetailModel()
+    /// Handed down, not observed: only the block reads it, and only while
+    /// the bar is open.
+    var usage = UsageBlockModel()
     /// The card's drawn rectangle as it lays out, `nil` when it goes: the
     /// panel's second hover area is held to it.
     var onCardFrame: (CGRect?) -> Void = { _ in }
@@ -1476,8 +1546,11 @@ struct BarBody: View {
         min(max(0, AppController.slotTop(slot) - offset - cardLead), cardTopLimit)
     }
 
+    /// The fourth slot's ring, where `006` put the floor. The window grew
+    /// for the usage block (`009`); the floor did not, so a card still
+    /// hangs where it did.
     static var cardTopLimit: CGFloat {
-        AppController.envelopeSize.height - AppController.shadowGutter - AppController.detailCardMaxHeight
+        AppController.slotTop(SessionRowsModel.slotCount - 1)
     }
 
     private var isLeft: Bool { state.edge.isLeft }
@@ -1509,6 +1582,7 @@ struct BarBody: View {
                           selected: state.selected, hovered: state.hovered,
                           openWidth: state.openWidth)
                 .padding(.top, AppController.listTop)
+            usageBlock
         }
         // Pinned to the screen edge and the head. What is left on the other
         // side is the shadow's room, the open body's and the card's; what is
@@ -1531,6 +1605,20 @@ struct BarBody: View {
                 .modifier(CardPlacing(scroll: scroll, slot: slot))
                 .padding(isLeft ? .leading : .trailing, state.openWidth + AppController.detailCardGap)
                 .animation(BarMotion.length, value: slot)
+        }
+    }
+
+    /// Under the summary, outside the scrolled list: it stays put while the
+    /// list moves. In the tree only while open, so its model and its minute
+    /// tick are not observed on the closed bar; it comes and goes with the
+    /// names. It follows the list's length on the body's own curve.
+    @ViewBuilder private var usageBlock: some View {
+        if state.isOpen {
+            UsageBlock(model: usage, edge: state.edge, width: state.openWidth)
+                .transition(.asymmetric(insertion: .opacity.animation(BarMotion.namesIn),
+                                        removal: .opacity.animation(BarMotion.namesOut)))
+                .padding(.top, state.usageTop)
+                .animation(BarMotion.length, value: state.usageTop)
         }
     }
 
