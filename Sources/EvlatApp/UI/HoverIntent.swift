@@ -17,8 +17,11 @@ import Foundation
 /// trap: a struct's `let` is frozen when the closure is built).
 @MainActor
 final class HoverIntent {
-    /// How long the cursor has to stay before the bar opens.
-    static let openDelay: TimeInterval = 0.18
+    /// How long the cursor has to stay before the bar opens. Short: the bar
+    /// sits on the screen edge, where a cursor seldom passes on its way
+    /// elsewhere, and codenotch's 180 ms read as a lag before the opening
+    /// (user's feedback, `005`). What is left still ignores a brush.
+    static let openDelay: TimeInterval = 0.08
     /// How long the cursor may be gone before the bar closes.
     static let closeTolerance: TimeInterval = 0.25
 
