@@ -11,6 +11,10 @@ import EvlatCore
 /// **Opening moves no ring.** A name is an overlay on its ring, not a sibling
 /// in a row: it takes no room, so the ring's place is the same open or closed.
 /// The name comes in from the ring's side, a few points toward it, and fades.
+///
+/// Under each name, the status line ("working · 14 min"). It is in the tree
+/// **only while the bar is open**, and so is the minute tick that redraws it:
+/// behind an opacity, like the name, the tick would run on the closed bar too.
 struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
     var showsNames = false
@@ -30,6 +34,13 @@ struct SessionColumn: View {
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// The small raised number after a repeated name.
     static let numberFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
+    /// The status line. Digits of one width, so "11 min" and "18 min" take
+    /// the same room and the measured widest form holds.
+    static let statusFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
+    /// The name and the status line together, centred on the ring. Taller than
+    /// the ring by less than the gap between two rings, so neighbouring blocks
+    /// never touch and the ring's own frame stays 20 pt.
+    static let labelHeight: CGFloat = 26
     /// The ring's leading edge inside the bar's width (it is centred there).
     static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
 
@@ -39,15 +50,28 @@ struct SessionColumn: View {
         namesWidth(labels.map { SessionRow(entity: $0, label: $0, phase: .idle) })
     }
 
-    /// The same, for rows: a repeated name is measured with its number.
-    static func namesWidth(_ rows: [SessionRow]) -> CGFloat {
+    /// The same, for rows: a repeated name is measured with its number, and
+    /// the status line under it at its widest (`statusWidth`).
+    static func namesWidth(_ rows: [SessionRow], in lang: String = L10n.language) -> CGFloat {
         let widest = rows.map { row -> CGFloat in
+            let status = statusWidth(phase: row.phase, waitKind: row.waitKind, in: lang)
             let name = (row.label as NSString).size(withAttributes: [.font: nameFont]).width
-            guard row.duplicate > 0 else { return name }
+            guard row.duplicate > 0 else { return max(name, status) }
             let number = ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
-            return name + numberGap + number
+            return max(name + numberGap + number, status)
         }.max() ?? 0
         return min(ceil(widest), nameMaxWidth)
+    }
+
+    /// The widest a row's status line can get in its phase, whatever the
+    /// minutes say — the body is fitted to this, so it does not move as time
+    /// passes. It changes with the phase, which rewrites the rows anyway.
+    static func statusWidth(phase: Phase, waitKind: Signal.Activity.WaitKind?,
+                            in lang: String = L10n.language) -> CGFloat {
+        let widest = StatusLine.widestForms(phase: phase, waitKind: waitKind, in: lang)
+            .map { ($0 as NSString).size(withAttributes: [.font: statusFont]).width }
+            .max() ?? 0
+        return ceil(widest)
     }
 
     static let numberGap: CGFloat = 2
@@ -72,14 +96,11 @@ struct SessionColumn: View {
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0)
                     .frame(width: AppController.barWidth)
-                    .overlay(alignment: .leading) {
-                        name(row.label, duplicate: row.duplicate, color: row.phase == .idle
-                             ? BarPalette.textSecondary : BarPalette.textPrimary)
-                    }
+                    .overlay(alignment: .leading) { label(row) }
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
             if model.overflow > 0 {
-                // A number, not a word: no user text until the catalogue. It
+                // A number, not a word, so it needs no catalogue entry. It
                 // stays in the ring column open or closed — moving it into
                 // the name column was one more thing travelling on hover.
                 Text("+\(model.overflow)")
@@ -109,6 +130,38 @@ struct SessionColumn: View {
     ///
     /// A repeated name in the same tool carries a small raised number after
     /// it — only then, so a unique name stays bare.
+    ///
+    /// The block is top-aligned in a fixed height, so the name sits in the
+    /// same place whether the status line is in the tree or not.
+    private func label(_ row: SessionRow) -> some View {
+        VStack(alignment: .trailing, spacing: 1) {
+            name(row.label, duplicate: row.duplicate, color: row.phase == .idle
+                 ? BarPalette.textSecondary : BarPalette.textPrimary)
+            if showsNames {
+                // Once a minute, and only while open. The date comes from the
+                // timeline, not `Date()`, so the text is a function of it.
+                TimelineView(.everyMinute) { context in
+                    Text(verbatim: StatusLine.text(phase: row.phase, waitKind: row.waitKind,
+                                                   enteredAt: row.enteredAt, now: context.date))
+                        .font(Font(Self.statusFont))
+                        // Waiting is the one that asks for the user: amber,
+                        // the ring's colour. The rest is grey.
+                        .foregroundStyle(row.phase == .waiting
+                                         ? SessionIndicator.amber : BarPalette.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .transition(.opacity)
+            }
+        }
+            .frame(width: Self.nameMaxWidth, height: Self.labelHeight, alignment: .topTrailing)
+            .offset(x: Self.ringLead - Self.nameGap - Self.nameMaxWidth
+                        + (showsNames ? 0 : Self.nameTravel))
+            .opacity(showsNames ? 1 : 0)
+            .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
+            .allowsHitTesting(false)
+    }
+
     private func name(_ label: String, duplicate: Int, color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
             // The name is data, not text of ours: it is what the user called
@@ -128,14 +181,92 @@ struct SessionColumn: View {
             }
         }
             .frame(width: Self.nameMaxWidth, alignment: .trailing)
-            // Held to a ring's height: a taller line would push the rings
-            // apart the moment the bar opens.
-            .frame(height: AppController.indicatorSize)
-            .offset(x: Self.ringLead - Self.nameGap - Self.nameMaxWidth
-                        + (showsNames ? 0 : Self.nameTravel))
-            .opacity(showsNames ? 1 : 0)
-            .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
-            .allowsHitTesting(false)
+    }
+}
+
+/// The status line's text: "working · 14 min". Pure — the phase, what a
+/// block waits for, when the phase was entered and the time now — so the
+/// minute tick only has to hand it a date, and the boundaries are tested
+/// without a clock.
+///
+/// **The keys are literals in the tables below**, one per case, so a test that
+/// walks the cases reaches every key the line can ask for.
+enum StatusLine {
+    static let lineKey = "status.line"
+    static let justNowKey = "time.justNow"
+
+    enum Unit: CaseIterable {
+        case minutes, hours, days
+
+        var key: String {
+            switch self {
+            case .minutes: return "time.minutes"
+            case .hours: return "time.hours"
+            case .days: return "time.days"
+            }
+        }
+
+        var seconds: TimeInterval {
+            switch self {
+            case .minutes: return 60
+            case .hours: return 3600
+            case .days: return 86_400
+            }
+        }
+
+        /// The count the widest form is measured with. Digits are of one
+        /// width in `statusFont`, so only the number of them matters: minutes
+        /// and hours stop at two, days get three.
+        var widestCount: String {
+            switch self {
+            case .minutes, .hours: return "00"
+            case .days: return "000"
+            }
+        }
+    }
+
+    static func statusKey(phase: Phase, waitKind: Signal.Activity.WaitKind?) -> String {
+        switch phase {
+        case .idle: return "status.idle"
+        case .working: return "status.working"
+        case .review: return "status.review"
+        case .failed: return "status.failed"
+        case .waiting:
+            switch waitKind {
+            case .approval: return "status.waiting.approval"
+            case .answer: return "status.waiting.answer"
+            // A file row waits with no hook having said on what.
+            case nil: return "status.waiting"
+            }
+        }
+    }
+
+    /// Under a minute is "just now"; then whole minutes, hours, days — always
+    /// rounded down, so the line never runs ahead of the time.
+    static func duration(_ seconds: TimeInterval, in lang: String) -> String {
+        let s = max(0, seconds)   // a clock behind the stamp reads as now
+        guard s >= Unit.minutes.seconds else { return L10n.t(justNowKey, in: lang) }
+        let unit: Unit = s < Unit.hours.seconds ? .minutes : s < Unit.days.seconds ? .hours : .days
+        return L10n.t(unit.key, ["count": String(Int(s / unit.seconds))], in: lang)
+    }
+
+    static func text(phase: Phase, waitKind: Signal.Activity.WaitKind?,
+                     enteredAt: Date?, now: Date, in lang: String = L10n.language) -> String {
+        let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        // Not seen entering the phase: how long is not known.
+        guard let enteredAt else { return status }
+        let time = duration(now.timeIntervalSince(enteredAt), in: lang)
+        return L10n.t(lineKey, ["status": status, "time": time], in: lang)
+    }
+
+    /// Every form the line can take in this phase, with the widest counts —
+    /// what the open body is fitted to.
+    static func widestForms(phase: Phase, waitKind: Signal.Activity.WaitKind?,
+                            in lang: String) -> [String] {
+        let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        let times = [L10n.t(justNowKey, in: lang)]
+            + Unit.allCases.map { L10n.t($0.key, ["count": $0.widestCount], in: lang) }
+        return [status] + times.map { L10n.t(lineKey, ["status": status, "time": $0], in: lang) }
     }
 }
 

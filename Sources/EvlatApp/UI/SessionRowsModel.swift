@@ -6,7 +6,8 @@ import EvlatCore
 /// There is no stamp here on purpose. A hook row's stamp moves on every
 /// `PostToolUse`; carried into this type it would make two identical rows
 /// compare unequal and the deadband in `SessionRowsModel.update` would let the
-/// whole burst through.
+/// whole burst through. `enteredAt` is not that stamp: it moves only when the
+/// phase does, which writes the row anyway.
 public struct SessionRow: Equatable, Identifiable {
     public let entity: String
     public let label: String
@@ -16,21 +17,38 @@ public struct SessionRow: Equatable, Identifiable {
     /// 0, or this row's number among rows with the same name in the same tool
     /// (2, 3, …). The first of them keeps the bare name.
     public let duplicate: Int
+    /// When the column saw this row enter its phase; `nil` when it was first
+    /// seen already in it — how long is not known, and the status line says
+    /// no duration rather than invent one. The model's own clock, never the
+    /// signal's stamp: that one moves on every tool event.
+    public let enteredAt: Date?
+    /// What a waiting row waits for: the status line's two words. The only
+    /// piece of `Signal.activity` a row carries — the rest (last tool, count,
+    /// reply) moves on every tool event and belongs to the card, so a busy
+    /// session's burst never rewrites the column.
+    public let waitKind: Signal.Activity.WaitKind?
 
     public var id: String { entity }
 
     public init(entity: String, label: String, phase: Phase,
-                source: AgentSource? = nil, duplicate: Int = 0) {
+                source: AgentSource? = nil, duplicate: Int = 0,
+                enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil) {
         self.entity = entity
         self.label = label
         self.phase = phase
         self.source = source
         self.duplicate = duplicate
+        self.enteredAt = enteredAt
+        // Only a waiting row has something to wait for. `reconcile` already
+        // keeps the block on waiting rows alone; this keeps the row honest if
+        // that ever loosens.
+        self.waitKind = phase == .waiting ? waitKind : nil
     }
 
-    public init(_ signal: Signal, duplicate: Int = 0) {
+    public init(_ signal: Signal, duplicate: Int = 0, enteredAt: Date? = nil) {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
-                  source: signal.source, duplicate: duplicate)
+                  source: signal.source, duplicate: duplicate,
+                  enteredAt: enteredAt, waitKind: signal.activity?.waitKind)
     }
 
     /// Whether this row moves on the beat. `working` turns its arc, `waiting`
@@ -78,13 +96,20 @@ public final class SessionRowsModel: ObservableObject {
     private var entered: [String: Int] = [:]
     private var lastPhase: [String: Phase] = [:]
     private var changes = 0
+    /// When each row entered its phase, by the clock — only for rows seen
+    /// changing. The ordering above needs no clock; the status line does.
+    private var enteredAt: [String: Date] = [:]
+    private let now: () -> Date
     /// How many times a clock has been started. For the rhythm test: a list
     /// write that restarted the clock would push the next beat out every time
     /// a busy session writes — and a busy session writes constantly
     /// (`AGENTS.md` → Tuzaklar, the rhythm trap).
     private(set) var clockStarts = 0
 
-    public init() {}
+    /// `now` is injected so the tests can move time by hand.
+    public init(now: @escaping () -> Date = Date.init) {
+        self.now = now
+    }
 
     deinit { clock?.invalidate() }
 
@@ -141,12 +166,14 @@ public final class SessionRowsModel: ObservableObject {
             } else {
                 changes += 1
                 entered[signal.entity] = changes
+                enteredAt[signal.entity] = now()
             }
             lastPhase[signal.entity] = signal.phase
         }
         let live = Set(signals.map(\.entity))
         lastPhase = lastPhase.filter { live.contains($0.key) }
         entered = entered.filter { live.contains($0.key) }
+        enteredAt = enteredAt.filter { live.contains($0.key) }
 
         let ordered = signals.sorted { a, b in
             if a.phase.priority != b.phase.priority { return a.phase.priority > b.phase.priority }
@@ -154,7 +181,9 @@ public final class SessionRowsModel: ObservableObject {
             return ea != eb ? ea > eb : a.entity < b.entity
         }
         let numbers = Self.duplicateNumbers(signals)
-        let next = Self.slots(ordered.map { SessionRow($0, duplicate: numbers[$0.entity] ?? 0) })
+        let next = Self.slots(ordered.map {
+            SessionRow($0, duplicate: numbers[$0.entity] ?? 0, enteredAt: enteredAt[$0.entity])
+        })
         if rows != next.rows { rows = next.rows }
         if overflow != next.overflow { overflow = next.overflow }
         setBeating(next.rows.contains(where: \.beats))

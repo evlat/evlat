@@ -70,14 +70,18 @@ final class PanelConfigTests: XCTestCase {
 
     /// The open body is as wide as its names, between a floor and a cap: a
     /// fixed width left most of it empty (the user's screenshot, `004`).
+    /// Under a short name the status line is the wider of the two, at its
+    /// widest form, so the body does not move as the minutes pass.
     func testTheOpenBodyHugsItsNames() {
         let short = SessionColumn.namesWidth(["a"])
-        let medium = SessionColumn.namesWidth(["kararla-26", "bateri"])
+        let medium = SessionColumn.namesWidth(["oturum-detayi-v2", "bateri"])
         let long = SessionColumn.namesWidth([String(repeating: "w", count: 80)])
+        XCTAssertEqual(short, SessionColumn.statusWidth(phase: .idle, waitKind: nil),
+                       "a short name: the status line sets the width")
         XCTAssertLessThan(short, medium)
         XCTAssertEqual(long, SessionColumn.nameMaxWidth, "a long name is cut, not the body stretched")
-        XCTAssertEqual(SessionColumn.openWidth(namesWidth: short), SessionColumn.minOpenWidth,
-                       accuracy: 0.5, "short names keep the floor")
+        XCTAssertEqual(SessionColumn.openWidth(namesWidth: 0), SessionColumn.minOpenWidth,
+                       accuracy: 0.5, "no names keep the floor")
         XCTAssertEqual(SessionColumn.openWidth(namesWidth: long), AppController.expandedBarWidth,
                        accuracy: 0.5, "the window is as wide as the widest body")
         let fitted = SessionColumn.openWidth(namesWidth: medium)

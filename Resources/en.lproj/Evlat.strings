@@ -1,0 +1,24 @@
+/* Evlat — the source language. Every key here is in tr.lproj too, in the same
+   order; context comments live only in this table. */
+
+/* The grey line under a session's name on the open bar: "{status} · {time}".
+   A row first seen in its phase has no time and shows the status alone. */
+"status.line" = "{status} · {time}";
+
+/* A session's phase, as the status line says it. */
+"status.idle" = "idle";
+"status.working" = "working";
+"status.review" = "done";
+"status.failed" = "error";
+/* Waiting, when the source did not say on what (a session file). */
+"status.waiting" = "waiting";
+/* Waiting for a yes/no on a tool. */
+"status.waiting.approval" = "waiting for approval";
+/* Waiting for words: the agent asked a question. */
+"status.waiting.answer" = "waiting for an answer";
+
+/* How long the session has been in its phase. Under a minute: */
+"time.justNow" = "just now";
+"time.minutes" = "{count} min";
+"time.hours" = "{count} h";
+"time.days" = "{count} d";

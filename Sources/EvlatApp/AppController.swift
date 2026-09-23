@@ -596,9 +596,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
         panel?.setVisibleWidth(Self.barWidth)
     }
 
-    /// Menu-bar entry. The bar's own right-click menu and the settings window
-    /// come with the first job that needs user text, together with the string
-    /// catalogue; this menu's titles are diagnostics until then.
+    /// Menu-bar entry. A diagnostic, not a user surface: a real tray menu, the
+    /// bar's right-click menu and the settings window are out of scope for
+    /// now, so these titles stay English and outside the catalogue.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "square.on.square",

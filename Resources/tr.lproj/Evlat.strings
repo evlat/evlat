@@ -1,0 +1,17 @@
+/* Evlat — Türkçe. Anahtarlar en.lproj ile aynı ve aynı sırada; bağlam yorumları
+   yalnız kaynak dilde durur. Aksanlar tam. */
+
+"status.line" = "{status} · {time}";
+
+"status.idle" = "boşta";
+"status.working" = "çalışıyor";
+"status.review" = "bitti";
+"status.failed" = "hata";
+"status.waiting" = "bekliyor";
+"status.waiting.approval" = "onay bekliyor";
+"status.waiting.answer" = "yanıt bekliyor";
+
+"time.justNow" = "az önce";
+"time.minutes" = "{count} dk";
+"time.hours" = "{count} sa";
+"time.days" = "{count} g";

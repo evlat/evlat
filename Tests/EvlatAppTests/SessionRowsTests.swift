@@ -90,8 +90,85 @@ final class SessionRowsTests: XCTestCase {
         defer { token.cancel() }
 
         model.update(from: [signal("a", .review)])
-        XCTAssertEqual(model.rows, [row("a", .review)])
+        XCTAssertEqual(model.rows.map(\.phase), [.review])
         XCTAssertGreaterThan(writes, 0)
+    }
+
+    // MARK: - When a phase was entered
+
+    /// A clock the test moves by hand.
+    private final class Clock {
+        var now = Date(timeIntervalSince1970: 1_790_000_000)
+    }
+
+    /// First sight has no entry time — how long it has been in that phase is
+    /// not known. An observed change stamps it from the model's clock, never
+    /// from the signal's stamp, which moves on every tool event.
+    func testEnteredAtIsWrittenOnlyOnAnObservedChange() {
+        let clock = Clock()
+        let model = SessionRowsModel(now: { clock.now })
+        model.update(from: [signal("a", .working, stamp: 5)])
+        XCTAssertNil(model.rows.first?.enteredAt, "first sight: not known")
+
+        clock.now += 120
+        model.update(from: [signal("a", .working, stamp: 9)])
+        XCTAssertNil(model.rows.first?.enteredAt, "same phase: still not known")
+
+        model.update(from: [signal("a", .waiting, stamp: 11)])
+        XCTAssertEqual(model.rows.first?.enteredAt, clock.now)
+    }
+
+    /// `review` fading to `idle` is a change the column sees, so the idle row
+    /// counts from the fade.
+    func testTheReviewFadeGivesANewEntry() {
+        let clock = Clock()
+        let model = SessionRowsModel(now: { clock.now })
+        model.update(from: [signal("a", .working)])
+        clock.now += 10
+        model.update(from: [signal("a", .review)])
+        let done = model.rows.first?.enteredAt
+        clock.now += 300
+        model.update(from: [signal("a", .idle)])
+        XCTAssertEqual(model.rows.first?.enteredAt, clock.now)
+        XCTAssertNotEqual(model.rows.first?.enteredAt, done)
+    }
+
+    /// A `PreToolUse` burst in one phase moves the activity — the last tool,
+    /// the count — and nothing the row draws. The rows are not written.
+    func testAnActivityBurstInOnePhaseDoesNotWriteTheRows() {
+        let controller = AppController()
+        let provider = StubProvider()
+        controller.registry.register(provider)
+        func busy(_ n: Int) -> Signal {
+            Signal(provider: "stub", entity: "a", phase: .working, label: "name-a", source: .claude,
+                   fidelity: .official, updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(n)),
+                   activity: Signal.Activity(pid: 42, lastTool: .init(name: n.isMultiple(of: 2) ? "Bash" : "Read",
+                                                                      subject: "step \(n)"),
+                                             toolCount: n))
+        }
+        provider.signals = [busy(0)]
+        controller.refresh()
+
+        var writes = 0
+        let token = controller.sessionRows.objectWillChange.sink { _ in writes += 1 }
+        defer { token.cancel() }
+        for n in 1...10 {
+            provider.signals = [busy(n)]
+            controller.refresh()
+        }
+        XCTAssertEqual(writes, 0, "tool events inside one phase draw nothing new")
+    }
+
+    /// The wait kind reaches the row, and only a waiting row carries one.
+    func testTheWaitKindIsCarriedOnAWaitingRowOnly() {
+        let model = SessionRowsModel()
+        func with(_ phase: Phase, _ kind: Signal.Activity.WaitKind) -> Signal {
+            signal("a", phase).with(activity: Signal.Activity(waitKind: kind))
+        }
+        model.update(from: [with(.waiting, .answer)])
+        XCTAssertEqual(model.rows.first?.waitKind, .answer)
+        model.update(from: [with(.working, .approval)])
+        XCTAssertNil(model.rows.first?.waitKind)
     }
 
     // MARK: - The beat clock

@@ -17,9 +17,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# There are no string tables yet (they come with the first job that needs user
-# text); when they arrive this loop checks them
-# before the bundle is torn down.
+# The string tables (Resources/{en,tr}.lproj/Evlat.strings) are checked before
+# the bundle is torn down: one broken line drops a whole table at runtime.
 shopt -s nullglob
 for f in Resources/*.lproj/*.strings; do
   plutil -lint -s "$f" || { echo "Broken string table: $f"; exit 1; }
