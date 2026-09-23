@@ -183,6 +183,14 @@ public final class BarPanel: NSPanel {
         return NSRect(origin: origin, size: size)
     }
 
+    /// How much of the window, from the docked edge, is bar the cursor can be
+    /// over. The window may be wider than what is drawn — the open body's room
+    /// is kept even while it is closed — and the transparent rest must not
+    /// count as hovering. `nil`: the whole window minus the shadow gutter.
+    public func setVisibleWidth(_ width: CGFloat?) {
+        hosting.visibleWidth = width
+    }
+
     /// Not `orderFront`: the bar must appear even when the app is inactive.
     public func show() {
         reposition()
@@ -220,14 +228,33 @@ public final class BarHostingView: NSHostingView<AnyView> {
     var trackingInset: CGFloat = 0 {
         didSet { updateTrackingAreas() }
     }
+    /// The drawn bar's width from the docked edge, when it is less than the
+    /// window's; see `BarPanel.setVisibleWidth`.
+    var visibleWidth: CGFloat? {
+        didSet { if visibleWidth != oldValue { updateTrackingAreas() } }
+    }
     /// Which side the gutter is on: the one away from the docked edge.
     var edge: BarPanel.Edge = .right {
         didSet { updateTrackingAreas() }
     }
 
-    /// The bar's own rectangle: the bounds minus the gutter on the inner side.
+    /// The bar's own rectangle: the bounds minus the gutter on the inner side,
+    /// or — when the bar is narrower than the window — its visible width from
+    /// the docked edge.
     nonisolated static func trackingRect(in bounds: NSRect, inset: CGFloat,
+                                         visible: CGFloat? = nil,
                                          edge: BarPanel.Edge) -> NSRect {
+        if let visible {
+            switch edge {
+            case .right:
+                return NSRect(x: bounds.maxX - visible, y: bounds.minY,
+                              width: visible, height: bounds.height)
+            case .left:
+                return NSRect(x: bounds.minX, y: bounds.minY, width: visible, height: bounds.height)
+            case .top, .bottom:
+                break  // no horizontal bar is built yet; fall back to the inset
+            }
+        }
         var rect = bounds
         switch edge {
         case .right:
@@ -264,7 +291,8 @@ public final class BarHostingView: NSHostingView<AnyView> {
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area { removeTrackingArea(area) }
-        let rect = Self.trackingRect(in: bounds, inset: trackingInset, edge: edge)
+        let rect = Self.trackingRect(in: bounds, inset: trackingInset,
+                                     visible: visibleWidth, edge: edge)
         let next = NSTrackingArea(rect: rect,
                                   options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways],
                                   owner: relay, userInfo: nil)

@@ -44,6 +44,30 @@ final class PanelConfigTests: XCTestCase {
         XCTAssertEqual(left, NSRect(x: 0, y: 0, width: 54, height: 260))
     }
 
+    /// A window wider than the drawn bar hovers only over the bar: the
+    /// transparent room kept for the open body must not open it.
+    func testTheTrackingRectFollowsTheVisibleWidth() {
+        let bounds = NSRect(x: 0, y: 0, width: 218, height: 200)
+        let closed = BarHostingView.trackingRect(in: bounds, inset: 18, visible: 54, edge: .right)
+        XCTAssertEqual(closed, NSRect(x: 164, y: 0, width: 54, height: 200))
+        let open = BarHostingView.trackingRect(in: bounds, inset: 18, visible: 200, edge: .right)
+        XCTAssertEqual(open, NSRect(x: 18, y: 0, width: 200, height: 200))
+    }
+
+    /// Setting the visible width rebuilds the one area of ours at that width.
+    func testTheTrackingAreaTakesTheVisibleWidth() throws {
+        let panel = BarPanel(edge: .right, size: Self.expanded, trackingInset: Self.gutter,
+                             content: EmptyView())
+        let view = try XCTUnwrap(panel.contentView)
+        panel.setVisibleWidth(54)
+        view.updateTrackingAreas()
+        let owned = view.trackingAreas.filter { $0.owner is BarHostingView.PointerRelay }
+        XCTAssertEqual(owned.count, 1)
+        let rect = try XCTUnwrap(owned.first).rect
+        XCTAssertEqual(rect.maxX, Self.expanded.width, accuracy: 0.5)
+        XCTAssertEqual(rect.width, 54, accuracy: 0.5)
+    }
+
     /// The bar opens INTO the screen. Its screen-side edge — and with it the
     /// mascot and the gaze anchor, both read off `maxX` — must not move.
     func testExpandingKeepsTheRightEdgeWhereItWas() throws {

@@ -380,13 +380,19 @@ public final class AppController: NSObject, NSApplicationDelegate {
         startHookListener()
         installStatusItem()
 
+        // Always as wide as the open bar. Hover never resizes the window: a
+        // window growing leftward shows its old content one frame at the old
+        // origin, and the body teleported left before sliding back. The room
+        // the open body needs is kept, transparent, and only the drawn body
+        // moves. Clicks on the transparent part fall through to the window
+        // below; the hover area is held to the drawn body (`setVisibleWidth`).
         let panel = BarPanel(edge: .right,
-                             size: Self.collapsedSize,
-                             expandedSize: Self.expandedSize,
+                             size: Self.expandedSize,
                              anchorLength: Self.anchorLength,
                              trackingInset: Self.shadowGutter,
                              content: BarBody(edge: .right, mascot: mascot, rows: sessionRows,
                                               state: barState))
+        panel.setVisibleWidth(Self.barWidth)
         panel.show()
         self.panel = panel
         hover.onChange = { [weak self] open in
@@ -560,29 +566,18 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Opening, in two steps that never share a frame. The window grows first,
-    /// while the body is still drawn closed: everything is laid out from the
-    /// screen edge, so the wider window changes nothing on screen. Only on the
-    /// next turn does the body open, and then the animation has one thing to
-    /// move — the body's inner edge — rather than every view the window's new
-    /// origin shifted. In one frame the rings slid across the bar.
+    /// Opening is the drawn body widening; the window is already wide. The
+    /// hover area takes the open width at once, so the cursor following the
+    /// body's edge as it travels is still over the bar.
     private func openBar() {
-        panel?.setExpanded(true)
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.hover.isOpen else { return }
-            self.barState.isOpen = true
-        }
+        panel?.setVisibleWidth(Self.expandedBarWidth)
+        barState.isOpen = true
     }
 
-    /// Closing, the same two steps backwards: the body closes on screen, and
-    /// the window shrinks only once it has, when nothing is left to move. A
-    /// hover that comes back in the meantime finds the window still wide.
+    /// Closing: the body narrows back to the edge and the hover area with it.
     private func closeBar() {
         barState.isOpen = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + BarMotion.bodyDuration) { [weak self] in
-            guard let self, !self.hover.isOpen, !self.barState.isOpen else { return }
-            self.panel?.setExpanded(false)
-        }
+        panel?.setVisibleWidth(Self.barWidth)
     }
 
     /// Menu-bar entry. The bar's own right-click menu and the settings window
