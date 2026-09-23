@@ -24,14 +24,16 @@ public enum LocalAPI {
         case forbidden
         case notFound
         case hook(AgentSource)
+        /// A status line relaying its rate limits (`AgentSource.usagePath`).
+        case usage(AgentSource)
         case health
     }
 
-    /// The table is four rows and it is this `switch`.
+    /// The table is five rows and it is this `switch`.
     ///
     /// v1's generic route table (`Route.required`, `read`/`action`/`mac` kinds,
     /// a semaphore answering on the main queue) is **not** ported: every
-    /// endpoint that needed it is out of scope for v2, and four rows do not
+    /// endpoint that needed it is out of scope for v2, and five rows do not
     /// earn the generality.
     ///
     /// `curl` and the installed hook command never send `Origin`; a browser
@@ -59,6 +61,7 @@ public enum LocalAPI {
         // silently for anyone whose hooks spell it that way.
         case ("POST", AgentSource.claude.hookPath), ("POST", "/hook/claude"): return .hook(.claude)
         case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
+        case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
         case ("GET", "/health"): return .health
         default: return .notFound
         }
@@ -116,14 +119,21 @@ public enum LocalAPI {
         }
     }
 
-    /// The answer, plus the event the app should hand to the main queue. The
-    /// event is separate from the response on purpose: the hook's `curl` runs
-    /// with `-m 2` and must not wait for the main queue, so `phase-3` writes
-    /// the response from the server queue and passes this **parsed** event
-    /// across (a raw body reaches 8 KB).
+    /// What an accepted POST hands to the app: one thing or the other, never
+    /// both — so there is no "both filled" state to get wrong.
+    public enum Delivery {
+        case hook(HookEvent)
+        case usage(UsageReport)
+    }
+
+    /// The answer, plus what the app should hand to the main queue. The
+    /// delivery is separate from the response on purpose: the hook's `curl`
+    /// runs with `-m 2` and must not wait for the main queue, so the listener
+    /// writes the response from the server queue and passes this **parsed**
+    /// value across (a raw body reaches 8 KB).
     public struct Outcome {
         public let response: Response
-        public let event: HookEvent?
+        public let delivery: Delivery?
     }
 
     public static func handle(_ request: HTTPRequest) -> Outcome {
@@ -132,22 +142,26 @@ public enum LocalAPI {
         case .forbidden:
             return Outcome(response: Response(status: .forbidden,
                                               body: error("forbidden", "browser requests are not accepted")),
-                           event: nil)
+                           delivery: nil)
         case .notFound:
             return Outcome(response: Response(status: .notFound,
                                               body: error("notFound", "no such endpoint")),
-                           event: nil)
+                           delivery: nil)
         case .health:
             // v1 answered the single word `ok` under `Content-Type:
             // application/json`, which is not JSON. Nothing reads this body
             // yet, so it was corrected rather than carried over.
-            return Outcome(response: Response(status: .ok, body: "{\"ok\":true}"), event: nil)
+            return Outcome(response: Response(status: .ok, body: "{\"ok\":true}"), delivery: nil)
+        case .usage:
+            // Only Claude has a usage route (`AgentSource.usagePath`), so the
+            // body is its status line input.
+            guard let json = jsonObject(request.body) else { return badRequest }
+            // `{}` for the same reason as a hook: the relay throws the answer
+            // away, and nothing from this body is ever sent back anywhere.
+            return Outcome(response: Response(status: .ok, body: "{}"),
+                           delivery: .usage(UsageReport(claudeStatusLine: json)))
         case .hook(let source):
-            guard var json = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] else {
-                return Outcome(response: Response(status: .badRequest,
-                                                  body: error("badRequest", "a JSON object is expected")),
-                               event: nil)
-            }
+            guard var json = jsonObject(request.body) else { return badRequest }
             // These two keys are written **only** here, from the headers, and a
             // body that carries them has them deleted. This endpoint asks for
             // no identity, so otherwise any local process could put `evlat_pid`
@@ -165,8 +179,19 @@ public enum LocalAPI {
             // reach Claude Code, a stray JSON object would allow or deny a
             // permission on the user's behalf (`proje.md` → tuzaklar).
             return Outcome(response: Response(status: .ok, body: "{}"),
-                           event: HookEvent(json: source.canonical(json), source: source))
+                           delivery: .hook(HookEvent(json: source.canonical(json), source: source)))
         }
+    }
+
+    /// A body that is not a JSON object delivers nothing: half a reading would
+    /// move the bar on a request Evlat could not read.
+    private static var badRequest: Outcome {
+        Outcome(response: Response(status: .badRequest, body: error("badRequest", "a JSON object is expected")),
+                delivery: nil)
+    }
+
+    private static func jsonObject(_ body: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
     }
 
     /// `{"error": {"code", "message"}}`. `code` is a stable identifier and

@@ -51,6 +51,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The second provider. It holds the phase of every session that has ever
     /// spoken to this process, and it is the only place `waiting` comes from.
     public let hooks = HooksProvider(platform: AppController.darwinPlatform)
+    /// Claude's usage windows, as its status line posts them. Stamped with
+    /// this controller's `now`, the clock the usage block reads too, so a
+    /// fixed-date test never sees a fresh report as stale.
+    lazy var claudeUsage = ClaudeUsageProvider(now: { [unowned self] in
+        MainActor.assumeIsolated { self.now() }
+    })
     private var hookListener: HookListener?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
@@ -617,16 +623,32 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// are ISO 8601 so the line reads the same in every locale.
     nonisolated static func usageLine(_ signal: Signal) -> String {
         let iso = ISO8601DateFormatter()
-        // `Int(_:)` traps on NaN and infinity, and `progress` is kept as the
-        // source said it; the diagnostic must survive the odd value it is for.
-        let percent = signal.progress.map { value -> String in
-            let scaled = (value * 100).rounded()
-            return scaled.isFinite ? "\(Int(scaled))%" : "\(value)"
-        } ?? "—"
+        let percent = signal.progress.map { percentText($0 * 100) } ?? "—"
         let window = signal.usage.map { "\($0.group) \($0.windowMinutes)m" } ?? "\(signal.entity) (no window)"
         let resets = signal.usage.map { "  resets \(iso.string(from: $0.resetsAt))" } ?? ""
         return "  usage    \(window)  \(percent)\(resets)  seen \(iso.string(from: signal.updatedAt))"
             + "  (\(signal.fidelity.rawValue))"
+    }
+
+    /// A percent for the diagnostics, as the source said it. `Int(_:)` traps
+    /// on NaN, infinity **and any finite value past its range** — `1e30` from
+    /// a local POST would take `--capture` down — so the odd value is printed
+    /// as it came, the diagnostic surviving the number it exists to show.
+    nonisolated static func percentText(_ percent: Double) -> String {
+        let scaled = percent.rounded()
+        guard scaled.isFinite, abs(scaled) < Double(Int32.max) else { return "\(percent)%" }
+        return "\(Int(scaled))%"
+    }
+
+    /// One `--capture` line for a status line's report: its windows and the
+    /// keys it did not draw. This is where `unrecognizedWindows` is seen —
+    /// `--list` is another process and never receives a report. The report
+    /// holds nothing else of the body, so nothing else can be printed.
+    nonisolated static func usageCaptureLine(_ report: UsageReport) -> String {
+        let windows = report.windows.map { "\($0.minutes)m \(percentText($0.usedPercent))" }
+        let unrecognized = report.unrecognizedWindows.isEmpty
+            ? "" : "  (unrecognised: \(report.unrecognizedWindows.sorted().joined(separator: ", ")))"
+        return "  usage    claude  \(windows.isEmpty ? "no windows" : windows.joined(separator: ", "))\(unrecognized)"
     }
 
     /// The hook endpoint's own diagnostics.
@@ -651,11 +673,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // every line — the exact failure streaming was chosen to avoid.
         setvbuf(stdout, nil, _IOLBF, 0)
         let diagnostics = HookDiagnostics()
-        let listener = HookListener(port: choice.port) { event in
-            // Streamed, not only summarised: under a `PostToolUse` burst a
-            // fixed-size bucket drops exactly the rare event a measurement is
-            // looking for (one `Stop` carrying an `agent_id`).
-            print(diagnostics.record(event).text)
+        let listener = HookListener(port: choice.port) { delivery in
+            switch delivery {
+            case .hook(let event):
+                // Streamed, not only summarised: under a `PostToolUse` burst a
+                // fixed-size bucket drops exactly the rare event a measurement
+                // is looking for (one `Stop` carrying an `agent_id`).
+                print(diagnostics.record(event).text)
+            case .usage(let report):
+                // Not recorded with the hooks: a status line runs on every
+                // assistant message and would crowd them out of the bucket.
+                print(usageCaptureLine(report))
+            }
         }
         listener.start()
         let status = listener.awaitSettled()
@@ -745,6 +774,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Only with a home: a controller built without one (every test) must
         // never fall through to the real `~/.codex` (`008`'s rule). Read when
         // the bar opens, not here.
+        // Memory only, no file: safe without a home. Before Codex so the
+        // block's order does not hang on registration (it sorts by group).
+        registry.register(claudeUsage)
         if let home { registry.register(CodexUsageProvider(home: home)) }
         startHookListener()
         installStatusItem()
@@ -903,8 +935,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             onStatus: { status in
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
             },
-            onEvent: { [weak self] event in
-                MainActor.assumeIsolated { self?.handleHookEvent(event) }
+            onDelivery: { [weak self] delivery in
+                MainActor.assumeIsolated { self?.handleDelivery(delivery) }
             })
         listener.start()
         hookListener = listener
@@ -929,6 +961,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             app.run()
         }
         exit(0)
+    }
+
+    /// Whatever the listener accepted. Each goes to its own provider; both
+    /// only schedule a read, so a status line's burst coalesces like a hook's.
+    func handleDelivery(_ delivery: LocalAPI.Delivery) {
+        switch delivery {
+        case .hook(let event):
+            handleHookEvent(event)
+        case .usage(let report):
+            // Not `hookDiagnostics`: that bucket is the hooks' and nothing of
+            // the status line's body belongs in it.
+            claudeUsage.handle(report)
+            scheduleRefresh()
+        }
     }
 
     /// One event, from the listener's callback. Internal so the coalescing has

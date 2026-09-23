@@ -20,14 +20,15 @@ final class LocalAPITests: XCTestCase {
 
     // MARK: - The table
 
-    /// Four routes, and the reason each one is there. `/hook` is the path
+    /// Five routes, and the reason each one is there. `/hook` is the path
     /// inside the command already installed in the user's settings file;
     /// `/hook/claude` is the synonym v1 accepted, and dropping it would change
-    /// the contract silently.
-    func testTheTableIsFourRoutes() {
+    /// the contract silently. `/usage/claude` is the status line's relay.
+    func testTheTableIsFiveRoutes() {
         XCTAssertEqual(dispatch("POST", "/hook"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/claude"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/codex"), .hook(.codex))
+        XCTAssertEqual(dispatch("POST", "/usage/claude"), .usage(.claude))
         XCTAssertEqual(dispatch("GET", "/health"), .health)
         // v1's action, read and `/mac/` endpoints are out of scope for v2 and
         // were not ported: they answer nothing at all.
@@ -42,7 +43,14 @@ final class LocalAPITests: XCTestCase {
     func testEverySourceHasItsOwnRoute() {
         for source in AgentSource.allCases {
             XCTAssertEqual(dispatch("POST", source.hookPath), .hook(source), source.rawValue)
+            if let usagePath = source.usagePath {
+                XCTAssertEqual(dispatch("POST", usagePath), .usage(source), source.rawValue)
+            }
         }
+        // Only Claude documents its usage; Codex's is read from a file.
+        XCTAssertEqual(AgentSource.claude.usagePath, "/usage/claude")
+        XCTAssertNil(AgentSource.codex.usagePath)
+        XCTAssertEqual(dispatch("POST", "/usage/codex"), .notFound)
     }
 
     /// A side-effecting endpoint is POST-only, and that is what makes the
@@ -73,6 +81,18 @@ final class LocalAPITests: XCTestCase {
     func testTheQueryDoesNotChangeTheRoute() {
         XCTAssertEqual(dispatch("POST", "/hook?source=codex"), .hook(.claude))
         XCTAssertEqual(dispatch("GET", "http://127.0.0.1:48151/health"), .health, "an absolute target is legal HTTP")
+    }
+
+    /// The usage route keeps every rule the hook routes keep: POST only, the
+    /// path as written, and a browser turned away before the path is read.
+    func testTheUsageRouteIsDefendedLikeTheHooks() {
+        XCTAssertEqual(dispatch("GET", "/usage/claude"), .notFound)
+        XCTAssertEqual(dispatch("POST", "/usage/claude", origin: "https://example.com"), .forbidden)
+        XCTAssertEqual(dispatch("POST", "/usage/claude", host: "evil.example:48151"), .forbidden)
+        for spelling in ["/usage/claude/", "/usage/claude/..", "/usage/claude/../claude", "/usage",
+                         "/usage/", "/%75sage/claude", "/usage%2Fclaude", "/hook/../usage/claude"] {
+            XCTAssertEqual(dispatch("POST", spelling), .notFound, spelling)
+        }
     }
 
     // MARK: - The browser
@@ -116,6 +136,35 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(outcome.event?.name, "Stop")
         XCTAssertEqual(outcome.event?.sessionID, "s-1")
         XCTAssertEqual(outcome.event?.source, .claude)
+    }
+
+    /// The status line's body: `{}` back, and only the two windows forward.
+    /// The rest of the body (`cost`, `workspace`, `session_id`…) has no field
+    /// to land in.
+    func testAUsagePostAnswersAnEmptyObjectAndDeliversTheWindows() {
+        let body = #"{"session_id":"s-1","cost":{"total_cost_usd":3},"rate_limits":"#
+            + #"{"five_hour":{"used_percentage":25,"resets_at":1790206798},"spend_limit":{"used_percentage":2}}}"#
+        let outcome = post("/usage/claude", body: body)
+        XCTAssertEqual(outcome.response.status, .ok)
+        XCTAssertEqual(outcome.response.body, "{}")
+        guard case .usage(let report)? = outcome.delivery else {
+            return XCTFail("expected a usage delivery")
+        }
+        XCTAssertEqual(report.windows.map(\.minutes), [300])
+        XCTAssertEqual(report.unrecognizedWindows, ["spend_limit"])
+        XCTAssertNil(outcome.event, "a usage report is not a hook event")
+    }
+
+    func testABrokenUsageBodyIsABadRequest() {
+        for body in ["", "not json", "[]", "\"text\"", "{", "null"] {
+            let outcome = post("/usage/claude", body: body)
+            XCTAssertEqual(outcome.response.status, .badRequest, body)
+            XCTAssertNil(outcome.delivery, body)
+        }
+        let refused = LocalAPI.handle(HTTPRequest(method: "POST", target: "/usage/claude", body: Data("{}".utf8),
+                                                  origin: "null", host: "127.0.0.1"))
+        XCTAssertEqual(refused.response.status, .forbidden)
+        XCTAssertNil(refused.delivery)
     }
 
     func testTheCodexRouteStampsTheEventWithItsSource() {
@@ -235,5 +284,13 @@ final class LocalAPITests: XCTestCase {
             "POST /hook HTTP/1.1\r\nX-Evlat-Task: t\r\nX-Evlat-Pid: 7747\r\n\r\n".utf8)))
         XCTAssertEqual(request.taskID, "t")
         XCTAssertEqual(request.pid, "7747")
+    }
+}
+
+private extension LocalAPI.Outcome {
+    /// The hook event, when the delivery is one; most of this file asks only that.
+    var event: HookEvent? {
+        if case .hook(let event)? = delivery { return event }
+        return nil
     }
 }

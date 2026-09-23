@@ -27,9 +27,9 @@ final class HookListenerTests: XCTestCase {
     func testAHookPostIsAnsweredWithAnEmptyObjectAndProducesAnEvent() throws {
         let arrived = expectation(description: "event on the main queue")
         var received: HookEvent?
-        let listener = HookListener(port: Self.anyPort) { event in
+        let listener = HookListener(port: Self.anyPort) { delivery in
             XCTAssertTrue(Thread.isMainThread, "events are delivered on the main queue")
-            received = event
+            if case .hook(let event) = delivery { received = event }
             arrived.fulfill()
         }
         listener.start()
@@ -48,6 +48,29 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(received?.name, "PreToolUse")
         XCTAssertEqual(received?.sessionID, "s-1")
         XCTAssertEqual(received?.source, .claude)
+    }
+
+    /// The status line's relay reaches the same socket and comes out as a usage
+    /// report, never as a hook event.
+    func testAUsagePostIsAnsweredWithAnEmptyObjectAndDeliversAReport() throws {
+        let arrived = expectation(description: "report on the main queue")
+        var received: UsageReport?
+        let listener = HookListener(port: Self.anyPort) { delivery in
+            XCTAssertTrue(Thread.isMainThread)
+            if case .usage(let report) = delivery { received = report }
+            arrived.fulfill()
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+
+        let answer = post(port: port, path: "/usage/claude",
+                          body: #"{"rate_limits":{"seven_day":{"used_percentage":41,"resets_at":1790772967}}}"#)
+        XCTAssertEqual(answer.body, "{}")
+        XCTAssertEqual(answer.status, 200)
+
+        wait(for: [arrived], timeout: 5)
+        XCTAssertEqual(received?.windows.map(\.minutes), [10080])
     }
 
     /// The route table is `EvlatCore`'s, but the transport has to reach it: a

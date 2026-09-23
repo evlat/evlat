@@ -37,4 +37,21 @@ final class UsageListLineTests: XCTestCase {
                             usage: Signal.Usage(group: "Odd", windowMinutes: 60, resetsAt: observed))
         XCTAssertTrue(AppController.usageLine(signal).contains("inf"))
     }
+
+    /// A finite number past `Int`'s range traps `Int(_:)` as surely as
+    /// infinity does; a local POST can send one to `--capture`.
+    func testAHugePercentDoesNotTrapEitherDiagnostic() {
+        let report = UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 1e30,
+                                                              resetsAt: observed)],
+                                 unrecognizedWindows: ["spend_limit"])
+        let line = AppController.usageCaptureLine(report)
+        XCTAssertTrue(line.contains("300m 1e+30%"), line)
+        XCTAssertTrue(line.contains("unrecognised: spend_limit"), line)
+        XCTAssertEqual(AppController.percentText(25.4), "25%")
+
+        let signal = Signal(provider: "stub", entity: "usage:huge", kind: .usage, phase: .idle,
+                            progress: 1e28, label: "huge", fidelity: .official, updatedAt: observed,
+                            usage: Signal.Usage(group: "Huge", windowMinutes: 60, resetsAt: observed))
+        XCTAssertTrue(AppController.usageLine(signal).contains("e+30"))
+    }
 }

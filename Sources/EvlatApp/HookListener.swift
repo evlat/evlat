@@ -46,7 +46,7 @@ public final class HookListener {
     }
 
     private let requestedPort: UInt16
-    private let onEvent: (HookEvent) -> Void
+    private let onDelivery: (LocalAPI.Delivery) -> Void
     private let onStatus: ((Status) -> Void)?
     private let queue = DispatchQueue(label: "dev.kalaomer.evlat.hooks")
     private var listener: NWListener?
@@ -64,9 +64,10 @@ public final class HookListener {
     /// anything a hook sends and still cheap to hold.
     private static let maxRequestBytes = 1 << 20
 
-    /// `onEvent` is called on the **main queue** with an already-parsed event.
-    /// The raw body is not carried across: it reaches 8 KB and nothing on the
-    /// main queue wants it.
+    /// `onDelivery` is called on the **main queue** with an already-parsed hook
+    /// event or usage report. The raw body is not carried across: it reaches
+    /// 8 KB and nothing on the main queue wants it — a status line's body
+    /// least of all (`UsageReport`).
     ///
     /// `onStatus` is called on the main queue every time the endpoint's state
     /// changes. It is taken here rather than left as a settable property
@@ -74,10 +75,10 @@ public final class HookListener {
     /// after `start()` would be racing the first state report.
     public init(port: UInt16,
                 onStatus: ((Status) -> Void)? = nil,
-                onEvent: @escaping (HookEvent) -> Void) {
+                onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
         self.requestedPort = port
         self.onStatus = onStatus
-        self.onEvent = onEvent
+        self.onDelivery = onDelivery
     }
 
     public var status: Status {
@@ -233,8 +234,8 @@ public final class HookListener {
         read()
     }
 
-    /// The answer is written from **this** queue and the event is handed to the
-    /// main queue afterwards.
+    /// The answer is written from **this** queue and the delivery is handed to
+    /// the main queue afterwards.
     ///
     /// The installed command runs `curl -s -m 2` under a hook with `timeout: 5`,
     /// so the agent is waiting on this write. Answering from the main queue
@@ -244,8 +245,8 @@ public final class HookListener {
         let outcome = LocalAPI.handle(request)
         connection.send(content: Data(outcome.response.httpText.utf8),
                         completion: .contentProcessed { _ in connection.cancel() })
-        guard let event = outcome.event else { return }
-        let deliver = onEvent
-        DispatchQueue.main.async { deliver(event) }
+        guard let delivery = outcome.delivery else { return }
+        let deliver = onDelivery
+        DispatchQueue.main.async { deliver(delivery) }
     }
 }

@@ -17,6 +17,14 @@ public enum AgentSource: String, CaseIterable {
     /// synonym (`LocalAPI.dispatch`).
     public var hookPath: String { self == .claude ? "/hook" : "/hook/\(rawValue)" }
 
+    /// Where the agent's rate-limit windows are posted, when it documents
+    /// them. Only Claude does — its status line input carries `rate_limits` —
+    /// so every other source has no route here (`nil`); Codex's windows are
+    /// read from its own file instead (`CodexUsageProvider`). Named like
+    /// `hookPath`'s later rows, since nothing is installed on it yet that
+    /// would pin another spelling.
+    public var usagePath: String? { self == .claude ? "/usage/\(rawValue)" : nil }
+
     /// The events Evlat's command is installed on, byte for byte v1's lists.
     /// `SubagentStart`/`SubagentStop` are left out on purpose: a subagent's tool
     /// events already arrive on the parent's row (`proje.md` → tuzaklar).

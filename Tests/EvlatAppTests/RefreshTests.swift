@@ -112,6 +112,26 @@ final class RefreshTests: XCTestCase {
                           "a window as long as the poll interval would buy nothing")
     }
 
+    /// A status line's report goes to the usage provider, stamped with the
+    /// controller's clock, and never into the hooks' diagnostics bucket.
+    func testAUsageDeliveryReachesTheUsageProviderAndNotTheHookBucket() {
+        let controller = AppController()
+        let seen = Date(timeIntervalSince1970: 1_790_200_000)
+        controller.now = { seen }
+        controller.registry.register(controller.claudeUsage)
+        let report = UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 40,
+                                                              resetsAt: seen + 3600)],
+                                 unrecognizedWindows: [])
+
+        controller.handleDelivery(.usage(report))
+        XCTAssertEqual(controller.claudeUsage.currentSignals().map(\.updatedAt), [seen])
+        XCTAssertEqual(controller.hookDiagnostics.summary, HookDiagnostics().summary,
+                       "the hooks' bucket saw nothing")
+        let snapshot = controller.registry.snapshot()
+        XCTAssertEqual(snapshot.usage.count, 1)
+        XCTAssertTrue(snapshot.ordered.isEmpty, "a usage window is not a session")
+    }
+
     // MARK: - Opening reads
 
     /// A provider whose reading only moves when it is told to.
