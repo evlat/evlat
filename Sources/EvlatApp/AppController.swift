@@ -42,6 +42,9 @@ public final class AppController: NSObject, NSApplicationDelegate {
     /// When a cursor staying on a row brings its card up, or takes the card
     /// there. A `var` so a test can hand it a scheduler before `installPanel`.
     var rowSwitch = RowSwitch()
+    /// Where the cursor is now, for re-reading the row under a cursor that
+    /// has not moved. A `var` so a test can hold it over a row.
+    var mouseLocation: () -> CGPoint = { NSEvent.mouseLocation }
     /// Whether the body is drawn open. Apart from the window's size on purpose:
     /// the window is resized when nothing on screen moves, and this is what the
     /// eye sees move (`openBar`, `closeBar`).
@@ -705,6 +708,11 @@ public final class AppController: NSObject, NSApplicationDelegate {
             // The rows' trace on stderr, for the same reason as the line above.
             let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
             NSLog("Evlat: rows [%@] +%ld", rows.joined(separator: ", "), sessionRows.overflow)
+            // The mark and a pending switch are keyed by session, and only a
+            // move re-reads them. A column that reorders under a still cursor
+            // would otherwise leave the mark on a row the cursor has left and
+            // bring up the card of a session it no longer points at.
+            if barState.isOpen { pointerMoved(mouseLocation()) }
         }
         syncSelection(snapshot.ordered)
     }

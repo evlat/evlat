@@ -34,7 +34,7 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 
 ## Şu an nerede
 
-`001`–`004` bitti: iskelet, kenar paneli, iki sağlayıcı ve hook sunucusu
+`001`–`003` bitti, `004` teslim bekliyor: iskelet, kenar paneli, iki sağlayıcı ve hook sunucusu
 çalışıyor; kurulu hook'lar hiçbir kurulum yapılmadan `127.0.0.1:48151`'e
 akıyor. Maskotun beş fazının her birinin kendi klibi var (`MascotClip`);
 altında sıradaki ilk 3–4 oturumun halkası atımla oynuyor, fazlası "+N".

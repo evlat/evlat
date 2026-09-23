@@ -479,6 +479,40 @@ final class SelectionTests: XCTestCase {
         XCTAssertNil(controller.barState.selected)
     }
 
+    /// The column reorders under a cursor that does not move: the mark and
+    /// the pending switch are re-read for the session now under it, not left
+    /// on the one that moved away.
+    func testARowMovingFromUnderAStillCursorTakesTheMarkAndTheSwitchWithIt() throws {
+        var scheduled: [(delay: TimeInterval, item: DispatchWorkItem)] = []
+        let controller = AppController()
+        controller.rowSwitch = RowSwitch { scheduled.append(($0, $1)) }
+        let provider = Stub()
+        controller.registry.register(provider)
+        let panel = controller.installPanel()
+        defer { panel.close() }
+        provider.signals = [signal("a"), signal("b")]
+        controller.refresh()
+        controller.openBar()
+
+        let frame = panel.frame
+        let cursor = CGPoint(x: frame.maxX - AppController.barWidth / 2,
+                             y: frame.maxY - AppController.slotTop(1) - AppController.indicatorSize / 2)
+        controller.mouseLocation = { cursor }
+        controller.pointerMoved(cursor)
+        XCTAssertEqual(controller.barState.hovered, "b")
+        let stale = try XCTUnwrap(scheduled.last)
+
+        // "b" starts working and leads the column; "a" is now under the cursor.
+        provider.signals = [signal("a"), signal("b", .working)]
+        controller.refresh()
+        XCTAssertEqual(controller.barState.hovered, "a", "the mark stays under the cursor")
+        stale.item.perform()
+        XCTAssertNil(controller.barState.selected, "the switch for the row that left is dropped")
+        let fresh = try XCTUnwrap(scheduled.last)
+        fresh.item.perform()
+        XCTAssertEqual(controller.barState.selected, "a")
+    }
+
     func testEvlatSelectIsReadFromTheEnvironment() {
         XCTAssertEqual(AppController.forcedSelection(["EVLAT_SELECT": "first"]), .first)
         XCTAssertEqual(AppController.forcedSelection(["EVLAT_SELECT": " abc "]), .entity("abc"))
