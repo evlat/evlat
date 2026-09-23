@@ -11,3 +11,16 @@ public protocol Provider {
     /// Signals as of now. Called on the main queue.
     func currentSignals() -> [Signal]
 }
+
+/// A provider whose reading is expensive, done at the moment the **caller**
+/// chooses rather than on every `currentSignals()`.
+///
+/// `currentSignals()` is asked every 1.5 s and on every hook event, so it must
+/// answer from memory. A provider that has to open a file to know anything
+/// does that here instead. The shell calls it when the bar opens, through
+/// `Registry.reload()`, without looking at which provider it is: the moment is
+/// the shell's decision, what reading means is the provider's.
+public protocol Reloadable: AnyObject {
+    /// Read the source again. Called on the main queue.
+    func reload()
+}

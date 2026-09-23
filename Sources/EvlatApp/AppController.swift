@@ -501,6 +501,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let provider = makeSessionsProvider()
         let registry = Registry()
         registry.register(provider)
+        // The one reload this process does; timed, because it runs on the
+        // app's main queue when the bar opens.
+        let codex = CodexUsageProvider(home: resolvedHome())
+        registry.register(codex)
+        let started = DispatchTime.now()
+        registry.reload()
+        let reloadMs = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
         // One scan, every derived value — see Registry.Snapshot for why the
         // separate accessors are gone.
         let snapshot = registry.snapshot()
@@ -516,6 +523,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         for signal in snapshot.usage {
             print(usageLine(signal))
         }
+        // The format is undocumented and the provider goes quiet when it
+        // drifts; quiet must not read as "Codex has no limits".
+        if codex.lastReadFailed {
+            print("codex usage: unreadable (format may have drifted)"
+                + (codex.currentSignals().isEmpty ? "" : "; showing the last good reading"))
+        }
+        print(String(format: "usage reload: %.1f ms", reloadMs))
         if !provider.unrecognizedStatuses.isEmpty {
             print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
         }
@@ -677,6 +691,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // listener still binds and the events still parse, and the bar is
         // exactly what `001` shipped.
         registry.register(hooks)
+        // Only with a home: a controller built without one (every test) must
+        // never fall through to the real `~/.codex` (`008`'s rule). Read when
+        // the bar opens, not here.
+        if let home { registry.register(CodexUsageProvider(home: home)) }
         startHookListener()
         installStatusItem()
 
@@ -1104,6 +1122,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// the cursor following the body's edge as it travels is still over the
     /// bar.
     func openBar() {
+        // The expensive reads (a usage file's tail) happen here and only
+        // here: the one moment their result is about to be seen. Which
+        // providers answer is theirs to say (`Reloadable`); the scan after it
+        // is what brings the new reading onto the body being opened.
+        registry.reload()
+        refresh()
         panel?.setVisibleWidth(barState.openWidth)
         panel?.setVisibleLength(barState.openLength)
         sessionRows.setOpen(true)

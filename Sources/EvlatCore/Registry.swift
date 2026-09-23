@@ -17,6 +17,15 @@ public final class Registry {
         providers.append(provider)
     }
 
+    /// Asks every `Reloadable` provider to read its source again. The caller
+    /// picks the moment (the bar opening); which providers answer is theirs to
+    /// say, not the caller's to know.
+    public func reload() {
+        for provider in providers {
+            (provider as? Reloadable)?.reload()
+        }
+    }
+
     /// One row per `entity`, merged across every provider.
     ///
     /// Two sources describe the same session: a file record discovers it, a

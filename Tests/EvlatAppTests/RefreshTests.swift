@@ -111,4 +111,39 @@ final class RefreshTests: XCTestCase {
         XCTAssertLessThan(AppController.refreshCoalescing, 1.5,
                           "a window as long as the poll interval would buy nothing")
     }
+
+    // MARK: - Opening reads
+
+    /// A provider whose reading only moves when it is told to.
+    private final class ReloadingProvider: Provider, Reloadable {
+        let id = "reloading"
+        var reloads = 0
+        var pending: [Signal] = []
+        private var held: [Signal] = []
+        func reload() {
+            reloads += 1
+            held = pending
+        }
+        func currentSignals() -> [Signal] { held }
+    }
+
+    /// The bar opening is the moment a `Reloadable` reads, and what it read
+    /// is on the body being opened — not a poll later.
+    func testOpeningTheBarReloadsAndScans() {
+        let controller = AppController()
+        let provider = ReloadingProvider()
+        controller.registry.register(provider)
+        provider.pending = [signal(.waiting)]
+        controller.refresh()
+        XCTAssertEqual(provider.reloads, 0, "a poll never reloads")
+        XCTAssertEqual(controller.mascot.phase, .idle, "nothing read yet")
+
+        controller.openBar()
+        XCTAssertEqual(provider.reloads, 1)
+        XCTAssertEqual(controller.mascot.phase, .waiting, "the new reading was scanned at once")
+
+        controller.closeBar()
+        controller.refresh()
+        XCTAssertEqual(provider.reloads, 1, "closing and polling read nothing")
+    }
 }
