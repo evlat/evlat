@@ -31,11 +31,10 @@ struct SessionColumn: View {
     /// The ring's leading edge inside the bar's width (it is centred there).
     static var ringLead: CGFloat { (AppController.barWidth - AppController.indicatorSize) / 2 }
 
-    /// The width the names need, as drawn: the longest one, and the count
-    /// when it has moved into the name column. Capped at `nameMaxWidth`.
-    static func namesWidth(_ labels: [String], overflow: Int) -> CGFloat {
-        let texts = labels + (overflow > 0 ? ["+\(overflow)"] : [])
-        let widest = texts.map {
+    /// The width the names need, as drawn: the longest one, capped at
+    /// `nameMaxWidth`.
+    static func namesWidth(_ labels: [String]) -> CGFloat {
+        let widest = labels.map {
             ($0 as NSString).size(withAttributes: [.font: nameFont]).width
         }.max() ?? 0
         return min(ceil(widest), nameMaxWidth)
@@ -68,9 +67,9 @@ struct SessionColumn: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
             if model.overflow > 0 {
-                // A number, not a word: no user text until the catalogue.
-                // Closed, it sits in the ring column; open, it moves into the
-                // name column and reads as the list's last line.
+                // A number, not a word: no user text until the catalogue. It
+                // stays in the ring column open or closed — moving it into
+                // the name column was one more thing travelling on hover.
                 Text("+\(model.overflow)")
                     .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .monospacedDigit()
@@ -81,11 +80,6 @@ struct SessionColumn: View {
                     .fixedSize()
                     .frame(height: AppController.indicatorSize)
                     .frame(width: AppController.barWidth)
-                    .opacity(showsNames ? 0 : 1)
-                    .animation(showsNames ? BarMotion.namesOut : BarMotion.namesIn, value: showsNames)
-                    .overlay(alignment: .leading) {
-                        name("+\(model.overflow)", color: BarPalette.textSecondary)
-                    }
                     .transition(.opacity)
             }
         }

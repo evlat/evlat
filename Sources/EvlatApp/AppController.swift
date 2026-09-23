@@ -562,8 +562,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
             // its own deadband, but there is no reason to ask it every poll.
             panel?.setLength(Self.barLength(slots: sessionRows.slotsInUse))
             // The open body is as wide as the names it holds.
-            let width = SessionColumn.openWidth(namesWidth: SessionColumn.namesWidth(
-                sessionRows.rows.map(\.label), overflow: sessionRows.overflow))
+            let width = SessionColumn.openWidth(
+                namesWidth: SessionColumn.namesWidth(sessionRows.rows.map(\.label)))
             if abs(barState.openWidth - width) > 0.5 {
                 barState.openWidth = width
                 if barState.isOpen { panel?.setVisibleWidth(width) }

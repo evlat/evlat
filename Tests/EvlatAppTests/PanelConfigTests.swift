@@ -71,9 +71,9 @@ final class PanelConfigTests: XCTestCase {
     /// The open body is as wide as its names, between a floor and a cap: a
     /// fixed width left most of it empty (the user's screenshot, `004`).
     func testTheOpenBodyHugsItsNames() {
-        let short = SessionColumn.namesWidth(["a"], overflow: 0)
-        let medium = SessionColumn.namesWidth(["kararla-26", "bateri"], overflow: 0)
-        let long = SessionColumn.namesWidth([String(repeating: "w", count: 80)], overflow: 0)
+        let short = SessionColumn.namesWidth(["a"])
+        let medium = SessionColumn.namesWidth(["kararla-26", "bateri"])
+        let long = SessionColumn.namesWidth([String(repeating: "w", count: 80)])
         XCTAssertLessThan(short, medium)
         XCTAssertEqual(long, SessionColumn.nameMaxWidth, "a long name is cut, not the body stretched")
         XCTAssertEqual(SessionColumn.openWidth(namesWidth: short), SessionColumn.minOpenWidth,
@@ -83,13 +83,6 @@ final class PanelConfigTests: XCTestCase {
         let fitted = SessionColumn.openWidth(namesWidth: medium)
         XCTAssertGreaterThan(fitted, SessionColumn.minOpenWidth)
         XCTAssertLessThan(fitted, AppController.expandedBarWidth)
-    }
-
-    /// The count, once it moves into the name column, is part of what the
-    /// body opens for.
-    func testTheCountCountsTowardTheNamesWidth() {
-        XCTAssertGreaterThan(SessionColumn.namesWidth(["a"], overflow: 1234),
-                             SessionColumn.namesWidth(["a"], overflow: 0))
     }
 
     /// The bar opens INTO the screen. Its screen-side edge — and with it the
