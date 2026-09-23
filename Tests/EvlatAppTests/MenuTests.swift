@@ -13,17 +13,25 @@ import EvlatCore
 final class MenuTests: XCTestCase {
     private var suiteName = ""
     private var defaults: UserDefaults!
+    /// A temporary home for the hook entries: the user's `~/.claude` and
+    /// `~/.codex` are never read or written here.
+    private var home: URL!
 
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
         suiteName = "evlat.tests.menu.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
+        home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("evlat.tests.menu.\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
     }
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
+        try? FileManager.default.removeItem(at: home)
+        home = nil
         super.tearDown()
     }
 
@@ -33,8 +41,9 @@ final class MenuTests: XCTestCase {
         func currentSignals() -> [Signal] { signals }
     }
 
-    private func controller(edge: BarPanel.Edge = .right, rows: Int = 0) -> AppController {
-        let controller = AppController(defaults: defaults)
+    private func controller(edge: BarPanel.Edge = .right, rows: Int = 0,
+                            home: URL? = nil) -> AppController {
+        let controller = AppController(defaults: defaults, home: home)
         let provider = Stub()
         controller.registry.register(provider)
         controller.installPanel(edge: edge)
@@ -95,7 +104,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Right", "Left"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.on, .off])
         XCTAssertFalse(titles(menu).contains { $0.localizedCaseInsensitiveContains("hook") },
-                       "no hook setup entry: it has nowhere to go yet")
+                       "no home, no hook entry")
     }
 
     func testTheTrayMenuAddsForceState() throws {
@@ -142,6 +151,200 @@ final class MenuTests: XCTestCase {
         controller.menuNeedsUpdate(menu)
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.off, .on])
         XCTAssertEqual(menu.items.count, 4, "rebuilt, not appended to")
+    }
+
+    // MARK: - Hook entries
+
+    private func agentDirectory(_ source: AgentSource) throws {
+        try FileManager.default.createDirectory(at: source.configDirectory(home: home),
+                                                withIntermediateDirectories: false)
+    }
+
+    private func settings(_ source: AgentSource) throws -> [String: Any] {
+        let data = try Data(contentsOf: source.settingsFile(home: home))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// The index of a source's entry, found by what it does rather than by
+    /// its title, which is what is being checked.
+    private func hookEntry(_ menu: NSMenu, _ source: AgentSource) throws -> Int {
+        try XCTUnwrap(menu.items.firstIndex {
+            ($0.representedObject as? AppController.HookEntry)?.source == source
+        }, "no entry for \(source)")
+    }
+
+    func testThereIsAnEntryForEachAgentThatIsThere() throws {
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")), ["Edge", "—", "Quit Evlat"],
+                       "neither agent: no entry")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path), [],
+                       "reading the menu creates no directory")
+
+        try agentDirectory(.claude)
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
+                       ["Edge", "—", "Install Claude Code hooks", "—", "Quit Evlat"])
+        try agentDirectory(.codex)
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
+                       ["Edge", "Force state", "—", "Install Claude Code hooks", "Install Codex hooks",
+                        "—", "Quit Evlat"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
+                       "opening the menu writes nothing")
+    }
+
+    func testTheTitleFollowsTheState() throws {
+        try agentDirectory(.claude)
+        let file = AgentSource.claude.settingsFile(home: home)
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+        func title(_ lang: String) throws -> String {
+            let menu = controller.makeMenu(diagnostics: false, in: lang)
+            return menu.items[try hookEntry(menu, .claude)].title
+        }
+        XCTAssertEqual(try title("en"), "Install Claude Code hooks", "missing")
+        XCTAssertEqual(try title("tr"), "Claude Code hook'larını kur")
+
+        let current = HookSettings.installing(into: [:], for: .claude)
+        try JSONSerialization.data(withJSONObject: current).write(to: file)
+        XCTAssertEqual(try title("en"), "Remove Claude Code hooks", "current")
+        XCTAssertEqual(try title("tr"), "Claude Code hook'larını kaldır")
+
+        let old = String(decoding: try JSONSerialization.data(withJSONObject: current), as: UTF8.self)
+            .replacingOccurrences(of: "-m 2", with: "-m 1")
+        try Data(old.utf8).write(to: file)
+        XCTAssertEqual(try title("en"), "Update Claude Code hooks", "outdated")
+        XCTAssertEqual(try title("tr"), "Claude Code hook'larını güncelle")
+    }
+
+    func testTheEntriesCarryTheirHints() throws {
+        try agentDirectory(.claude)
+        try agentDirectory(.codex)
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+        var menu = controller.makeMenu(diagnostics: false, in: "en")
+        XCTAssertEqual(menu.items[try hookEntry(menu, .claude)].toolTip,
+                       L10n.t("menu.hooks.hint.claude", in: "en"))
+        XCTAssertEqual(menu.items[try hookEntry(menu, .codex)].toolTip,
+                       L10n.t("menu.hooks.hint.codex", in: "en"))
+        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        menu.performActionForItem(at: try hookEntry(menu, .codex))
+        menu = controller.makeMenu(diagnostics: false, in: "en")
+        XCTAssertNil(menu.items[try hookEntry(menu, .claude)].toolTip, "Claude's removal needs no hint")
+        XCTAssertEqual(menu.items[try hookEntry(menu, .codex)].toolTip,
+                       L10n.t("menu.hooks.hint.remove", in: "en"))
+    }
+
+    func testTheEntryInstallsThenRemoves() throws {
+        try agentDirectory(.claude)
+        let file = AgentSource.claude.settingsFile(home: home)
+        try Data(#"{"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}"#.utf8)
+            .write(to: file)
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+
+        var menu = controller.makeMenu(diagnostics: false, in: "en")
+        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        let golden = LocalAPI.installedHookCommand(for: .claude)
+        let hooks = try XCTUnwrap(try settings(.claude)["hooks"] as? [String: Any])
+        XCTAssertEqual(Set(hooks.keys), Set(AgentSource.claude.hookEvents))
+        for event in AgentSource.claude.hookEvents {
+            let commands = (hooks[event] as? [[String: Any]] ?? [])
+                .flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+                .compactMap { $0["command"] as? String }
+            XCTAssertTrue(commands.contains(golden), "\(event) carries the golden command")
+        }
+        XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
+        menu = controller.makeMenu(diagnostics: false, in: "en")
+        XCTAssertEqual(menu.items[try hookEntry(menu, .claude)].title, "Remove Claude Code hooks")
+
+        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        let after = try settings(.claude)
+        XCTAssertEqual(after["model"] as? String, "opus")
+        let left = try XCTUnwrap(after["hooks"] as? [String: Any])
+        XCTAssertEqual(Array(left.keys), ["Stop"], "only Evlat's groups went")
+        XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .missing)
+        menu = controller.makeMenu(diagnostics: false, in: "en")
+        XCTAssertEqual(menu.items[try hookEntry(menu, .claude)].title, "Install Claude Code hooks")
+    }
+
+    func testARefusedWriteLeavesOneDimLineUntilItSucceeds() throws {
+        try agentDirectory(.claude)
+        let file = AgentSource.claude.settingsFile(home: home)
+        let broken = Data("{ not json".utf8)
+        try broken.write(to: file)
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+
+        var menu = controller.makeMenu(diagnostics: false, in: "tr")
+        let before = menu.items.count
+        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        XCTAssertEqual(try Data(contentsOf: file), broken, "the file is left as it was")
+        menu = controller.makeMenu(diagnostics: false, in: "tr")
+        let entry = try hookEntry(menu, .claude)
+        let line = menu.items[entry + 1]
+        XCTAssertEqual(line.title, L10n.t("menu.hooks.error.malformed", in: "tr"))
+        XCTAssertFalse(line.isEnabled, "dim")
+        XCTAssertEqual(menu.items.count, before + 1, "one line")
+
+        try Data("{}".utf8).write(to: file)
+        menu.performActionForItem(at: entry)
+        menu = controller.makeMenu(diagnostics: false, in: "tr")
+        XCTAssertEqual(menu.items.count, before, "the line goes with the success")
+        XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
+    }
+
+    func testEveryFailureHasALine() {
+        let failures: [HookSettings.Failure] = [.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
+        let keys = Set(failures.map(AppController.failureKey))
+        XCTAssertEqual(keys.count, failures.count, "one line per failure")
+        XCTAssertTrue(keys.isSubset(of: Set(AppController.menuKeys)))
+    }
+
+    /// Like the edge: the file is written, the open list closes, and Evlat
+    /// is not activated.
+    func testTheHookEntryTakesNoFocus() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        try agentDirectory(.claude)
+        let controller = controller(rows: 4, home: home)
+        let panel = try XCTUnwrap(controller.panel)
+        defer { panel.close() }
+        panel.show()
+        XCTAssertFalse(isFrontmost(), "precondition: the test runner is not frontmost")
+        controller.hover.onChange = { [unowned controller] open in
+            open ? controller.openBar() : controller.closeBar()
+        }
+        controller.hover.openNow()
+
+        let menu = controller.makeMenu(diagnostics: false, in: "en")
+        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        XCTAssertEqual(try HookSettings.state(at: AgentSource.claude.settingsFile(home: home), for: .claude),
+                       .current)
+        XCTAssertFalse(controller.barState.isOpen, "the open list closes")
+        XCTAssertFalse(controller.hover.isOpen)
+        XCTAssertFalse(isFrontmost(), "a hook entry must not activate Evlat")
+        XCTAssertFalse(panel.isKeyWindow)
+    }
+
+    // MARK: - The home
+
+    func testTheHomeIsTheEnvironmentsOrTheUsers() {
+        let user = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        XCTAssertEqual(AppController.resolvedHome(["EVLAT_HOME": "/tmp/evlat-home"]).path, "/tmp/evlat-home")
+        XCTAssertEqual(AppController.resolvedHome(["EVLAT_HOME": "~/x"]).path,
+                       user.appendingPathComponent("x").path, "the tilde is expanded")
+        XCTAssertEqual(AppController.resolvedHome(["EVLAT_HOME": ""]).standardizedFileURL.path, user.path,
+                       "blank is ignored")
+        XCTAssertEqual(AppController.resolvedHome(["EVLAT_HOME": "  "]).standardizedFileURL.path, user.path)
+        XCTAssertEqual(AppController.resolvedHome([:]).standardizedFileURL.path, user.path)
+    }
+
+    func testTheSessionsFollowTheHomeUnlessNamed() {
+        XCTAssertEqual(AppController.sessionsDirectory(["EVLAT_HOME": "/tmp/h"]).path, "/tmp/h/.claude/sessions")
+        XCTAssertEqual(AppController.sessionsDirectory(["EVLAT_HOME": "/tmp/h", "EVLAT_SESSIONS": "/tmp/s"]).path,
+                       "/tmp/s", "EVLAT_SESSIONS comes first")
+        XCTAssertEqual(AppController.sessionsDirectory(["EVLAT_SESSIONS": ""]).standardizedFileURL.path,
+                       FileManager.default.homeDirectoryForCurrentUser
+                           .appendingPathComponent(".claude/sessions").standardizedFileURL.path)
     }
 
     // MARK: - Choosing an edge

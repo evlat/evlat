@@ -45,7 +45,10 @@ gösteriyor; bir satırın üstünde durunca listenin solunda detay kartı açı
 7,5 satır görünür, liste gövdenin içinde kayar (solmalar, kart satırı izler),
 altında özet satırı; kapalı bar "+N" ile aynı kaldı. `007`'nin kodu bitti:
 bar sağ ya da sol kenara yaslanıyor (sol sağın aynası), seçim maskotun sağ tık
-menüsünde ve tepside, kalıcı (`bar.edge`); bar ana ekranda. Faz 2 kapandı.
+menüsünde ve tepside, kalıcı (`bar.edge`); bar ana ekranda. Faz 2 kapandı. `008`'de
+menü, dizini olan her kaynak (Claude, Codex) için hook'ları kurar, günceller
+ya da kaldırır (`HookSettings`); elle denemede kök `EVLAT_HOME` ile geçici
+dizindir.
 Metinler katalogda (`L10n`, `en`/`tr`). Güncel durum ve açık
 kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
 

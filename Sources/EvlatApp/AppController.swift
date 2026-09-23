@@ -19,6 +19,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// stores nothing — a controller built without it reads no edge and
     /// writes none.
     private let defaults: UserDefaults?
+    /// The home the agents' settings files are found under, for the hook
+    /// entries. Handed in, like `defaults`: only `launch()` resolves the real
+    /// one (`resolvedHome`), so a test never reads or writes `~/.claude` or
+    /// `~/.codex`. `nil` draws no hook entry and never calls the writer.
+    private let home: URL?
+    /// The one thing kept about the hook entries: each source's last refused
+    /// write, drawn as a dim line under its entry until a write succeeds.
+    /// The state itself is read from the file every time a menu is built.
+    private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
     public let registry = Registry()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
@@ -330,12 +339,32 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `EVLAT_SESSIONS` overrides the directory. It exists because the "nothing
     /// is live" state cannot be produced on a machine that has live sessions,
     /// and that state is exactly what the idle-cost measurement needs. v1 uses
-    /// the same pattern (`EVLAT_PORT`, `EVLAT_PET`).
-    nonisolated public static func sessionsDirectory() -> URL {
-        if let path = ProcessInfo.processInfo.environment["EVLAT_SESSIONS"], !path.isEmpty {
+    /// the same pattern (`EVLAT_PORT`, `EVLAT_PET`). Without it the directory
+    /// follows the resolved home, so `EVLAT_HOME` moves it too.
+    nonisolated public static func sessionsDirectory(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let path = environment["EVLAT_SESSIONS"], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return SessionsProvider.defaultDirectory()
+        return SessionsProvider.defaultDirectory(home: resolvedHome(environment))
+    }
+
+    /// The home the app works under: `EVLAT_HOME` (tilde expanded, blank
+    /// ignored), else the user's. It exists so the hook entries can be tried
+    /// by hand against a temporary directory. Only `launch()` and the
+    /// sessions directory ask for it; a controller built without a home
+    /// never does.
+    ///
+    /// Launched with `open`, the shell's environment does not reach the app
+    /// and this is the real home: a hand check runs the binary directly.
+    nonisolated static func resolvedHome(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let raw = environment["EVLAT_HOME"]?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+            return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
     }
 
     nonisolated public static func makeSessionsProvider() -> SessionsProvider {
@@ -610,8 +639,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return lock.withLock { answer } ?? "no answer within \(timeout + 2) s"
     }
 
-    public init(defaults: UserDefaults? = nil) {
+    public init(defaults: UserDefaults? = nil, home: URL? = nil) {
         self.defaults = defaults
+        self.home = home
         super.init()
     }
 
@@ -800,8 +830,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated public static func launch() -> Never {
         MainActor.assumeIsolated {
             let app = NSApplication.shared
-            // The one place the user's domain is handed in.
-            let controller = AppController(defaults: .standard)
+            // The one place the user's domain and home are handed in.
+            let controller = AppController(defaults: .standard, home: resolvedHome())
             app.delegate = controller
             app.run()
         }
@@ -1097,12 +1127,35 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Every title the menus ask the catalogue for; the phases' are
     /// `StatusLine`'s.
     static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
-                           "menu.quit", "menu.force", "menu.force.follow"]
+                           "menu.quit", "menu.force", "menu.force.follow",
+                           "menu.hooks.install", "menu.hooks.update", "menu.hooks.remove",
+                           "menu.hooks.hint.claude", "menu.hooks.hint.codex", "menu.hooks.hint.remove",
+                           "menu.hooks.error.unreadable", "menu.hooks.error.malformed",
+                           "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
+                           "menu.hooks.error.unwritable"]
 
-    /// The one menu: *Edge ▸ Right / Left*, the current one marked, and
-    /// *Quit*. The tray's (`diagnostics`) adds *Force state ▸*. No hook
-    /// setup entry: that flow is Faz 4's, and an entry with nowhere to go
-    /// promises what it cannot keep.
+    /// A refused write's line. A switch, not a string built from the case,
+    /// so a new failure does not compile until it has a line.
+    nonisolated static func failureKey(_ failure: HookSettings.Failure) -> String {
+        switch failure {
+        case .unreadable: return "menu.hooks.error.unreadable"
+        case .malformed: return "menu.hooks.error.malformed"
+        case .noDirectory: return "menu.hooks.error.noDirectory"
+        case .changedUnderneath: return "menu.hooks.error.changedUnderneath"
+        case .unwritable: return "menu.hooks.error.unwritable"
+        }
+    }
+
+    /// What a hook entry does, fixed when the menu is built: the click does
+    /// what its title said, even if the file changed while the menu was open.
+    struct HookEntry {
+        let source: AgentSource
+        let remove: Bool
+    }
+
+    /// The one menu: *Edge ▸ Right / Left*, the current one marked, one
+    /// entry per agent that is there, and *Quit*. The tray's (`diagnostics`)
+    /// adds *Force state ▸*.
     func makeMenu(diagnostics: Bool, in lang: String = L10n.language) -> NSMenu {
         let menu = NSMenu()
         fill(menu, diagnostics: diagnostics, in: lang)
@@ -1143,11 +1196,80 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             forcedItem.submenu = forced
         }
 
+        addHookEntries(to: menu, in: lang)
+
         menu.addItem(.separator())
         let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
 
+    }
+
+    /// One entry per agent whose directory exists, titled by what the file
+    /// holds now: install, update or remove. The file is read each time a
+    /// menu is built, never cached and never written here. A directory that
+    /// is not there means the agent is not installed; no entry offers to
+    /// create it.
+    private func addHookEntries(to menu: NSMenu, in lang: String) {
+        guard let home else { return }
+        let sources = AgentSource.allCases.filter { source in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: source.configDirectory(home: home).path,
+                                                  isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+        guard !sources.isEmpty else { return }
+        menu.addItem(.separator())
+        for source in sources {
+            // A file that cannot be read offers the install: the click then
+            // says why it cannot happen, in the line below.
+            let state = (try? HookSettings.state(at: source.settingsFile(home: home), for: source)) ?? .missing
+            let key: String
+            switch state {
+            case .missing: key = "menu.hooks.install"
+            case .outdated: key = "menu.hooks.update"
+            case .current: key = "menu.hooks.remove"
+            }
+            let name = L10n.t("source.\(source.rawValue)", in: lang)
+            let entry = menu.addItem(withTitle: L10n.t(key, ["source": name], in: lang),
+                                     action: #selector(changeHooks(_:)), keyEquivalent: "")
+            entry.representedObject = HookEntry(source: source, remove: state == .current)
+            entry.target = self
+            // What the agent needs after the write. Removing only matters to
+            // Codex, whose trust is keyed by a group's index.
+            switch (state, source) {
+            case (.current, .claude): break
+            case (.current, .codex): entry.toolTip = L10n.t("menu.hooks.hint.remove", in: lang)
+            case (_, .claude): entry.toolTip = L10n.t("menu.hooks.hint.claude", in: lang)
+            case (_, .codex): entry.toolTip = L10n.t("menu.hooks.hint.codex", in: lang)
+            }
+            if let failure = hookFailures[source] {
+                let line = menu.addItem(withTitle: L10n.t(Self.failureKey(failure), in: lang),
+                                        action: nil, keyEquivalent: "")
+                line.isEnabled = false
+                line.indentationLevel = 1
+            }
+        }
+    }
+
+    /// A hook entry: the writer, then the outcome kept for the next menu —
+    /// no dialog, no success message; the title changing is the answer.
+    /// Like the edge, the open list closes and nothing is activated.
+    @objc func changeHooks(_ sender: NSMenuItem) {
+        guard let home, let entry = sender.representedObject as? HookEntry else { return }
+        let file = entry.source.settingsFile(home: home)
+        do {
+            if entry.remove {
+                try HookSettings.remove(at: file, for: entry.source)
+            } else {
+                try HookSettings.install(at: file, for: entry.source)
+            }
+            hookFailures[entry.source] = nil
+        } catch {
+            hookFailures[entry.source] = error as? HookSettings.Failure ?? .unwritable
+        }
+        hover.closeNow()
+        // The intent may already have believed the bar closed.
+        if barState.isOpen { closeBar() }
     }
 
     /// A right click (or ctrl-click) on the bar, in the content view's

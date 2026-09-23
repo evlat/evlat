@@ -35,3 +35,15 @@
 "menu.quit" = "Evlat'tan Çık";
 "menu.force" = "Durumu zorla";
 "menu.force.follow" = "Oturumları izle";
+
+"menu.hooks.install" = "{source} hook'larını kur";
+"menu.hooks.update" = "{source} hook'larını güncelle";
+"menu.hooks.remove" = "{source} hook'larını kaldır";
+"menu.hooks.hint.claude" = "Açık Claude Code oturumlarında değişikliği yüklemek için /hooks'u bir kez aç.";
+"menu.hooks.hint.codex" = "Codex yeni hook'lara güvenip güvenmediğini soracak.";
+"menu.hooks.hint.remove" = "Codex diğer hook'larına yeniden güvenmeni isteyebilir.";
+"menu.hooks.error.unreadable" = "Ayar dosyası okunamadı";
+"menu.hooks.error.malformed" = "Ayar dosyası geçerli JSON değil; olduğu gibi bırakıldı";
+"menu.hooks.error.noDirectory" = "Aracın klasörü yok";
+"menu.hooks.error.changedUnderneath" = "Dosya yazılırken değişti; yeniden dene";
+"menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";

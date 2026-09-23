@@ -54,3 +54,21 @@
    (the phases are the status line's words), and the entry that lets it go. */
 "menu.force" = "Force state";
 "menu.force.follow" = "Follow sessions";
+
+/* The hook entries, one per agent whose folder exists. {source} is the
+   agent's name (source.claude, source.codex). The title says what a click
+   does: the hooks are not there, differ from today's, or are current. */
+"menu.hooks.install" = "Install {source} hooks";
+"menu.hooks.update" = "Update {source} hooks";
+"menu.hooks.remove" = "Remove {source} hooks";
+/* An entry's tooltip: what the agent needs after the write. */
+"menu.hooks.hint.claude" = "In open Claude Code sessions, open /hooks once to load the change.";
+"menu.hooks.hint.codex" = "Codex asks you to trust the new hooks.";
+"menu.hooks.hint.remove" = "Codex may ask again to trust your other hooks.";
+/* A refused write: one dim line under the entry, until a write succeeds.
+   The file is left as it was in every case. */
+"menu.hooks.error.unreadable" = "The settings file could not be read";
+"menu.hooks.error.malformed" = "The settings file is not valid JSON; left as is";
+"menu.hooks.error.noDirectory" = "The agent's folder is gone";
+"menu.hooks.error.changedUnderneath" = "The file changed while writing; try again";
+"menu.hooks.error.unwritable" = "The settings file could not be written";
