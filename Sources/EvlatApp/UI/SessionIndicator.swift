@@ -1,25 +1,52 @@
 import SwiftUI
 import EvlatCore
 
-/// The column under the mascot: one ring per slot, and the overflow count.
+/// The column under the mascot: one ring per slot, and the overflow count;
+/// on the open bar, each ring's session name to its left.
 ///
 /// It observes `SessionRowsModel` and nothing else — the mascot's gaze moves
 /// with the cursor, and a column that observed the mascot would be rebuilt at
-/// that rate for nothing.
+/// that rate for nothing. Whether names show is handed in by `BarBody`, which
+/// reads it off its own width.
 struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
+    var showsNames = false
+
+    /// Room between the open bar's inner edge and the start of a name.
+    private static let nameInset: CGFloat = 16
 
     var body: some View {
-        VStack(spacing: AppController.indicatorSpacing) {
+        VStack(alignment: .trailing, spacing: AppController.indicatorSpacing) {
             // Identity is the session, so a reorder travels on the spring
             // rather than snapping rings into each other's places.
             ForEach(model.rows) { row in
-                SessionIndicator(phase: row.phase,
-                                 // Only a beating row sees the counter move. A
-                                 // still row's trigger never changes on the
-                                 // beat, so it plays nothing and draws nothing.
-                                 beat: row.beats ? model.beat : 0)
-                    .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                HStack(spacing: 0) {
+                    if showsNames {
+                        // The name is data, not text of ours: it is what the
+                        // user called the session, so it bypasses the string
+                        // lookup (`verbatim`) and needs no catalogue entry.
+                        Text(verbatim: row.label)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // Held to a ring's height: a taller line would
+                            // push the rings apart the moment the bar opens.
+                            .frame(height: AppController.indicatorSize)
+                            .padding(.leading, Self.nameInset)
+                            .transition(.opacity)
+                    }
+                    // Centred in the collapsed bar's width, the same column
+                    // the mascot sits in, so opening the bar moves no ring.
+                    SessionIndicator(phase: row.phase,
+                                     // Only a beating row sees the counter move. A
+                                     // still row's trigger never changes on the
+                                     // beat, so it plays nothing and draws nothing.
+                                     beat: row.beats ? model.beat : 0)
+                        .frame(width: AppController.barWidth)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .trailing)))
             }
             if model.overflow > 0 {
                 // A number, not a word: no user text until the catalogue.
@@ -32,11 +59,13 @@ struct SessionColumn: View {
                     .lineLimit(1)
                     .fixedSize()
                     .frame(height: AppController.indicatorSize)
+                    .frame(width: AppController.barWidth)
                     .transition(.opacity)
             }
         }
         .animation(MascotPose.transition, value: model.rows)
         .animation(MascotPose.transition, value: model.overflow)
+        .animation(.easeOut(duration: 0.15), value: showsNames)
     }
 }
 

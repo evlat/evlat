@@ -34,6 +34,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     private var hookListener: HookListener?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
+    /// When a cursor over the bar opens it, and when leaving closes it.
+    private let hover = HoverIntent()
     private var poller: Timer?
     private var screenObserver: NSObjectProtocol?
     /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
@@ -54,6 +56,12 @@ public final class AppController: NSObject, NSApplicationDelegate {
     public static let shadowGutter: CGFloat = 18
 
     public static let collapsedSize = CGSize(width: barWidth + shadowGutter, height: barHeight)
+
+    /// The bar's width while the cursor is over it: room for a session's name
+    /// to the left of its ring. The height does not change — the rows are the
+    /// same rows, only named.
+    public static let expandedBarWidth: CGFloat = 200
+    public static let expandedSize = CGSize(width: expandedBarWidth + shadowGutter, height: barHeight)
 
     /// The mascot sits at the head of the bar.
     public static let mascotSize: CGFloat = 34
@@ -343,9 +351,15 @@ public final class AppController: NSObject, NSApplicationDelegate {
 
         let panel = BarPanel(edge: .right,
                              size: Self.collapsedSize,
+                             expandedSize: Self.expandedSize,
+                             trackingInset: Self.shadowGutter,
                              content: BarBody(edge: .right, mascot: mascot, rows: sessionRows))
         panel.show()
         self.panel = panel
+        // The panel resizes; `BarBody` reads the new width and names the rows.
+        // Nothing else carries "open": no published flag, no second owner of
+        // the size.
+        hover.onChange = { [weak panel] open in panel?.setExpanded(open) }
 
         // A phase forced from the environment, for looking at one state and for
         // measuring it. Set before the first refresh so the mascot never shows
@@ -371,6 +385,22 @@ public final class AppController: NSObject, NSApplicationDelegate {
         }
         tracker.start()
         gaze = tracker
+
+        panel.onPointer = { [weak self] pointer in
+            guard let self else { return }
+            switch pointer {
+            case .entered:
+                self.hover.pointerEntered()
+            case .exited:
+                self.hover.pointerExited()
+            case .moved(let point):
+                // A move is only reported inside the bar, so it also says
+                // "still here" — which is what cancels a close pending from a
+                // missed exit/enter pair.
+                self.hover.pointerEntered()
+                self.gaze?.observe(point)
+            }
+        }
 
         // Resolution changes, an unplugged display, or the Dock moving to the
         // right edge all change `visibleFrame`. Without this the bar keeps a
@@ -496,7 +526,8 @@ public final class AppController: NSObject, NSApplicationDelegate {
     }
 
     /// Menu-bar entry. The bar's own right-click menu and the settings window
-    /// belong to `003`/`004`.
+    /// come with the first job that needs user text, together with the string
+    /// catalogue; this menu's titles are diagnostics until then.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "square.on.square",
@@ -537,29 +568,39 @@ public final class AppController: NSObject, NSApplicationDelegate {
 }
 
 /// The bar's body: the shape, the mascot at its head, the session rings
-/// beneath it.
+/// beneath it, and — while the bar is open — their names.
 ///
-/// **It observes nothing itself.** The mascot and the column each observe
-/// their own model, so a gaze write re-evaluates the mascot and not the rings,
-/// and a beat re-evaluates the rings and not the mascot.
+/// **It observes no model itself.** The mascot and the column each observe
+/// their own, so a gaze write re-evaluates the mascot and not the rings, and a
+/// beat re-evaluates the rings and not the mascot. What it does read is its
+/// own width: the panel is the sole owner of the size, and "open" is nothing
+/// more than the window being wider than the collapsed bar.
 struct BarBody: View {
     var edge: BarPanel.Edge = .right
     let mascot: MascotModel
     let rows: SessionRowsModel
 
     var body: some View {
-        ZStack(alignment: .top) {
-            shapeLayer
-            VStack(spacing: AppController.indicatorTopGap) {
-                // The mascot is the head of the bar; the rings line up beneath.
-                MascotView(model: mascot, size: AppController.mascotSize)
-                SessionColumn(model: rows)
+        GeometryReader { proxy in
+            let open = proxy.size.width > AppController.collapsedSize.width + 0.5
+            ZStack(alignment: .topTrailing) {
+                shapeLayer
+                // Pinned to the screen edge at the bar's collapsed width. The
+                // window grows leftward; centred, the mascot and the rings
+                // would slide into the middle of the open bar and the gaze
+                // anchor (`maxX − barWidth / 2`) would point at empty space.
+                VStack(alignment: .trailing, spacing: AppController.indicatorTopGap) {
+                    // The mascot is the head of the bar; the rings line up beneath.
+                    MascotView(model: mascot, size: AppController.mascotSize)
+                        .frame(width: AppController.barWidth)
+                    SessionColumn(model: rows, showsNames: open)
+                }
+                .padding(.top, AppController.mascotTopInset)
             }
-            .padding(.top, AppController.mascotTopInset)
+            // The window is wider than the bar so the inner-edge shadow has
+            // somewhere to fall; everything inside sits in the bar's own width.
+            .padding(.leading, AppController.shadowGutter)
         }
-        // The window is wider than the bar so the inner-edge shadow has somewhere
-        // to fall; everything inside sits in the bar's own width.
-        .padding(.leading, AppController.shadowGutter)
     }
 
     private var shapeLayer: some View {

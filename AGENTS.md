@@ -67,6 +67,10 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
 - **Ölçülecek ikili mutlak yolla başlatılır.** Göreli yolla (`build/Evlat.app/…`)
   koşan süreç `pgrep -f 'evlat-v2/build/…'`'e ve `Makefile`'ın korumasına
   görünmez; `003/phase-4`'te ölçüm boş pid okudu.
+- **Boş `EVLAT_SESSIONS` ölçümü yalıtmaz; `EVLAT_PORT` da gerekir.** Asıl
+  Evlat kapatılınca ölçülen süreç `48151`'i alır ve açık Claude oturumlarının
+  hook'ları ona akar: "0 satır" boşta %3,92 okudu, stderr'de `working` satırı
+  vardı; `EVLAT_PORT=48999` ile aynı paket %0,02 (`004/phase-3`).
 - **Patlayan klipte 90 sn'lik sayı *klip içi maliyet × çevrim oranı*dır.** Klip
   içi maliyet beklemesiz varyantla (`EVLAT_MASCOT_PACING=continuous`) ayrı
   ölçülür; çarpım 90 sn'yi iki yönde de şaşırıyor (`003`'te %37 altında, ~2 kat

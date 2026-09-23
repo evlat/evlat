@@ -22,8 +22,101 @@ final class PanelConfigTests: XCTestCase {
         _ = NSApplication.shared
     }
 
+    private static let collapsed = CGSize(width: 56, height: 220)
+    private static let expanded = CGSize(width: 220, height: 220)
+    private static let gutter: CGFloat = 18
+
     private func makePanel(edge: BarPanel.Edge = .right) -> BarPanel {
-        BarPanel(edge: edge, size: CGSize(width: 56, height: 220), content: EmptyView())
+        BarPanel(edge: edge, size: Self.collapsed, expandedSize: Self.expanded,
+                 trackingInset: Self.gutter, content: EmptyView())
+    }
+
+    // MARK: - Hover: the panel grows leftward
+
+    /// The gutter is on the side away from the docked edge; trimming the
+    /// wrong side would hover over the shadow and drop real bar.
+    func testTheTrackingRectDropsTheGutterOnTheInnerSide() {
+        let bounds = NSRect(x: 0, y: 0, width: 72, height: 260)
+        let right = BarHostingView.trackingRect(in: bounds, inset: 18, edge: .right)
+        XCTAssertEqual(right, NSRect(x: 18, y: 0, width: 54, height: 260))
+        let left = BarHostingView.trackingRect(in: bounds, inset: 18, edge: .left)
+        XCTAssertEqual(left, NSRect(x: 0, y: 0, width: 54, height: 260))
+    }
+
+    /// The bar opens INTO the screen. Its screen-side edge — and with it the
+    /// mascot and the gaze anchor, both read off `maxX` — must not move.
+    func testExpandingKeepsTheRightEdgeWhereItWas() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let panel = makePanel(edge: .right)
+        panel.reposition(on: screen)
+        let before = panel.frame
+
+        panel.setExpanded(true)
+        XCTAssertTrue(panel.isExpanded)
+        XCTAssertEqual(panel.frame.width, Self.expanded.width, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxX, before.maxX, accuracy: 0.5,
+                       "the bar grows leftward; the edge stays put")
+        XCTAssertEqual(panel.frame.midY, before.midY, accuracy: 0.5)
+
+        panel.setExpanded(false)
+        XCTAssertEqual(panel.frame.width, Self.collapsed.width, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxX, before.maxX, accuracy: 0.5)
+    }
+
+    /// A screen change while open lays the bar out at the size it has, not at
+    /// the collapsed one it was built with.
+    func testRepositioningAnExpandedPanelKeepsItsSize() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let panel = makePanel(edge: .right)
+        panel.setExpanded(true)
+        panel.reposition(on: screen)
+        XCTAssertEqual(panel.frame.width, Self.expanded.width, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxX, screen.visibleFrame.maxX, accuracy: 0.5)
+    }
+
+    /// Growing the window is not a reason to take focus.
+    func testExpandingDoesNotTakeFocus() {
+        let app = NSApplication.shared
+        let wasActive = app.isActive
+        let panel = makePanel()
+        panel.show()
+        panel.setExpanded(true)
+        XCTAssertFalse(panel.canBecomeKey)
+        XCTAssertFalse(panel.isKeyWindow)
+        XCTAssertEqual(app.isActive, wasActive, "opening the bar must not activate the app")
+        panel.close()
+    }
+
+    /// The area that notices the cursor: always active (the app is
+    /// `.accessory` and never becomes active, so the default would never
+    /// fire), and on the visible bar — not on the transparent shadow gutter,
+    /// where the cursor sees nothing to hover over.
+    func testTheTrackingAreaCoversTheBarAndNotTheGutter() throws {
+        let panel = makePanel()
+        let view = try XCTUnwrap(panel.contentView)
+
+        func area() throws -> NSTrackingArea {
+            let owned = view.trackingAreas.filter { $0.owner is BarHostingView.PointerRelay }
+            XCTAssertEqual(owned.count, 1, "exactly one area of ours, however often it is rebuilt")
+            return try XCTUnwrap(owned.first)
+        }
+
+        view.updateTrackingAreas()
+        let collapsed = try area()
+        XCTAssertTrue(collapsed.options.contains(.activeAlways))
+        XCTAssertTrue(collapsed.options.contains(.mouseEnteredAndExited))
+        XCTAssertTrue(collapsed.options.contains(.mouseMoved))
+        XCTAssertEqual(collapsed.rect.minX, Self.gutter, accuracy: 0.5)
+        XCTAssertEqual(collapsed.rect.maxX, Self.collapsed.width, accuracy: 0.5)
+
+        // An area left at the collapsed size would put the newly revealed
+        // strip outside it: the cursor moving onto the open bar would read as
+        // leaving, and the bar would fold under it.
+        panel.setExpanded(true)
+        view.updateTrackingAreas()
+        let expanded = try area()
+        XCTAssertEqual(expanded.rect.minX, Self.gutter, accuracy: 0.5)
+        XCTAssertEqual(expanded.rect.maxX, Self.expanded.width, accuracy: 0.5)
     }
 
     func testPanelNeverTakesFocus() {

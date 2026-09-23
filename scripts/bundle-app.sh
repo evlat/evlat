@@ -17,7 +17,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# There are no string tables yet (004); when they arrive this loop checks them
+# There are no string tables yet (they come with the first job that needs user
+# text); when they arrive this loop checks them
 # before the bundle is torn down.
 shopt -s nullglob
 for f in Resources/*.lproj/*.strings; do
@@ -59,7 +60,7 @@ PLIST
 # The exit status is NOT swallowed. This call binds Info.plist and Resources
 # into the seal — it is the reason .DS_Store is deleted above. A silent failure
 # ships a half-sealed bundle that still launches today, and turns into a launch
-# or TCC failure the moment 004 adds a catalogue or an entitlement, with nothing
+# or TCC failure the moment a catalogue or an entitlement is added, with nothing
 # pointing back here.
 if ! codesign --force --sign - "$APP"; then
   echo "codesign failed; the bundle is not sealed" >&2

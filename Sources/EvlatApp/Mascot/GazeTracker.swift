@@ -39,6 +39,16 @@ final class GazeTracker {
         monitor = nil
     }
 
+    /// A cursor position from somewhere other than the global monitor.
+    ///
+    /// The monitor only hears events bound for **other** applications, so
+    /// over our own panel — exactly where the cursor is while the bar is open
+    /// — the gaze would go blind. The panel's tracking area feeds its moves
+    /// in here, through the same deadband.
+    func observe(_ point: CGPoint) {
+        update(to: point)
+    }
+
     /// Below this change in either component the gaze is not republished.
     ///
     /// Without it every `.mouseMoved` event — one per display refresh while the
