@@ -13,7 +13,9 @@ public struct Signal: Equatable {
     public let kind: Kind
     public let phase: Phase
     /// 0…1. Sessions never produce this; a filled ring only appears once a
-    /// provider supplies it.
+    /// provider supplies it. A usage window is the exception to the ceiling:
+    /// it is used/100 and **may exceed 1** (a window run past its limit), so
+    /// the value is kept as the source said it and drawing clips at 1.
     public let progress: Double?
     /// Short name, the one shown in the list.
     public let label: String
@@ -44,11 +46,30 @@ public struct Signal: Equatable {
     /// (`Registry.reconcile`): a report whose phase is vetoed still knows which
     /// tool ran.
     public let activity: Activity?
+    /// The window a `kind: .usage` signal describes; `nil` on every other
+    /// kind. The contract such a signal keeps:
+    ///
+    /// - `kind: .usage`, `phase: .idle` — it has no state to report;
+    /// - `progress` = used/100 (see above);
+    /// - `updatedAt` = when the numbers were **observed**, not when the window
+    ///   resets: staleness is read from it (a presentation question — the
+    ///   `Snapshot` takes no clock);
+    /// - `entity` = `usage:{provider}:{windowMinutes}`, namespaced so it can
+    ///   never merge with a session's id.
+    ///
+    /// **Not a phase, and not a new state** — the same argument as `activity`.
+    /// It adds no `Phase` value, changes no priority and draws nothing on the
+    /// session line: `Registry.Snapshot` splits usage signals out by `kind`
+    /// before the order, the aggregate and `hasLive` are computed. So the
+    /// "three places" rule (priority, indicator language, mascot table) is not
+    /// triggered.
+    public let usage: Usage?
 
     public init(provider: String, entity: String, kind: Kind = .session,
                 phase: Phase, progress: Double? = nil, label: String,
                 detail: String? = nil, source: AgentSource? = nil, fidelity: Fidelity,
-                rawStatus: String? = nil, updatedAt: Date, activity: Activity? = nil) {
+                rawStatus: String? = nil, updatedAt: Date, activity: Activity? = nil,
+                usage: Usage? = nil) {
         self.provider = provider
         self.entity = entity
         self.kind = kind
@@ -61,6 +82,7 @@ public struct Signal: Equatable {
         self.rawStatus = rawStatus
         self.updatedAt = updatedAt
         self.activity = activity
+        self.usage = usage
     }
 
     /// The same signal with another activity. `Registry.reconcile` needs it on
@@ -69,7 +91,28 @@ public struct Signal: Equatable {
     public func with(activity: Activity?) -> Signal {
         Signal(provider: provider, entity: entity, kind: kind, phase: phase, progress: progress,
                label: label, detail: detail, source: source, fidelity: fidelity,
-               rawStatus: rawStatus, updatedAt: updatedAt, activity: activity)
+               rawStatus: rawStatus, updatedAt: updatedAt, activity: activity, usage: usage)
+    }
+
+    /// One rate-limit window: which group it is shown under, how long it is
+    /// and when it starts over.
+    public struct Usage: Equatable {
+        /// The name the group is shown under ("Claude", "Codex"). A proper
+        /// name, not catalogue text; and not `Signal.source`, which says which
+        /// agent a *session* runs in and is never branched on. The bar groups
+        /// by this string and nothing else.
+        public let group: String
+        /// The window's length: 300 for five hours, 10080 for seven days. The
+        /// label is derived from it, so a window nobody planned for still
+        /// gets one.
+        public let windowMinutes: Int
+        public let resetsAt: Date
+
+        public init(group: String, windowMinutes: Int, resetsAt: Date) {
+            self.group = group
+            self.windowMinutes = windowMinutes
+            self.resetsAt = resetsAt
+        }
     }
 
     /// The card's data. Each field is `nil` when the source never said it;

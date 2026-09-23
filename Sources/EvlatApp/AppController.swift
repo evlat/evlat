@@ -511,6 +511,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         for signal in snapshot.ordered {
             print(listLine(signal, host: SessionHost.resolve(pid: signal.activity?.pid)))
         }
+        // Apart from the sessions and outside their count: a usage window is
+        // not a session (`Registry.Snapshot`).
+        for signal in snapshot.usage {
+            print(usageLine(signal))
+        }
         if !provider.unrecognizedStatuses.isEmpty {
             print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
         }
@@ -539,6 +544,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
         let terminal = host.map { "  → \($0.diagnostic)" } ?? ""
         return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")\(terminal)"
+    }
+
+    /// One `--list` usage row: group, window, percent, reset, observation and
+    /// fidelity. The percent is printed as the source said it, past 100 too —
+    /// this is the diagnostic the bar's clipped bar is checked against. Dates
+    /// are ISO 8601 so the line reads the same in every locale.
+    nonisolated static func usageLine(_ signal: Signal) -> String {
+        let iso = ISO8601DateFormatter()
+        // `Int(_:)` traps on NaN and infinity, and `progress` is kept as the
+        // source said it; the diagnostic must survive the odd value it is for.
+        let percent = signal.progress.map { value -> String in
+            let scaled = (value * 100).rounded()
+            return scaled.isFinite ? "\(Int(scaled))%" : "\(value)"
+        } ?? "—"
+        let window = signal.usage.map { "\($0.group) \($0.windowMinutes)m" } ?? "\(signal.entity) (no window)"
+        let resets = signal.usage.map { "  resets \(iso.string(from: $0.resetsAt))" } ?? ""
+        return "  usage    \(window)  \(percent)\(resets)  seen \(iso.string(from: signal.updatedAt))"
+            + "  (\(signal.fidelity.rawValue))"
     }
 
     /// The hook endpoint's own diagnostics.

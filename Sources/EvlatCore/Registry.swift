@@ -99,7 +99,8 @@ public final class Registry {
                       detail: report.detail ?? baseline.detail,
                       source: report.source ?? baseline.source, fidelity: report.fidelity,
                       rawStatus: report.rawStatus, updatedAt: report.updatedAt,
-                      activity: activity.map { shown($0, on: report.phase) })
+                      activity: activity.map { shown($0, on: report.phase) },
+                      usage: report.usage ?? baseline.usage)
     }
 
     /// A wait belongs to a row that waits. A refused report is a stale one
@@ -178,18 +179,37 @@ public final class Registry {
         public let aggregate: Phase
         /// Is anything live? **Not a phase**, a render condition: the mascot's
         /// blink and breath loops check this and leave the view tree when it is
-        /// false (ROADMAP → Render yolu, idle drawing stops).
+        /// false (ROADMAP → Render yolu, idle drawing stops). A usage signal
+        /// never enters it: a limit being read is not something live, and
+        /// letting it in would keep the mascot's loops running on an idle
+        /// machine for as long as a window is known.
         public var hasLive: Bool { !ordered.isEmpty }
+        /// The usage windows, apart from the session line: by group, then by
+        /// window length, then by `entity` — deterministic, never by stamp.
+        public let usage: [Signal]
 
         public init(signals: [Signal]) {
+            // Split on `kind`, never on the provider's name: a usage source
+            // nobody has written yet lands here too, and none of them reaches
+            // the order, the aggregate or `hasLive`.
+            let sessionLine = signals.filter { $0.kind != .usage }
             // The stamp stays out of the order: the hook refreshes it on every
             // `PostToolUse`, so sorting by it reshuffled the rows at event rate.
-            ordered = signals.sorted {
+            ordered = sessionLine.sorted {
                 $0.phase.priority != $1.phase.priority
                     ? $0.phase.priority > $1.phase.priority
                     : $0.entity < $1.entity
             }
-            aggregate = signals.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
+            aggregate = sessionLine.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
+            // A usage row missing its field is a provider's mistake; it sorts
+            // last rather than being dropped, so the mistake stays visible.
+            usage = signals.filter { $0.kind == .usage }.sorted {
+                let a = ($0.usage == nil ? 1 : 0, $0.usage?.group ?? "",
+                         $0.usage?.windowMinutes ?? 0)
+                let b = ($1.usage == nil ? 1 : 0, $1.usage?.group ?? "",
+                         $1.usage?.windowMinutes ?? 0)
+                return a != b ? a < b : $0.entity < $1.entity
+            }
         }
     }
 
