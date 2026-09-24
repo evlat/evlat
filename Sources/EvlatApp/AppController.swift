@@ -870,6 +870,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                               locator: ClaudeLocator(),
                               now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
                               trash: ChatStore.trash(environment: ProcessInfo.processInfo.environment),
+                              defaultMode: { [unowned self] in MainActor.assumeIsolated { self.defaultMode } },
                               onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         self.chats = chats
         registry.register(Self.makeSessionsProvider(excluding: { [weak chats] in chats?.sessionIDs ?? [] }))
@@ -1173,6 +1174,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The browser comes forward and the balloon, losing the keyboard,
         // closes: Evlat activates nothing itself.
         chatModel.onOpenLink = { url in NSWorkspace.shared.open(url) }
+        chatModel.onMode = { [weak self] in self?.showModes() }
+        chatModel.onRetry = { [weak self] line in self?.retryAsking(line) }
         chatModel.onNew = { [weak self] in self?.show(nil) }
         chatModel.onOpen = { [weak self] id in self?.show(id) }
         chatModel.onPin = { [weak self] id, pinned in
@@ -1198,12 +1201,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// A prompt from the balloon: the chat is made with the first one, in
     /// the folder the label shows (`pendingFolder`); the files go with it,
     /// named from that folder.
-    private func send(_ text: String) {
+    /// `attaching` is false for a prompt Evlat words itself (a retry): the
+    /// chips stay for the user's own next line.
+    private func send(_ text: String, attaching: Bool = true) {
         guard let chats else { return }
-        let id = currentChat ?? chats.newChat(folder: pendingFolder)
+        let id = currentChat ?? chats.newChat(folder: pendingFolder, mode: chosenMode)
         currentChat = id
+        chosenMode = nil
         let folder = chats.chat(id)?.folder ?? ""
-        let files = chatModel.takeAttachments().map { ChatFolder.attachmentPath($0.path, in: folder) }
+        let files = (attaching ? chatModel.takeAttachments() : []).map { ChatFolder.attachmentPath($0.path, in: folder) }
         chosenFolder = nil
         chats.perform(.send(chat: id, text: text, attachments: files))
         syncChat()
@@ -1357,6 +1363,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                   when: $0.lastActivity, pinned: $0.pinned)
         } ?? [])
         chatModel.setFiles(chat.map { chats?.workspaceFiles($0.id).map(\.path) ?? [] } ?? [])
+        refreshMode()
     }
 
     /// After a × or a clear: a balloon speaking for a chat that is gone
@@ -1414,6 +1421,77 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     func hotKeyPressed() {
         toggleChat()
+    }
+
+    // MARK: - Permission mode (`011/phase-3` ek)
+
+    /// A new chat's mode, stored by its CLI value; none stored is auto.
+    nonisolated static let permissionModeKey = "chat.permissionMode"
+
+    nonisolated static func storedMode(_ defaults: UserDefaults?) -> PermissionMode {
+        PermissionMode(stored: defaults?.string(forKey: permissionModeKey)) ?? .standard
+    }
+
+    /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
+    /// `EVLAT_CHATS`), which must not change the user's default — kept here.
+    private var modeUnstored = PermissionMode.standard
+    private var modeDefaults: UserDefaults? {
+        ChatStore.isolated(ProcessInfo.processInfo.environment) ? nil : defaults
+    }
+    var defaultMode: PermissionMode { modeDefaults.map(Self.storedMode) ?? modeUnstored }
+
+    /// The mode picked for a chat not made yet; `nil` is the default.
+    private(set) var chosenMode: PermissionMode?
+
+    /// The mode the label shows: the chat's, or the next chat's.
+    private func refreshMode() {
+        if let id = currentChat, let chat = chats?.chat(id) {
+            chatModel.setMode(chat.mode)
+        } else {
+            chatModel.setMode(chosenMode ?? defaultMode)
+        }
+    }
+
+    /// The label's menu at the pointer: the three modes, the current one
+    /// ticked, each with what it does as its tooltip.
+    private func showModes() {
+        let menu = NSMenu()
+        for mode in PermissionMode.allCases {
+            let item = menu.addItem(withTitle: L10n.t(ChatModel.modeKey(mode)),
+                                    action: #selector(chooseMode(_:)), keyEquivalent: "")
+            item.representedObject = mode.rawValue
+            item.toolTip = L10n.t(ChatModel.modeDetailKey(mode))
+            item.state = chatModel.mode == mode ? .on : .off
+            item.target = self
+        }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    /// A mode picked from the label: the chat's from its next turn, and
+    /// the default for the chats after it.
+    @objc private func chooseMode(_ sender: NSMenuItem) {
+        guard let mode = (sender.representedObject as? String).flatMap(PermissionMode.init(rawValue:)) else { return }
+        choose(mode)
+    }
+
+    func choose(_ mode: PermissionMode) {
+        if let id = currentChat, chats?.chat(id) != nil {
+            chats?.setMode(id, mode)
+        } else {
+            chosenMode = mode
+        }
+        if let modeDefaults { modeDefaults.set(mode.rawValue, forKey: Self.permissionModeKey) } else { modeUnstored = mode }
+        refreshMode()
+    }
+
+    /// `[Retry in Ask mode]` on a "not done" line: this chat asks from now
+    /// on — the default stays — and Claude is asked to try the call again,
+    /// so it comes back as a card.
+    func retryAsking(_ line: ChatSession.NotDone) {
+        guard let id = currentChat, let chat = chats?.chat(id), !chat.isRunning else { return }
+        chats?.setMode(id, .ask)
+        refreshMode()
+        send(L10n.t("chat.notDone.prompt", ["command": line.subject ?? line.tool]), attaching: false)
     }
 
     /// The stored switch, default on.

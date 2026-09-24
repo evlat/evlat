@@ -151,6 +151,17 @@
 "chat.folder.workspace" = "Kendi klasörü";
 "chat.folder.change" = "{folder} içinde çalışır — başka klasör seçmek için tıkla";
 "chat.folder.show" = "{folder} içinde çalışır — Finder'da göstermek için tıkla";
+"chat.mode.help" = "İzin kipi: {mode} — değiştirmek için tıkla";
+"chat.mode.ask" = "Sor";
+"chat.mode.auto" = "Otomatik";
+"chat.mode.acceptEdits" = "Düzenlemeleri kabul et";
+"chat.mode.ask.detail" = "Dosya düzenlemeden ya da komut çalıştırmadan önce sorar.";
+"chat.mode.auto.detail" = "Her adımı senin yerine bir sınıflandırıcı denetler. Silme, sudo, git push gibileri yine sorar.";
+"chat.mode.acceptEdits.detail" = "Bu klasördeki dosyaları sormadan düzenler; komutlar yine sorar.";
+"chat.notDone.auto" = "Otomatik kip bunu yapmadı:";
+"chat.notDone" = "Yapılmadı:";
+"chat.notDone.retry" = "Sor kipinde tekrar dene";
+"chat.notDone.prompt" = "Bunu tekrar dene: {command}";
 "chat.hint" = "Dosya bırakabilirsin · Esc kapatır";
 "chat.missing" = "Claude Code bulunamadı — kurduktan sonra balonu yeniden aç.";
 "chat.working" = "Çalışıyor…";

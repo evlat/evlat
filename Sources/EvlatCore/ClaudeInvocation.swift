@@ -38,10 +38,16 @@ public struct ClaudeInvocation: Equatable {
     /// must be absolute. A list flag takes a dash-led value as the next
     /// option, so `--add-dir --dangerously-…` would be a new flag, not a
     /// folder (`011` kapı).
+    ///
+    /// `mode` is the chat's (`PermissionMode`): `--permission-mode`.
     public static func turn(chatID: String, sessionID: String, resume: Bool,
                             prompt: String, attachments: [String], directory: String,
-                            addDirectories: [String] = [], allowedTools: [String] = []) -> ClaudeInvocation {
-        var arguments = base
+                            addDirectories: [String] = [], allowedTools: [String] = [],
+                            mode: PermissionMode = .standard) -> ClaudeInvocation {
+        // Every turn names its mode, a resumed one too: the chat's mode is
+        // Evlat's to keep, not whatever the session or the user's settings
+        // would start in.
+        var arguments = base + ["--permission-mode", mode.rawValue]
         for directory in addDirectories where directory.hasPrefix("/") {
             arguments += ["--add-dir", directory]
         }

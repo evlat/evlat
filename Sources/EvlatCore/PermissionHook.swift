@@ -5,7 +5,10 @@ import Foundation
 /// Evlat answers with.
 ///
 /// The turn runs with `--permission-prompts none`, so anything that would
-/// prompt is denied unless a `PermissionRequest` hook allows it. The hook is
+/// prompt is denied unless a `PermissionRequest` hook allows it. What would
+/// prompt depends on the chat's `PermissionMode` (auto by default: a
+/// classifier's block is a denial, not a prompt) and on `askRules`, which
+/// prompt in every mode. The hook is
 /// Claude Code's documented `type: "http"` kind, pointed at Evlat's loopback
 /// listener; its answer is held until the user presses a button on the card.
 /// Every way that goes wrong — Evlat gone, the connection dropped, the hook's
@@ -54,10 +57,42 @@ public enum PermissionHook {
 
     // MARK: - The settings
 
+    /// The commands a chat's turn always asks about, whatever its mode:
+    /// the ones that cannot be taken back. Written as `permissions.ask` into
+    /// the turn's own `--settings`, never into the user's files. An ask rule
+    /// prompts even in auto mode, and a rule matches any subcommand of a
+    /// compound command (`cd x && rm -r y` asks) — documented, and `rm -r`
+    /// measured to reach the card (`011/phase-3` ek). `Bash(x:*)` is the
+    /// same prefix rule as `Bash(x *)`: it also matches a bare `x`.
+    ///
+    /// The one list; the tests read it from here.
+    public static let askRules = [
+        "Bash(rm:*)", "Bash(rmdir:*)", "Bash(sudo:*)", "Bash(git push:*)", "Bash(git reset --hard:*)",
+        "Bash(chmod:*)", "Bash(chown:*)", "Bash(kill:*)", "Bash(killall:*)",
+    ]
+
+    /// Would an ask rule still ask for what `rule` allows? An ask rule wins
+    /// over an allow rule (documented precedence), so "always" for
+    /// `Bash(rm -r build:*)` would be kept and never take effect: such a
+    /// suggestion is not offered. A rule for all of Bash is not an ask
+    /// rule's to overrule — it still lets everything else through.
+    public static func isOverruled(_ rule: Rule) -> Bool {
+        guard rule.toolName == "Bash", var content = rule.ruleContent, !content.isEmpty else { return false }
+        for suffix in [":*", " *", "*"] where content.hasSuffix(suffix) {
+            content = String(content.dropLast(suffix.count))
+            break
+        }
+        let words = content.split(separator: " ").joined(separator: " ")
+        return askedCommands.contains { words == $0 || words.hasPrefix($0 + " ") }
+    }
+
+    /// The commands `askRules` name: `Bash(git push:*)` → `git push`.
+    static let askedCommands: [String] = askRules.map { String($0.dropFirst("Bash(".count).dropLast(":*)".count)) }
+
     /// `--settings`' value: one `PermissionRequest` hook, `type: "http"`, on
-    /// the port the listener actually bound. Sorted keys and unescaped
-    /// slashes, so the string is the same on every run and readable in a
-    /// process list.
+    /// the port the listener actually bound, and `askRules`. Sorted keys and
+    /// unescaped slashes, so the string is the same on every run and
+    /// readable in a process list.
     public static func settings(port: UInt16, token: String) -> String {
         let hook: [String: Any] = [
             "type": "http",
@@ -65,7 +100,8 @@ public enum PermissionHook {
             "headers": [tokenHeader: token],
             "timeout": timeout,
         ]
-        let settings: [String: Any] = ["hooks": ["PermissionRequest": [["matcher": "*", "hooks": [hook]]]]]
+        let settings: [String: Any] = ["hooks": ["PermissionRequest": [["matcher": "*", "hooks": [hook]]]],
+                                       "permissions": ["ask": askRules]]
         // Strings, an integer and nested containers of them always encode.
         let data = (try? JSONSerialization.data(withJSONObject: settings,
                                                 options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
@@ -142,7 +178,7 @@ public enum PermissionHook {
                     for rule in suggestion["rules"] as? [[String: Any]] ?? [] {
                         guard let name = rule["toolName"] as? String, !name.isEmpty else { continue }
                         let made = Rule(toolName: name, ruleContent: rule["ruleContent"] as? String)
-                        if !rules.contains(made) { rules.append(made) }
+                        if !rules.contains(made), !PermissionHook.isOverruled(made) { rules.append(made) }
                     }
                 case "addDirectories":
                     for directory in suggestion["directories"] as? [String] ?? []

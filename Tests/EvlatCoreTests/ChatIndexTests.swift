@@ -87,9 +87,15 @@ final class ChatIndexTests: XCTestCase {
             as? [String: Any])
         var entries = try XCTUnwrap(json["entries"] as? [[String: Any]])
         entries[0]["unseen"] = nil
+        entries[0]["permissionMode"] = nil
         json["entries"] = entries
         let index = try ChatIndex.decode(JSONSerialization.data(withJSONObject: json))
         XCTAssertNil(index.entries.first?.unseen)
+        XCTAssertNil(index.entries.first?.permissionMode, "a file from before modes reads; the default applies")
+        entries[0]["permissionMode"] = "somethingNewer"
+        json["entries"] = entries
+        XCTAssertEqual(try ChatIndex.decode(JSONSerialization.data(withJSONObject: json)).entries.first?.permissionMode,
+                       "somethingNewer", "a mode this build does not know does not make the file unreadable")
         var unseen = entry()
         unseen.unseen = .failed
         XCTAssertEqual(try ChatIndex.decode(ChatIndex(entries: [unseen]).encoded()).entries.first?.unseen, .failed)

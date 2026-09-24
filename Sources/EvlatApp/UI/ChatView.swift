@@ -182,7 +182,7 @@ struct ChatView: View {
     }
 
     /// The hint — or, with a chat on screen, `[+ New]` — and in the corner
-    /// the folder the chat works in.
+    /// the folder the chat works in and its permission mode.
     private var footer: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if model.hasChat {
@@ -197,7 +197,13 @@ struct ChatView: View {
                     .layoutPriority(1)
             }
             Spacer(minLength: 0)
-            FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
+                Text(verbatim: "·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ChatPalette.faint.opacity(0.7))
+                ModeLabel(mode: model.mode) { model.modeTapped() }
+            }
         }
     }
 
@@ -292,7 +298,8 @@ struct ChatView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(model.messages.enumerated()), id: \.offset) { index, message in
-                        MessageLine(message: message, folder: model.folder, answer: model.answer).id(index)
+                        MessageLine(message: message, folder: model.folder, answer: model.answer,
+                                    retry: retry).id(index)
                     }
                     if model.isRunning, !Self.isReplying(model.messages), !Self.isAsking(model.messages) {
                         Text(L10n.t("chat.working"))
@@ -320,6 +327,13 @@ struct ChatView: View {
 
     private static let workingID = "working"
 
+    /// A "not done" line's retry, while one can be offered.
+    private var retry: ((ChatSession.NotDone) -> Void)? {
+        guard model.canRetry else { return nil }
+        let model = model
+        return { model.retry($0) }
+    }
+
     private static func isReplying(_ messages: [ChatSession.Message]) -> Bool {
         if case .reply? = messages.last { return true }
         return false
@@ -338,6 +352,8 @@ private struct MessageLine: View {
     /// as `./` and shown by its name.
     let folder: String?
     let answer: (String, Action.Decision) -> Void
+    /// A "not done" line's retry, when it can be offered now.
+    var retry: ((ChatSession.NotDone) -> Void)?
 
     var body: some View {
         switch message {
@@ -365,6 +381,8 @@ private struct MessageLine: View {
             } else {
                 AnsweredLine(card: card)
             }
+        case .notDone(let line):
+            NotDoneLine(line: line, retry: line.isAutoModes ? retry : nil)
         }
     }
 }
@@ -496,6 +514,80 @@ private struct FolderLabel: View {
         .onHover { hovered = $0 }
         .help(L10n.t(locked ? "chat.folder.show" : "chat.folder.change",
                      ["folder": folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? name]))
+        .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+}
+
+/// The chat's permission mode beside the folder, in the same quiet type:
+/// a click offers the three (`PermissionMode`), for the next turn on.
+private struct ModeLabel: View {
+    let mode: PermissionMode
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        let name = L10n.t(ChatModel.modeKey(mode))
+        Button(action: action) {
+            HStack(spacing: 2) {
+                Text(name.lowercased(with: Locale(identifier: L10n.language)))
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+                    .opacity(hovered ? 1 : 0.6)
+            }
+            .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
+            // The footer is 288 pt with the hint in it: "accept edits" in
+            // Turkish is ~120 pt, so the name gives way rather than push the
+            // corner out of the balloon; the tooltip says it whole.
+            .frame(maxWidth: 96, alignment: .trailing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(L10n.t("chat.mode.help", ["mode": name]))
+        .accessibilityLabel(L10n.t("chat.mode.help", ["mode": name]))
+        .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+}
+
+/// A tool call that was denied without a card (auto mode's classifier, a
+/// deny rule): one dim amber line — what did not run — and, when the chat
+/// could ask instead, the way to try it there.
+private struct NotDoneLine: View {
+    let line: ChatSession.NotDone
+    let retry: ((ChatSession.NotDone) -> Void)?
+    @State private var hovered = false
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "slash.circle")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ChatPalette.amber.opacity(0.6))
+                Text(L10n.t(ChatModel.notDoneKey(line)))
+                    .foregroundStyle(ChatPalette.cardTitle.opacity(0.7))
+                // The call's own line, as Claude wrote it.
+                Text(verbatim: line.subject ?? line.tool)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(ChatPalette.cardText.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            if let retry {
+                Button { retry(line) } label: {
+                    Text(L10n.t("chat.notDone.retry"))
+                        .foregroundStyle(hovered ? ChatPalette.cardTitle : ChatPalette.amber.opacity(0.75))
+                        .underline(hovered)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { hovered = $0 }
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
         .animation(.easeOut(duration: 0.1), value: hovered)
     }
 }

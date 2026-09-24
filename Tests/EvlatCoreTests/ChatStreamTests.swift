@@ -68,7 +68,16 @@ final class ChatStreamTests: XCTestCase {
 
     func testAPermissionDenial() {
         let (events, _) = events([#"{"type":"system","subtype":"permission_denied","tool_name":"Write"}"#])
-        XCTAssertEqual(events, [.permissionDenied(tool: "Write")])
+        XCTAssertEqual(events, [.permissionDenied(.init(tool: "Write"))])
+    }
+
+    /// The frame as 2.1.281 wrote it for a deny rule on a compound command
+    /// (`011/phase-3` ek, measured).
+    func testAMeasuredDenialKeepsItsCallAndReason() {
+        let (events, _) = events([#"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_01J","decision_reason_type":"subcommandResults","message":"Permission to use Bash with command touch x.txt && ls -l x.txt has been denied.","uuid":"u","session_id":"S"}"#])
+        XCTAssertEqual(events, [.permissionDenied(.init(
+            tool: "Bash", toolUseID: "toolu_01J", reason: "subcommandResults",
+            message: "Permission to use Bash with command touch x.txt && ls -l x.txt has been denied."))])
     }
 
     /// An unknown word is counted, not swallowed (`rawStatus`'s spirit).

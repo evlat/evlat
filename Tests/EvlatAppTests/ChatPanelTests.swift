@@ -316,6 +316,70 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertFalse(NSRunningApplication.current.isActive)
     }
 
+    /// The corner's mode: picked before the first prompt it is the new
+    /// chat's; a "not done" line's retry switches that chat — not the
+    /// default — to Ask and asks Claude to try the call again.
+    func testAPickedModeAndARetryInAskMode() throws {
+        let controller = controller()
+        defer { close(controller) }
+        let fake = try fakeClaude()
+        controller.chats = ChatStore(root: directory, platform: .unknown,
+                                     locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": fake]),
+                                     environment: ["PATH": "/usr/bin:/bin", "FAKE_CLAUDE_SCENARIO": "denied"],
+                                     defaultMode: { [unowned controller] in
+                                         MainActor.assumeIsolated { controller.defaultMode } })
+        let listener = HookListener(port: 0) { _ in }
+        listener.start()
+        listener.awaitSettled(timeout: 5)
+        defer { listener.stop() }
+        controller.chats?.permissions = listener
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.mode, .auto, "auto until something else is picked")
+        controller.choose(.acceptEdits)
+        XCTAssertEqual(controller.chatModel.mode, .acceptEdits)
+        XCTAssertNil(controller.currentChat, "picking makes no chat")
+        controller.choose(.auto)
+        XCTAssertEqual(controller.defaultMode, .auto, "the last pick is the default")
+        controller.chatModel.add([ChatFolder.Item(path: "/tmp/a.pdf", isDirectory: false)])
+        XCTAssertTrue(controller.chatModel.submit("install it"))
+        let id = try XCTUnwrap(controller.currentChat)
+        XCTAssertEqual(controller.chats?.chat(id)?.mode, .auto)
+        controller.chatModel.add([ChatFolder.Item(path: "/tmp/b.pdf", isDirectory: false)])
+
+        func settle(_ description: String) {
+            let done = expectation(description: description)
+            func poll() {
+                controller.refresh()
+                if !controller.chatModel.isRunning { done.fulfill() } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: poll)
+                }
+            }
+            poll()
+            wait(for: [done], timeout: 10)
+        }
+        settle("the turn ends")
+        let line = try XCTUnwrap(controller.chatModel.messages.lazy.compactMap { message -> ChatSession.NotDone? in
+            if case .notDone(let line) = message { return line } else { return nil }
+        }.first)
+        XCTAssertEqual(ChatModel.notDoneKey(line), "chat.notDone.auto")
+        XCTAssertTrue(controller.chatModel.canRetry(line))
+        XCTAssertFalse(controller.chatModel.canRetry(.init(toolUseID: "x", tool: "Bash", subject: "y", mode: .auto,
+                                                           reason: "rule")),
+                       "a deny rule denies in Ask mode too: no retry")
+
+        controller.chatModel.retry(line)
+        XCTAssertEqual(controller.chats?.chat(id)?.mode, .ask)
+        XCTAssertEqual(controller.chatModel.mode, .ask)
+        XCTAssertEqual(controller.defaultMode, .auto, "a retry changes this chat, not the default")
+        XCTAssertEqual(controller.chatModel.attachments, [ChatFolder.Item(path: "/tmp/b.pdf", isDirectory: false)],
+                       "the user's chips stay for the user's own next line")
+        XCTAssertEqual(controller.chats?.chat(id)?.messages.last(where: {
+            if case .user = $0 { return true } else { return false }
+        }), .user(text: L10n.t("chat.notDone.prompt", ["command": line.subject ?? ""]), attachments: []))
+        settle("the retry ends")
+        XCTAssertFalse(controller.chatModel.canRetry, "a chat that asks has nothing to retry into")
+    }
+
     /// A suggestion is sent as it is.
     func testASuggestionIsSent() throws {
         let model = ChatModel()

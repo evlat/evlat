@@ -40,6 +40,10 @@ final class ChatStore {
     /// user's Trash; the default never reaches the real one
     /// (`ChatStore.trash(environment:)` is the app's choice).
     private let trash: (URL) throws -> Void
+    /// The mode a chat gets when it has none of its own: a new one, or one
+    /// read back from before chats had modes. The user's choice, read when
+    /// it is needed (`UserDefaults`, the app's).
+    private let defaultMode: () -> PermissionMode
 
     /// The chats' state, and their rows. Read against the store's clock.
     let provider: ChatsProvider
@@ -58,8 +62,10 @@ final class ChatStore {
          signal: @escaping (Int32, Int32) -> Void = { _ = kill($0, $1) },
          environment: [String: String] = ProcessInfo.processInfo.environment,
          trash: @escaping (URL) throws -> Void = ChatStore.setAside,
+         defaultMode: @escaping () -> PermissionMode = { .standard },
          onChange: @escaping () -> Void = {}) {
         provider = ChatsProvider(now: now)
+        self.defaultMode = defaultMode
         self.trash = trash
         self.environment = environment
         self.root = root
@@ -89,9 +95,15 @@ final class ChatStore {
     /// own root, and the real Trash is never touched (`011` kapı: a look by
     /// eye had left a `chats/<UUID>` there).
     static func trash(environment: [String: String]) -> (URL) throws -> Void {
-        let isolated = [environment["EVLAT_CHATS"], environment["EVLAT_PORT"]]
+        isolated(environment) ? setAside : { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    }
+
+    /// Is this a store kept apart from the user's — `EVLAT_CHATS` or
+    /// `EVLAT_PORT` set? Then nothing of the user's is touched: not the
+    /// Trash, not the chats' default mode.
+    static func isolated(_ environment: [String: String]) -> Bool {
+        [environment["EVLAT_CHATS"], environment["EVLAT_PORT"]]
             .contains { !($0?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) }
-        return isolated ? setAside : { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     }
 
     /// `<root>/chats/<UUID>` → `<root>/trash/<UUID>[-n]`: recoverable like
@@ -128,14 +140,29 @@ final class ChatStore {
     /// A new, empty chat in `folder`, or in its own workspace
     /// (`chats/<id>/`, created with the first turn). It has no row until
     /// something is sent.
+    /// `mode` is the balloon's pick, else the default.
     @discardableResult
-    func newChat(folder: String? = nil) -> String {
+    func newChat(folder: String? = nil, mode: PermissionMode? = nil) -> String {
         let id = UUID().uuidString
         let workspace = ChatIndex.workspace(of: id, under: workspaceBase)
             ?? workspaceBase.appendingPathComponent("chats/\(id)", isDirectory: true)
         provider[id] = ChatSession(id: id, sessionID: UUID().uuidString.lowercased(),
-                                folder: folder ?? workspace.path, isWorkspace: folder == nil)
+                                folder: folder ?? workspace.path, isWorkspace: folder == nil,
+                                mode: mode ?? defaultMode())
         return id
+    }
+
+    /// The chat's mode from its next turn on; a running turn keeps the one
+    /// it started with. Kept in its entry once it has one.
+    func setMode(_ id: String, _ mode: PermissionMode) {
+        guard var chat = provider[id], chat.mode != mode else { return }
+        chat.mode = mode
+        provider[id] = chat
+        if let i = index.entries.firstIndex(where: { $0.id == id }) {
+            index.entries[i].permissionMode = mode.rawValue
+            save()
+        }
+        onChange()
     }
 
     func perform(_ action: Action) {
@@ -358,7 +385,7 @@ final class ChatStore {
     func open(_ id: String) -> Bool {
         if provider[id] != nil { return true }
         guard let entry = index.entries.first(where: { $0.id == id }) else { return false }
-        provider[id] = ChatSession.restored(entry)
+        provider[id] = ChatSession.restored(entry, mode: defaultMode())
         return true
     }
 
@@ -468,7 +495,7 @@ final class ChatStore {
         orphans.terminate.forEach { signal($0, SIGTERM) }
         for i in index.entries.indices where orphans.interrupted.contains(index.entries[i].id) {
             let entry = index.entries[i]
-            var chat = ChatSession.restored(entry)
+            var chat = ChatSession.restored(entry, mode: defaultMode())
             chat.fail(.interrupted, at: entry.lastActivity)
             provider[entry.id] = chat
             index.entries[i].run = nil
@@ -477,7 +504,7 @@ final class ChatStore {
         // An end the balloon never showed keeps its row across a relaunch,
         // until its time is up (`ChatSession.unseenLifetime`).
         for entry in index.entries where entry.unseen != nil && provider[entry.id] == nil {
-            provider[entry.id] = ChatSession.restored(entry)
+            provider[entry.id] = ChatSession.restored(entry, mode: defaultMode())
         }
         if !orphans.interrupted.isEmpty { save() }
         prune()
@@ -492,13 +519,14 @@ final class ChatStore {
             index.entries[i].started = chat.hasStarted
             index.entries[i].run = chat.isRunning ? (run ?? index.entries[i].run) : nil
             index.entries[i].unseen = chat.unseenPhase
+            index.entries[i].permissionMode = chat.mode.rawValue
             if let reply = chat.lastReply { index.entries[i].lastReply = reply }
         } else {
             index.entries.append(ChatIndex.Entry(
                 id: chat.id, sessionID: chat.sessionID, title: chat.title ?? chat.promptLabel, folder: chat.folder,
                 isWorkspace: chat.isWorkspace, createdAt: stamp, lastActivity: stamp,
                 lastReply: chat.lastReply, run: chat.isRunning ? run : nil, started: chat.hasStarted,
-                unseen: chat.unseenPhase))
+                unseen: chat.unseenPhase, permissionMode: chat.mode.rawValue))
         }
         save()
     }

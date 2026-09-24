@@ -12,11 +12,48 @@ final class PermissionHookTests: XCTestCase {
     func testTheSettingsCarryOneHttpHookOnTheBoundPort() throws {
         let text = PermissionHook.settings(port: 48999, token: "T-1")
         XCTAssertEqual(text, #"{"hooks":{"PermissionRequest":[{"hooks":[{"headers":{"X-Evlat-Permission":"T-1"},"#
-                       + #""timeout":600,"type":"http","url":"http://127.0.0.1:48999/permission"}],"matcher":"*"}]}}"#)
+                       + #""timeout":600,"type":"http","url":"http://127.0.0.1:48999/permission"}],"matcher":"*"}]},"#
+                       + #""permissions":{"ask":["Bash(rm:*)","Bash(rmdir:*)","Bash(sudo:*)","Bash(git push:*)","#
+                       + #""Bash(git reset --hard:*)","Bash(chmod:*)","Bash(chown:*)","Bash(kill:*)","Bash(killall:*)"]}}"#)
         XCTAssertEqual(PermissionHook.Endpoint(port: 48999, token: "T-1").settings, text)
         // The token is a plain value: nothing in it for the header's
         // `$VAR` interpolation to expand.
         XCTAssertFalse(text.contains("$"))
+    }
+
+    /// What cannot be undone asks in every mode: the turn's own settings
+    /// carry the rules — `permissions.ask`, nothing allowed or denied — and
+    /// each is a prefix rule whose `:*` ends it (the only place the form is
+    /// read as a wildcard).
+    func testTheSettingsAskBeforeWhatCannotBeUndone() throws {
+        let settings = try object(PermissionHook.settings(port: 1, token: "T"))
+        let permissions = try XCTUnwrap(settings["permissions"] as? [String: Any])
+        XCTAssertEqual(Array(permissions.keys), ["ask"])
+        let ask = try XCTUnwrap(permissions["ask"] as? [String])
+        XCTAssertEqual(ask, PermissionHook.askRules)
+        for command in ["rm", "rmdir", "sudo", "git push", "git reset --hard", "chmod", "chown", "kill", "killall"] {
+            XCTAssertTrue(ask.contains("Bash(\(command):*)"), command)
+        }
+        for rule in ask {
+            XCTAssertTrue(rule.hasPrefix("Bash(") && rule.hasSuffix(":*)"), rule)
+            XCTAssertEqual(rule.components(separatedBy: ":*").count, 2, "\(rule): one wildcard, at the end")
+        }
+    }
+
+    /// "Always" for a command an ask rule covers would be kept and never
+    /// take effect (ask beats allow): it is not offered.
+    func testASuggestionAnAskRuleOverrulesIsNotOffered() throws {
+        for content in ["rm:*", "rm -r build:*", "rm *", "git push:*", "git push origin main", "sudo", "kill -9 12"] {
+            XCTAssertTrue(PermissionHook.isOverruled(.init(toolName: "Bash", ruleContent: content)), content)
+        }
+        for content in ["rmx:*", "git pull:*", "npm run:*", "killer"] {
+            XCTAssertFalse(PermissionHook.isOverruled(.init(toolName: "Bash", ruleContent: content)), content)
+        }
+        XCTAssertFalse(PermissionHook.isOverruled(.init(toolName: "Bash")))
+        XCTAssertFalse(PermissionHook.isOverruled(.init(toolName: "Write", ruleContent: "rm:*")))
+        let json = try object(#"{"tool_name":"Bash","tool_input":{"command":"rm -r build"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"rm -r build:*"},{"toolName":"Bash","ruleContent":"ls:*"}],"behavior":"allow","destination":"session"}]}"#)
+        XCTAssertEqual(PermissionHook.Request(json: json, token: "T", id: "R")?.rules,
+                       [.init(toolName: "Bash", ruleContent: "ls:*")])
     }
 
     private let body = #"""

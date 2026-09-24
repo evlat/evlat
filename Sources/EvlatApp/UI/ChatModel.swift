@@ -29,6 +29,9 @@ final class ChatModel: ObservableObject {
     /// Sent once: the folder is the chat's for good and the label only
     /// shows it (Karar 8).
     @Published private(set) var folderLocked = false
+    /// The chat's permission mode — or, before the first prompt, the one
+    /// it will start in. The corner label beside the folder shows it.
+    @Published private(set) var mode: PermissionMode = .standard
     /// A file is being dragged over the balloon.
     @Published var dropTargeted = false
     /// Does the balloon speak for a chat? Then `[+ New]` takes the hint's
@@ -60,6 +63,10 @@ final class ChatModel: ObservableObject {
     /// The folder label: choose another before the first prompt, show it
     /// in Finder after.
     var onFolder: (() -> Void)?
+    /// The mode label: the controller shows the three modes.
+    var onMode: (() -> Void)?
+    /// A "not done" line's `[Retry in Ask mode]`.
+    var onRetry: ((ChatSession.NotDone) -> Void)?
     /// `[+ New]`: an empty balloon, the chat left where it is.
     var onNew: (() -> Void)?
     /// A history row: that chat, to go on with.
@@ -118,8 +125,10 @@ final class ChatModel: ObservableObject {
                        "chat.file.remove", "chat.folder.workspace", "chat.folder.change", "chat.folder.show",
                        "chat.new", "chat.history", "chat.history.pin", "chat.history.unpin",
                        "chat.history.remove", "chat.history.clear", "chat.files", "chat.file.save",
-                       "chat.file.show", "chat.code.copy", "chat.code.copied"]
-        + suggestionKeys + fileSuggestionKeys + outcomeKeys
+                       "chat.file.show", "chat.code.copy", "chat.code.copied",
+                       "chat.mode.help", "chat.notDone", "chat.notDone.auto", "chat.notDone.retry",
+                       "chat.notDone.prompt"]
+        + modeKeys + modeDetailKeys + suggestionKeys + fileSuggestionKeys + outcomeKeys
 
     /// What the balloon offers now.
     var suggestions: [String] { Self.suggestionKeys(for: attachments) }
@@ -132,6 +141,35 @@ final class ChatModel: ObservableObject {
         default: return "chat.placeholder.files"
         }
     }
+
+    /// Each mode's name. A switch, so a new mode does not compile without one.
+    nonisolated static func modeKey(_ mode: PermissionMode) -> String {
+        switch mode {
+        case .ask: return "chat.mode.ask"
+        case .auto: return "chat.mode.auto"
+        case .acceptEdits: return "chat.mode.acceptEdits"
+        }
+    }
+
+    /// What each mode does, in one line: the menu's tooltips.
+    nonisolated static func modeDetailKey(_ mode: PermissionMode) -> String { modeKey(mode) + ".detail" }
+
+    static let modeKeys = PermissionMode.allCases.map(modeKey)
+    static let modeDetailKeys = PermissionMode.allCases.map(modeDetailKey)
+
+    /// A "not done" line's first words: auto mode is named only for its
+    /// classifier's denial.
+    nonisolated static func notDoneKey(_ line: ChatSession.NotDone) -> String {
+        line.isAutoModes ? "chat.notDone.auto" : "chat.notDone"
+    }
+
+    /// Can "not done" lines be tried again where they would ask? Not while
+    /// a turn runs, and not when the chat already asks.
+    var canRetry: Bool { !isRunning && mode != .ask && onRetry != nil }
+
+    /// This line's retry: only the classifier's denial — a deny rule denies
+    /// in Ask mode too, and the retry would switch the chat for nothing.
+    func canRetry(_ line: ChatSession.NotDone) -> Bool { canRetry && line.isAutoModes }
 
     static let outcomeKeys = ["chat.permission.allowed", "chat.permission.allowedAlways",
                               "chat.permission.denied", "chat.permission.expired"]
@@ -225,6 +263,19 @@ final class ChatModel: ObservableObject {
     func takeAttachments() -> [ChatFolder.Item] {
         defer { if !attachments.isEmpty { attachments = [] } }
         return attachments
+    }
+
+    func setMode(_ mode: PermissionMode) {
+        if self.mode != mode { self.mode = mode }
+    }
+
+    func modeTapped() {
+        onMode?()
+    }
+
+    func retry(_ line: ChatSession.NotDone) {
+        guard canRetry(line) else { return }
+        onRetry?(line)
     }
 
     func setFolder(_ path: String?, locked: Bool) {

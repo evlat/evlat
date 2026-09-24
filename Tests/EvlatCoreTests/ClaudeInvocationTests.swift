@@ -10,12 +10,32 @@ final class ClaudeInvocationTests: XCTestCase {
                                          prompt: "hi", attachments: [], directory: "/tmp/p")
         XCTAssertEqual(call.arguments, [
             "-p", "--input-format", "stream-json", "--output-format", "stream-json",
-            "--verbose", "--include-partial-messages", "--session-id", "S1",
+            "--verbose", "--include-partial-messages", "--permission-mode", "auto", "--session-id", "S1",
         ])
         XCTAssertEqual(call.directory, "/tmp/p")
         XCTAssertEqual(call.environment, [ClaudeInvocation.taskVariable: "C1"])
         XCTAssertEqual(ClaudeInvocation.taskVariable, "EVLAT_TASK",
                        "the installed hook command reads this name (LocalAPI.installedHookCommand)")
+    }
+
+    /// Every turn names the chat's mode, a resumed one too: none of the
+    /// modes that skip or deny every check can be named.
+    func testEveryTurnNamesItsMode() {
+        XCTAssertEqual(PermissionMode.standard, .auto)
+        XCTAssertEqual(PermissionMode.allCases.map(\.rawValue), ["default", "auto", "acceptEdits"],
+                       "the CLI's values; no bypassPermissions, no dontAsk")
+        for mode in PermissionMode.allCases {
+            for resume in [false, true] {
+                let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: resume, prompt: "hi",
+                                                 attachments: [], directory: "/tmp/p", mode: mode)
+                let at = try? XCTUnwrap(call.arguments.firstIndex(of: "--permission-mode"))
+                XCTAssertEqual(at.map { call.arguments[$0 + 1] }, mode.rawValue)
+                XCTAssertEqual(call.arguments.filter { $0 == "--permission-mode" }.count, 1)
+            }
+        }
+        XCTAssertNil(PermissionMode(stored: "bypassPermissions"))
+        XCTAssertNil(PermissionMode(stored: nil))
+        XCTAssertEqual(PermissionMode(stored: "default"), .ask)
     }
 
     func testALaterTurnResumes() {
@@ -46,7 +66,9 @@ final class ClaudeInvocationTests: XCTestCase {
         XCTAssertEqual(Array(call.arguments.suffix(6)), [
             "--add-dir", "/a", "--allowedTools", "Read", "--resume", "S1",
         ])
-        XCTAssertFalse(call.arguments.contains { $0.hasPrefix("--dangerously") || $0.hasPrefix("--permission-mode") })
+        XCTAssertFalse(call.arguments.contains { $0.hasPrefix("--dangerously") || $0.hasPrefix("--permission-mode=") })
+        XCTAssertEqual(call.arguments.filter { $0.hasPrefix("--permission-mode") }, ["--permission-mode"],
+                       "only the chat's own mode flag")
     }
 
     /// A started turn asks through its own hook: nothing prompts, the

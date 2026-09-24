@@ -209,6 +209,17 @@
 "chat.folder.workspace" = "Own folder";
 "chat.folder.change" = "Works in {folder} — click to choose another folder";
 "chat.folder.show" = "Works in {folder} — click to show it in Finder";
+"chat.mode.help" = "Permission mode: {mode} — click to change";
+"chat.mode.ask" = "Ask";
+"chat.mode.auto" = "Auto";
+"chat.mode.acceptEdits" = "Accept edits";
+"chat.mode.ask.detail" = "Asks before editing files or running commands.";
+"chat.mode.auto.detail" = "A classifier checks each step instead of you. Deleting, sudo, git push and the like still ask.";
+"chat.mode.acceptEdits.detail" = "Edits files in this folder without asking; commands still ask.";
+"chat.notDone.auto" = "Auto mode didn't do this:";
+"chat.notDone" = "Not done:";
+"chat.notDone.retry" = "Retry in Ask mode";
+"chat.notDone.prompt" = "Try this again: {command}";
 "chat.hint" = "You can drop files · Esc closes";
 "chat.missing" = "Claude Code was not found — install it, then open this again.";
 "chat.working" = "Working…";

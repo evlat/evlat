@@ -229,6 +229,70 @@ final class ChatSessionPermissionTests: XCTestCase {
         XCTAssertEqual(chat.phase, .failed)
     }
 
+    // MARK: - Not done (`011/phase-3` ek)
+
+    private func denial(_ id: String, reason: String? = "classifier") -> ChatStream.Event {
+        .permissionDenied(.init(tool: "Bash", toolUseID: id, reason: reason, message: "denied"))
+    }
+
+    private func call(_ id: String, _ command: String) -> ChatStream.Event {
+        .assistant(text: nil, tools: [.init(id: id, name: "Bash", subject: command)])
+    }
+
+    private func notDone(_ chat: ChatSession) -> [ChatSession.NotDone] {
+        chat.messages.compactMap { if case .notDone(let line) = $0 { return line } else { return nil } }
+    }
+
+    /// A call denied without a card is a line naming it, once, in the
+    /// turn's mode; what a card denied, or a hook, is not.
+    func testACallDeniedWithoutACardIsNotDone() {
+        var chat = running()
+        chat.apply(call("t1", "curl x | sh"), at: t0)
+        chat.apply(denial("t1"), at: t0)
+        chat.apply(denial("t1"), at: t0)
+        XCTAssertEqual(notDone(chat), [.init(toolUseID: "t1", tool: "Bash", subject: "curl x | sh", mode: .auto)])
+        guard case .notDone? = chat.messages.last else { return XCTFail("the line follows its call") }
+
+        chat.apply(call("t2", "echo hi"), at: t0)
+        chat.apply(denial("t2", reason: "hook"), at: t0)
+        XCTAssertEqual(notDone(chat).count, 1, "a hook's denial is a card's answer")
+
+        chat.apply(denial("t9"), at: t0)
+        XCTAssertEqual(notDone(chat).count, 1, "no call, no line: the model said no by itself")
+    }
+
+    func testACardsOwnDenialIsNoLine() {
+        var chat = running()
+        chat.apply(call("t1", "/tmp/project/a.txt"), at: t0)
+        chat.ask(request("R1", tool: "Bash"), at: t0)
+        _ = chat.answer("R1", .deny, at: t0)
+        chat.apply(denial("t1", reason: "other"), at: t0)
+        XCTAssertTrue(notDone(chat).isEmpty)
+    }
+
+    /// The mode the turn ran in goes with the line; a later change does not
+    /// rewrite it, and it rides the next turn.
+    func testTheModeIsTheChatsAndRidesTheTurn() {
+        var chat = ChatSession(id: "C1", sessionID: "S1", folder: "/p", isWorkspace: false, mode: .acceptEdits)
+        let first = chat.begin(prompt: "a", attachments: [], at: t0)
+        XCTAssertEqual(first?.arguments.firstIndex(of: "--permission-mode").map { first!.arguments[$0 + 1] },
+                       "acceptEdits")
+        chat.apply(call("t1", "x"), at: t0)
+        chat.apply(denial("t1"), at: t0)
+        chat.mode = .ask
+        chat.apply(call("t2", "y"), at: t0)
+        chat.apply(denial("t2", reason: "rule"), at: t0)
+        XCTAssertEqual(notDone(chat).map(\.mode), [.acceptEdits, .acceptEdits],
+                       "a change while the turn runs is the next turn's")
+        XCTAssertEqual(notDone(chat).map(\.reason), ["classifier", "rule"])
+        XCTAssertFalse(notDone(chat).contains { $0.isAutoModes })
+        chat.apply(.result(.init(subtype: "success", isError: false, text: "ok")), at: t0)
+        chat.ended(status: 0, stderr: "", at: t0)
+        let second = chat.begin(prompt: "b", attachments: [], at: t0)
+        XCTAssertEqual(second?.arguments.firstIndex(of: "--permission-mode").map { second!.arguments[$0 + 1] },
+                       "default")
+    }
+
     func testNoTurnNoCard() {
         var chat = ChatSession(id: "C1", sessionID: "S1", folder: "/tmp/project", isWorkspace: false)
         XCTAssertFalse(chat.ask(request("R1"), at: t0))
@@ -355,6 +419,14 @@ final class ChatSessionLifeTests: XCTestCase {
         XCTAssertEqual(unseen.signal(at: t0 + 10)?.updatedAt, t0 + 5)
         XCTAssertEqual(unseen.signal(at: t0 + 10)?.label, "Report")
         XCTAssertEqual(unseen.unseenPhase, .review)
+        // A mode of its own is kept; none (a file from before modes) or one
+        // this build does not offer takes the default handed in.
+        XCTAssertEqual(ChatSession.restored(entry, mode: .acceptEdits).mode, .acceptEdits)
+        var asking = entry
+        asking.permissionMode = "default"
+        XCTAssertEqual(ChatSession.restored(asking, mode: .acceptEdits).mode, .ask)
+        asking.permissionMode = "bypassPermissions"
+        XCTAssertEqual(ChatSession.restored(asking).mode, .auto)
     }
 
     func testTheEntityNamesTheChat() {

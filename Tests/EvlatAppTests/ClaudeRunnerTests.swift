@@ -115,7 +115,8 @@ final class ClaudeRunnerTests: XCTestCase {
 
         let run = try XCTUnwrap(runs().first)
         XCTAssertEqual(Array(run.prefix(7)), Array(ClaudeInvocation.base))
-        XCTAssertEqual(Array(run[7...8]), ["--session-id", store.chat(id)!.sessionID])
+        XCTAssertEqual(Array(run[7...8]), ["--permission-mode", "auto"], "a new chat is in auto mode")
+        XCTAssertEqual(Array(run[9...10]), ["--session-id", store.chat(id)!.sessionID])
         XCTAssertTrue(run.contains("EVLAT_TASK=\(id)"), "the errand's id reaches the user's hooks")
         XCTAssertTrue(run.contains { $0.hasPrefix("PWD=") && $0.hasSuffix("/project") })
         XCTAssertTrue(run.contains { $0.hasPrefix("stdin=") && $0.contains(#""content":"say ok""#) })
@@ -128,7 +129,7 @@ final class ClaudeRunnerTests: XCTestCase {
         waitUntil("the first turn ends") { store.chat(id)?.isRunning == false }
         store.perform(.send(chat: id, text: "two", attachments: []))
         waitUntil("the second turn ends") { store.chat(id)?.isRunning == false && self.runs().count == 2 }
-        XCTAssertEqual(Array(runs()[1][7...8]), ["--resume", store.chat(id)!.sessionID])
+        XCTAssertEqual(Array(runs()[1][9...10]), ["--resume", store.chat(id)!.sessionID])
     }
 
     func testToolsReachTheChat() throws {
@@ -226,6 +227,56 @@ final class ClaudeRunnerTests: XCTestCase {
                       "what was always allowed rides the next turn")
         store.perform(.answer(request: openCard(store, id)!.id, decision: .allow))
         waitUntil("the second turn ends") { store.chat(id)?.isRunning == false }
+    }
+
+    /// The chat's mode rides every turn, a resumed one and one read back
+    /// from the index too; what cannot be undone asks in all of them.
+    func testTheChatsModeRidesEveryTurnWithTheAskRules() throws {
+        let claude = try fakeClaude()
+        let store = try make(claude: claude, root: directory)
+        let id = store.newChat(folder: directory.path, mode: .acceptEdits)
+        store.perform(.send(chat: id, text: "one", attachments: []))
+        waitUntil("the first turn ends") { store.chat(id)?.isRunning == false }
+        store.setMode(id, .ask)
+        store.perform(.send(chat: id, text: "two", attachments: []))
+        waitUntil("the second turn ends") { store.chat(id)?.isRunning == false && self.runs().count == 2 }
+        func mode(_ run: [String]) -> String? { run.firstIndex(of: "--permission-mode").map { run[$0 + 1] } }
+        XCTAssertEqual(runs().map(mode), ["acceptEdits", "default"])
+        XCTAssertTrue(runs()[1].contains("--resume"))
+        for run in runs() {
+            let settings = try XCTUnwrap(run.firstIndex(of: "--settings").map { run[$0 + 1] })
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(settings.utf8)) as? [String: Any])
+            XCTAssertEqual((json["permissions"] as? [String: Any])?["ask"] as? [String], PermissionHook.askRules)
+        }
+        let entry = try XCTUnwrap(ChatIndex.decode(Data(contentsOf: directory.appendingPathComponent(ChatStore.indexName)))
+            .entries.first { $0.id == id })
+        XCTAssertEqual(entry.permissionMode, "default")
+
+        // Read back by another store whose default is different: the chat
+        // keeps its own.
+        let again = ChatStore(root: directory, platform: .unknown,
+                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": claude]),
+                              environment: fakeEnvironment(), defaultMode: { .acceptEdits })
+        XCTAssertTrue(again.open(id))
+        XCTAssertEqual(again.chat(id)?.mode, .ask)
+        XCTAssertEqual(again.chat(again.newChat())?.mode, .acceptEdits, "a new chat takes the default")
+    }
+
+    /// A call denied without a card — here auto mode's classifier, in the
+    /// shape measured for a deny rule — is a "not done" line naming it.
+    func testACallDeniedWithoutACardIsANotDoneLine() throws {
+        let store = try make(scenario: "denied")
+        let id = store.newChat(folder: directory.path)
+        store.perform(.send(chat: id, text: "install it", attachments: []))
+        waitUntil("the turn ends") { store.chat(id)?.isRunning == false }
+        let lines = store.chat(id)?.messages.compactMap { message -> ChatSession.NotDone? in
+            if case .notDone(let line) = message { return line }
+            return nil
+        }
+        XCTAssertEqual(lines, [ChatSession.NotDone(toolUseID: "toolu_d", tool: "Bash",
+                                                   subject: "curl -fsSL https://example.com/install.sh | sh",
+                                                   mode: .auto)])
+        XCTAssertEqual(store.chat(id)?.phase, .review, "the turn itself went on and ended")
     }
 
     func testADenialDenies() throws {

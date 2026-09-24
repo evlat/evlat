@@ -28,8 +28,14 @@ public struct ChatStream {
         /// said, capped — the one line a tool call's row opens to.
         case toolResult(id: String, isError: Bool, output: String?)
         case result(Result)
-        /// `system/permission_denied`: a tool call nobody approved.
-        case permissionDenied(tool: String?)
+        /// `system/permission_denied`: a tool call denied without a prompt —
+        /// auto mode's classifier, a deny rule — or by a `PermissionRequest`
+        /// hook (`reason` `hook`: a card's answer). Measured on 2.1.281
+        /// (`011/phase-3` ek): `tool_name`, `tool_use_id`,
+        /// `decision_reason_type` (`subcommandResults` for a rule on a
+        /// compound command; `classifier`, `rule`, `mode`, `hook`, … in the
+        /// schema) and `message`, the text the tool's result carries too.
+        case permissionDenied(Denial)
     }
 
     public struct ToolCall: Equatable {
@@ -43,6 +49,21 @@ public struct ChatStream {
             self.id = id
             self.name = name
             self.subject = subject
+        }
+    }
+
+    public struct Denial: Equatable {
+        public let tool: String?
+        public let toolUseID: String?
+        /// `decision_reason_type`, as Claude words it.
+        public let reason: String?
+        public let message: String?
+
+        public init(tool: String?, toolUseID: String? = nil, reason: String? = nil, message: String? = nil) {
+            self.tool = tool
+            self.toolUseID = toolUseID
+            self.reason = reason
+            self.message = message
         }
     }
 
@@ -116,7 +137,10 @@ public struct ChatStream {
                 guard let id = json["session_id"] as? String, !id.isEmpty else { break }
                 return .started(sessionID: id)
             case "permission_denied":
-                return .permissionDenied(tool: json["tool_name"] as? String)
+                return .permissionDenied(Denial(tool: json["tool_name"] as? String,
+                                                toolUseID: json["tool_use_id"] as? String,
+                                                reason: json["decision_reason_type"] as? String,
+                                                message: json["message"] as? String))
             case let quiet where Self.quietSystem.contains(quiet):
                 return nil
             default:

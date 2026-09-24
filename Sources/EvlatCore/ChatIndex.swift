@@ -47,12 +47,17 @@ public struct ChatIndex: Equatable, Codable {
         /// `ChatSession.unseenLifetime`. Optional, so a file written before
         /// it existed still reads (a missing key is `nil`, "seen").
         public var unseen: Phase?
+        /// The chat's `PermissionMode`, by its CLI value. A string, not the
+        /// enum: a value this build does not know (or none, from a file
+        /// written before modes) reads as `nil` rather than making the whole
+        /// file unreadable; `PermissionMode(stored:)` falls back.
+        public var permissionMode: String?
 
         public init(id: String, sessionID: String, title: String? = nil, folder: String,
                     isWorkspace: Bool, createdAt: Date, lastActivity: Date, pinned: Bool = false,
                     lastReply: String? = nil, allowedRules: [String] = [],
                     addedDirectories: [String] = [], run: Run? = nil, started: Bool = false,
-                    unseen: Phase? = nil) {
+                    unseen: Phase? = nil, permissionMode: String? = nil) {
             self.id = id
             self.sessionID = sessionID
             self.title = title
@@ -67,6 +72,7 @@ public struct ChatIndex: Equatable, Codable {
             self.run = run
             self.started = started
             self.unseen = unseen
+            self.permissionMode = permissionMode
         }
     }
 
