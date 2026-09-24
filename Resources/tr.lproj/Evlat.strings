@@ -62,3 +62,75 @@
 "menu.usage.remove" = "Kullanım satırını kaldır";
 "menu.usage.modified" = "Kullanım satırı elle değiştirilmiş";
 "menu.usage.hint" = "Claude Code durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";
+
+"menu.remote" = "Uzak makineler…";
+"menu.remote.failure" = "{machine}: {failure}";
+
+"remote.window.title" = "Uzak makineler";
+"remote.empty.title" = "Henüz uzak makine yok";
+"remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";
+"remote.empty.requirement" = "Parolasız ssh ve bir kez terminalden bağlanmış olmak gerekir.";
+"remote.add.placeholder" = "devbox ya da ben@sunucu";
+"remote.add" = "Ekle";
+"remote.add.empty" = "ssh'a verdiğin adı yaz.";
+"remote.add.option" = "Ad “-” ile başlayamaz.";
+"remote.add.invalidCharacter" = "Adda boşluk olamaz.";
+"remote.add.duplicate" = "{name} zaten ekli.";
+"remote.environment" = "EVLAT_MACHINES ya da EVLAT_PORT ile başlatıldı: burada eklenen ya da kaldırılan makineler Evlat kapanınca unutulur.";
+
+"remote.state.stopped" = "bağlı değil";
+"remote.state.connecting" = "bağlanıyor…";
+"remote.state.connected" = "bağlı";
+"remote.state.connected.sessions" = "bağlı · {sessions}";
+"remote.state.waiting" = "{failure} · {retry}";
+"remote.retry" = "{time} sonra yeniden denenecek";
+"remote.retry.soon" = "birazdan yeniden denenecek";
+"remote.failure.authentication" = "kimlik doğrulama başarısız";
+"remote.failure.authentication.advice" = "Evlat parolasız ssh ister: sunucunun kabul ettiği, ajanına yüklü bir anahtar. Terminalde “ssh {target}” komutunun bir şey sormadan girdiğine bak.";
+"remote.failure.portBusy" = "sunucuda 48151 portu dolu";
+"remote.failure.portBusy.advice" = "Sunucu eski bağlantıyı tutuyor olabilir; genellikle bir dakika içinde bırakır. Aynı sunucudaki başka bir kullanıcının Evlat'ı da tutuyor olabilir.";
+"remote.failure.hostKey" = "bilinmeyen sunucu anahtarı";
+"remote.failure.hostKey.advice" = "Bir kez terminalden “ssh {target}” ile bağlan ve sunucu anahtarını kabul et.";
+"remote.failure.hostName" = "sunucu bulunamadı";
+"remote.failure.hostName.advice" = "Adı ya da ~/.ssh/config'teki Host girdisini denetle.";
+"remote.failure.unreachable" = "sunucuya ulaşılamıyor";
+"remote.failure.unreachable.advice" = "Ağı ya da VPN'i denetle; Evlat denemeyi sürdürür.";
+"remote.failure.other" = "ssh başarısız";
+"remote.failure.other.advice" = "Nedenini görmek için terminalde “ssh {target}” çalıştır.";
+
+"remote.setup" = "Sunucuda kurulum";
+"remote.setup.automatic" = "Otomatik";
+"remote.setup.manual" = "Elle";
+"remote.auto.body" = "Evlat ssh ile bağlanır ve sunucunun ayar dosyalarını bu Mac'in menüsüyle aynı yazıcıyla düzenler: olmayan klasörü yaratmaz, ilk hâlin bir kopyasını saklar, arada değişen dosyaya dokunmaz.";
+"remote.auto.hooks.install" = "Hook'ları kur ya da güncelle";
+"remote.auto.hooks.remove" = "Hook'ları kaldır";
+"remote.auto.usage.install" = "Kullanım satırını kur";
+"remote.auto.usage.remove" = "Kullanım satırını kaldır";
+"remote.auto.busy" = "{name} üzerinde çalışılıyor…";
+"remote.result.part" = "{change}: {result}";
+"remote.change.usage" = "Kullanım satırı";
+"remote.result.installed" = "kuruldu";
+"remote.result.removed" = "kaldırıldı";
+"remote.result.current" = "zaten güncel";
+"remote.result.absent" = "kaldırılacak bir şey yok";
+"remote.result.noDirectory" = "kurulu değil (klasör yok)";
+"remote.result.unreadable" = "dosya okunamadı";
+"remote.result.malformed" = "dosya Evlat'ın düzenleyebileceği biçimde değil; olduğu gibi bırakıldı";
+"remote.result.changedUnderneath" = "dosya yazılırken değişti; yeniden dene";
+"remote.result.unwritable" = "dosya yazılamadı";
+"remote.result.unreachable" = "Sunucuya ulaşılamadı; hiçbir şey değişmedi.";
+
+"remote.manual.body" = "Her değişikliği önce görmek mi istersin — örneğin prod bir sunucuda? Bunları kendin yapıştır; otomatik kurulumun yazdığıyla bayt bayt aynılar. Her hook olayı yalnız sunucudaki 127.0.0.1:48151'e gönderir, sessizce başarısız olur ve hiçbir şey basmaz; tünel onu bu Mac'e getirir.";
+"remote.manual.claude" = "~/.claude/settings.json — bu “hooks” bloğunu dosyaya, varsa kendi hook'larının yanına ekle:";
+"remote.manual.codex" = "~/.codex/hooks.json — sunucuda Codex varsa onun için aynısı:";
+"remote.manual.statusLine" = "Kullanım satırı — settings.json'da henüz “statusLine” yoksa bunu ekle:";
+"remote.manual.wrapping" = "Zaten varsa onu koru ve “command” değerini bununla değiştir; {placeholder} yerine kendi komutunu yaz (içindeki ' işareti '\\'' diye yazılır):";
+"remote.manual.remove" = "Kaldırmak için: komutunda {marker} geçen her girdiyi sil ve statusLine komutunu eski hâline getir. Otomatik kurulum bir dosyayı değiştirdiyse ilk hâli aynı klasörde, adına .evlat.bak eklenmiş olarak durur.";
+"remote.manual.surface" = "Bunun açtığı yüzey: sunucudaki her süreç tünelden Evlat'a yazabilir. Sunucudaki başka bir kullanıcı 48151 portunu önce tutarsa olayların onun Mac'ine gider. Sunucunun sshd_config'inde GatewayPorts yes varsa port sunucunun ağına açılır.";
+"remote.copy" = "Kopyala";
+"remote.copied" = "Kopyalandı";
+
+"remote.remove" = "Makineyi kaldır…";
+"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'ları kaldır'ı kullan.";
+"remote.remove.cancel" = "Vazgeç";
+"remote.remove.do" = "Kaldır";

@@ -66,6 +66,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The machines came from `EVLAT_MACHINES` (or none, because of
     /// `EVLAT_PORT`): then adding or removing one is not written back.
     private var remoteFromEnvironment = true
+    /// The `ssh` the tunnels run, which the window's installer runs too.
+    private var remoteSSHPath = AppController.sshPath()
+    /// The remote machines window, once opened.
+    private(set) var remoteWindow: RemoteMachinesWindow?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
@@ -1012,18 +1016,64 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return raw.isEmpty ? "/usr/bin/ssh" : raw
     }
 
-    private func startRemoteTunnels() {
-        let configuration = Self.remoteConfiguration(defaults: defaults)
+    /// Internal so a test hands its own machines and the fake `ssh`; the
+    /// launch reads both from the environment and the stored list.
+    func startRemoteTunnels(configuration: RemoteMachine.Configuration? = nil,
+                            sshPath: String = AppController.sshPath()) {
+        let configuration = configuration ?? Self.remoteConfiguration(defaults: defaults)
         for target in configuration.rejected {
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
         }
         remoteFromEnvironment = configuration.fromEnvironment
         let tunnels = RemoteTunnels(
-            registry: registry, sshPath: Self.sshPath(), platform: Self.darwinPlatform,
+            registry: registry, sshPath: sshPath, platform: Self.darwinPlatform,
             now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         configuration.machines.forEach(tunnels.add)
         remote = tunnels
+        remoteSSHPath = sshPath
+    }
+
+    /// The window's view of the machines (`RemoteMachinesModel.Host`).
+    var remoteMachinesHost: RemoteMachinesModel.Host {
+        RemoteMachinesModel.Host(
+            machines: { [weak self] in self?.remote?.machines ?? [] },
+            state: { [weak self] id in self?.remote?.state(of: id) },
+            sessionCounts: { [weak self] in
+                guard let self else { return [:] }
+                let ids = self.remote?.machines.map(\.id) ?? []
+                var counts: [String: Int] = [:]
+                // By each machine's own prefix, as `HooksProvider` builds it:
+                // an id may hold a colon (an `EVLAT_MACHINES` target).
+                for signal in self.registry.snapshot().ordered where signal.entity.hasPrefix("remote:") {
+                    // The longest: `a` must not take `a:b`'s rows.
+                    guard let id = ids.filter({ signal.entity.hasPrefix("remote:\($0):") })
+                        .max(by: { $0.count < $1.count }) else { continue }
+                    counts[id, default: 0] += 1
+                }
+                return counts
+            },
+            add: { [weak self] target in self?.addMachine(target: target) ?? .failure(.empty) },
+            remove: { [weak self] id in self?.removeMachine(id: id) },
+            isStored: { [weak self] in self.map { !$0.remoteFromEnvironment } ?? false })
+    }
+
+    /// The window's focus call on open; a test holds it still so the runner
+    /// is never activated.
+    var remoteWindowActivation: () -> Void = { NSApp.activate() }
+
+    /// The menus' "Remote Machines…": the window, built on first use. Like
+    /// the other entries the open list closes first; unlike them, Evlat comes
+    /// forward — the user asked for a window to type into.
+    @objc func openRemoteMachines(_ sender: Any?) {
+        hover.closeNow()
+        if barState.isOpen { closeBar() }
+        let window = remoteWindow ?? RemoteMachinesWindow(
+            model: RemoteMachinesModel(host: remoteMachinesHost,
+                                       installer: RemoteInstaller(sshPath: remoteSSHPath)),
+            activate: { [weak self] in self?.remoteWindowActivation() })
+        remoteWindow = window
+        window.show()
     }
 
     /// Adds a machine by its `ssh` target, stores it and opens its tunnel.
@@ -1202,6 +1252,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
         }
         syncSelection(snapshot.ordered)
+        // The window's lines follow the tunnels only while it is on screen;
+        // it writes nothing unless one reads differently.
+        if let remoteWindow, remoteWindow.isVisible { remoteWindow.model.reload() }
     }
 
     /// The card follows the selected session through the same snapshot: its
@@ -1406,7 +1459,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                            "menu.hooks.error.unreadable", "menu.hooks.error.malformed",
                            "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
                            "menu.hooks.error.unwritable",
-                           "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint"]
+                           "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint",
+                           "menu.remote", "menu.remote.failure"]
 
     /// A refused write's line. A switch, not a string built from the case,
     /// so a new failure does not compile until it has a line.
@@ -1476,6 +1530,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
 
         addHookEntries(to: menu, in: lang)
+        addRemoteEntry(to: menu, in: lang)
 
         menu.addItem(.separator())
         let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
@@ -1523,6 +1578,25 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
             if let failure = hookFailures[source] { addFailureLine(failure, to: menu, in: lang) }
             if source == .claude { addUsageEntry(to: menu, in: lang, home: home) }
+        }
+    }
+
+    /// "Remote Machines…", and under it one dim line per machine whose
+    /// tunnel failed — `008`'s failure line, with the machine's name. The
+    /// line does nothing: the window says what to do about it.
+    private func addRemoteEntry(to menu: NSMenu, in lang: String) {
+        menu.addItem(.separator())
+        let entry = menu.addItem(withTitle: L10n.t("menu.remote", in: lang),
+                                 action: #selector(openRemoteMachines(_:)), keyEquivalent: "")
+        entry.target = self
+        for machine in remote?.machines ?? [] {
+            guard case .waiting(_, let failure)? = remote?.state(of: machine.id) else { continue }
+            let text = L10n.t("menu.remote.failure",
+                              ["machine": machine.name,
+                               "failure": L10n.t(RemoteMachinesModel.failureKey(failure), in: lang)], in: lang)
+            let line = menu.addItem(withTitle: text, action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            line.indentationLevel = 1
         }
     }
 

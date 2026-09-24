@@ -101,3 +101,94 @@
 "menu.usage.remove" = "Remove the usage line";
 "menu.usage.modified" = "Usage line edited by hand";
 "menu.usage.hint" = "Wraps your Claude Code status line; open sessions relay usage from their next message.";
+
+/* The remote machines: servers reached over ssh whose sessions show on the
+   bar. The menu's entry opens the window; under it, one dim line per machine
+   whose connection failed: "{machine}: {failure}" (remote.failure.*). */
+"menu.remote" = "Remote Machines…";
+"menu.remote.failure" = "{machine}: {failure}";
+
+/* The window. With no machine it shows an invitation and the field. */
+"remote.window.title" = "Remote Machines";
+"remote.empty.title" = "No remote machines yet";
+"remote.empty.body" = "Sessions you run on a server over ssh can show up on the bar like local ones. Add the server by the name you give ssh — an alias from ~/.ssh/config such as devbox, or me@server.";
+"remote.empty.requirement" = "Needs passwordless ssh, and to have connected once from Terminal.";
+/* The field: an ssh target. The button adds it; Return does too. */
+"remote.add.placeholder" = "devbox or me@server";
+"remote.add" = "Add";
+/* Why a target is refused, one line under the field. */
+"remote.add.empty" = "Type the name you give ssh.";
+"remote.add.option" = "A name can't start with “-”.";
+"remote.add.invalidCharacter" = "A name can't contain spaces.";
+"remote.add.duplicate" = "{name} is already added.";
+/* When Evlat was started with EVLAT_MACHINES or EVLAT_PORT (a test run):
+   the list is not stored. */
+"remote.environment" = "Started with EVLAT_MACHINES or EVLAT_PORT: machines added or removed here are forgotten when Evlat quits.";
+
+/* A machine's connection, under its name. {sessions} is summary.sessions*. */
+"remote.state.stopped" = "not connected";
+"remote.state.connecting" = "connecting…";
+"remote.state.connected" = "connected";
+"remote.state.connected.sessions" = "connected · {sessions}";
+/* A failed connection: what went wrong, and when the next try is. */
+"remote.state.waiting" = "{failure} · {retry}";
+"remote.retry" = "retrying in {time}";
+"remote.retry.soon" = "retrying shortly";
+/* What went wrong (also the menu's line), then what to do about it.
+   {target} is what the machine was added as. */
+"remote.failure.authentication" = "sign-in refused";
+"remote.failure.authentication.advice" = "Evlat needs passwordless ssh: a key the server accepts, loaded in your agent. Check that “ssh {target}” logs in from Terminal without asking.";
+"remote.failure.portBusy" = "port 48151 is taken on the server";
+"remote.failure.portBusy.advice" = "The server may still hold an old connection; it usually lets go within a minute. Another user's Evlat on the same server can hold it too.";
+"remote.failure.hostKey" = "unknown host key";
+"remote.failure.hostKey.advice" = "Connect once from Terminal with “ssh {target}” and accept the host key.";
+"remote.failure.hostName" = "host not found";
+"remote.failure.hostName.advice" = "Check the name, or its Host entry in ~/.ssh/config.";
+"remote.failure.unreachable" = "server unreachable";
+"remote.failure.unreachable.advice" = "Check the network or the VPN; Evlat keeps trying.";
+"remote.failure.other" = "ssh failed";
+"remote.failure.other.advice" = "Run “ssh {target}” in Terminal to see why.";
+
+/* Setting the server up: two ways, always both offered. */
+"remote.setup" = "Setup on the server";
+"remote.setup.automatic" = "Automatically";
+"remote.setup.manual" = "By hand";
+"remote.auto.body" = "Evlat connects over ssh and edits the server's settings files with the same writer as this Mac's menu: it never creates a missing folder, keeps a copy of the first version, and leaves a file alone if it changed meanwhile.";
+"remote.auto.hooks.install" = "Install or update hooks";
+"remote.auto.hooks.remove" = "Remove hooks";
+"remote.auto.usage.install" = "Install the usage line";
+"remote.auto.usage.remove" = "Remove the usage line";
+"remote.auto.busy" = "Working on {name}…";
+/* The result line: one "{change}: {result}" per file, joined with " · ".
+   {change} is source.* or remote.change.usage. */
+"remote.result.part" = "{change}: {result}";
+"remote.change.usage" = "Usage line";
+"remote.result.installed" = "installed";
+"remote.result.removed" = "removed";
+"remote.result.current" = "already up to date";
+"remote.result.absent" = "nothing to remove";
+"remote.result.noDirectory" = "not installed (no folder)";
+"remote.result.unreadable" = "the file could not be read";
+"remote.result.malformed" = "the file is not in a form Evlat can edit; left as is";
+"remote.result.changedUnderneath" = "the file changed while writing; try again";
+"remote.result.unwritable" = "the file could not be written";
+/* Alone, when ssh could not reach the server at all. */
+"remote.result.unreachable" = "Could not reach the server; nothing was changed.";
+
+/* By hand: exactly what the automatic setup writes, to paste yourself.
+   {placeholder} is the word to replace with your own command. */
+"remote.manual.body" = "Prefer to see every change first — on a production server, say? Paste these yourself; they are byte for byte what the automatic setup writes. Each hook only sends the event to 127.0.0.1:48151 on the server, fails silently and prints nothing; the tunnel brings it to this Mac.";
+"remote.manual.claude" = "~/.claude/settings.json — merge this “hooks” block into the file, next to any hooks you already have:";
+"remote.manual.codex" = "~/.codex/hooks.json — the same for Codex, if it is on the server:";
+"remote.manual.statusLine" = "The usage line — if settings.json has no “statusLine” yet, add this:";
+"remote.manual.wrapping" = "If it already has one, keep it and set its “command” to this, with your command in place of {placeholder} (a ' inside it is written '\\''):";
+"remote.manual.remove" = "To remove: delete every entry whose command contains {marker}, and put your statusLine command back. If the automatic setup changed a file, its first version is in the same folder with .evlat.bak added to the name.";
+"remote.manual.surface" = "What this opens: any process on the server can write to Evlat through the tunnel. If another user on the server holds port 48151 first, your events go to their Mac. With GatewayPorts yes in the server's sshd_config, the port opens to the server's network.";
+"remote.copy" = "Copy";
+"remote.copied" = "Copied";
+
+/* Removing a machine: asked in the window first. */
+"remote.remove" = "Remove Machine…";
+"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, use Remove hooks.";
+"remote.remove.cancel" = "Cancel";
+"remote.remove.do" = "Remove";

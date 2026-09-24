@@ -51,7 +51,11 @@ ya da kaldırır (`HookSettings`); elle denemede kök `EVLAT_HOME` ile geçici
 dizindir. `009`'un kodu bitti: açık gövdede özetin altında kaynak başına
 ikonsuz kullanım bloğu (`UsageBlock`, 5h/7d); Codex rollout kuyruğundan,
 Claude menüden kurulan durum satırı sarmalayıcısının `POST /usage/claude`'undan
-(`StatusLineRelay`).
+(`StatusLineRelay`). `010`'un kodu bitti: SSH ile bağlanılan sunuculardaki
+oturumlar makine adıyla barda (makine başına loopback dinleyici + `ssh -R`
+tüneli; duyulamayan satır sönük, maskotu sürmez); menüdeki "Uzak makineler…"
+penceresi makine ekler, bağlantıyı söyler, sunucuya otomatik ya da elle
+kurar, kaldırır — Evlat'ın etkinleşen tek penceresi, bar yine odak çalmaz.
 Metinler katalogda (`L10n`, `en`/`tr`). Güncel durum ve açık
 kalemler için `.tasks/README.md`, sıradaki setler için `ROADMAP.md` → Fazlar.
 
