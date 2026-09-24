@@ -211,3 +211,5 @@
 "chat.files" = "Bu sohbette üretilenler";
 "chat.file.save" = "Kaydet…";
 "chat.file.show" = "Finder'da göster";
+"chat.code.copy" = "Kopyala";
+"chat.code.copied" = "Kopyalandı";

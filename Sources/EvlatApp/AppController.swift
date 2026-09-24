@@ -1166,6 +1166,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             self.chats?.perform(.stop(chat: id))
             self.syncChat()
         }
+        chatModel.onCopy = { text in
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+        // The browser comes forward and the balloon, losing the keyboard,
+        // closes: Evlat activates nothing itself.
+        chatModel.onOpenLink = { url in NSWorkspace.shared.open(url) }
         chatModel.onNew = { [weak self] in self?.show(nil) }
         chatModel.onOpen = { [weak self] id in self?.show(id) }
         chatModel.onPin = { [weak self] id, pinned in

@@ -44,6 +44,17 @@ enum ChatPalette {
     static let tagOtherText = Color(.sRGB, red: 176 / 255, green: 179 / 255, blue: 184 / 255)
     /// The balloon's edge while a file is over it.
     static let dropEdge = Color(.sRGB, red: 120 / 255, green: 124 / 255, blue: 132 / 255)
+
+    // A reply's markdown (`ReplyView`): code a step darker than the
+    // balloon, links a quiet blue, a quote's bar dim.
+    static let codeGround = Color(.sRGB, red: 11 / 255, green: 12 / 255, blue: 13 / 255)
+    static let codeEdge = Color(.sRGB, red: 37 / 255, green: 39 / 255, blue: 42 / 255)
+    static let codeText = Color(.sRGB, red: 214 / 255, green: 218 / 255, blue: 224 / 255)
+    static let inlineCode = Color(.sRGB, red: 226 / 255, green: 214 / 255, blue: 190 / 255)
+    static let inlineCodeGround = Color(.sRGB, red: 36 / 255, green: 37 / 255, blue: 41 / 255)
+    static let tableHeader = Color(.sRGB, red: 24 / 255, green: 25 / 255, blue: 28 / 255)
+    static let link = Color(.sRGB, red: 125 / 255, green: 176 / 255, blue: 245 / 255)
+    static let quoteBar = Color(.sRGB, red: 70 / 255, green: 73 / 255, blue: 79 / 255)
 }
 
 /// The balloon (`011`, Karar 7): out of the mascot, its tail on the bar.
@@ -294,6 +305,11 @@ struct ChatView: View {
             }
             .frame(maxHeight: Self.transcriptMaxHeight)
             .fixedSize(horizontal: false, vertical: true)
+            // A reply's links and code blocks go through the model: a link
+            // opens in the default browser (http, https, mailto only), and
+            // the balloon closes as it would on any click elsewhere.
+            .environment(\.openURL, OpenURLAction { url in model.openLink(url) ? .handled : .discarded })
+            .environment(\.replyActions, ReplyActions(copy: { model.copy($0) }))
             .onChange(of: model.messages) {
                 reader.scrollTo(model.isRunning && !Self.isReplying(model.messages) && !Self.isAsking(model.messages)
                                 ? AnyHashable(Self.workingID) : AnyHashable(model.messages.count - 1),
@@ -340,12 +356,7 @@ private struct MessageLine: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .reply(let text):
-            Text(text)
-                .font(.system(size: 12.5))
-                .lineSpacing(2)
-                .foregroundStyle(ChatPalette.reply)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            ReplyView(text: text).equatable()
         case .tool(_, let name, let subject, let failed, let output):
             ToolLine(name: name, subject: subject, failed: failed, output: output)
         case .permission(let card):

@@ -70,6 +70,10 @@ final class ChatModel: ObservableObject {
     /// A made file's buttons: `[Save…]` and `[Show in Finder]`.
     var onSaveFile: ((String) -> Void)?
     var onRevealFile: ((String) -> Void)?
+    /// A code block's `[Copy]`: the text, to the pasteboard.
+    var onCopy: ((String) -> Void)?
+    /// A reply's link, already checked by `openLink`.
+    var onOpenLink: ((URL) -> Void)?
 
     /// Three prompts a bare `claude -p` can answer from its own folder,
     /// asking for no folder the system guards (Downloads, Desktop) and no
@@ -114,7 +118,7 @@ final class ChatModel: ObservableObject {
                        "chat.file.remove", "chat.folder.workspace", "chat.folder.change", "chat.folder.show",
                        "chat.new", "chat.history", "chat.history.pin", "chat.history.unpin",
                        "chat.history.remove", "chat.history.clear", "chat.files", "chat.file.save",
-                       "chat.file.show"]
+                       "chat.file.show", "chat.code.copy", "chat.code.copied"]
         + suggestionKeys + fileSuggestionKeys + outcomeKeys
 
     /// What the balloon offers now.
@@ -256,4 +260,22 @@ final class ChatModel: ObservableObject {
     func clearHistory() { onClearHistory?() }
     func save(_ path: String) { onSaveFile?(path) }
     func reveal(_ path: String) { onRevealFile?(path) }
+
+    // MARK: - A reply's markdown
+
+    func copy(_ text: String) { onCopy?(text) }
+
+    /// The link schemes a reply may open. A reply is the model's text: a
+    /// `file:` or an app's own scheme would launch something from a click
+    /// the user took for a web page.
+    static let linkSchemes: Set<String> = ["http", "https", "mailto"]
+
+    /// Opens a reply's link when its scheme is one of `linkSchemes`; `false`
+    /// for any other, which is left alone.
+    @discardableResult
+    func openLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), Self.linkSchemes.contains(scheme) else { return false }
+        onOpenLink?(url)
+        return true
+    }
 }

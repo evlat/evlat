@@ -269,3 +269,5 @@
 "chat.files" = "Made in this chat";
 "chat.file.save" = "Save…";
 "chat.file.show" = "Show in Finder";
+"chat.code.copy" = "Copy";
+"chat.code.copied" = "Copied";

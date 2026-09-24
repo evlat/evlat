@@ -5,7 +5,8 @@
 # run from a test.
 #
 #   FAKE_CLAUDE_LOG       file its arguments, EVLAT_TASK and stdin line go to
-#   FAKE_CLAUDE_SCENARIO  ok (default) | tool | error | slow | crash | permission
+#   FAKE_CLAUDE_SCENARIO  ok (default) | tool | error | slow | crash | permission | markdown
+#   FAKE_CLAUDE_DELAY     seconds between the `markdown` reply's pieces (default 0.3)
 #   FAKE_CLAUDE_PERMISSION_WAIT  seconds the permission hook waits (default 30)
 #
 # `permission` does what a real turn's hook does (`011/phase-3`): it reads the
@@ -93,6 +94,28 @@ permission)
     result success false 'Not allowed.'
     ;;
   esac
+  ;;
+markdown)
+  # A reply in every block the balloon draws, in pieces, as a real one
+  # streams (for looking at it by eye); it holds a while inside the open
+  # fence so a half-written reply can be seen.
+  full=''
+  piece() { delta "$1"; full="$full$1"; sleep "${FAKE_CLAUDE_DELAY:-0.3}"; }
+  piece '## Disk özeti\n\n'
+  piece 'Taradım: **en büyük** klasör `~/Library` — ayrıntı için '
+  piece '[Apple desteği](https://support.apple.com/102624).\n\n'
+  piece '1. Önbellekler\n   - `Caches` 4,2 GB\n   - `Logs` 310 MB\n'
+  piece '2. Xcode *türevleri*\n\n'
+  piece '```sh\ndu -sh ~/Library/* 2>/dev/null \\\n  | sort -h | tail -5\n'
+  sleep 4
+  piece '```\n\n'
+  piece '| Klasör | Boyut | Son değişiklik | Not |\n|:--|--:|:-:|--|\n'
+  piece '| Caches | 4,2 GB | bugün | silinebilir, uygulamalar yeniden kurar |\n'
+  piece '| Developer | 12,8 GB | dün | Xcode DerivedData ve simülatörler |\n\n'
+  piece '> Silmeden önce Çöp Kutusu'"'"'nu boşaltmayı unutma.\n\n---\n\n'
+  piece 'Ham <b>HTML</b> metin kalır.'
+  text "$full"
+  result success false "$full"
   ;;
 crash)
   echo 'warning: something' >&2
