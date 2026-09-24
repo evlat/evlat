@@ -159,7 +159,14 @@ struct ChatView: View {
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(focused ? ChatPalette.fieldEdgeFocused : ChatPalette.fieldEdge, lineWidth: 1))
         .animation(.easeOut(duration: 0.12), value: focused)
-        .onAppear { focused = true }
+        // On the first opening the view appears while the panel is ordered
+        // front and before it is made key; focus asked for then was lost and
+        // the first thing typed went nowhere (seen from the balloon). Asked
+        // again once `present` has made the panel key.
+        .onAppear {
+            focused = true
+            DispatchQueue.main.async { focused = true }
+        }
         .onChange(of: model.openings) { focused = true }
     }
 
@@ -182,29 +189,51 @@ struct ChatView: View {
     }
 
     /// The hint — or, with a chat on screen, `[+ New]` — and in the corner
-    /// the folder the chat works in and its permission mode.
+    /// the folder the chat works in and its permission mode. One line when
+    /// all of it fits whole; else the corner goes under the hint, rather than
+    /// both being cut (Turkish, seen by eye: "Dosya bırakabilirsin · Esc
+    /// kapatır" beside "K…rü · otom…").
     private var footer: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            if model.hasChat {
-                QuietButton(title: L10n.t("chat.new"), systemImage: "plus") { model.newChat() }
-                    .layoutPriority(1)
-            } else {
-                Text(L10n.t("chat.hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(ChatPalette.faint)
-                    .lineLimit(1)
-                    // The hint is read whole; a long folder name gives way.
-                    .layoutPriority(1)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                footerLead
+                // The stack's spacing is the gap; a spacer's own minimum
+                // would count twice toward fitting.
+                Spacer(minLength: 0)
+                footerCorner
             }
-            Spacer(minLength: 0)
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
-                Text(verbatim: "·")
-                    .font(.system(size: 11))
-                    .foregroundStyle(ChatPalette.faint.opacity(0.7))
-                ModeLabel(mode: model.mode) { model.modeTapped() }
+            VStack(alignment: .leading, spacing: 6) {
+                footerLead
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    footerCorner
+                }
             }
         }
+    }
+
+    @ViewBuilder private var footerLead: some View {
+        if model.hasChat {
+            QuietButton(title: L10n.t("chat.new"), systemImage: "plus") { model.newChat() }
+        } else {
+            Text(L10n.t("chat.hint"))
+                .font(.system(size: 11))
+                .foregroundStyle(ChatPalette.faint)
+                .lineLimit(1)
+        }
+    }
+
+    private var footerCorner: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
+            Text(verbatim: "·")
+                .font(.system(size: 11))
+                .foregroundStyle(ChatPalette.faint.opacity(0.7))
+            ModeLabel(mode: model.mode) { model.modeTapped() }
+        }
+        // At its own width: beside a spacer the dot was the one part left
+        // to give way, and went (seen by eye).
+        .fixedSize()
     }
 
     /// The history (`011/phase-5`): a few quiet rows — what, where, when —
@@ -507,7 +536,10 @@ private struct FolderLabel: View {
                     .truncationMode(.middle)
             }
             .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
+            // Its own width up to 130 pt: a long name gives way in the
+            // middle, a short one leaves no gap before the mode.
             .frame(maxWidth: 130, alignment: .trailing)
+            .fixedSize()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -532,16 +564,14 @@ private struct ModeLabel: View {
                 Text(name.lowercased(with: Locale(identifier: L10n.language)))
                     .font(.system(size: 11))
                     .lineLimit(1)
-                    .truncationMode(.tail)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7, weight: .semibold))
                     .opacity(hovered ? 1 : 0.6)
             }
             .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
-            // The footer is 288 pt with the hint in it: "accept edits" in
-            // Turkish is ~120 pt, so the name gives way rather than push the
-            // corner out of the balloon; the tooltip says it whole.
-            .frame(maxWidth: 96, alignment: .trailing)
+            // Whole, always: the longest ("düzenlemeleri kabul et", ~125 pt)
+            // fits the footer's own line when the hint leaves no room.
+            .fixedSize()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -656,6 +686,9 @@ private struct PermissionCardView: View {
     let card: ChatSession.PermissionCard
     let answer: (String, Action.Decision) -> Void
 
+    /// About eight lines of command before the card scrolls.
+    static let commandMaxHeight: CGFloat = 112
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -669,7 +702,20 @@ private struct PermissionCardView: View {
                 Text(L10n.t("chat.permission.tool", ["tool": card.tool]))
                     .font(.system(size: 11.5))
                     .foregroundStyle(ChatPalette.cardText)
-                if let subject = card.subject {
+                // A command whole — never its first line, never cut: what
+                // [Allow] lets run is all on the card, scrolling if long.
+                if let command = card.command {
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(verbatim: command)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(ChatPalette.cardCode)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: Self.commandMaxHeight)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else if let subject = card.subject {
                     Text(subject)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(ChatPalette.cardCode)

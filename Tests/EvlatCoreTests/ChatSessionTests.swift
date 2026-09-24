@@ -168,6 +168,30 @@ final class ChatSessionPermissionTests: XCTestCase {
                                rules: rules, directories: directories)
     }
 
+    /// A suggested folder the chat already works in is not offered: Claude
+    /// suggested the working folder itself for `mkdir` (measured, Ask mode).
+    func testTheChatsOwnFolderIsNoAccessToGive() throws {
+        var chat = running()
+        chat.ask(request("R1", tool: "Bash", directories: ["/tmp/project", "/tmp/project/sub/", "/tmp/projectile",
+                                                            "/tmp/other"]), at: t0)
+        guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
+        XCTAssertEqual(card.directories, ["/tmp/projectile", "/tmp/other"])
+        chat.ask(request("R2", tool: "Bash", directories: ["/tmp/project/."]), at: t0)
+        guard case .permission(let only)? = chat.messages.last else { return XCTFail("no card") }
+        XCTAssertFalse(only.offersAlways, "nothing left to keep: no third button")
+    }
+
+    /// The card carries the request's whole command; the one-line subject
+    /// stays what the bar and the "not done" match read.
+    func testACardCarriesTheWholeCommand() throws {
+        var chat = running()
+        chat.ask(PermissionHook.Request(id: "R1", token: "T", tool: "Bash", subject: "ls && rm a",
+                                        command: "ls && rm a\nfind ."), at: t0)
+        guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
+        XCTAssertEqual(card.command, "ls && rm a\nfind .")
+        XCTAssertEqual(card.subject, "ls && rm a")
+    }
+
     func testAnOpenCardMakesTheChatWaitAndAnAnswerResumesIt() throws {
         var chat = running()
         XCTAssertTrue(chat.ask(request("R1", rules: [.init(toolName: "Write")]), at: t0))

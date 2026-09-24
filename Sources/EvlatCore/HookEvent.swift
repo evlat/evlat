@@ -106,12 +106,47 @@ public struct HookEvent: Equatable {
         guard let input else { return nil }
         for key in subjectKeys {
             guard let value = input[key] as? String else { continue }
-            let line = value.split(whereSeparator: \.isNewline)
-                .lazy.map { $0.trimmingCharacters(in: .whitespaces) }
-                .first { !$0.isEmpty }
+            let line = lines(of: value).first
             if let line { return capped(line, at: subjectLimit) }
         }
         return nil
+    }
+
+    /// A `command`, whole: what a permission card shows, so no part of it is
+    /// allowed unseen — the one-line subject is capped and a card cuts it,
+    /// and a real `claude` (2.1.281) wrote `\` + newline between the parts
+    /// of a command whose third part was `rm`, while the card said `\`.
+    /// Continuations joined, blank lines dropped, capped at `commandLimit`.
+    public static func fullCommand(of input: [String: Any]?) -> String? {
+        guard let command = input?["command"] as? String else { return nil }
+        let lines = lines(of: command)
+        guard !lines.isEmpty else { return nil }
+        return capped(lines.joined(separator: "\n"), at: commandLimit)
+    }
+
+    /// The longest command a card shows whole.
+    public static let commandLimit = 4000
+
+    /// A value's non-blank lines, trimmed, with a shell line continuation
+    /// (`\` at a line's end) read as the shell reads it: one line. Without
+    /// it a command that opens with `\` + newline had `\` for its subject.
+    private static func lines(of value: String) -> [String] {
+        var joined: [String] = []
+        var pending = ""
+        for raw in value.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasSuffix("\\"), !line.hasSuffix("\\\\") {
+                pending += (pending.isEmpty ? "" : " ") + line.dropLast().trimmingCharacters(in: .whitespaces)
+                continue
+            }
+            let whole = (pending.isEmpty ? line : pending + (line.isEmpty ? "" : " " + line))
+                .trimmingCharacters(in: .whitespaces)
+            pending = ""
+            if !whole.isEmpty { joined.append(whole) }
+        }
+        let tail = pending.trimmingCharacters(in: .whitespaces)
+        if !tail.isEmpty { joined.append(tail) }
+        return joined
     }
 
     /// A reply cut to its first paragraph and `replyLimit`. Public for the

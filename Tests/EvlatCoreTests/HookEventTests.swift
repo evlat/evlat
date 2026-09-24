@@ -106,6 +106,31 @@ final class HookEventTests: XCTestCase {
         XCTAssertEqual(event.toolSubject, "cat <<'EOF' > a.txt")
     }
 
+    /// A shell line continuation is one line, as the shell reads it. Claude
+    /// Code 2.1.281, measured from the balloon: a command opening with `\` +
+    /// newline had a lone `\` for its subject — on the card that asked to run it.
+    func testALineContinuationIsReadAsOneLine() {
+        let command = "\\\nls -A old && \\\nrm old/a.tmp && \\\nrmdir old\nfind . | sort"
+        let subject = HookEvent(json: ["tool_name": "Bash", "tool_input": ["command": command]]).toolSubject
+        XCTAssertEqual(subject, "ls -A old && rm old/a.tmp && rmdir old")
+        XCTAssertEqual(HookEvent.subject(of: ["command": "echo 'a\\\\'\nls"]), "echo 'a\\\\'",
+                       "an escaped backslash at a line's end is no continuation")
+    }
+
+    /// The card's command is the whole of it — every line, continuations
+    /// joined, blank lines dropped — and only `command` has one.
+    func testTheFullCommandKeepsEveryLine() {
+        let command = "\\\nls -A old && \\\n  rm old/a.tmp\n\nfind . | sort\n"
+        XCTAssertEqual(HookEvent.fullCommand(of: ["command": command]),
+                       "ls -A old && rm old/a.tmp\nfind . | sort")
+        XCTAssertEqual(HookEvent.fullCommand(of: ["command": "mkdir out"]), "mkdir out")
+        XCTAssertNil(HookEvent.fullCommand(of: ["file_path": "/tmp/a.txt"]), "a path is not a command")
+        XCTAssertNil(HookEvent.fullCommand(of: ["command": " \n "]))
+        let long = String(repeating: "x", count: HookEvent.commandLimit * 2)
+        XCTAssertLessThanOrEqual(HookEvent.fullCommand(of: ["command": long])?.count ?? 0,
+                                 HookEvent.commandLimit + 1)
+    }
+
     /// A single-line subject is capped too: a one-line script can be any size.
     func testASubjectIsCapped() {
         let long = String(repeating: "x", count: HookEvent.subjectLimit * 3)

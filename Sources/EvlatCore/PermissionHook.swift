@@ -154,6 +154,9 @@ public enum PermissionHook {
         /// `HookEvent.subject(of:)` over the input: the one line a card says.
         /// The input itself is not kept (`Write` carries a whole file).
         public let subject: String?
+        /// A `Bash` command whole (`HookEvent.fullCommand(of:)`): what the
+        /// card shows in place of the subject, so nothing runs unseen.
+        public let command: String?
         /// The `addRules` suggestions that allow, flattened. Other kinds
         /// (`setMode`, `replaceRules`, …) are dropped here and never granted.
         public let rules: [Rule]
@@ -162,12 +165,14 @@ public enum PermissionHook {
         public let sessionID: String?
         public let cwd: String?
 
-        public init(id: String, token: String?, tool: String, subject: String?, rules: [Rule] = [],
-                    directories: [String] = [], sessionID: String? = nil, cwd: String? = nil) {
+        public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
+                    rules: [Rule] = [], directories: [String] = [], sessionID: String? = nil,
+                    cwd: String? = nil) {
             self.id = id
             self.token = token
             self.tool = tool
             self.subject = subject
+            self.command = command
             self.rules = rules
             self.directories = directories
             self.sessionID = sessionID
@@ -200,8 +205,9 @@ public enum PermissionHook {
                     continue
                 }
             }
+            let input = json["tool_input"] as? [String: Any]
             self.init(id: id, token: token, tool: tool,
-                      subject: HookEvent.subject(of: json["tool_input"] as? [String: Any]),
+                      subject: HookEvent.subject(of: input), command: HookEvent.fullCommand(of: input),
                       rules: rules, directories: directories,
                       sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String)
         }

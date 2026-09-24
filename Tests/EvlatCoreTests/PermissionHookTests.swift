@@ -82,6 +82,7 @@ final class PermissionHookTests: XCTestCase {
         XCTAssertEqual(request.token, "T-1")
         XCTAssertEqual(request.tool, "Bash")
         XCTAssertEqual(request.subject, HookEvent.subject(of: ["command": "mkdir out", "description": "Make it"]))
+        XCTAssertEqual(request.command, "mkdir out", "the card shows the command whole")
         XCTAssertEqual(request.rules, [PermissionHook.Rule(toolName: "Bash", ruleContent: "mkdir:*")],
                        "a deny rule and `setMode` are not offered; a repeated rule once")
         XCTAssertEqual(request.directories, ["/elsewhere"])

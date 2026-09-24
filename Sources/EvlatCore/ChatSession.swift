@@ -113,6 +113,8 @@ public struct ChatSession: Equatable {
         public let id: String
         public let tool: String
         public let subject: String?
+        /// A command whole, shown in place of `subject` (`PermissionHook.Request.command`).
+        public var command: String? = nil
         /// What "always" would grant: the suggested rules…
         public let rules: [PermissionHook.Rule]
         /// …and folders outside the chat's. With a folder the card offers
@@ -281,12 +283,26 @@ public struct ChatSession: Equatable {
     public mutating func ask(_ request: PermissionHook.Request, at now: Date) -> Bool {
         guard isRunning, !stopRequested, card(request.id) == nil else { return false }
         replyOpen = false
+        // A folder the chat already works in is no access to give: Claude
+        // 2.1.281 suggests the working folder itself for `mkdir` in Ask
+        // mode (seen from the balloon), and the card called it "outside
+        // this chat's folder" and kept it for nothing.
+        let outside = request.directories.filter { !Self.isWithin($0, folder) }
         messages.append(.permission(PermissionCard(id: request.id, tool: request.tool, subject: request.subject,
-                                                   rules: request.rules, directories: request.directories)))
+                                                   command: request.command,
+                                                   rules: request.rules, directories: outside)))
         // A second card while one is open keeps the wait's start: the bar
         // counts how long the chat has been waiting, not since the last card.
         if phase != .waiting { set(.waiting, word: "permission", at: now) }
         return true
+    }
+
+    /// Is `path` the folder or inside it? By the paths' text, standardized
+    /// (`.`, `..`, a trailing `/`); the file system is not asked.
+    static func isWithin(_ path: String, _ folder: String) -> Bool {
+        let path = URL(fileURLWithPath: path).standardizedFileURL.path
+        let folder = URL(fileURLWithPath: folder).standardizedFileURL.path
+        return path == folder || path.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/")
     }
 
     /// The user's answer to one card: the decision to send, or `nil` when
