@@ -2100,7 +2100,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                            "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
                            "menu.hooks.error.unwritable",
                            "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint",
-                           "menu.remote", "menu.remote.failure"]
+                           "menu.remote", "menu.remote.failure",
+                           "menu.memory", "menu.memory.show", "menu.memory.clear", "menu.memory.empty",
+                           "menu.memory.confirm", "menu.memory.confirm.detail", "menu.memory.cancel",
+                           "menu.memory.do"]
 
     /// A refused write's line. A switch, not a string built from the case,
     /// so a new failure does not compile until it has a line.
@@ -2172,6 +2175,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
         addHookEntries(to: menu, in: lang)
         addRemoteEntry(to: menu, in: lang)
+        addMemoryEntry(to: menu, in: lang)
 
         menu.addItem(.separator())
         let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
@@ -2263,6 +2267,58 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             line.isEnabled = false
             line.indentationLevel = 1
         }
+    }
+
+    /// "Evlat's Memory ▸ Show in Finder / Clear…": the folder workspace
+    /// chats remember in (`ChatStore.memoryDirectory`). Read each time the
+    /// menu is built; with nothing in it both entries are dim under an
+    /// "empty" line.
+    private func addMemoryEntry(to menu: NSMenu, in lang: String) {
+        guard let chats else { return }
+        let hasNotes = !(chats.memoryContents() ?? []).isEmpty
+        let actions = NSMenu()
+        actions.autoenablesItems = false
+        if !hasNotes {
+            let line = actions.addItem(withTitle: L10n.t("menu.memory.empty", in: lang), action: nil,
+                                       keyEquivalent: "")
+            line.isEnabled = false
+        }
+        let show = actions.addItem(withTitle: L10n.t("menu.memory.show", in: lang),
+                                   action: #selector(showMemory(_:)), keyEquivalent: "")
+        show.target = self
+        show.isEnabled = hasNotes
+        let clear = actions.addItem(withTitle: L10n.t("menu.memory.clear", in: lang),
+                                    action: #selector(clearMemory(_:)), keyEquivalent: "")
+        clear.target = self
+        clear.isEnabled = hasNotes
+        let entry = menu.addItem(withTitle: L10n.t("menu.memory", in: lang), action: nil, keyEquivalent: "")
+        entry.submenu = actions
+    }
+
+    @objc private func showMemory(_ sender: NSMenuItem) {
+        guard let folder = chats?.memoryDirectory else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([folder])
+    }
+
+    /// Asks first — the notes cannot be brought back — then empties the
+    /// folder. The alert needs Evlat in front, like the save panel, and
+    /// hands the front back after. Cancel is the default button.
+    @objc private func clearMemory(_ sender: NSMenuItem) {
+        guard chats != nil else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L10n.t("menu.memory.confirm")
+        alert.informativeText = L10n.t("menu.memory.confirm.detail")
+        alert.addButton(withTitle: L10n.t("menu.memory.cancel"))
+        let clear = alert.addButton(withTitle: L10n.t("menu.memory.do"))
+        clear.hasDestructiveAction = true
+        let previous = NSWorkspace.shared.frontmostApplication
+        choosingInPanel = true
+        chatPanel?.orderOut(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertSecondButtonReturn { chats?.clearMemory() }
+        handBack(to: previous)
     }
 
     private func addFailureLine(_ failure: SettingsFile.Failure, to menu: NSMenu, in lang: String) {

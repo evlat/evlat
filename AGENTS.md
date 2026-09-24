@@ -39,7 +39,8 @@ teslim bekliyor: maskota sol tık ya da kısayol (varsayılan ⇧⌘Space, menü
 `claude -p` kurulumuyla koşar (`Action` → `ChatStore`), izin balonda kartla
 cevaplanır, dosya maskota bırakılır; kapatılan iş barda maskot yüzlü bir
 `kind: .job` satırı olarak sürer ([Sohbete dön]), görülünce Geçmiş'e çekilir,
-Geçmiş 7 günde çalışma alanıyla kendini budar. Metinler katalogda (`L10n`,
+Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetleri tek bir kalıcı hafızayı
+(`<kök>/memory/`) paylaşır. Metinler katalogda (`L10n`,
 `en`/`tr`). Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
 setler için `ROADMAP.md` → Fazlar.
 

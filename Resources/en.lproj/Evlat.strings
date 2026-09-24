@@ -108,6 +108,18 @@
 "menu.remote" = "Remote Machines…";
 "menu.remote.failure" = "{machine}: {failure}";
 
+/* Evlat's memory: the one folder where chats run in Evlat's own workspace
+   keep what Claude remembers (autoMemoryDirectory). A chat in a folder of
+   yours keeps that folder's memory, not this one. Clearing asks first. */
+"menu.memory" = "Evlat's Memory";
+"menu.memory.show" = "Show in Finder";
+"menu.memory.clear" = "Clear…";
+"menu.memory.empty" = "Nothing remembered yet";
+"menu.memory.confirm" = "Clear Evlat's memory?";
+"menu.memory.confirm.detail" = "What Claude remembered in Evlat's chats is deleted for good. Chats in a folder of yours keep that folder's memory.";
+"menu.memory.cancel" = "Cancel";
+"menu.memory.do" = "Clear";
+
 /* The window. With no machine it shows an invitation and the field. */
 "remote.window.title" = "Remote Machines";
 "remote.empty.title" = "No remote machines yet";

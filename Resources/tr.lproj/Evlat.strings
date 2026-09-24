@@ -66,6 +66,15 @@
 "menu.remote" = "Uzak makineler…";
 "menu.remote.failure" = "{machine}: {failure}";
 
+"menu.memory" = "Evlat'ın hafızası";
+"menu.memory.show" = "Finder'da göster";
+"menu.memory.clear" = "Temizle…";
+"menu.memory.empty" = "Henüz hatırlanan bir şey yok";
+"menu.memory.confirm" = "Evlat'ın hafızası temizlensin mi?";
+"menu.memory.confirm.detail" = "Claude'un Evlat sohbetlerinde hatırladıkları kalıcı olarak silinir. Senin bir klasöründe çalışan sohbetler o klasörün hafızasını korur.";
+"menu.memory.cancel" = "Vazgeç";
+"menu.memory.do" = "Temizle";
+
 "remote.window.title" = "Uzak makineler";
 "remote.empty.title" = "Henüz uzak makine yok";
 "remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";

@@ -286,4 +286,68 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertEqual(store.workspaceFiles(ids[0]).map(\.lastPathComponent), ["out.txt"])
         XCTAssertEqual(store.workspaceFiles(ids[1]), [])
     }
+
+    // MARK: - Memory
+
+    private var memory: URL { directory.appendingPathComponent("memory", isDirectory: true) }
+
+    private func writeNote(_ name: String, in folder: URL? = nil) throws {
+        let folder = folder ?? memory
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("green".utf8).write(to: folder.appendingPathComponent(name))
+    }
+
+    func testTheMemoryFolderIsBesideTheWorkspaces() {
+        XCTAssertEqual(store().memoryDirectory.path, memory.path)
+    }
+
+    /// The week's pruning takes an old chat's workspace and never the
+    /// memory: what Claude remembered outlives every chat.
+    func testPruningNeverReachesTheMemory() throws {
+        try writeNote("MEMORY.md")
+        _ = try makeWorkspace(ids[0])
+        try writeIndex(ChatIndex(entries: [entry(ids[0], days: 30)]))
+        var trashed: [URL] = []
+        let store = store(trashed: { trashed.append($0) })
+        store.clearHistory()
+        XCTAssertEqual(trashed.map(\.lastPathComponent), [ids[0]])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: memory.appendingPathComponent("MEMORY.md").path))
+    }
+
+    /// Clearing empties the folder and keeps it; a link inside goes as a
+    /// link, and what it points at stays.
+    func testClearingEmptiesOnlyTheMemoryFolder() throws {
+        let outside = directory.appendingPathComponent("outside", isDirectory: true)
+        try writeNote("kept.md", in: outside)
+        try writeNote("MEMORY.md")
+        try writeNote("favorite-color.md", in: memory.appendingPathComponent("topic", isDirectory: true))
+        try FileManager.default.createSymbolicLink(at: memory.appendingPathComponent("link"),
+                                                   withDestinationURL: outside)
+        let store = store()
+        XCTAssertEqual(store.memoryContents()?.count, 3)
+        XCTAssertTrue(store.clearMemory())
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: memory.path), [])
+        XCTAssertEqual(store.memoryContents()?.count, 0, "the folder stays, empty")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.appendingPathComponent("kept.md").path),
+                      "a link is removed, not followed")
+    }
+
+    /// A memory folder that is a link to somewhere else is not Evlat's to
+    /// empty: nothing is read through it, nothing removed.
+    func testAMemoryFolderThatIsALinkIsNeverCleared() throws {
+        let outside = directory.appendingPathComponent("outside", isDirectory: true)
+        try writeNote("kept.md", in: outside)
+        try FileManager.default.createSymbolicLink(at: memory, withDestinationURL: outside)
+        let store = store()
+        XCTAssertNil(store.memoryContents())
+        XCTAssertFalse(store.clearMemory())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.appendingPathComponent("kept.md").path))
+    }
+
+    func testNoMemoryFolderIsNothingToClear() {
+        let store = store()
+        XCTAssertNil(store.memoryContents())
+        XCTAssertFalse(store.clearMemory())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: memory.path), "clearing never makes the folder")
+    }
 }

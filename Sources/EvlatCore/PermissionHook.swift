@@ -93,15 +93,24 @@ public enum PermissionHook {
     /// the port the listener actually bound, and `askRules`. Sorted keys and
     /// unescaped slashes, so the string is the same on every run and
     /// readable in a process list.
-    public static func settings(port: UInt16, token: String) -> String {
+    ///
+    /// `memoryDirectory`, when given, is `autoMemoryDirectory`: where Claude
+    /// keeps what it remembers. Claude derives the folder from the project
+    /// root, so each workspace chat (`chats/<UUID>/`) would get a memory of
+    /// its own that no later chat reads; given one folder, every workspace
+    /// chat shares it (measured on 2.1.281: a note written in one chat was
+    /// recalled by a new one). A chat in the user's folder gets none, and
+    /// keeps that folder's own memory.
+    public static func settings(port: UInt16, token: String, memoryDirectory: String? = nil) -> String {
         let hook: [String: Any] = [
             "type": "http",
             "url": "http://127.0.0.1:\(port)\(path)",
             "headers": [tokenHeader: token],
             "timeout": timeout,
         ]
-        let settings: [String: Any] = ["hooks": ["PermissionRequest": [["matcher": "*", "hooks": [hook]]]],
+        var settings: [String: Any] = ["hooks": ["PermissionRequest": [["matcher": "*", "hooks": [hook]]]],
                                        "permissions": ["ask": askRules]]
+        if let memoryDirectory { settings["autoMemoryDirectory"] = memoryDirectory }
         // Strings, an integer and nested containers of them always encode.
         let data = (try? JSONSerialization.data(withJSONObject: settings,
                                                 options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()

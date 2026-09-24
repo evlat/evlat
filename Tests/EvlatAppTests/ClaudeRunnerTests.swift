@@ -262,6 +262,28 @@ final class ClaudeRunnerTests: XCTestCase {
         XCTAssertEqual(again.chat(again.newChat())?.mode, .acceptEdits, "a new chat takes the default")
     }
 
+    /// A workspace chat remembers in Evlat's one memory folder; a chat in
+    /// the user's folder is given none and keeps that folder's own.
+    func testOnlyAWorkspaceChatIsGivenEvlatsMemory() throws {
+        let store = try make(root: directory)
+        let workspace = store.newChat()
+        store.perform(.send(chat: workspace, text: "remember", attachments: []))
+        waitUntil("the workspace turn ends") { store.chat(workspace)?.isRunning == false }
+        let project = directory.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let folder = store.newChat(folder: project.path)
+        store.perform(.send(chat: folder, text: "remember", attachments: []))
+        waitUntil("the folder turn ends") { store.chat(folder)?.isRunning == false && self.runs().count == 2 }
+        func memory(_ run: [String]) throws -> String? {
+            let settings = try XCTUnwrap(run.firstIndex(of: "--settings").map { run[$0 + 1] })
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(settings.utf8)) as? [String: Any])
+            return json["autoMemoryDirectory"] as? String
+        }
+        XCTAssertEqual(try memory(runs()[0]), directory.appendingPathComponent("memory").path)
+        XCTAssertEqual(try memory(runs()[0]), store.memoryDirectory.path)
+        XCTAssertNil(try memory(runs()[1]), "a chat in the user's folder keeps that folder's memory")
+    }
+
     /// A call denied without a card — here auto mode's classifier, in the
     /// shape measured for a deny rule — is a "not done" line naming it.
     func testACallDeniedWithoutACardIsANotDoneLine() throws {

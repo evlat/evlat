@@ -283,7 +283,10 @@ final class ChatStore {
             return finish(id, chat)
         }
         let token = UUID().uuidString
-        let invocation = invocation.asking(PermissionHook.Endpoint(port: port, token: token))
+        // A workspace chat remembers in Evlat's one memory folder; a chat in
+        // the user's folder keeps that folder's own (Claude's default).
+        let invocation = invocation.asking(PermissionHook.Endpoint(port: port, token: token),
+                                           memoryDirectory: chat.isWorkspace ? memoryDirectory.path : nil)
         if chat.isWorkspace {
             try? FileManager.default.createDirectory(atPath: chat.folder, withIntermediateDirectories: true)
         }
@@ -354,6 +357,58 @@ final class ChatStore {
     /// store kept in memory.
     private var workspaceBase: URL {
         root ?? FileManager.default.temporaryDirectory.appendingPathComponent("evlat-chats", isDirectory: true)
+    }
+
+    // MARK: - Memory
+
+    /// Where workspace chats remember (`autoMemoryDirectory`): one folder
+    /// beside `chats/`, shared by all of them. Claude makes it with its
+    /// first note. Not a workspace: the week's pruning never reaches it
+    /// (`removableWorkspace` takes only `chats/<UUID>`), it is kept until
+    /// the user clears it.
+    var memoryDirectory: URL {
+        workspaceBase.appendingPathComponent(Self.memoryName, isDirectory: true)
+    }
+
+    static let memoryName = "memory"
+
+    /// What the memory folder holds, hidden files included: `nil` when it
+    /// is not a folder Evlat may clear (missing, a link, not a folder, not
+    /// directly under the root).
+    func memoryContents() -> [URL]? {
+        guard let folder = clearableMemory() else { return nil }
+        return try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+    }
+
+    /// The menu's "Clear": everything **in** the memory folder goes, the
+    /// folder stays. Nothing when the folder is not Evlat's own (a link to
+    /// somewhere else is never followed). A link inside it goes as a link:
+    /// `removeItem` removes the link, not what it points at. `false` when
+    /// something could not be removed.
+    @discardableResult
+    func clearMemory() -> Bool {
+        guard let children = memoryContents() else { return false }
+        var cleared = true
+        for child in children {
+            do { try FileManager.default.removeItem(at: child) } catch {
+                cleared = false
+                NSLog("Evlat: memory file not removed (%@)", error.localizedDescription)
+            }
+        }
+        return cleared
+    }
+
+    /// The memory folder, if it is a real folder directly under the root —
+    /// checked without following links, on the folder and on the way to it.
+    private func clearableMemory() -> URL? {
+        let folder = memoryDirectory.standardizedFileURL
+        guard let type = (try? FileManager.default.attributesOfItem(atPath: folder.path))?[.type] as? FileAttributeType,
+              type == .typeDirectory else { return nil }
+        let base = workspaceBase.standardizedFileURL
+        guard folder.deletingLastPathComponent().path == base.path,
+              folder.resolvingSymlinksInPath().deletingLastPathComponent().path
+                == base.resolvingSymlinksInPath().path else { return nil }
+        return folder
     }
 
     /// The balloon drew the chat's end: its row goes, and the index

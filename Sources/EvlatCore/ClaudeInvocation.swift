@@ -67,9 +67,15 @@ public struct ClaudeInvocation: Equatable {
     /// user's own settings still load; hooks merge across them (measured,
     /// `phase-1`). Added when the turn starts, because only then is the
     /// listener's port known to be bound.
-    public func asking(_ endpoint: PermissionHook.Endpoint) -> ClaudeInvocation {
-        ClaudeInvocation(arguments: arguments + ["--permission-prompts", "none", "--settings", endpoint.settings],
-                         input: input, environment: environment, directory: directory)
+    ///
+    /// `memoryDirectory` goes into the same settings as
+    /// `autoMemoryDirectory` (`PermissionHook.settings`): a workspace chat's,
+    /// never a chat in the user's folder.
+    public func asking(_ endpoint: PermissionHook.Endpoint, memoryDirectory: String? = nil) -> ClaudeInvocation {
+        let settings = PermissionHook.settings(port: endpoint.port, token: endpoint.token,
+                                               memoryDirectory: memoryDirectory)
+        return ClaudeInvocation(arguments: arguments + ["--permission-prompts", "none", "--settings", settings],
+                                input: input, environment: environment, directory: directory)
     }
 
     /// `{"type":"user","message":{"role":"user","content":…}}`. Attached

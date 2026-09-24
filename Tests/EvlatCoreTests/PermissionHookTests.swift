@@ -21,6 +21,16 @@ final class PermissionHookTests: XCTestCase {
         XCTAssertFalse(text.contains("$"))
     }
 
+    /// A workspace chat's settings name Evlat's one memory folder; without
+    /// it the key is not there at all (the string above).
+    func testTheSettingsCarryTheMemoryFolderWhenGiven() throws {
+        let settings = try object(PermissionHook.settings(port: 1, token: "T",
+                                                          memoryDirectory: "/Users/a/Library/Application Support/Evlat/memory"))
+        XCTAssertEqual(settings["autoMemoryDirectory"] as? String, "/Users/a/Library/Application Support/Evlat/memory")
+        XCTAssertNotNil(settings["hooks"])
+        XCTAssertNil(try object(PermissionHook.settings(port: 1, token: "T"))["autoMemoryDirectory"])
+    }
+
     /// What cannot be undone asks in every mode: the turn's own settings
     /// carry the rules — `permissions.ask`, nothing allowed or denied — and
     /// each is a prefix rule whose `:*` ends it (the only place the form is
