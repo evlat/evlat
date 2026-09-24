@@ -2068,8 +2068,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// (`menuNeedsUpdate`), so the edge's mark is never stale.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "square.on.square",
-                                     accessibilityDescription: "Evlat")
+        item.button?.image = TrayIcon.image()
         item.menu = trayMenu()
         statusItem = item
     }
