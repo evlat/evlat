@@ -209,7 +209,7 @@ final class SSHProcess {
     private let process = Process()
     private let input = Pipe()
     private let errors = Pipe()
-    private let tail = Tail()
+    private let tail = StderrTail()
     private let onExit: (String) -> Void
 
     /// `onExit` is called once, on the main queue, with the tail of stderr.
@@ -266,33 +266,34 @@ final class SSHProcess {
         closeInput()
         if process.isRunning { process.terminate() }
     }
+}
 
-    /// The last bytes of stderr. Written from the pipe's reading thread,
-    /// read from the exit handler's; bounded, because a long-lived process
-    /// may write a warning now and then for days.
-    private final class Tail {
-        private let lock = NSLock()
-        private var data = Data()
-        private var finished = false
-        private static let limit = 2048
+/// The last bytes of a process's stderr. Written from the pipe's reading thread,
+/// read from the exit handler's; bounded, because a long-lived process
+/// may write a warning now and then for days. Shared by `SSHProcess` and
+/// `ClaudeRunner`.
+final class StderrTail {
+    private let lock = NSLock()
+    private var data = Data()
+    private var finished = false
+    private static let limit = 2048
 
-        func append(_ chunk: Data) {
-            lock.withLock {
-                data.append(chunk)
-                if data.count > Self.limit { data = Data(data.suffix(Self.limit)) }
-            }
+    func append(_ chunk: Data) {
+        lock.withLock {
+            data.append(chunk)
+            if data.count > Self.limit { data = Data(data.suffix(Self.limit)) }
         }
+    }
 
-        /// `true` the first time only.
-        func finish() -> Bool {
-            lock.withLock {
-                defer { finished = true }
-                return !finished
-            }
+    /// `true` the first time only.
+    func finish() -> Bool {
+        lock.withLock {
+            defer { finished = true }
+            return !finished
         }
+    }
 
-        var text: String {
-            lock.withLock { String(decoding: data, as: UTF8.self) }
-        }
+    var text: String {
+        lock.withLock { String(decoding: data, as: UTF8.self) }
     }
 }

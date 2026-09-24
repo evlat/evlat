@@ -50,9 +50,20 @@ public final class SessionsProvider: Provider {
     /// bring back exactly the skew that moved the stamp here.
     public private(set) var recordsMissingStatusUpdatedAt = 0
 
-    public init(directory: URL, platform: Platform) {
+    /// Session ids that are not the user's sessions but Evlat's own chats
+    /// (`011`). A `claude -p` turn writes a record like any other session
+    /// (measured, `011/phase-1`: `entrypoint: "sdk-cli"` and — misleadingly —
+    /// `kind: "interactive"`), and without this the chat would appear twice:
+    /// as its job row and as a session row. Evlat picks the id with
+    /// `--session-id`, so the set is known before the record exists; no rule
+    /// here reads `entrypoint` or `kind`, which would also hide the user's own
+    /// SDK sessions.
+    private let excluding: () -> Set<String>
+
+    public init(directory: URL, platform: Platform, excluding: @escaping () -> Set<String> = { [] }) {
         self.directory = directory
         self.platform = platform
+        self.excluding = excluding
     }
 
     /// The default location. Never hard-coded at the call site: the caller's
@@ -71,6 +82,7 @@ public final class SessionsProvider: Provider {
         recordsUnparseable = 0
         unrecognizedStatuses = []
         var best: [String: Record] = [:]
+        let excluded = excluding()
         for file in files where file.pathExtension == "json" {
             // A broken record drops alone — but it is counted, not swallowed.
             guard let record = Record(file: file) else { recordsUnparseable += 1; continue }
@@ -84,6 +96,9 @@ public final class SessionsProvider: Provider {
             // one was already dropped above: "the live pid wins".)
             if let existing = best[record.sessionId], existing.updatedAt >= record.updatedAt { continue }
             best[record.sessionId] = record
+        }
+        for id in excluded {
+            best.removeValue(forKey: id)
         }
 
         return best.values.map { record in

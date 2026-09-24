@@ -99,7 +99,10 @@ public struct HookEvent: Equatable {
         }
     }
 
-    private static func subject(of input: [String: Any]?) -> String? {
+    /// A tool input's one-line subject. Public because a chat's stream
+    /// (`ChatStream`) carries the same `tool_use` input and its line must read
+    /// the same as a session's card.
+    public static func subject(of input: [String: Any]?) -> String? {
         guard let input else { return nil }
         for key in subjectKeys {
             guard let value = input[key] as? String else { continue }
@@ -111,7 +114,10 @@ public struct HookEvent: Equatable {
         return nil
     }
 
-    private static func firstParagraph(_ text: String?) -> String? {
+    /// A reply cut to its first paragraph and `replyLimit`. Public for the
+    /// same reason as `subject(of:)`: a chat's last reply keeps the same
+    /// privacy promise as a session's.
+    public static func firstParagraph(_ text: String?) -> String? {
         guard let text else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

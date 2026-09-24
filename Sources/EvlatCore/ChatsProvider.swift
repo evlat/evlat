@@ -1,0 +1,32 @@
+import Foundation
+
+/// The `evlat` provider (`011`): every chat's row, a `kind: .job` signal in
+/// the same registry as the sessions.
+///
+/// It only holds the chats' state machines; the shell's `ChatStore` writes
+/// them as turns run. Providers are pure and live here, never in the app
+/// layer (`HookListenerTests.testNoTypeInTheAppLayerIsAProvider`).
+///
+/// Main queue, like every provider.
+public final class ChatsProvider: Provider {
+    public static let id = ChatSession.provider
+    public var id: String { Self.id }
+
+    public private(set) var chats: [String: ChatSession] = [:]
+
+    public init() {}
+
+    public subscript(id: String) -> ChatSession? {
+        get { chats[id] }
+        set { chats[id] = newValue }
+    }
+
+    /// Claude session ids of every chat: the record provider leaves them
+    /// out, since a `claude -p` turn writes a session record too (measured,
+    /// `011/phase-1`).
+    public var sessionIDs: Set<String> { Set(chats.values.map(\.sessionID)) }
+
+    public func currentSignals() -> [Signal] {
+        chats.values.compactMap { $0.signal() }.sorted { $0.entity < $1.entity }
+    }
+}

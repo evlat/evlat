@@ -258,6 +258,11 @@ public final class HooksProvider: Provider {
         // `"unknown"`, which merged them all onto a single line; `phase-2`
         // dropped the placeholder and it is not coming back.
         guard let sessionID = event.sessionID else { return }
+        // An Evlat errand (`011`): a `claude -p` turn the chat store started
+        // runs the user's installed hooks too — `--settings` merges with them
+        // (measured, `011/phase-1`) — and its row is the stream's, not this
+        // one. `LocalAPI` writes the task only on local delivery.
+        guard event.taskID == nil else { return }
         let entity = machine.map { "remote:\($0.id):\(sessionID)" } ?? sessionID
         // A remote number means nothing on this Mac. `LocalAPI` already strips
         // it from a tunneled request; this is the second lock, so no remote

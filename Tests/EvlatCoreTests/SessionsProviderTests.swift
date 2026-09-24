@@ -56,6 +56,18 @@ final class SessionsProviderTests: XCTestCase {
         XCTAssertEqual(provider().currentSignals().first?.activity, Signal.Activity(pid: 100))
     }
 
+    /// A `claude -p` turn writes a record too (measured, `011/phase-1`:
+    /// `entrypoint: "sdk-cli"`, `kind: "interactive"`), so a chat Evlat runs
+    /// would come back as a session row. Evlat chose that session id, so the
+    /// set is handed in; no rule reads `entrypoint` or `kind`.
+    func testSessionsEvlatRunsAreLeftOut() throws {
+        try write(pid: 100, sessionId: "chat-session", status: "busy")
+        try write(pid: 101, sessionId: "s-2", status: "busy")
+        let p = SessionsProvider(directory: dir, platform: Platform(isAlive: { _ in true }),
+                                 excluding: { ["chat-session"] })
+        XCTAssertEqual(p.currentSignals().map(\.entity), ["s-2"])
+    }
+
     func testDeadPidIsDropped() throws {
         try write(pid: 100, sessionId: "live", status: "busy")
         try write(pid: 200, sessionId: "dead", status: "busy")

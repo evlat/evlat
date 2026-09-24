@@ -1,0 +1,75 @@
+#!/bin/sh
+# A fake `claude -p` for the chat tests (`011`): it speaks the stream-json
+# shapes measured on Claude Code 2.1.281 and never reaches a model. Tests hand
+# its path to the runner the way `EVLAT_CLAUDE` does; the real `claude` is never
+# run from a test.
+#
+#   FAKE_CLAUDE_LOG       file its arguments, EVLAT_TASK and stdin line go to
+#   FAKE_CLAUDE_SCENARIO  ok (default) | tool | error | slow | crash
+#
+# Like the real one it reads one user line, answers, and after the `result`
+# waits for stdin to close before it exits — so a runner that never closes
+# stdin hangs here as it would there.
+
+log="${FAKE_CLAUDE_LOG:-/dev/null}"
+{
+  echo '--- run'
+  for a in "$@"; do printf '%s\n' "$a"; done
+  printf 'EVLAT_TASK=%s\n' "${EVLAT_TASK:-}"
+  printf 'PWD=%s\n' "$PWD"
+} >> "$log"
+
+sid=""
+prev=""
+for a in "$@"; do
+  case "$prev" in --session-id|--resume) sid="$a" ;; esac
+  prev="$a"
+done
+
+IFS= read -r line
+printf 'stdin=%s\n' "$line" >> "$log"
+
+emit() { printf '%s\n' "$1"; }
+delta() { emit '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"'"$1"'"}},"session_id":"'"$sid"'"}'; }
+text() { emit '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"'"$1"'"}]},"session_id":"'"$sid"'"}'; }
+result() { emit '{"type":"result","subtype":"'"$1"'","is_error":'"$2"',"result":"'"$3"'","session_id":"'"$sid"'","num_turns":1}'; }
+
+emit '{"type":"system","subtype":"init","cwd":"'"$PWD"'","session_id":"'"$sid"'","tools":["Bash"]}'
+emit '{"type":"system","subtype":"status","status":"requesting","session_id":"'"$sid"'"}'
+
+case "${FAKE_CLAUDE_SCENARIO:-ok}" in
+ok)
+  delta o
+  delta k
+  text ok
+  emit '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}'
+  result success false ok
+  ;;
+tool)
+  emit '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls -la","description":"List"}}]},"session_id":"'"$sid"'"}'
+  emit '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"a b"}]},"session_id":"'"$sid"'"}'
+  delta Done
+  text Done.
+  result success false Done.
+  ;;
+error)
+  result error_during_execution true boom
+  ;;
+slow)
+  # SIGINT ends the turn. `sleep` runs in the background so the trap fires
+  # at once rather than when the sleep is over.
+  delta Working
+  trap 'kill "$child" 2>/dev/null; exit 130' INT
+  sleep 30 &
+  child=$!
+  wait "$child"
+  ;;
+crash)
+  echo 'warning: something' >&2
+  echo 'fatal: the fake fell over' >&2
+  exit 3
+  ;;
+esac
+
+cat >/dev/null
+exit 0

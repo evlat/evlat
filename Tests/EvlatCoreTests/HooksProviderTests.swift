@@ -52,6 +52,25 @@ final class HooksProviderTests: XCTestCase {
         return provider.currentSignals().first?.phase
     }
 
+    // MARK: - Evlat's own errands
+
+    /// A `claude -p` turn Evlat started runs the user's installed hooks too
+    /// (measured, `011/phase-1`: `--settings` merges with them), so the same
+    /// chat would arrive a second time as a session row. Its events carry the
+    /// errand's id (`X-Evlat-Task`); the chat's row is the stream's, not this.
+    func testAnEventFromAnEvlatErrandOpensNoRow() {
+        let provider = provider()
+        var json: [String: Any] = ["hook_event_name": "UserPromptSubmit", "session_id": "s-1",
+                                   "cwd": "/tmp/project", HookEvent.pidKey: "4242"]
+        json[HookEvent.taskKey] = "chat-1"
+        provider.handle(HookEvent(json: json))
+        XCTAssertTrue(provider.currentSignals().isEmpty, "an errand's event must not become a row")
+        json[HookEvent.taskKey] = nil
+        provider.handle(HookEvent(json: json))
+        XCTAssertEqual(provider.currentSignals().map(\.phase), [.working],
+                       "an event without a task id is the user's own session, as before")
+    }
+
     // MARK: - Event → phase
 
     /// v1's `SessionStore.handle` core, written out cell by cell. All eleven

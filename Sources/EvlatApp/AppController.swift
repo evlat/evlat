@@ -60,6 +60,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         MainActor.assumeIsolated { self.now() }
     })
     private var hookListener: HookListener?
+    /// The chats (`011`) and their `claude -p` turns; `nil` until launch.
+    /// Registered in `registry` as the `evlat` provider.
+    private(set) var chats: ChatStore?
     /// The remote machines' listeners and `ssh` processes; `nil` until
     /// launch. Its providers are registered in `registry` by it.
     private(set) var remote: RemoteTunnels?
@@ -438,8 +441,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return FileManager.default.homeDirectoryForCurrentUser
     }
 
-    nonisolated public static func makeSessionsProvider() -> SessionsProvider {
-        SessionsProvider(directory: sessionsDirectory(), platform: darwinPlatform)
+    /// `excluding` names the sessions that are Evlat's own chats (`011`):
+    /// their `claude -p` turns write records too.
+    nonisolated public static func makeSessionsProvider(
+        excluding: @escaping () -> Set<String> = { [] }
+    ) -> SessionsProvider {
+        SessionsProvider(directory: sessionsDirectory(), platform: darwinPlatform, excluding: excluding)
+    }
+
+    /// Where the chats are kept (`ChatStore.root`) — only with a home: a
+    /// controller built without one (every test) never touches disk, the
+    /// rule `hookFailures`' writer follows.
+    nonisolated static func chatRoot(
+        home: URL?, environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        guard let home else { return nil }
+        return ChatStore.root(environment: environment, home: home)
     }
 
     /// `EVLAT_PHASE=working` forces a phase at launch, the scriptable twin of
@@ -814,7 +831,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // .accessory: no Dock icon, no Cmd-Tab entry. The bar should behave
         // like part of the system rather than like an app.
         NSApp.setActivationPolicy(.accessory)
-        registry.register(Self.makeSessionsProvider())
+        // Before the record provider: a chat's `claude -p` turn writes a
+        // session record, and the chat's sessions are left out of it.
+        let chats = ChatStore(root: Self.chatRoot(home: home), platform: Self.darwinPlatform,
+                              locator: ClaudeLocator(),
+                              now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
+                              onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
+        self.chats = chats
+        registry.register(Self.makeSessionsProvider(excluding: { [weak chats] in chats?.sessionIDs ?? [] }))
         // The undo switch for this whole set: with this one line gone the
         // listener still binds and the events still parse, and the bar is
         // exactly what `001` shipped.
@@ -826,6 +850,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // block's order does not hang on registration (it sorts by group).
         registry.register(claudeUsage)
         if let home { registry.register(CodexUsageProvider(home: home)) }
+        registry.register(chats.provider)
         startHookListener()
         startRemoteTunnels()
         installStatusItem()
@@ -1110,6 +1135,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public func applicationWillTerminate(_ notification: Notification) {
         hookListener?.stop()
         remote?.stopAll()
+        chats?.stopAll()
         poller?.invalidate()
         gaze?.stop()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
