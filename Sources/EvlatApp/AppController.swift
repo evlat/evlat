@@ -782,6 +782,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // No chat runs in a capture; the listener has already
                 // refused it (nobody here answers).
                 print("permission request refused: \(request.tool)")
+            case .signal:
+                // Unreachable until the listener carries a key (`012/phase-2`):
+                // `/signal` is refused before a delivery exists.
+                break
             }
         }
         listener.start()
@@ -1762,6 +1766,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             if let chats { chats.permissionAsked(request) } else {
                 hookListener?.answer(request.id, with: LocalAPI.unknownToken)
             }
+        case .signal:
+            // Unreachable until the listener carries a key and the provider
+            // is registered (`012/phase-2`).
+            break
         }
     }
 

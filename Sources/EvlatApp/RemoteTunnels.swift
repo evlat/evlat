@@ -149,6 +149,8 @@ final class RemoteTunnels {
                 // A tunnel answers `/permission` with `404` (`LocalAPI`):
                 // a remote machine never puts a card in front of this user.
                 case .permission: break
+                // Likewise `/signal`: no remote rows on this bar (`012`).
+                case .signal: break
                 }
                 onChange()
             })

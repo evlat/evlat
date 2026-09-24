@@ -12,6 +12,16 @@ public struct Signal: Equatable {
     /// sources see. A remote machine's session is `remote:{machine id}:{sessionId}`:
     /// the same id on two computers is two sessions, and a namespaced entity
     /// can never merge with a local row.
+    ///
+    /// **The namespace rule** (`012`): a local session is the bare
+    /// `sessionId`, and **every other producer prefixes its own name** —
+    /// `evlat:` (a chat), `remote:` (a machine's session), `usage:` (a
+    /// window), `signal:` (an outside program's row). Merging is by this
+    /// string alone, so a producer that wrote a bare id could take over a
+    /// session's row; a prefix makes that a matter of construction rather
+    /// than of a deny list. The prefix is written by Evlat, never by a
+    /// sender: `/signal` builds `signal:<id>` itself and its `id` cannot hold
+    /// a `:` (`SignalReport`).
     public let entity: String
     public let kind: Kind
     public let phase: Phase
@@ -77,6 +87,17 @@ public struct Signal: Equatable {
     /// does not beat. Those rules read `isLive`, never this field directly,
     /// so dimming lives in one place.
     public let machine: Machine?
+    /// The name an outside program gives itself ("npm", "blender"), drawn as
+    /// a small tag next to the row; `nil` on every other row. Drawn, **never
+    /// decided on**: a rule that branches on it would let a sender pick its
+    /// own treatment. Not `source`, which names an agent and is Evlat's word.
+    ///
+    /// **Not a phase, and not a new state** — the same argument as
+    /// `activity`. It adds no `Phase` value, changes no priority and moves
+    /// nothing in the order, the aggregate or `hasLive`, so the "three
+    /// places" rule (priority, indicator language, mascot table) is not
+    /// triggered.
+    public let sender: String?
 
     /// Can what this row says be taken as current? A local row always can;
     /// a remote one only while its machine is reachable (`Machine.dim` is
@@ -87,7 +108,7 @@ public struct Signal: Equatable {
                 phase: Phase, progress: Double? = nil, label: String,
                 detail: String? = nil, source: AgentSource? = nil, fidelity: Fidelity,
                 rawStatus: String? = nil, updatedAt: Date, activity: Activity? = nil,
-                usage: Usage? = nil, machine: Machine? = nil) {
+                usage: Usage? = nil, machine: Machine? = nil, sender: String? = nil) {
         self.provider = provider
         self.entity = entity
         self.kind = kind
@@ -102,6 +123,7 @@ public struct Signal: Equatable {
         self.activity = activity
         self.usage = usage
         self.machine = machine
+        self.sender = sender
     }
 
     /// The same signal with another activity. `Registry.reconcile` needs it on
@@ -111,7 +133,7 @@ public struct Signal: Equatable {
         Signal(provider: provider, entity: entity, kind: kind, phase: phase, progress: progress,
                label: label, detail: detail, source: source, fidelity: fidelity,
                rawStatus: rawStatus, updatedAt: updatedAt, activity: activity, usage: usage,
-               machine: machine)
+               machine: machine, sender: sender)
     }
 
     /// The same signal on another machine value. `Registry.reconcile` keeps
@@ -120,7 +142,7 @@ public struct Signal: Equatable {
         Signal(provider: provider, entity: entity, kind: kind, phase: phase, progress: progress,
                label: label, detail: detail, source: source, fidelity: fidelity,
                rawStatus: rawStatus, updatedAt: updatedAt, activity: activity, usage: usage,
-               machine: machine)
+               machine: machine, sender: sender)
     }
 
     /// Which remote computer a row belongs to, as of now.
@@ -265,6 +287,15 @@ public struct Signal: Equatable {
         }
     }
 
+    /// What sort of thing a row describes. The bar branches on this and
+    /// never on the provider's name.
+    ///
+    /// - `session`: an agent's session, on this Mac or a remote one.
+    /// - `usage`: a rate-limit window (`usage`), kept off the session line.
+    /// - `job`: Evlat's own chat (`011`).
+    /// - `custom`: an outside program's row (`012`, `POST /signal`). Evlat
+    ///   knows nothing about it but what the sender said: it has no
+    ///   terminal, no chat and no face.
     public enum Kind: String, Equatable { case session, usage, job, custom }
 
     /// How solid a number is (codenotch's `Fidelity`). The UI never presents a

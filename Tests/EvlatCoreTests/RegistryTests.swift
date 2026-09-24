@@ -430,4 +430,62 @@ final class RegistryTests: XCTestCase {
         ])
         XCTAssertEqual(snapshot.usage.compactMap(\.usage?.group), ["Claude", "Codex", "Claude · devbox"])
     }
+
+    // MARK: - Outside rows (`012`)
+
+    private func outside(_ id: String, _ phase: Phase, sender: String? = nil) -> Signal {
+        Signal(provider: "signal", entity: "signal:\(id)", kind: .custom, phase: phase,
+               label: id, fidelity: .manual, rawStatus: phase.rawValue,
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000), sender: sender)
+    }
+
+    /// An outside row is namespaced, so a sender that names itself after a
+    /// session gets a row of its own beside it rather than taking it over.
+    func testAnOutsideRowNeverMergesWithASession() {
+        let rows = merged([signal("x", .working, .derived)], [outside("x", .failed)])
+        XCTAssertEqual(Set(rows.map(\.entity)), ["x", "signal:x"])
+        XCTAssertEqual(rows.first { $0.entity == "x" }?.phase, .working, "the session is untouched")
+    }
+
+    /// `.manual` stands only where it is alone. Beside a `.derived` or an
+    /// `.official` row of the same entity it wins nothing — neither the
+    /// phase nor the name.
+    func testAManualRowStandsOnlyWhereItIsAlone() {
+        let manual = signal("e", .failed, .manual, provider: "hand", label: "hand")
+        XCTAssertEqual(merged([manual]).first?.provider, "hand")
+        let derived = merged([signal("e", .working, .derived, provider: "file")], [manual])
+        XCTAssertEqual(derived.map(\.provider), ["file"])
+        let official = merged([signal("e", .waiting, .official, provider: "hook")], [manual])
+        XCTAssertEqual(official.map(\.provider), ["hook"])
+    }
+
+    /// The sender rides through every place a `Signal` is rebuilt by hand:
+    /// a new field that one of them forgets disappears without a word.
+    func testTheSenderSurvivesEveryRebuild() {
+        let row = outside("x", .working, sender: "blender")
+        XCTAssertEqual(row.with(activity: Signal.Activity(pid: 1)).sender, "blender")
+        XCTAssertEqual(row.with(machine: Signal.Machine(name: "devbox")).sender, "blender")
+        // Both of `reconcile`'s branches: an admitted report and a refused one.
+        func sent(_ phase: Phase, _ fidelity: Signal.Fidelity, _ sender: String?) -> Signal {
+            Signal(provider: "p", entity: "e", phase: phase, label: "l", fidelity: fidelity,
+                   rawStatus: "said-so", updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+                   sender: sender)
+        }
+        XCTAssertEqual(merged([sent(.working, .derived, nil)], [sent(.waiting, .official, "hook")]).first?.sender,
+                       "hook", "admitted")
+        XCTAssertEqual(merged([sent(.working, .derived, "file")], [sent(.waiting, .official, nil)]).first?.sender,
+                       "file", "admitted, the report has none")
+        XCTAssertEqual(merged([sent(.working, .derived, "file")], [sent(.review, .official, "hook")]).first?.sender,
+                       "file", "refused")
+    }
+
+    /// An outside row is on the session line: ordered by phase like any
+    /// other, counted as live, and able to raise the mascot's face.
+    func testAnOutsideRowIsOnTheSessionLine() {
+        let snapshot = Registry.Snapshot(signals: [outside("build", .failed)])
+        XCTAssertEqual(snapshot.ordered.map(\.entity), ["signal:build"])
+        XCTAssertTrue(snapshot.hasLive)
+        XCTAssertEqual(snapshot.aggregate, .failed)
+        XCTAssertTrue(snapshot.usage.isEmpty)
+    }
 }

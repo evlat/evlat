@@ -100,10 +100,12 @@ public final class Registry {
         func newest(_ fidelity: Signal.Fidelity) -> Signal? {
             rows.filter { $0.fidelity == fidelity }.max { $0.updatedAt < $1.updatedAt }
         }
-        // `.manual` has no producer and no row in the table, so it is a tail
-        // rather than a participant: it answers only when nothing else
-        // describes this entity at all. Whatever first writes it has to give
-        // it a row of its own instead of inheriting this.
+        // `.manual` has no row in the table, and that is the rule rather than
+        // a debt: **a `.manual` row stands only where it is alone.** Beside a
+        // `.derived` or an `.official` row of the same entity it wins nothing
+        // — not the phase, not the name. Its producer (`/signal`, `012`)
+        // never meets one anyway: its entities are `signal:`-prefixed, and
+        // no other producer writes that prefix (`Signal.entity`).
         guard let baseline = newest(.derived) else { return newest(.official) ?? newest(.manual) }
         guard let report = newest(.official) else { return baseline }
         let activity = carried(report.activity, baseline.activity)
@@ -120,7 +122,8 @@ public final class Registry {
                       source: report.source ?? baseline.source, fidelity: report.fidelity,
                       rawStatus: report.rawStatus, updatedAt: report.updatedAt,
                       activity: activity.map { shown($0, on: report.phase) },
-                      usage: report.usage ?? baseline.usage, machine: machine)
+                      usage: report.usage ?? baseline.usage, machine: machine,
+                      sender: report.sender ?? baseline.sender)
     }
 
     /// A wait belongs to a row that waits. A refused report is a stale one

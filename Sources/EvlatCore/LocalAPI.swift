@@ -28,14 +28,17 @@ public enum LocalAPI {
         case usage(AgentSource)
         /// A chat turn's permission hook (`PermissionHook`, `011`).
         case permission
+        /// An outside program's row (`SignalReport`, `012`). Keyed: the
+        /// listener's key decides, not the route (`Listener`).
+        case signal
         case health
     }
 
-    /// The table is six rows and it is this `switch`.
+    /// The table is seven rows and it is this `switch`.
     ///
     /// v1's generic route table (`Route.required`, `read`/`action`/`mac` kinds,
     /// a semaphore answering on the main queue) is **not** ported: every
-    /// endpoint that needed it is out of scope for v2, and six rows do not
+    /// endpoint that needed it is out of scope for v2, and seven rows do not
     /// earn the generality.
     ///
     /// `curl` and the installed hook command never send `Origin`; a browser
@@ -65,6 +68,7 @@ public enum LocalAPI {
         case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
         case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
         case ("POST", PermissionHook.path): return .permission
+        case ("POST", SignalReport.path): return .signal
         case ("GET", "/health"): return .health
         default: return .notFound
         }
@@ -131,6 +135,8 @@ public enum LocalAPI {
         /// response, and the listener keeps the connection open under the
         /// request's id until the user answers (`HookListener.answer`).
         case permission(PermissionHook.Request)
+        /// An outside program's row, read and cleaned; the key has passed.
+        case signal(SignalReport)
     }
 
     /// The answer, plus what the app should hand to the main queue. The
@@ -160,7 +166,35 @@ public enum LocalAPI {
         case tunneled
     }
 
+    /// Everything a listener says about itself that decides a request: where
+    /// it came in, and the key `/signal` asks for. One value rather than two
+    /// parameters, so a listener cannot be built with one half and not the
+    /// other.
+    ///
+    /// **The key belongs to the listener, not to the request.** The process
+    /// that holds the port writes it (`012/phase-2`); a listener with no key —
+    /// the file could not be written, an isolated process, a tunnel — refuses
+    /// every `/signal`. Remote signals would give a tunnel's listener its
+    /// machine's key through this same field.
+    public struct Listener: Equatable {
+        public let origin: Origin
+        public let signalKey: String?
+
+        public init(origin: Origin = .local, signalKey: String? = nil) {
+            self.origin = origin
+            self.signalKey = signalKey
+        }
+    }
+
+    /// The listener's call until it passes its own `Listener` (`012/phase-2`
+    /// removes this): no key, so `/signal` is refused on every path through
+    /// here.
     public static func handle(_ request: HTTPRequest, origin: Origin = .local) -> Outcome {
+        handle(request, listener: Listener(origin: origin, signalKey: nil))
+    }
+
+    public static func handle(_ request: HTTPRequest, listener: Listener) -> Outcome {
+        let origin = listener.origin
         switch dispatch(method: request.method, target: request.target,
                         origin: request.origin, host: request.host) {
         case .forbidden:
@@ -183,6 +217,29 @@ public enum LocalAPI {
             }
             guard let asked = PermissionHook.Request(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
+        case .signal:
+            // Not through a tunnel, whatever the key: a remote machine does
+            // not put rows on this bar in this set, and the route's existence
+            // is not shown to it (as `/permission`).
+            guard origin == .local else { return notFound }
+            // The key before the body: a caller without it learns nothing
+            // about what a valid body looks like.
+            guard let expected = listener.signalKey, let sent = request.signalKey,
+                  sameKey(sent, expected) else {
+                return Outcome(response: Response(status: .forbidden,
+                                                  body: error("forbidden", "a valid X-Evlat-Key is expected")),
+                               delivery: nil)
+            }
+            guard let json = jsonObject(request.body) else { return badRequest }
+            switch SignalReport.parse(json: json) {
+            case .failure(let rejection):
+                return Outcome(response: Response(status: .badRequest, body: error(rejection.code, rejection.message)),
+                               delivery: nil)
+            case .success(let report):
+                // `{}` whatever the main queue does with it: the cap is
+                // known there, after this answer (`SignalsProvider.Applied`).
+                return Outcome(response: Response(status: .ok, body: "{}"), delivery: .signal(report))
+            }
         case .health:
             // v1 answered the single word `ok` under `Content-Type:
             // application/json`, which is not JSON. Nothing reads this body
@@ -240,6 +297,22 @@ public enum LocalAPI {
     private static var badRequest: Outcome {
         Outcome(response: Response(status: .badRequest, body: error("badRequest", "a JSON object is expected")),
                 delivery: nil)
+    }
+
+    /// Equal keys, in a time that does not depend on where they differ.
+    /// Foundation has no such comparison. Every byte of the **longer** one is
+    /// visited, with the missing side read as zero, and the length difference
+    /// is folded in as a whole `Int` — a byte-sized fold would wrap at 256 and
+    /// let a key followed by 256 zero bytes pass. An empty key is no key.
+    static func sameKey(_ sent: String, _ expected: String) -> Bool {
+        let a = Array(sent.utf8), b = Array(expected.utf8)
+        var difference = a.count ^ b.count
+        for index in 0..<max(a.count, b.count) {
+            let x = index < a.count ? a[index] : 0
+            let y = index < b.count ? b[index] : 0
+            difference |= Int(x ^ y)
+        }
+        return difference == 0 && !b.isEmpty
     }
 
     private static func jsonObject(_ body: Data) -> [String: Any]? {
