@@ -80,9 +80,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The folder or save panel is up: the balloon is ordered out for it, and its
     /// losing the keyboard to the panel is not a close.
     private var choosingInPanel = false
-    /// ⌥Space (`HotKey`); `nil` until launch — a test hands a fake, and a
-    /// controller without one registers nothing.
+    /// The balloon's shortcut (`HotKey`, ⇧⌘Space unless changed); `nil`
+    /// until launch — a test hands a fake, and a controller without one
+    /// registers nothing.
     var hotKey: HotKeyRegistration?
+    /// The menu's "Change…" (`HotKeyRecorder`), once opened.
+    private(set) var hotKeyRecorder: HotKeyRecorder?
+    /// The system's own shortcuts, read as the recorder opens; a test hands
+    /// its own table.
+    var systemHotKeys: () -> SystemHotKeys = SystemHotKeys.current
     /// The last registration's answer while the shortcut is on; `nil` when
     /// off or never tried. A failure is the menu's dim line.
     private(set) var hotKeyStatus: OSStatus?
@@ -882,7 +888,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         startRemoteTunnels()
         installStatusItem()
         // Here and nowhere else: `installPanel` runs in every test, and a
-        // test must never take the user's ⌥Space.
+        // test must never take the user's shortcut.
         let hotKey = HotKey()
         hotKey.onPress = { [weak self] in MainActor.assumeIsolated { self?.hotKeyPressed() } }
         self.hotKey = hotKey
@@ -1404,22 +1410,35 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The stored switch, default on.
     nonisolated static let hotKeyKey = "chat.hotkey"
+    /// The stored combination (`HotKeyCombination.stored`); none stored is
+    /// ⇧⌘Space. Its own key, so the switch above keeps what it held.
+    nonisolated static let hotKeyCombinationKey = "chat.hotkey.combination"
 
     nonisolated static func hotKeyEnabled(_ defaults: UserDefaults?) -> Bool {
         defaults?.object(forKey: hotKeyKey) as? Bool ?? true
     }
 
-    /// Without storage (every test) the switch is kept here: still applied,
-    /// like the edge, only not remembered.
+    nonisolated static func storedHotKey(_ defaults: UserDefaults?) -> HotKeyCombination {
+        HotKeyCombination(stored: defaults?.object(forKey: hotKeyCombinationKey)) ?? .standard
+    }
+
+    /// Without storage (every test) the switch and the combination are kept
+    /// here: still applied, like the edge, only not remembered.
     private var hotKeyUnstored = true
+    private var hotKeyCombinationUnstored = HotKeyCombination.standard
     private var isHotKeyOn: Bool { defaults.map(Self.hotKeyEnabled) ?? hotKeyUnstored }
+    var hotKeyCombination: HotKeyCombination {
+        defaults.map(Self.storedHotKey) ?? hotKeyCombinationUnstored
+    }
 
     /// Registers or unregisters the shortcut as the switch says; the answer
-    /// is kept for the menu.
+    /// is kept for the menu. While the recorder is up nothing is registered:
+    /// a registered combination never reaches a window, so pressing the
+    /// current one again could not be recorded.
     func applyHotKey() {
         guard let hotKey else { return }
-        if isHotKeyOn {
-            let status = hotKey.register()
+        if isHotKeyOn, hotKeyRecorder?.isRecording != true {
+            let status = hotKey.register(hotKeyCombination)
             hotKeyStatus = status
             if status != noErr { NSLog("Evlat: the shortcut was not registered (%d)", status) }
         } else {
@@ -1428,7 +1447,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    /// The menus' "Shortcut ⌥Space": stored, then applied. Activates nothing.
+    /// The shortcut's "Turn Off" / "Turn On": stored, then applied.
+    /// Activates nothing.
     @objc func toggleHotKey(_ sender: Any?) {
         if let defaults {
             defaults.set(!isHotKeyOn, forKey: Self.hotKeyKey)
@@ -1436,6 +1456,41 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             hotKeyUnstored.toggle()
         }
         applyHotKey()
+    }
+
+    /// The shortcut's "Change…": the recorder, where the balloon would be,
+    /// with the keyboard and Evlat still in the background. The balloon
+    /// closes first — one window has the keyboard. A recorded combination
+    /// is stored and turns the shortcut on; a cancel puts the old one back.
+    @objc func recordHotKey(_ sender: Any?) {
+        guard let bar = panel else { return }
+        if isChatOpen { closeChat() }
+        let recorder = hotKeyRecorder ?? makeHotKeyRecorder()
+        guard !recorder.isRecording else { return }
+        hotKey?.unregister()
+        hotKeyStatus = nil
+        recorder.show(current: hotKeyCombination, beside: bar, edge: bar.edge, in: L10n.language)
+    }
+
+    private func makeHotKeyRecorder() -> HotKeyRecorder {
+        let recorder = HotKeyRecorder(systemHotKeys: { [weak self] in self?.systemHotKeys() ?? .current() })
+        recorder.onFinish = { [weak self] combination in
+            guard let self else { return }
+            if let combination { self.storeHotKey(combination) }
+            self.applyHotKey()
+        }
+        hotKeyRecorder = recorder
+        return recorder
+    }
+
+    private func storeHotKey(_ combination: HotKeyCombination) {
+        if let defaults {
+            defaults.set(combination.stored, forKey: Self.hotKeyCombinationKey)
+            defaults.set(true, forKey: Self.hotKeyKey)
+        } else {
+            hotKeyCombinationUnstored = combination
+            hotKeyUnstored = true
+        }
     }
 
     /// Binds the hook port. Every event that arrives goes to
@@ -1950,7 +2005,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Every title the menus ask the catalogue for; the phases' are
     /// `StatusLine`'s.
     static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
-                           "menu.hotkey", "menu.hotkey.failure",
+                           "menu.hotkey", "menu.hotkey.change", "menu.hotkey.off", "menu.hotkey.on",
+                           "menu.hotkey.failure",
                            "menu.quit", "menu.force", "menu.force.follow",
                            "menu.hooks.install", "menu.hooks.update", "menu.hooks.remove",
                            "menu.hooks.hint.claude", "menu.hooks.hint.codex", "menu.hooks.hint.remove",
@@ -2038,14 +2094,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     }
 
-    /// "Shortcut ⌥Space", marked while on; under it a refused registration's
-    /// dim line (`008`'s pattern) with Carbon's number. The line does not
-    /// name another app: Carbon does not say who holds a key (measured).
+    /// "Shortcut: ⇧⌘Space ▸ Change… / Turn Off", marked while on; under it
+    /// a refused registration's dim line (`008`'s pattern) with Carbon's
+    /// number. The line does not name another app: Carbon does not say who
+    /// holds a key (measured).
     private func addHotKeyEntry(to menu: NSMenu, in lang: String) {
-        let entry = menu.addItem(withTitle: L10n.t("menu.hotkey", in: lang),
-                                 action: #selector(toggleHotKey(_:)), keyEquivalent: "")
+        let actions = NSMenu()
+        let change = actions.addItem(withTitle: L10n.t("menu.hotkey.change", in: lang),
+                                     action: #selector(recordHotKey(_:)), keyEquivalent: "")
+        change.target = self
+        let toggle = actions.addItem(withTitle: L10n.t(isHotKeyOn ? "menu.hotkey.off" : "menu.hotkey.on", in: lang),
+                                     action: #selector(toggleHotKey(_:)), keyEquivalent: "")
+        toggle.target = self
+        let entry = menu.addItem(withTitle: L10n.t("menu.hotkey", ["shortcut": hotKeyCombination.title], in: lang),
+                                 action: nil, keyEquivalent: "")
+        entry.submenu = actions
         entry.state = isHotKeyOn ? .on : .off
-        entry.target = self
         if let status = hotKeyStatus, status != noErr {
             let line = menu.addItem(withTitle: L10n.t("menu.hotkey.failure", ["status": "\(status)"], in: lang),
                                     action: nil, keyEquivalent: "")

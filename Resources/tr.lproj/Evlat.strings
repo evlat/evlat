@@ -178,8 +178,25 @@
 "chat.tool.running" = "Çalışıyor…";
 "chat.tool.done" = "Tamam";
 "chat.tool.failed" = "Başarısız";
-"menu.hotkey" = "Kısayol ⌥Space";
+"menu.hotkey" = "Kısayol: {shortcut}";
+"menu.hotkey.change" = "Değiştir…";
+"menu.hotkey.off" = "Kapat";
+"menu.hotkey.on" = "Aç";
 "menu.hotkey.failure" = "Kısayol kaydedilemedi ({status})";
+"hotkey.recorder.prompt" = "Yeni kısayola bas";
+"hotkey.recorder.current" = "Şu an: {shortcut}";
+"hotkey.recorder.hint" = "Bir tuşla ⌃, ⌥ ya da ⌘ · Esc vazgeçer";
+"hotkey.recorder.needsModifier" = "Tuşa ⌃, ⌥ ya da ⌘ ekle · Esc vazgeçer";
+"hotkey.recorder.appShortcut" = "{shortcut} uygulamaların kısayolu. Yalnız ⌘ ile Space ya da bir F tuşu seç, ya da ⌃ veya ⌥ ekle";
+"hotkey.recorder.system" = "macOS {shortcut} kısayolunu {use} için kullanıyor. Başka birine bas · Esc vazgeçer";
+"hotkey.system.inputSource" = "giriş kaynağını değiştirmek";
+"hotkey.system.spotlight" = "Spotlight";
+"hotkey.system.finderSearch" = "Finder araması";
+"hotkey.system.screenshot" = "ekran görüntüsü";
+"hotkey.system.missionControl" = "Mission Control";
+"hotkey.system.desktop" = "masaüstünü göstermek";
+"hotkey.system.spaces" = "masaüstleri arasında geçmek";
+"hotkey.system.other" = "bir sistem işlevi";
 
 /* The history and a chat's own files (`011/phase-5`). Old chats leave by
    themselves after a week; a pinned one stays. */

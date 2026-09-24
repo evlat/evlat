@@ -236,8 +236,25 @@
 "chat.tool.running" = "Running…";
 "chat.tool.done" = "Done";
 "chat.tool.failed" = "Failed";
-"menu.hotkey" = "Shortcut ⌥Space";
+"menu.hotkey" = "Shortcut: {shortcut}";
+"menu.hotkey.change" = "Change…";
+"menu.hotkey.off" = "Turn Off";
+"menu.hotkey.on" = "Turn On";
 "menu.hotkey.failure" = "Could not register the shortcut ({status})";
+"hotkey.recorder.prompt" = "Press the new shortcut";
+"hotkey.recorder.current" = "Now: {shortcut}";
+"hotkey.recorder.hint" = "Hold ⌃, ⌥ or ⌘ with a key · Esc cancels";
+"hotkey.recorder.needsModifier" = "Add ⌃, ⌥ or ⌘ to the key · Esc cancels";
+"hotkey.recorder.appShortcut" = "{shortcut} belongs to apps. With ⌘ alone use Space or an F key, or add ⌃ or ⌥";
+"hotkey.recorder.system" = "macOS uses {shortcut} for {use}. Press another · Esc cancels";
+"hotkey.system.inputSource" = "switching input sources";
+"hotkey.system.spotlight" = "Spotlight";
+"hotkey.system.finderSearch" = "Finder search";
+"hotkey.system.screenshot" = "screenshots";
+"hotkey.system.missionControl" = "Mission Control";
+"hotkey.system.desktop" = "showing the desktop";
+"hotkey.system.spaces" = "switching spaces";
+"hotkey.system.other" = "a system feature";
 
 /* The history and a chat's own files (`011/phase-5`). Old chats leave by
    themselves after a week; a pinned one stays. */

@@ -100,7 +100,7 @@ final class MenuTests: XCTestCase {
         let controller = controller()
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(titles(menu), ["Edge", "Shortcut ⌥Space", "—", "Remote Machines…", "—", "Quit Evlat"])
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Quit Evlat"])
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Right", "Left"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.on, .off])
         XCTAssertFalse(titles(menu).contains { $0.localizedCaseInsensitiveContains("hook") },
@@ -111,7 +111,7 @@ final class MenuTests: XCTestCase {
         let controller = controller()
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: true, in: "en")
-        XCTAssertEqual(titles(menu), ["Edge", "Shortcut ⌥Space", "Force state", "—", "Remote Machines…", "—",
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Remote Machines…", "—",
                                       "Quit Evlat"])
         let forced = try XCTUnwrap(menu.items[2].submenu)
         XCTAssertEqual(titles(forced),
@@ -123,7 +123,7 @@ final class MenuTests: XCTestCase {
         let controller = controller(edge: .left)
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: true, in: "tr")
-        XCTAssertEqual(titles(menu), ["Kenar", "Kısayol ⌥Space", "Durumu zorla", "—", "Uzak makineler…", "—",
+        XCTAssertEqual(titles(menu), ["Kenar", "Kısayol: ⇧⌘Space", "Durumu zorla", "—", "Uzak makineler…", "—",
                                       "Evlat'tan Çık"])
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Sağ", "Sol"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.off, .on])
@@ -179,18 +179,18 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
-                       ["Edge", "Shortcut ⌥Space", "—", "Remote Machines…", "—", "Quit Evlat"],
+                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Quit Evlat"],
                        "neither agent: no entry")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path), [],
                        "reading the menu creates no directory")
 
         try agentDirectory(.claude)
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
-                       ["Edge", "Shortcut ⌥Space", "—", "Install Claude Code hooks", "Install the usage line", "—",
+                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Install Claude Code hooks", "Install the usage line", "—",
                         "Remote Machines…", "—", "Quit Evlat"])
         try agentDirectory(.codex)
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
-                       ["Edge", "Shortcut ⌥Space", "Force state", "—", "Install Claude Code hooks",
+                       ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Install Claude Code hooks",
                         "Install the usage line",
                         "Install Codex hooks", "—", "Remote Machines…", "—", "Quit Evlat"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
