@@ -33,6 +33,18 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Evlat"
 for l in Resources/*.lproj; do [ -d "$l" ] && cp -R "$l" "$APP/Contents/Resources/"; done
 
+# The app icon is drawn by scripts/make-icon.swift — its only source; no image
+# is checked in. Redrawn only when the script is newer than the cached .icns,
+# so an ordinary `make paket` pays nothing.
+ICON=".build/AppIcon.icns"
+if [ ! -f "$ICON" ] || [ scripts/make-icon.swift -nt "$ICON" ]; then
+  ICONSET="$(mktemp -d)/AppIcon.iconset"
+  swift scripts/make-icon.swift "$ICONSET"
+  iconutil -c icns "$ICONSET" -o "$ICON"
+  rm -rf "$(dirname "$ICONSET")"
+fi
+cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
+
 find "$APP" -name '.DS_Store' -delete
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -44,6 +56,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>Evlat</string>
   <key>CFBundleDisplayName</key><string>Evlat</string>
   <key>CFBundleExecutable</key><string>Evlat</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
