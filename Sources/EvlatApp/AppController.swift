@@ -60,6 +60,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         MainActor.assumeIsolated { self.now() }
     })
     private var hookListener: HookListener?
+    /// The remote machines' listeners and `ssh` processes; `nil` until
+    /// launch. Its providers are registered in `registry` by it.
+    private(set) var remote: RemoteTunnels?
+    /// The machines came from `EVLAT_MACHINES` (or none, because of
+    /// `EVLAT_PORT`): then adding or removing one is not written back.
+    private var remoteFromEnvironment = true
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
@@ -605,7 +611,40 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             print("records that could not be parsed: \(provider.recordsUnparseable) (format may have drifted)")
         }
         printHookEndpoint(capturingFor: window)
+        printRemoteMachines()
         exit(0)
+    }
+
+    /// The configured machines. This process opens no tunnel: the running
+    /// app holds the server's 48151, and a second `ssh` here would race it
+    /// for the port — the state is the app's, on its stderr
+    /// (`Evlat: tunnel …`).
+    private nonisolated static func printRemoteMachines() {
+        let environment = ProcessInfo.processInfo.environment
+        let configuration = remoteConfiguration(defaults: .standard, environment: environment)
+        for line in remoteMachineLines(configuration, environment: environment) { print(line) }
+    }
+
+    nonisolated static func remoteMachineLines(_ configuration: RemoteMachine.Configuration,
+                                               environment: [String: String]) -> [String] {
+        var lines: [String] = []
+        let origin = configuration.fromEnvironment ? "EVLAT_MACHINES" : RemoteMachine.storageKey
+        if configuration.machines.isEmpty {
+            let port = environment["EVLAT_PORT"].map { !$0.isEmpty } ?? false
+            let reason = environment["EVLAT_MACHINES"] == nil && port
+                ? " (EVLAT_PORT is set without EVLAT_MACHINES: no tunnel is opened)" : ""
+            lines.append("remote machines: none\(reason)")
+        } else {
+            lines.append("remote machines: \(configuration.machines.count) (from \(origin))")
+            for machine in configuration.machines {
+                lines.append("  machine  \(machine.name)  → \(machine.target)"
+                    + "  ·  tunnel: held by the running app, see its stderr")
+            }
+        }
+        for rejected in configuration.rejected {
+            lines.append("  EVLAT_MACHINES entry \(rejected) ignored: not a usable ssh target")
+        }
+        return lines
     }
 
     /// One `--list` row. Separate so its privacy has a test: the row names the
@@ -616,7 +655,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let raw = signal.rawStatus.map { " (raw: \($0))" } ?? ""
         let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
         let terminal = host.map { "  → \($0.diagnostic)" } ?? ""
-        return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")\(terminal)"
+        let machine = signal.machine.map { "  @ \($0.name)\($0.reachable ? "" : " (not reachable)")" } ?? ""
+        return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")\(terminal)\(machine)"
     }
 
     /// One `--list` usage row: group, window, percent, reset, observation and
@@ -781,6 +821,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         registry.register(claudeUsage)
         if let home { registry.register(CodexUsageProvider(home: home)) }
         startHookListener()
+        startRemoteTunnels()
         installStatusItem()
 
         // The environment over the stored choice, the right over nothing.
@@ -944,8 +985,76 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         hookListener = listener
     }
 
+    // MARK: - Remote machines
+
+    /// The machines to open tunnels to: `RemoteMachine.configuration` over
+    /// this controller's defaults. Without defaults (every test) there are
+    /// none, whatever the environment says — a test never runs `ssh`.
+    nonisolated static func remoteConfiguration(
+        defaults: UserDefaults?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> RemoteMachine.Configuration {
+        guard let defaults else {
+            return RemoteMachine.Configuration(machines: [], fromEnvironment: true, rejected: [])
+        }
+        return RemoteMachine.configuration(environment: environment,
+                                           stored: defaults.data(forKey: RemoteMachine.storageKey))
+    }
+
+    /// `EVLAT_SSH` replaces the `ssh` binary — the fake one, for looking at a
+    /// tunnel without a server.
+    nonisolated static func sshPath(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        let raw = environment["EVLAT_SSH"]?.trimmingCharacters(in: .whitespaces) ?? ""
+        return raw.isEmpty ? "/usr/bin/ssh" : raw
+    }
+
+    private func startRemoteTunnels() {
+        let configuration = Self.remoteConfiguration(defaults: defaults)
+        for target in configuration.rejected {
+            NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
+        }
+        remoteFromEnvironment = configuration.fromEnvironment
+        let tunnels = RemoteTunnels(
+            registry: registry, sshPath: Self.sshPath(), platform: Self.darwinPlatform,
+            now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
+            onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
+        configuration.machines.forEach(tunnels.add)
+        remote = tunnels
+    }
+
+    /// Adds a machine by its `ssh` target, stores it and opens its tunnel.
+    /// A target already present answers with that machine. The window
+    /// (`phase-5`) is the caller.
+    @discardableResult
+    func addMachine(target: String) -> Result<RemoteMachine, RemoteMachine.TargetProblem> {
+        if let problem = RemoteMachine.validate(target: target) { return .failure(problem) }
+        guard let remote else { return .failure(.empty) }
+        if let existing = remote.machines.first(where: { $0.target == target }) { return .success(existing) }
+        guard let machine = RemoteMachine(id: UUID().uuidString, target: target) else { return .failure(.empty) }
+        remote.add(machine)
+        storeMachines()
+        return .success(machine)
+    }
+
+    /// Closes the machine's tunnel, drops its rows and forgets it.
+    func removeMachine(id: String) {
+        remote?.remove(id: id)
+        storeMachines()
+    }
+
+    /// Only a stored list is written back; one from the environment is read,
+    /// never written (`EVLAT_EDGE`'s rule).
+    private func storeMachines() {
+        guard !remoteFromEnvironment, let remote,
+              let data = RemoteMachine.encode(remote.machines) else { return }
+        defaults?.set(data, forKey: RemoteMachine.storageKey)
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         hookListener?.stop()
+        remote?.stopAll()
         poller?.invalidate()
         gaze?.stop()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
@@ -1078,7 +1187,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
             if rowsChanged {
                 // The rows' trace on stderr, for the same reason as the line above.
-                let rows = sessionRows.rows.map { "\($0.phase.rawValue):\($0.entity.prefix(8))" }
+                // A row nobody can hear is marked: its phase alone reads like a live one.
+                let rows = sessionRows.rows.map {
+                    "\($0.phase.rawValue):\($0.entity.prefix(8))\($0.isLive ? "" : "(dim)")"
+                }
                 NSLog("Evlat: rows [%@] closed +%ld", rows.joined(separator: ", "), sessionRows.overflow)
                 // The mark and a pending switch are keyed by session, and only a
                 // move re-reads them. A column that reorders under a still cursor

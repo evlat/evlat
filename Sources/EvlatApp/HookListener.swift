@@ -46,6 +46,10 @@ public final class HookListener {
     }
 
     private let requestedPort: UInt16
+    /// Where what arrives here comes from: this Mac, or one remote machine's
+    /// tunnel (`RemoteTunnels`). Handed to `LocalAPI`, which decides what that
+    /// means; the listener only knows which one it is.
+    private let origin: LocalAPI.Origin
     private let onDelivery: (LocalAPI.Delivery) -> Void
     private let onStatus: ((Status) -> Void)?
     private let queue = DispatchQueue(label: "dev.kalaomer.evlat.hooks")
@@ -74,9 +78,11 @@ public final class HookListener {
     /// because it is read from the listener's queue: a caller assigning it
     /// after `start()` would be racing the first state report.
     public init(port: UInt16,
+                origin: LocalAPI.Origin = .local,
                 onStatus: ((Status) -> Void)? = nil,
                 onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
         self.requestedPort = port
+        self.origin = origin
         self.onStatus = onStatus
         self.onDelivery = onDelivery
     }
@@ -242,7 +248,7 @@ public final class HookListener {
     /// would put the agent behind whatever the UI is doing — v1 kept a
     /// semaphore for that and used it only on its read endpoints, never here.
     private func respond(_ connection: NWConnection, to request: HTTPRequest) {
-        let outcome = LocalAPI.handle(request)
+        let outcome = LocalAPI.handle(request, origin: origin)
         connection.send(content: Data(outcome.response.httpText.utf8),
                         completion: .contentProcessed { _ in connection.cancel() })
         guard let delivery = outcome.delivery else { return }

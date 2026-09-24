@@ -17,6 +17,13 @@ public final class Registry {
         providers.append(provider)
     }
 
+    /// Takes one provider **object** out — a remote machine removed takes its
+    /// rows with it. By identity, not by `id`: every machine's hook provider
+    /// shares the local one's id.
+    public func unregister(_ provider: AnyObject) {
+        providers.removeAll { ($0 as AnyObject) === provider }
+    }
+
     /// Asks every `Reloadable` provider to read its source again. The caller
     /// picks the moment (the bar opening); which providers answer is theirs to
     /// say, not the caller's to know.
