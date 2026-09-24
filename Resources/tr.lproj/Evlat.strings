@@ -10,6 +10,8 @@
 "status.waiting" = "bekliyor";
 "status.waiting.approval" = "onay bekliyor";
 "status.waiting.answer" = "yanıt bekliyor";
+"row.unreachable" = "bağlantı yok";
+"row.silent" = "sessiz";
 
 "time.justNow" = "az önce";
 "time.minutes" = "{count} dk";

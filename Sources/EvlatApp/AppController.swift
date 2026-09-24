@@ -217,7 +217,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return summaryTop(rows: rows) + summaryHeight + mascotTopInset
     }
 
-    /// The open body's width: the names', the summary's or the block's,
+    /// The open body's width: the names' (a remote row's with its machine),
+    /// the summary's or the block's (a machine's heading included),
     /// whichever needs most, within the window's room.
     static func openWidth(rows: [SessionRow], usage: [UsageLine],
                           in lang: String = L10n.language) -> CGFloat {
@@ -325,7 +326,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The usage block (`009`) grew it once, downward: the longest open body
     /// is now seven and a half rows, the summary and a full block
     /// (`UsageBlockModel.maxLines`), with the shadow's room under it. What is
-    /// added is transparent and hangs below the head, like the rest.
+    /// added is transparent and hangs below the head, like the rest. `010`
+    /// grew it by three lines more, for one remote machine's group.
     public static let envelopeSize = CGSize(
         width: expandedBarWidth + detailCardGap + detailCardWidth + shadowGutter,
         height: max(anchorLength,

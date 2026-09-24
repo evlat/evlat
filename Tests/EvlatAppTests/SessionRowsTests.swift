@@ -234,7 +234,8 @@ final class SessionRowsTests: XCTestCase {
         Signal(provider: "stub", entity: entity, phase: phase, label: "name-\(entity)",
                source: .claude, fidelity: .official,
                updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
-               machine: Signal.Machine(name: "devbox", reachable: false))
+               machine: Signal.Machine(name: "devbox", dim: Signal.Machine.Dim(
+                   reason: .disconnected, since: Date(timeIntervalSince1970: 1_790_000_000))))
     }
 
     /// A dimmed row is not live, so it does not beat: a machine that went
@@ -257,6 +258,89 @@ final class SessionRowsTests: XCTestCase {
         let model = SessionRowsModel()
         model.update(from: [dimmed("far", .waiting), signal("near", .idle)])
         XCTAssertEqual(model.rows.map(\.entity), ["near", "far"])
+    }
+
+    // MARK: - Remote rows
+
+    private func remote(_ entity: String, label: String = "api", machine: String = "devbox",
+                        dim: Signal.Machine.Dim? = nil, stamp: TimeInterval = 0) -> Signal {
+        Signal(provider: "stub", entity: entity, phase: .working, label: label,
+               source: .claude, fidelity: .official,
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + stamp),
+               machine: Signal.Machine(name: machine, dim: dim))
+    }
+
+    /// The machine's name is drawn, so it is in the deadband: a renamed
+    /// machine rewrites the row, the same machine again does not.
+    func testAMachineNameChangeRewritesTheRow() {
+        let model = SessionRowsModel()
+        var writes = 0
+        let sub = model.$rows.dropFirst().sink { _ in writes += 1 }
+        defer { sub.cancel() }
+        model.update(from: [remote("r", machine: "devbox")])
+        XCTAssertEqual(model.rows.first?.machine, "devbox")
+        model.update(from: [remote("r", machine: "devbox", stamp: 30)])
+        XCTAssertEqual(writes, 1, "a stamp alone writes nothing")
+        model.update(from: [remote("r", machine: "buildbox")])
+        XCTAssertEqual(model.rows.first?.machine, "buildbox")
+        XCTAssertEqual(writes, 2)
+    }
+
+    /// `api` on `devbox` and `api` here are two places, told apart by the
+    /// machine's name; two `api`s on the same machine need a number.
+    func testTheSameNameIsNumberedOnlyOnTheSameMachine() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("local", .working, label: "api"), remote("remote:d:1")])
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0], "different machines: no number")
+        model.update(from: [signal("local", .working, label: "api"),
+                            remote("remote:d:1"), remote("remote:d:2")])
+        let numbers = Dictionary(uniqueKeysWithValues: model.rows.map { ($0.entity, $0.duplicate) })
+        XCTAssertEqual(numbers, ["local": 0, "remote:d:1": 0, "remote:d:2": 2])
+    }
+
+    /// A dimmed row carries why and since when; a live one carries neither,
+    /// so nothing moving reaches the row while it is lit.
+    func testADimmedRowCarriesWhyAndSinceWhen() {
+        let lost = Signal.Machine.Dim(reason: .disconnected, since: Date(timeIntervalSince1970: 1_790_000_000))
+        XCTAssertEqual(SessionRow(remote("r", dim: lost)).dim, lost)
+        XCTAssertFalse(SessionRow(remote("r", dim: lost)).isLive)
+        XCTAssertNil(SessionRow(remote("r")).dim)
+        XCTAssertTrue(SessionRow(remote("r")).isLive)
+        XCTAssertNil(SessionRow(signal("l", .working)).machine)
+    }
+
+    /// The status line of a dimmed row says why instead of the phase, with
+    /// the time since it was lost.
+    func testADimmedRowSaysWhyOnItsStatusLine() {
+        let since = Date(timeIntervalSince1970: 1_790_000_000)
+        let lost = Signal.Machine.Dim(reason: .disconnected, since: since)
+        let quiet = Signal.Machine.Dim(reason: .quiet, since: since)
+        XCTAssertEqual(StatusLine.text(phase: .working, waitKind: nil, enteredAt: nil, dim: lost,
+                                       now: since.addingTimeInterval(5 * 60 + 30), in: "en"),
+                       "no connection · 5 min")
+        XCTAssertEqual(StatusLine.text(phase: .working, waitKind: nil, enteredAt: nil, dim: quiet,
+                                       now: since.addingTimeInterval(40 * 60), in: "tr"),
+                       "sessiz · 40 dk")
+        XCTAssertEqual(StatusLine.text(phase: .waiting, waitKind: .approval, enteredAt: nil, dim: lost,
+                                       now: since.addingTimeInterval(3 * 3600), in: "tr"),
+                       "bağlantı yok · 3 sa", "a dimmed block says why too, not what it waited for")
+    }
+
+    /// The open body is fitted to a remote row's name with its machine, and
+    /// to a dimmed row's widest status line.
+    func testTheOpenBodyHoldsTheMachineName() {
+        let local = SessionRow(signal("l", .idle, label: "api"))
+        let far = SessionRow(remote("r"))
+        XCTAssertGreaterThan(SessionColumn.namesWidth([far], in: "en"),
+                             SessionColumn.namesWidth([local], in: "en"))
+        let lost = SessionRow(remote("r", label: "x", dim: Signal.Machine.Dim(
+            reason: .disconnected, since: Date(timeIntervalSince1970: 0))))
+        for lang in ["en", "tr"] {
+            let widest = StatusLine.widestForms(dim: .disconnected, in: lang)
+                .map { ceil(($0 as NSString).size(withAttributes: [.font: SessionColumn.statusFont]).width) }
+                .max() ?? 0
+            XCTAssertGreaterThanOrEqual(SessionColumn.namesWidth([lost], in: lang), widest, lang)
+        }
     }
 
     /// Two sessions with the same name in the same tool get a number, from the

@@ -9,6 +9,10 @@ import EvlatCore
 /// or the last reply — a footer of time in the phase, tools this turn and the
 /// terminal, and `[Go to session]` under it.
 ///
+/// A remote session's card names its machine in the header and has neither
+/// the terminal nor the button: its terminal is on another computer, and a
+/// dimmed one says why in its footer, as its status line does.
+///
 /// It observes `DetailModel` alone, and it is in the tree only while a
 /// session is selected: so is its minute tick.
 struct DetailCard: View {
@@ -85,19 +89,23 @@ struct DetailCard: View {
                     .foregroundStyle(Self.color(detail.phase))
                     .lineLimit(1)
             }
+            // The last thing a dimmed machine said, faded like its ring.
+            .opacity(detail.dim == nil ? 1 : SessionColumn.dimOpacity + 0.2)
             bodyView(CardBody.pick(detail.activity))
             // Once a minute, and only while the card is up.
             TimelineView(.everyMinute) { context in
                 if let footer = Self.footer(enteredAt: detail.enteredAt, activity: detail.activity,
                                             terminal: Self.terminal(detail.host),
-                                            now: context.date) {
+                                            dim: detail.dim, now: context.date) {
                     Text(verbatim: footer)
                         .font(Self.footerFont)
                         .foregroundStyle(BarPalette.textSecondary)
                         .lineLimit(1)
                 }
             }
-            button(Self.button(for: detail.host))
+            if Self.showsButton(detail) {
+                button(Self.button(for: detail.host))
+            }
         }
     }
 
@@ -120,6 +128,11 @@ struct DetailCard: View {
             }
             .onDisappear { onButtonFrame(nil) }
     }
+
+    /// Only a session on this Mac has a terminal to go to. A remote card
+    /// draws no button at all — not a dimmed "terminal not found" — so its
+    /// rectangle is never reported and no click lands on it.
+    static func showsButton(_ detail: SessionDetail) -> Bool { detail.machine == nil }
 
     struct ButtonState: Equatable {
         let title: String
@@ -160,6 +173,20 @@ struct DetailCard: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
+            if let machine = detail.machine {
+                // The column's machine label, in the usage heading's type.
+                Text(verbatim: UsageBlock.heading(machine))
+                    .font(Font(SessionColumn.machineFont))
+                    .kerning(SessionColumn.machineKerning)
+                    .foregroundStyle(UsageBlock.headerColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if detail.source != nil {
+                    Text(verbatim: "·")
+                        .font(Self.sourceFont)
+                        .foregroundStyle(UsageBlock.headerColor)
+                }
+            }
             if let source = detail.source {
                 Text(verbatim: L10n.t(Self.sourceKey(source)))
                     .font(Self.sourceFont)
@@ -227,11 +254,16 @@ struct DetailCard: View {
     /// "2 min · 12 tools · Metalterm": the time in the phase when it was seen
     /// entered, the turn's tool count when the source counts — `~` when the
     /// count began mid-turn — and the terminal when one was found. `nil` when
-    /// none is known.
+    /// none is known. A dimmed row leads with why and for how long instead
+    /// of its time in the phase ("no connection · 5 min · 12 tools").
     static func footer(enteredAt: Date?, activity: Signal.Activity?, terminal: String? = nil,
+                       dim: Signal.Machine.Dim? = nil,
                        now: Date, in lang: String = L10n.language) -> String? {
         var parts: [String] = []
-        if let enteredAt {
+        if let dim {
+            parts.append(StatusLine.text(phase: .idle, waitKind: nil, enteredAt: nil, dim: dim,
+                                         now: now, in: lang))
+        } else if let enteredAt {
             parts.append(StatusLine.duration(now.timeIntervalSince(enteredAt), in: lang))
         }
         if let count = activity?.toolCount {

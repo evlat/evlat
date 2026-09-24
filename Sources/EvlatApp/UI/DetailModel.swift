@@ -10,18 +10,28 @@ public struct SessionDetail: Equatable {
     /// The row's, so the card's time and the status line's agree.
     public let enteredAt: Date?
     public let activity: Signal.Activity?
+    /// The remote computer's name, for the header; `nil` on this Mac. A
+    /// remote session's terminal is on that computer, so such a card has no
+    /// terminal and no button (`DetailCard.showsButton`).
+    public let machine: String?
+    /// The row's, so the card's line and the status line's agree.
+    public let dim: Signal.Machine.Dim?
     /// Where the session runs, for the footer and the button. Resolved when
-    /// the card comes up and on the click, not on every snapshot.
+    /// the card comes up and on the click, not on every snapshot; never for
+    /// a remote session.
     var host: SessionHost = .notFound
 
     public init(entity: String, label: String, source: AgentSource?, phase: Phase,
-                enteredAt: Date?, activity: Signal.Activity?) {
+                enteredAt: Date?, activity: Signal.Activity?,
+                machine: String? = nil, dim: Signal.Machine.Dim? = nil) {
         self.entity = entity
         self.label = label
         self.source = source
         self.phase = phase
         self.enteredAt = enteredAt
         self.activity = activity
+        self.machine = machine
+        self.dim = dim
     }
 }
 
@@ -55,8 +65,12 @@ public final class DetailModel: ObservableObject {
         let pid = signal?.activity?.pid
         var next = SessionDetail(entity: row.entity, label: row.label, source: row.source,
                                  phase: row.phase, enteredAt: row.enteredAt,
-                                 activity: signal?.activity)
-        if let key = hostKey, key.entity == row.entity, key.pid == pid, let current = detail {
+                                 activity: signal?.activity, machine: row.machine, dim: row.dim)
+        if row.machine != nil {
+            // Another computer's session: no process here to walk, and a
+            // remote pid never reaches this side anyway (`LocalAPI`).
+            hostKey = nil
+        } else if let key = hostKey, key.entity == row.entity, key.pid == pid, let current = detail {
             next.host = current.host
         } else {
             next.host = resolveHost(pid)
@@ -73,10 +87,11 @@ public final class DetailModel: ObservableObject {
 
     /// `[Go to session]`: resolved again at the click, then brought forward.
     /// `true` when an app was activated (the caller closes the bar); if not,
-    /// the card now says why.
+    /// the card now says why. A remote session has no button and goes
+    /// nowhere, whatever reaches this.
     @discardableResult
     func go() -> Bool {
-        guard var current = detail else { return false }
+        guard var current = detail, current.machine == nil else { return false }
         let host = resolveHost(current.activity?.pid)
         if current.host != host {
             current.host = host

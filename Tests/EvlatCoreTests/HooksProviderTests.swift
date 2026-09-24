@@ -498,6 +498,58 @@ final class HooksProviderTests: XCTestCase {
         }
     }
 
+    private func dim(_ hooks: HooksProvider) -> Signal.Machine.Dim? {
+        hooks.currentSignals().first?.machine?.dim
+    }
+
+    /// The bar says why a row is dimmed and since when: the tunnel went at
+    /// that moment, and the mark stays put while it is gone and after it
+    /// comes back unheard — it is when the row was lost, not the time now.
+    func testALostLinkDimsFromTheMomentItWent() {
+        let hooks = remote()
+        let start = clock.now
+        hooks.setLink(connected: true)
+        hooks.handle(event("Stop", pid: nil))
+        XCTAssertNil(dim(hooks), "live")
+        clock.now += 120
+        hooks.setLink(connected: false)
+        let lost = Signal.Machine.Dim(reason: .disconnected, since: start.addingTimeInterval(120))
+        XCTAssertEqual(dim(hooks), lost)
+        clock.now += 300
+        XCTAssertEqual(dim(hooks), lost, "frozen while dimmed: the deadband sees no change")
+        hooks.setLink(connected: true)
+        clock.now += 60
+        XCTAssertEqual(dim(hooks), lost, "back, but not heard from: still lost since then")
+        hooks.handle(event("Notification", notification: "idle_prompt", pid: nil))
+        XCTAssertNil(dim(hooks), "heard again")
+        hooks.setLink(connected: false)
+        XCTAssertEqual(dim(hooks)?.since, clock.now, "a second loss is a new mark")
+    }
+
+    /// A row that never had a link was lost when it was last heard.
+    func testARowWithoutALinkIsLostSinceItWasHeard() {
+        let hooks = remote()
+        let heard = clock.now
+        hooks.handle(event("UserPromptSubmit", pid: nil))
+        clock.now += 90
+        XCTAssertEqual(dim(hooks), Signal.Machine.Dim(reason: .disconnected, since: heard))
+    }
+
+    /// A `working` row gone quiet says so, from its last word — "quiet ·
+    /// 40 min" is the silence, not the time since the rule tripped.
+    func testASilentWorkingRowIsQuietSinceItWasLastHeard() {
+        let hooks = remote()
+        hooks.setLink(connected: true)
+        hooks.handle(event("UserPromptSubmit", pid: nil))
+        clock.now += 60
+        let heard = clock.now
+        hooks.handle(event("PostToolUse", pid: nil, tool: "Bash"))
+        clock.now += HooksProvider.workingSilence + 600
+        XCTAssertEqual(dim(hooks), Signal.Machine.Dim(reason: .quiet, since: heard))
+        hooks.setLink(connected: false)
+        XCTAssertEqual(dim(hooks)?.reason, .disconnected, "no tunnel says more than silence")
+    }
+
     /// A machine's rows leave on the same twelve hours as any pidless row,
     /// dimmed or not.
     func testAMachinesRowLeavesAfterTwelveHours() {

@@ -16,6 +16,11 @@
 "status.waiting.approval" = "waiting for approval";
 /* Waiting for words: the agent asked a question. */
 "status.waiting.answer" = "waiting for an answer";
+/* A remote row whose machine cannot be heard: no tunnel, or not heard from
+   since it came back. Shown in place of the phase, as "{status} · {time}". */
+"row.unreachable" = "no connection";
+/* A remote row that was working and has said nothing for half an hour. */
+"row.silent" = "quiet";
 
 /* How long the session has been in its phase. Under a minute: */
 "time.justNow" = "just now";

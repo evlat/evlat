@@ -110,6 +110,47 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertFalse(onClick(CGPoint(x: 60, y: 310)), "no card, no button")
     }
 
+    // MARK: - A remote row
+
+    private func remote(_ entity: String) -> Signal {
+        Signal(provider: "stub", entity: entity, phase: .waiting, label: "api",
+               fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0),
+               activity: Signal.Activity(), machine: Signal.Machine(name: "devbox"))
+    }
+
+    /// A remote session runs in a terminal on another computer: there is
+    /// nothing on this Mac to look up or bring forward, so the card has no
+    /// button at all — not the "terminal not found" one.
+    func testARemoteRowLooksNothingUpAndGoesNowhere() throws {
+        let (controller, _) = controller([remote("remote:d:1")]) { .app(self.term) }
+        defer { controller.panel?.close() }
+        controller.select("remote:d:1")
+        let detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertEqual(detail.machine, "devbox")
+        XCTAssertFalse(DetailCard.showsButton(detail), "no button, no terminal")
+        XCTAssertNil(DetailCard.terminal(detail.host))
+        XCTAssertFalse(controller.detail.go())
+        controller.goToSession()
+        XCTAssertEqual(resolved, [], "no process walk for a remote row")
+        XCTAssertEqual(activated, [])
+        XCTAssertTrue(controller.barState.isOpen, "nothing happened elsewhere: the card stays")
+    }
+
+    /// From a local card to a remote one: the old button's rectangle does not
+    /// linger as a place to click.
+    func testTheButtonsRectangleGoesWithARemoteCard() throws {
+        let (controller, _) = controller([signal("a"), remote("remote:d:1")]) { .app(self.term) }
+        defer { controller.panel?.close() }
+        controller.select("a")
+        XCTAssertTrue(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+        controller.goButtonFrameChanged(CGRect(x: 40, y: 300, width: 230, height: 28))
+        controller.select("remote:d:1")
+        controller.goButtonFrameChanged(nil)   // the button's `onDisappear`
+        let onClick = try XCTUnwrap(controller.panel?.onClick)
+        XCTAssertFalse(onClick(CGPoint(x: 60, y: 310)))
+        XCTAssertEqual(activated, [])
+    }
+
     func testCloseNowClosesThroughTheIntent() {
         var changes: [Bool] = []
         var scheduled: [DispatchWorkItem] = []

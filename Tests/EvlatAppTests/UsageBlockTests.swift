@@ -157,18 +157,39 @@ final class UsageBlockTests: XCTestCase {
     }
 
     /// R8, the drawing half: a source nobody wrote a line of UI for gets its
-    /// own group. The cap holds today's two sources whole.
+    /// own group. The cap holds today's two sources and one machine whole.
     func testAThirdSourceGetsItsOwnGroup() {
         let alone = UsageBlockModel.lines(from: [usage("Gemini", 1440)], now: now)
         XCTAssertEqual(alone.map(\.id), ["group:Gemini", "usage:Gemini:1440"])
-        let builtIn = [usage("Claude", 300), usage("Claude", 10080),
-                       usage("Codex", 300), usage("Codex", 10080)]
-        XCTAssertEqual(UsageBlockModel.lines(from: builtIn, now: now).count, UsageBlockModel.maxLines,
-                       "the two built-in sources fit whole")
-        let three = UsageBlockModel.lines(from: builtIn + [usage("Gemini", 1440)], now: now)
-        XCTAssertEqual(three.map(\.id).filter { $0.contains("Gemini") }, [],
-                       "the group past the cap falls off whole")
-        XCTAssertEqual(three.count, UsageBlockModel.maxLines)
+    }
+
+    /// Claude, Codex and one machine's Claude: nine lines, all drawn. A
+    /// second machine falls off whole; the local groups stay.
+    func testOneMachineFitsAndASecondFallsOffWhole() {
+        let local = [usage("Claude", 300), usage("Claude", 10080),
+                     usage("Codex", 300), usage("Codex", 10080)]
+        let devbox = [usage("Claude · devbox", 300), usage("Claude · devbox", 10080)]
+        let three = UsageBlockModel.lines(from: local + devbox, now: now)
+        XCTAssertEqual(three.count, 9)
+        XCTAssertEqual(UsageBlockModel.maxLines, 9)
+        XCTAssertEqual(three.compactMap { line -> String? in
+            guard case .header(let group) = line else { return nil }
+            return group
+        }, ["Claude", "Codex", "Claude · devbox"])
+        let four = UsageBlockModel.lines(from: local + devbox
+                                         + [usage("Claude · buildbox", 300), usage("Claude · buildbox", 10080)],
+                                         now: now)
+        XCTAssertEqual(four, three, "the fourth group falls off whole")
+    }
+
+    /// The machine's heading is wider than the local ones; the body holds it.
+    func testTheOpenWidthHoldsAMachinesHeading() {
+        let lines = UsageBlockModel.lines(from: [usage("Claude · devbox", 300)], now: now)
+        let local = UsageBlockModel.lines(from: [usage("Claude", 300)], now: now)
+        XCTAssertGreaterThanOrEqual(UsageBlock.minWidth(lines: lines, in: "en"),
+                                    UsageBlock.minWidth(lines: local, in: "en"))
+        XCTAssertLessThanOrEqual(AppController.openWidth(rows: [], usage: lines, in: "en"),
+                                 AppController.expandedBarWidth)
     }
 
     // MARK: - Layout

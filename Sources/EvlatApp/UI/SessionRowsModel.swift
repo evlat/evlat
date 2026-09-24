@@ -15,7 +15,7 @@ public struct SessionRow: Equatable, Identifiable {
     /// The tool the session runs in; its mark is drawn inside the ring.
     public let source: AgentSource?
     /// 0, or this row's number among rows with the same name in the same tool
-    /// (2, 3, …). The first of them keeps the bare name.
+    /// on the same machine (2, 3, …). The first of them keeps the bare name.
     public let duplicate: Int
     /// When the column saw this row enter its phase; `nil` when it was first
     /// seen already in it — how long is not known, and the status line says
@@ -27,18 +27,25 @@ public struct SessionRow: Equatable, Identifiable {
     /// reply) moves on every tool event and belongs to the card, so a busy
     /// session's burst never rewrites the column.
     public let waitKind: Signal.Activity.WaitKind?
+    /// The remote computer's name, drawn small beside the row's; `nil` on
+    /// this Mac. A proper name, not catalogue text.
+    public let machine: String?
+    /// Why a remote row cannot be heard and since when (`Signal.Machine.Dim`);
+    /// `nil` while it can, and always on this Mac. Its moment is frozen while
+    /// the row is dimmed, so it passes the deadband without writing.
+    public let dim: Signal.Machine.Dim?
+
     /// `Signal.isLive`: false for a remote row nobody can currently hear.
     /// Such a row is listed but does not beat, and sorts under the live ones.
-    public let isLive: Bool
+    public var isLive: Bool { dim == nil }
 
     public var id: String { entity }
 
     public init(entity: String, label: String, phase: Phase,
                 source: AgentSource? = nil, duplicate: Int = 0,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
-                isLive: Bool = true) {
+                machine: String? = nil, dim: Signal.Machine.Dim? = nil) {
         self.entity = entity
-        self.isLive = isLive
         self.label = label
         self.phase = phase
         self.source = source
@@ -48,13 +55,15 @@ public struct SessionRow: Equatable, Identifiable {
         // keeps the block on waiting rows alone; this keeps the row honest if
         // that ever loosens.
         self.waitKind = phase == .waiting ? waitKind : nil
+        self.machine = machine
+        self.dim = dim
     }
 
     public init(_ signal: Signal, duplicate: Int = 0, enteredAt: Date? = nil) {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
-                  isLive: signal.isLive)
+                  machine: signal.machine?.name, dim: signal.machine?.dim)
     }
 
     /// Whether this row moves on the beat. `working` turns its arc, `waiting`
@@ -162,15 +171,19 @@ public final class SessionRowsModel: ObservableObject {
         return (shown, all.count - shown.count)
     }
 
-    /// Numbers for rows that share a name **and** a tool — two Codex sessions
-    /// in one folder are both called after it. The same name in two tools
-    /// needs none: the mark in the ring tells them apart. Counted over every
+    /// Numbers for rows that share a name, a tool **and** a machine — two
+    /// Codex sessions in one folder are both called after it. The same name
+    /// in two tools needs none: the mark in the ring tells them apart; nor on
+    /// two computers: the machine's name beside it does. Counted over every
     /// live row, not the visible ones, and in entity order, so a number does
     /// not change when the rows reorder or scroll into the count.
     nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
         var groups: [String: [String]] = [:]
         for signal in signals {
-            groups["\(signal.source?.rawValue ?? "-")/\(signal.label)", default: []].append(signal.entity)
+            // The machine and the tool come first and hold no "/" (a host
+            // name cannot), so no label can make two keys collide.
+            let key = "\(signal.machine?.name ?? "")/\(signal.source?.rawValue ?? "-")/\(signal.label)"
+            groups[key, default: []].append(signal.entity)
         }
         var numbers: [String: Int] = [:]
         for entities in groups.values where entities.count > 1 {

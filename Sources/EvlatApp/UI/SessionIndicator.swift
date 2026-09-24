@@ -54,6 +54,16 @@ struct SessionColumn: View {
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// The small raised number after a repeated name.
     static let numberFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
+    /// A remote row's machine, after its name: the usage block's group
+    /// heading type — small capitals by hand, spaced — so a machine reads the
+    /// same wherever it is named (`UsageBlock.heading`). Text, not an icon.
+    static var machineFont: NSFont { UsageBlock.headerFont }
+    static var machineKerning: CGFloat { UsageBlock.headerKerning }
+    /// Between a name (or its number) and its machine.
+    static let machineGap: CGFloat = 5
+    /// How much of a dimmed row's ring is left: enough to read its phase and
+    /// its mark, faint enough to sit behind every live ring.
+    static let dimOpacity: Double = 0.4
     /// The status line. Digits of one width, so "11 min" and "18 min" take
     /// the same room and the measured widest form holds.
     static let statusFont = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
@@ -100,11 +110,15 @@ struct SessionColumn: View {
     /// the status line under it at its widest (`statusWidth`).
     static func namesWidth(_ rows: [SessionRow], in lang: String = L10n.language) -> CGFloat {
         let widest = rows.map { row -> CGFloat in
-            let status = statusWidth(phase: row.phase, waitKind: row.waitKind, in: lang)
-            let name = (row.label as NSString).size(withAttributes: [.font: nameFont]).width
-            guard row.duplicate > 0 else { return max(name, status) }
-            let number = ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
-            return max(name + numberGap + number, status)
+            let status = statusWidth(phase: row.phase, waitKind: row.waitKind,
+                                     dim: row.dim?.reason, in: lang)
+            var name = (row.label as NSString).size(withAttributes: [.font: nameFont]).width
+            if row.duplicate > 0 {
+                name += numberGap
+                    + ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
+            }
+            if let machine = row.machine { name += machineGap + machineWidth(machine) }
+            return max(name, status)
         }.max() ?? 0
         return min(ceil(widest), nameMaxWidth)
     }
@@ -112,15 +126,27 @@ struct SessionColumn: View {
     /// The widest a row's status line can get in its phase, whatever the
     /// minutes say — the body is fitted to this, so it does not move as time
     /// passes. It changes with the phase, which rewrites the rows anyway.
+    /// A dimmed row is fitted to its reason's forms instead: that is what
+    /// its line says.
     static func statusWidth(phase: Phase, waitKind: Signal.Activity.WaitKind?,
+                            dim: Signal.Machine.Reason? = nil,
                             in lang: String = L10n.language) -> CGFloat {
-        let widest = StatusLine.widestForms(phase: phase, waitKind: waitKind, in: lang)
+        let forms = dim.map { StatusLine.widestForms(dim: $0, in: lang) }
+            ?? StatusLine.widestForms(phase: phase, waitKind: waitKind, in: lang)
+        let widest = forms
             .map { ($0 as NSString).size(withAttributes: [.font: statusFont]).width }
             .max() ?? 0
         return ceil(widest)
     }
 
     static let numberGap: CGFloat = 2
+
+    /// The machine's name as drawn: `UsageBlock.heading`'s capitals, measured
+    /// with its spacing.
+    static func machineWidth(_ machine: String) -> CGFloat {
+        ceil((UsageBlock.heading(machine) as NSString)
+            .size(withAttributes: [.font: machineFont, .kern: machineKerning]).width)
+    }
 
     /// The open body's width for names this wide: the part of the bar right
     /// of the ring's leading edge, the gap, the names and the inset.
@@ -218,7 +244,8 @@ struct SessionColumn: View {
                                  // Only a beating row sees the counter move. A
                                  // still row's trigger never changes on the
                                  // beat, so it plays nothing and draws nothing.
-                                 beat: row.beats ? model.beat : 0)
+                                 beat: row.beats ? model.beat : 0,
+                                 isLive: row.isLive)
                     .frame(width: AppController.barWidth)
                     .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
                         ground(selected: showsNames && row.entity == selected,
@@ -270,7 +297,12 @@ struct SessionColumn: View {
     /// past the body's edge.
     ///
     /// Idle sessions are grey and the rest white: the same split the rings
-    /// make, so the eye lands on what is doing something.
+    /// make, so the eye lands on what is doing something. A dimmed row is
+    /// grey too, and its status line says why instead of its phase — never
+    /// amber: an old block asks nothing of the user yet.
+    ///
+    /// A remote row names its machine after its own name, in the usage
+    /// block's heading type.
     ///
     /// A repeated name in the same tool carries a small raised number after
     /// it — only then, so a unique name stays bare.
@@ -279,18 +311,20 @@ struct SessionColumn: View {
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow) -> some View {
         VStack(alignment: docked, spacing: 1) {
-            name(row.label, duplicate: row.duplicate, color: row.phase == .idle
+            name(row.label, duplicate: row.duplicate, machine: row.machine,
+                 color: row.phase == .idle || !row.isLive
                  ? BarPalette.textSecondary : BarPalette.textPrimary)
             if showsNames {
                 // Once a minute, and only while open. The date comes from the
                 // timeline, not `Date()`, so the text is a function of it.
                 TimelineView(.everyMinute) { context in
                     Text(verbatim: StatusLine.text(phase: row.phase, waitKind: row.waitKind,
-                                                   enteredAt: row.enteredAt, now: context.date))
+                                                   enteredAt: row.enteredAt, dim: row.dim,
+                                                   now: context.date))
                         .font(Font(Self.statusFont))
                         // Waiting is the one that asks for the user: amber,
                         // the ring's colour. The rest is grey.
-                        .foregroundStyle(row.phase == .waiting
+                        .foregroundStyle(row.phase == .waiting && row.isLive
                                          ? SessionIndicator.amber : BarPalette.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -310,7 +344,7 @@ struct SessionColumn: View {
             .allowsHitTesting(false)
     }
 
-    private func name(_ label: String, duplicate: Int, color: Color) -> some View {
+    private func name(_ label: String, duplicate: Int, machine: String?, color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
             // The name is data, not text of ours: it is what the user called
             // the session, so it bypasses the string lookup (`verbatim`) and
@@ -327,14 +361,28 @@ struct SessionColumn: View {
                     .baselineOffset(4)
                     .fixedSize()
             }
+            if let machine {
+                // Laid out first: a long name gives way before it, since the
+                // machine is what tells two `api`s apart. Only a host name
+                // wider than the whole box is cut, in the middle, where a
+                // long host's distinct parts are least likely to be.
+                Text(verbatim: UsageBlock.heading(machine))
+                    .font(Font(Self.machineFont))
+                    .kerning(Self.machineKerning)
+                    .foregroundStyle(UsageBlock.headerColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .layoutPriority(1)
+                    .padding(.leading, Self.machineGap - Self.numberGap)
+            }
         }
             .frame(width: Self.nameMaxWidth, alignment: isLeft ? .leading : .trailing)
     }
 }
 
 /// The line under the open list: "20 sessions · 3 working". Working is the
-/// `working` phase alone — a waiting row asks for the user and says so on its
-/// own line. With nothing working the second part is gone; with no session
+/// `working` phase alone, on live rows — a waiting row asks for the user and
+/// says so on its own line, a dimmed one is not known to be running. With nothing working the second part is gone; with no session
 /// there is no line.
 ///
 /// **The keys are literals here**, listed in `keys`, so a test reaches all of
@@ -354,7 +402,9 @@ enum SummaryLine {
         let sessions = rows.count == 1
             ? L10n.t(sessionsOneKey, in: lang)
             : L10n.t(sessionsKey, ["count": String(rows.count)], in: lang)
-        let working = rows.filter { $0.phase == .working }.count
+        // A dimmed row's `working` is the last thing a silent machine said,
+        // not something known to be running.
+        let working = rows.filter { $0.phase == .working && $0.isLive }.count
         return (sessions, working == 0 ? nil : L10n.t(workingKey, ["count": String(working)], in: lang))
     }
 
@@ -447,8 +497,25 @@ enum StatusLine {
         return L10n.t(unit.key, ["count": String(Int(s / unit.seconds))], in: lang)
     }
 
+    /// A dimmed row's word: why it cannot be heard, in place of its phase.
+    static func dimKey(_ reason: Signal.Machine.Reason) -> String {
+        switch reason {
+        case .disconnected: return "row.unreachable"
+        case .quiet: return "row.silent"
+        }
+    }
+
+    /// A dimmed row says why and for how long — "no connection · 5 min",
+    /// "quiet · 40 min" — counted from when it was lost, which is always
+    /// known.
     static func text(phase: Phase, waitKind: Signal.Activity.WaitKind?,
-                     enteredAt: Date?, now: Date, in lang: String = L10n.language) -> String {
+                     enteredAt: Date?, dim: Signal.Machine.Dim? = nil, now: Date,
+                     in lang: String = L10n.language) -> String {
+        if let dim {
+            return L10n.t(lineKey, ["status": L10n.t(dimKey(dim.reason), in: lang),
+                                    "time": duration(now.timeIntervalSince(dim.since), in: lang)],
+                          in: lang)
+        }
         let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
         // Not seen entering the phase: how long is not known.
         guard let enteredAt else { return status }
@@ -460,7 +527,15 @@ enum StatusLine {
     /// what the open body is fitted to.
     static func widestForms(phase: Phase, waitKind: Signal.Activity.WaitKind?,
                             in lang: String) -> [String] {
-        let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        forms(of: L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang), in: lang)
+    }
+
+    /// The same, for a dimmed row's reason.
+    static func widestForms(dim reason: Signal.Machine.Reason, in lang: String) -> [String] {
+        forms(of: L10n.t(dimKey(reason), in: lang), in: lang)
+    }
+
+    private static func forms(of status: String, in lang: String) -> [String] {
         let times = [L10n.t(justNowKey, in: lang)]
             + Unit.allCases.map { L10n.t($0.key, ["count": $0.widestCount], in: lang) }
         return [status] + times.map { L10n.t(lineKey, ["status": status, "time": $0], in: lang) }
@@ -561,6 +636,11 @@ extension StatusLine.Unit {
 /// One session's ring. The phase picks the look (ROADMAP → the indicator's
 /// language); the beat plays the gesture.
 ///
+/// **A dimmed row's ring** (`isLive == false`) keeps its phase's look at
+/// `SessionColumn.dimOpacity` and plays no gesture: not on the beat — it has
+/// none — and not on the change into or out of dimness either, which moves
+/// the trigger's beat to 0.
+///
 /// **Beats, not loops.** A spinning arc under `TimelineView` or
 /// `repeatForever` is the ~7% floor `001` measured, and a working session runs
 /// for hours. So `working` turns once per beat and `waiting` pulses once per
@@ -569,8 +649,12 @@ struct SessionIndicator: View {
     let phase: Phase
     var source: AgentSource? = nil
     let beat: Int
+    var isLive = true
 
     private var size: CGFloat { AppController.indicatorSize }
+
+    /// The phase whose gesture plays; `nil` plays none.
+    private var gesture: Phase? { isLive ? phase : nil }
 
     var body: some View {
         ring
@@ -593,21 +677,25 @@ struct SessionIndicator: View {
                     .shadow(color: glowColor.opacity(g.glow), radius: size * 0.35)
             } keyframes: { _ in
                 KeyframeTrack(\.spin) {
-                    for key in IndicatorGesture.spin(for: phase) {
+                    for key in IndicatorGesture.spin(for: gesture) {
                         CubicKeyframe(key.value, duration: key.duration)
                     }
                 }
                 KeyframeTrack(\.pulse) {
-                    for key in IndicatorGesture.pulse(for: phase) {
+                    for key in IndicatorGesture.pulse(for: gesture) {
                         CubicKeyframe(key.value, duration: key.duration)
                     }
                 }
                 KeyframeTrack(\.glow) {
-                    for key in IndicatorGesture.glow(for: phase) {
+                    for key in IndicatorGesture.glow(for: gesture) {
                         CubicKeyframe(key.value, duration: key.duration)
                     }
                 }
             }
+            // Outside the animator, so the dimmed look is one layer's opacity
+            // and not a second copy of every colour.
+            .opacity(isLive ? 1 : SessionColumn.dimOpacity)
+            .animation(MascotPose.transition, value: isLive)
     }
 
     private var line: CGFloat { 1.6 }
@@ -702,27 +790,27 @@ struct IndicatorGesture {
     }
 
     /// `working`: one full turn, then snap back to 0 — which is the same angle.
-    static func spin(for phase: Phase) -> [Key] {
+    static func spin(for phase: Phase?) -> [Key] {
         guard phase == .working else { return [] }
         return [Key(value: 360, duration: 0.9), Key(value: 0, duration: 0)]
     }
 
     /// `waiting`: one swell and back — the amber pulse.
-    static func pulse(for phase: Phase) -> [Key] {
+    static func pulse(for phase: Phase?) -> [Key] {
         switch phase {
         case .waiting: return [Key(value: 1.3, duration: 0.2), Key(value: 1, duration: 0.45)]
         case .review: return [Key(value: 1.25, duration: 0.15), Key(value: 1, duration: 0.5)]
-        case .idle, .working, .failed: return []
+        case .idle, .working, .failed, nil: return []
         }
     }
 
     /// `waiting` glows with its pulse; `review` flares and fades — the
     /// "green, then dies away" of the indicator language, played once.
-    static func glow(for phase: Phase) -> [Key] {
+    static func glow(for phase: Phase?) -> [Key] {
         switch phase {
         case .waiting: return [Key(value: 0.9, duration: 0.2), Key(value: 0, duration: 0.45)]
         case .review: return [Key(value: 1, duration: 0.15), Key(value: 0, duration: 1.6)]
-        case .idle, .working, .failed: return []
+        case .idle, .working, .failed, nil: return []
         }
     }
 

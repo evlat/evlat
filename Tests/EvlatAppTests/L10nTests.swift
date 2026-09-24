@@ -28,6 +28,7 @@ final class L10nTests: XCTestCase {
         }
         keys.append(StatusLine.statusKey(phase: .waiting, waitKind: .approval))
         keys.append(StatusLine.statusKey(phase: .waiting, waitKind: .answer))
+        keys += Signal.Machine.Reason.allCases.map(StatusLine.dimKey)
         for lang in ["en", "tr"] {
             for key in keys {
                 XCTAssertNotNil(catalog.tables[lang]?[key], "\(lang) has no \(key)")
@@ -57,6 +58,10 @@ final class L10nTests: XCTestCase {
         XCTAssertEqual(SummaryLine.text(rows: rows(Array(repeating: .idle, count: 17)
                                                    + [.working, .working, .working]), in: "tr"),
                        "20 oturum · 3 çalışıyor")
+        let dimmed = SessionRow(entity: "far", label: "x", phase: .working, machine: "devbox",
+                                dim: Signal.Machine.Dim(reason: .quiet, since: Date(timeIntervalSince1970: 0)))
+        XCTAssertEqual(SummaryLine.text(rows: rows([.working]) + [dimmed], in: "en"),
+                       "2 sessions · 1 working", "a dimmed row is listed, not counted as working")
     }
 
     func testAMissingKeyReturnsItself() {

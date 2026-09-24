@@ -234,7 +234,8 @@ final class RemoteTunnelsTests: XCTestCase {
     func testTheListNamesTheMachineOfARemoteRow() {
         let row = Signal(provider: "hooks", entity: "remote:fake:s-1", phase: .waiting, label: "project",
                          detail: "/srv/project", fidelity: .official, updatedAt: Date(),
-                         machine: Signal.Machine(name: "devbox", reachable: false))
+                         machine: Signal.Machine(name: "devbox",
+                                                 dim: Signal.Machine.Dim(reason: .disconnected, since: Date())))
         XCTAssertTrue(AppController.listLine(row).hasSuffix("  @ devbox (not reachable)"))
     }
 

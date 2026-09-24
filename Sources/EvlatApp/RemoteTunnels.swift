@@ -141,7 +141,7 @@ final class RemoteTunnels {
                 guard let link else { return }
                 // Before the delivery: the row the event lands on is stamped
                 // after the link's mark, so it is not dimmed as "not heard
-                // since the tunnel came up" (`HooksProvider.reachable`).
+                // since the tunnel came up" (`HooksProvider.dim`).
                 link.tunnel?.heard()
                 switch delivery {
                 case .hook(let event): link.hooks.handle(event)

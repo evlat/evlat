@@ -79,8 +79,8 @@ public struct Signal: Equatable {
     public let machine: Machine?
 
     /// Can what this row says be taken as current? A local row always can;
-    /// a remote one only while its machine is reachable (`Machine.reachable`,
-    /// derived by the provider at read time).
+    /// a remote one only while its machine is reachable (`Machine.dim` is
+    /// `nil`, derived by the provider at read time).
     public var isLive: Bool { machine?.reachable != false }
 
     public init(provider: String, entity: String, kind: Kind = .session,
@@ -128,15 +128,49 @@ public struct Signal: Equatable {
         /// The name drawn next to the row (`host` from `user@host`). A proper
         /// name, not catalogue text.
         public let name: String
-        /// Whether the machine can be heard right now. The provider derives
-        /// it at read time — the tunnel is up, the row has been heard from
-        /// since it came up, and a `working` row has not gone quiet — so
-        /// nothing here runs on a timer.
-        public let reachable: Bool
+        /// Why the machine cannot be heard right now, and since when; `nil`
+        /// while it can. The provider derives it at read time — the tunnel is
+        /// up, the row has been heard from since it came up, and a `working`
+        /// row has not gone quiet — so nothing here runs on a timer.
+        public let dim: Dim?
 
-        public init(name: String, reachable: Bool) {
+        /// Whether the machine can be heard right now.
+        public var reachable: Bool { dim == nil }
+
+        public init(name: String, dim: Dim? = nil) {
             self.name = name
-            self.reachable = reachable
+            self.dim = dim
+        }
+
+        /// A dimmed row's reason and the moment it was lost. The moment is
+        /// **frozen while the row stays dimmed** — a dimmed row hears nothing
+        /// that could move it — so carrying it past the deadband costs no
+        /// writes.
+        ///
+        /// **Not a phase**, for the same reason `machine` is not: the row's
+        /// phase is still the last thing the machine said, and this says
+        /// only why that may be old. It adds no `Phase` value, so the three
+        /// places (priority, indicator language, mascot table) stay as they
+        /// are; the bar draws it as the dimmed look and a word.
+        public struct Dim: Equatable {
+            public let reason: Reason
+            /// When the row was lost: the tunnel going down, or — for a quiet
+            /// row, or one that never had a link — when it was last heard.
+            public let since: Date
+
+            public init(reason: Reason, since: Date) {
+                self.reason = reason
+                self.since = since
+            }
+        }
+
+        public enum Reason: String, CaseIterable, Equatable {
+            /// No tunnel, or the tunnel is back but the row has not been
+            /// heard from since.
+            case disconnected
+            /// The tunnel is up but a `working` row has said nothing for
+            /// `HooksProvider.workingSilence`.
+            case quiet
         }
 
         /// What a provider for one machine is given: a stable id for the

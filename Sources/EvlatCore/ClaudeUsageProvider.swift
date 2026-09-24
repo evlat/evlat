@@ -74,11 +74,11 @@ public final class ClaudeUsageProvider: Provider {
                        fidelity: .official, updatedAt: stored.observed,
                        usage: Signal.Usage(group: group, windowMinutes: minutes,
                                            resetsAt: stored.window.resetsAt),
-                       // `reachable` is not this provider's to know and no
+                       // Dimming is not this provider's to know and no
                        // rule reads it on a usage row (`Snapshot` splits them
                        // out first); staleness is read from `updatedAt`. The
                        // machine is here for the group order and the name.
-                       machine: machine.map { Signal.Machine(name: $0.name, reachable: true) })
+                       machine: machine.map { Signal.Machine(name: $0.name) })
             }
         }
     }

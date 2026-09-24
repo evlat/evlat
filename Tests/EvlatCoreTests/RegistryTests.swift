@@ -363,7 +363,8 @@ final class RegistryTests: XCTestCase {
     private func remote(_ entity: String, _ phase: Phase, reachable: Bool) -> Signal {
         Signal(provider: "stub", entity: entity, phase: phase, label: entity, fidelity: .official,
                rawStatus: "said-so", updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
-               machine: Signal.Machine(name: "devbox", reachable: reachable))
+               machine: Signal.Machine(name: "devbox", dim: reachable ? nil
+                    : Signal.Machine.Dim(reason: .disconnected, since: Date(timeIntervalSince1970: 1_790_000_000))))
     }
 
     /// A dimmed row is not live: it does not drive the mascot's face.
@@ -423,7 +424,7 @@ final class RegistryTests: XCTestCase {
                    machine: machine)
         }
         let snapshot = Registry.Snapshot(signals: [
-            usage("Claude · devbox", machine: Signal.Machine(name: "devbox", reachable: true)),
+            usage("Claude · devbox", machine: Signal.Machine(name: "devbox")),
             usage("Codex", machine: nil),
             usage("Claude", machine: nil),
         ])

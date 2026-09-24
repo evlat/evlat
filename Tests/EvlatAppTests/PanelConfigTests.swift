@@ -190,6 +190,15 @@ final class PanelConfigTests: XCTestCase {
     /// rows, the summary and a full block — with the shadow's room, and no
     /// more. Every open list fits inside it. Growing it past that would put
     /// the window's foot at the Dock (`006` context → Ekran payı).
+    /// `010`: one machine's usage group takes the block from six lines to
+    /// nine, and the envelope grows by exactly those three lines.
+    func testTheEnvelopeFollowsTheBlocksNineLines() {
+        XCTAssertEqual(UsageBlockModel.maxLines, 9)
+        XCTAssertEqual(AppController.openLength(rows: 1000, usageLines: 9)
+                           - AppController.openLength(rows: 1000, usageLines: 6),
+                       3 * AppController.usageLineHeight, accuracy: 0.5)
+    }
+
     func testTheEnvelopeGrewOnceForTheLongestOpenBody() {
         XCTAssertEqual(AppController.envelopeSize.height,
                        AppController.openLength(rows: 1000, usageLines: UsageBlockModel.maxLines)

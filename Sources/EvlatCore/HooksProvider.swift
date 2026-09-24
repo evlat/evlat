@@ -82,9 +82,20 @@ public final class HooksProvider: Provider {
     /// mark: confirming a link must not dim rows it has not reached yet.
     /// Meaningless on the local instance, and harmless there — its rows have
     /// no machine to be unreachable.
+    ///
+    /// Going down marks every row not already lost with the moment — what a
+    /// dimmed row's "no connection · 5 min" counts from. A row keeps its mark
+    /// through a reconnect until it is heard from again (`handle`).
     public func setLink(connected: Bool) {
-        if !connected { connectedSince = nil }
-        else if connectedSince == nil { connectedSince = platform.now() }
+        if !connected {
+            let now = platform.now()
+            for key in sessions.keys where sessions[key]?.lostAt == nil {
+                sessions[key]?.lostAt = now
+            }
+            connectedSince = nil
+        } else if connectedSince == nil {
+            connectedSince = platform.now()
+        }
     }
 
     /// What an event does to a session's phase.
@@ -287,6 +298,7 @@ public final class HooksProvider: Provider {
         // Any event is proof of life, one that says nothing about the phase
         // included; `since` stays the phase's stamp.
         session.lastSeen = platform.now()
+        session.lostAt = nil
         // `claude --resume` in another terminal moves the session to a new
         // process. Following it matters: keeping the first pid would have the
         // next scan call a live session dead. The start time is re-read with
@@ -348,7 +360,7 @@ public final class HooksProvider: Provider {
                 updatedAt: session.since,
                 activity: session.activity,
                 machine: machine.map {
-                    Signal.Machine(name: $0.name, reachable: reachable(session, phase: phase, now: now))
+                    Signal.Machine(name: $0.name, dim: dim(session, phase: phase, now: now))
                 }
             )
         }
@@ -382,10 +394,16 @@ public final class HooksProvider: Provider {
     /// conditions: the tunnel is up; the row has been heard from since it came
     /// up — a session that ended while the tunnel was down sent its
     /// `SessionEnd` to nobody; and it is not a `working` row gone quiet
-    /// (`workingSilence`).
-    private func reachable(_ session: Session, phase: Phase, now: Date) -> Bool {
-        guard let connectedSince, session.lastSeen >= connectedSince else { return false }
-        return phase != .working || now.timeIntervalSince(session.lastSeen) < Self.workingSilence
+    /// (`workingSilence`). `nil` when all three hold; otherwise why not, and
+    /// since when. No tunnel outranks silence: it is the larger fact.
+    private func dim(_ session: Session, phase: Phase, now: Date) -> Signal.Machine.Dim? {
+        guard let connectedSince, session.lastSeen >= connectedSince else {
+            return Signal.Machine.Dim(reason: .disconnected, since: session.lostAt ?? session.lastSeen)
+        }
+        guard phase != .working || now.timeIntervalSince(session.lastSeen) < Self.workingSilence else {
+            return Signal.Machine.Dim(reason: .quiet, since: session.lastSeen)
+        }
+        return nil
     }
 
     /// What this source knows about one session. Deliberately small: the
@@ -401,6 +419,9 @@ public final class HooksProvider: Provider {
         /// What pidless liveness and remote reachability read; the row's
         /// stamp is still `since`.
         var lastSeen: Date
+        /// When the tunnel went down with this row not already lost; cleared
+        /// when it is heard again. Only a remote row ever gets one.
+        var lostAt: Date?
         /// The event name that assigned the phase.
         var word: String
         /// Which agent the session runs in: the source of the event that
