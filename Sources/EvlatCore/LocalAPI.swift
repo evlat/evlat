@@ -186,14 +186,8 @@ public enum LocalAPI {
         }
     }
 
-    /// The listener's call until it passes its own `Listener` (`012/phase-2`
-    /// removes this): no key, so `/signal` is refused on every path through
-    /// here.
-    public static func handle(_ request: HTTPRequest, origin: Origin = .local) -> Outcome {
-        handle(request, listener: Listener(origin: origin, signalKey: nil))
-    }
-
-    public static func handle(_ request: HTTPRequest, listener: Listener) -> Outcome {
+    /// The default listener is local and has no key: `/signal` is refused.
+    public static func handle(_ request: HTTPRequest, listener: Listener = Listener()) -> Outcome {
         let origin = listener.origin
         switch dispatch(method: request.method, target: request.target,
                         origin: request.origin, host: request.host) {

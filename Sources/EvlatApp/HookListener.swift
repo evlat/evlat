@@ -50,6 +50,17 @@ public final class HookListener {
     /// tunnel (`RemoteTunnels`). Handed to `LocalAPI`, which decides what that
     /// means; the listener only knows which one it is.
     private let origin: LocalAPI.Origin
+    /// Makes the listener's `/signal` key once the port is bound (`012`):
+    /// given the bound port, it writes the key file and answers the key, or
+    /// `nil`. Called at most once, on `queue`, so a listener that never binds
+    /// never calls it — and never overwrites the key of the Evlat that holds
+    /// the port.
+    private let makeSignalKey: (UInt16) -> String?
+    /// What `LocalAPI` is told about this listener. The key is filled in when
+    /// the port is bound; until then `/signal` is refused. Touched on `queue`
+    /// only.
+    private var identity: LocalAPI.Listener
+    private var keyMade = false
     private let onDelivery: (LocalAPI.Delivery) -> Void
     private let onStatus: ((Status) -> Void)?
     /// A held request went away before it was answered: Claude's time ran
@@ -87,13 +98,20 @@ public final class HookListener {
     /// A permission request (`LocalAPI.Delivery.permission`) is delivered
     /// with its connection **held** open; `answer(_:with:)` writes the
     /// user's decision to it, and `onAbandoned` reports one that closed first.
+    ///
+    /// `signalKey` is asked once, after the bind, for the key `/signal`
+    /// accepts (`SignalKey`); the default has none, and a tunnel's listener
+    /// keeps it — `LocalAPI` answers its `/signal` with `404` anyway.
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
+                signalKey: @escaping (UInt16) -> String? = { _ in nil },
                 onStatus: ((Status) -> Void)? = nil,
                 onAbandoned: ((String) -> Void)? = nil,
                 onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
         self.requestedPort = port
         self.origin = origin
+        self.makeSignalKey = signalKey
+        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil)
         self.onStatus = onStatus
         self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
@@ -161,7 +179,16 @@ public final class HookListener {
             switch state {
             case .ready:
                 // The bound port, not the requested one: `0` resolves here.
-                self.setStatus(.listening(listener?.port?.rawValue ?? self.requestedPort))
+                let port = listener?.port?.rawValue ?? self.requestedPort
+                // Before the status, so whoever waits for `.listening` finds
+                // the key file already written. Once: `.ready` comes again
+                // after a `.waiting`, and a second key would strand the
+                // programs that read the first.
+                if !self.keyMade {
+                    self.keyMade = true
+                    self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port))
+                }
+                self.setStatus(.listening(port))
             case .failed(let error):
                 self.setStatus(.unavailable(self.requestedPort, Self.describe(error)))
             // `.waiting` is not terminal — the framework keeps retrying — but it
@@ -287,7 +314,7 @@ public final class HookListener {
     /// would put the agent behind whatever the UI is doing — v1 kept a
     /// semaphore for that and used it only on its read endpoints, never here.
     private func respond(_ connection: NWConnection, to request: HTTPRequest) {
-        let outcome = LocalAPI.handle(request, origin: origin)
+        let outcome = LocalAPI.handle(request, listener: identity)
         if let response = outcome.response {
             connection.send(content: Data(response.httpText.utf8),
                             completion: .contentProcessed { _ in connection.cancel() })

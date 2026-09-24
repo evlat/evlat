@@ -235,14 +235,14 @@ final class LocalAPITests: XCTestCase {
         let request = HTTPRequest(method: "POST", target: "/hook", body: Data(forged.utf8),
                                   taskID: "real-task", pid: "7747", origin: nil, host: "127.0.0.1:48151")
 
-        let tunneled = LocalAPI.handle(request, origin: .tunneled)
+        let tunneled = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled))
         XCTAssertEqual(tunneled.response, LocalAPI.Response(status: .ok, body: "{}"))
         XCTAssertNotNil(tunneled.event, "the event itself still arrives")
         XCTAssertNil(tunneled.event?.pid, "neither the header's pid nor the body's")
         XCTAssertNil(tunneled.event?.taskID)
         XCTAssertEqual(tunneled.event?.sessionID, "s-1")
 
-        let local = LocalAPI.handle(request, origin: .local)
+        let local = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .local))
         XCTAssertEqual(local.event?.pid, 7747, "a local request is read as before")
         XCTAssertEqual(LocalAPI.handle(request).event?.pid, 7747, "and local is the default")
     }
@@ -252,10 +252,10 @@ final class LocalAPITests: XCTestCase {
     func testATunneledRequestIsDefendedLikeALocalOne() {
         let browser = HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
                                   origin: "https://example.com", host: "127.0.0.1:48151")
-        XCTAssertEqual(LocalAPI.handle(browser, origin: .tunneled).response?.status, .forbidden)
+        XCTAssertEqual(LocalAPI.handle(browser, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .forbidden)
         let unknown = HTTPRequest(method: "POST", target: "/nope", body: Data("{}".utf8),
                                   host: "127.0.0.1:48151")
-        XCTAssertEqual(LocalAPI.handle(unknown, origin: .tunneled).response?.status, .notFound)
+        XCTAssertEqual(LocalAPI.handle(unknown, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .notFound)
     }
 
     /// The bytes on the wire. `Content-Length` counts UTF-8 bytes, not
@@ -331,7 +331,8 @@ final class LocalAPITests: XCTestCase {
     private func permission(_ body: String, token: String? = "T-1",
                             origin: LocalAPI.Origin = .local) -> LocalAPI.Outcome {
         LocalAPI.handle(HTTPRequest(method: "POST", target: "/permission", body: Data(body.utf8),
-                                    host: "127.0.0.1:48151", permissionToken: token), origin: origin)
+                                    host: "127.0.0.1:48151", permissionToken: token),
+                        listener: LocalAPI.Listener(origin: origin))
     }
 
     /// A chat's own request: no answer yet — it is the user's — and the
@@ -413,7 +414,7 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(signal(sent: nil, listenerKey: nil).response?.status, .forbidden)
         XCTAssertEqual(signal(sent: nil, listenerKey: "").response?.status, .forbidden)
         XCTAssertEqual(signal(sent: "", listenerKey: "").response?.status, .forbidden)
-        // The listener every caller of `handle(_:origin:)` gets has none.
+        // The default listener has none.
         let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   host: "127.0.0.1:48151", signalKey: key)
         XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
@@ -428,7 +429,7 @@ final class LocalAPITests: XCTestCase {
         }
         let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   host: "127.0.0.1:48151", signalKey: key)
-        XCTAssertEqual(LocalAPI.handle(request, origin: .tunneled).response?.status, .notFound)
+        XCTAssertEqual(LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .notFound)
     }
 
     /// A browser is refused before the key is looked at: the key never

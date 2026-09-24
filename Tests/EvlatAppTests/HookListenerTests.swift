@@ -340,6 +340,122 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(send(permissionRequest(port: port)).status, 404)
     }
 
+    // MARK: - `/signal` and its key (`012/phase-2`)
+
+    private func temporaryHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("evlat-listener-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
+        return home
+    }
+
+    private func postSignal(port: UInt16, key: String?, body: String, origin: String? = nil) -> Answer {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/signal")!)
+        request.httpMethod = "POST"
+        request.httpBody = Data(body.utf8)
+        if let key { request.setValue(key, forHTTPHeaderField: SignalReport.keyHeader) }
+        if let origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
+        return send(request)
+    }
+
+    /// End to end, as the app wires it: the key is written once the port is
+    /// bound, a POST carrying it becomes a row in the registry, and one
+    /// without it, with a wrong one or from a browser never reaches the app.
+    @MainActor
+    func testASignalWithTheKeyFileBecomesARow() throws {
+        let home = try temporaryHome()
+        let controller = AppController()
+        controller.registry.register(controller.signals)
+        var deliveries = 0
+        let arrived = expectation(description: "signal on the main queue")
+        let listener = HookListener(port: Self.anyPort,
+                                    signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { delivery in
+            MainActor.assumeIsolated {
+                deliveries += 1
+                controller.handleDelivery(delivery)
+                arrived.fulfill()
+            }
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+        let file = try XCTUnwrap(SignalKey.location(port: port, home: home, environment: [:]))
+        let key = try XCTUnwrap(SignalKey.read(from: file), "written by the time the port is reported bound")
+
+        let body = #"{"id":"build","ttl":60,"phase":"working","label":"npm run build"}"#
+        let refused = DispatchQueue.global()
+        var answers: [String: Int] = [:]
+        refused.sync {
+            answers["none"] = postSignal(port: port, key: nil, body: body).status
+            answers["wrong"] = postSignal(port: port, key: String(key.reversed()), body: body).status
+            answers["browser"] = postSignal(port: port, key: key, body: body, origin: "https://example.com").status
+            answers["right"] = postSignal(port: port, key: key, body: body).status
+        }
+        XCTAssertEqual(answers, ["none": 403, "wrong": 403, "browser": 403, "right": 200])
+        wait(for: [arrived], timeout: 5)
+        XCTAssertEqual(deliveries, 1, "only the keyed request reached the app")
+        let row = try XCTUnwrap(controller.registry.snapshot().ordered.first { $0.entity == "signal:build" })
+        XCTAssertEqual(row.phase, .working)
+        XCTAssertEqual(row.kind, .custom)
+    }
+
+    /// A tunnel's listener has no key and no route: `404`, whatever is sent.
+    func testATunnelListenerAnswersSignalWithNotFound() throws {
+        let home = try temporaryHome()
+        let listener = HookListener(port: Self.anyPort, origin: .tunneled,
+                                    signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { _ in
+            XCTFail("nothing is delivered")
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+        let body = #"{"id":"build","ttl":60,"phase":"working"}"#
+        XCTAssertEqual(postSignal(port: port, key: nil, body: body).status, 404)
+        XCTAssertEqual(postSignal(port: port, key: "anything", body: body).status, 404)
+    }
+
+    /// The listener that cannot bind never writes: the running Evlat's key
+    /// stays the one programs read.
+    func testAListenerThatCannotBindLeavesTheKeyFileAlone() throws {
+        let home = try temporaryHome()
+        let first = HookListener(port: Self.anyPort,
+                                 signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { _ in }
+        first.start()
+        defer { first.stop() }
+        let port = try XCTUnwrap(boundPort(first))
+        let file = try XCTUnwrap(SignalKey.location(port: port, home: home, environment: [:]))
+        let key = try XCTUnwrap(SignalKey.read(from: file))
+
+        var asked = false
+        let second = HookListener(port: port, signalKey: { _ in asked = true; return "other" }) { _ in }
+        second.start()
+        defer { second.stop() }
+        guard case .unavailable = second.awaitSettled(timeout: 5) else {
+            return XCTFail("two listeners bound the same port")
+        }
+        XCTAssertFalse(asked, "no key is made without the port")
+        XCTAssertEqual(SignalKey.read(from: file), key)
+    }
+
+    /// `--list`'s probe against a real listener: each answer it can name.
+    func testTheListProbeReadsTheListener() throws {
+        let home = try temporaryHome()
+        let listener = HookListener(port: Self.anyPort,
+                                    signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { _ in }
+        listener.start()
+        let port = try XCTUnwrap(boundPort(listener))
+        let key = try XCTUnwrap(SignalKey.read(from: SignalKey.location(port: port, home: home, environment: [:])!))
+        XCTAssertEqual(AppController.probeSignalEndpoint(port: port, key: key), .status(200))
+        XCTAssertEqual(AppController.probeSignalEndpoint(port: port, key: "stale"), .status(403))
+        listener.stop()
+        let keyless = HookListener(port: Self.anyPort) { _ in }
+        keyless.start()
+        defer { keyless.stop() }
+        let other = try XCTUnwrap(boundPort(keyless))
+        XCTAssertEqual(AppController.probeSignalEndpoint(port: other, key: key), .status(403))
+    }
+
     private struct Answer {
         let status: Int
         let body: String

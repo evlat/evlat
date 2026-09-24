@@ -59,6 +59,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     lazy var claudeUsage = ClaudeUsageProvider(now: { [unowned self] in
         MainActor.assumeIsolated { self.now() }
     })
+    /// Outside programs' rows, as `POST /signal` left them (`012`). Stamped
+    /// with this controller's clock, like the usage windows: a row's life is
+    /// read against it.
+    lazy var signals = SignalsProvider(now: { [unowned self] in
+        MainActor.assumeIsolated { self.now() }
+    })
     private var hookListener: HookListener?
     /// The chats (`011`) and their `claude -p` turns; `nil` until launch.
     /// Registered in `registry` as the `evlat` provider. Internal so a test
@@ -758,6 +764,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         guard let window = window else {
             print("hook endpoint: 127.0.0.1:\(choice.port)  ·  \(probeHookEndpoint(port: choice.port))")
+            printSignalEndpoint(port: choice.port)
             return
         }
 
@@ -767,7 +774,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // every line — the exact failure streaming was chosen to avoid.
         setvbuf(stdout, nil, _IOLBF, 0)
         let diagnostics = HookDiagnostics()
-        let listener = HookListener(port: choice.port) { delivery in
+        // The capture holds the port, so it is the one that writes the key:
+        // an outside program's `/signal` is printed here like a hook.
+        let listener = HookListener(port: choice.port,
+                                    signalKey: signalKeyWriter(home: resolvedHome())) { delivery in
             switch delivery {
             case .hook(let event):
                 // Streamed, not only summarised: under a `PostToolUse` burst a
@@ -782,10 +792,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // No chat runs in a capture; the listener has already
                 // refused it (nobody here answers).
                 print("permission request refused: \(request.tool)")
-            case .signal:
-                // Unreachable until the listener carries a key (`012/phase-2`):
-                // `/signal` is refused before a delivery exists.
-                break
+            case .signal(let report):
+                print(signalCaptureLine(report))
             }
         }
         listener.start()
@@ -812,6 +820,77 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // read from would be short by the last few.
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         diagnostics.summary.forEach { print($0) }
+    }
+
+    /// One `--capture` line for a `/signal`: its id, phase and ttl. The
+    /// `detail` is not printed, nor the label — the `listLine` rule: what a
+    /// program says about its work stays on the bar.
+    nonisolated static func signalCaptureLine(_ report: SignalReport) -> String {
+        let phase = report.ttl > 0 ? (report.word?.rawValue ?? "?") : "clear"
+        return "  signal   \(report.id)  \(phase)  ttl \(report.ttl)"
+            + (report.sender.map { "  from \($0)" } ?? "")
+    }
+
+    /// `--list`'s word on `/signal`: the key file, and a keyed probe that
+    /// clears an id nobody uses (`ttl: 0`), so it leaves no row.
+    private nonisolated static func printSignalEndpoint(port: UInt16) {
+        let environment = ProcessInfo.processInfo.environment
+        guard let url = SignalKey.location(port: port, environment: environment) else {
+            print("signal key: none (EVLAT_PORT is set without EVLAT_HOME: an isolated process has no key)")
+            return
+        }
+        let key = SignalKey.read(from: url)
+        print("signal key: \(url.path)\(key == nil ? " (absent)" : "")")
+        print("signal: \(signalProbeText(key == nil ? nil : probeSignalEndpoint(port: port, key: key!)))")
+    }
+
+    /// What a probe's answer means. `nil` is "there was no key to send".
+    nonisolated static func signalProbeText(_ answer: SignalProbe?) -> String {
+        switch answer {
+        case nil: return "no key file"
+        case .status(200)?: return "ok"
+        case .status(403)?: return "key mismatch (403)"
+        case .status(404)?: return "no /signal route (404: v1 or older v2)"
+        case .status(let code)?: return "answered \(code)"
+        case .notRunning?: return "not running"
+        case .failed(let reason)?: return "did not answer (\(reason))"
+        }
+    }
+
+    enum SignalProbe: Equatable {
+        case status(Int)
+        case notRunning
+        case failed(String)
+    }
+
+    /// `POST /signal` with the key, as `probeHookEndpoint` does `/health`.
+    nonisolated static func probeSignalEndpoint(port: UInt16, key: String,
+                                                timeout: TimeInterval = 1) -> SignalProbe {
+        guard let url = URL(string: "http://127.0.0.1:\(port)\(SignalReport.path)") else { return .failed("unreadable address") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(key, forHTTPHeaderField: SignalReport.keyHeader)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"id":"_probe","ttl":0}"#.utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var answer: SignalProbe?
+        URLSession(configuration: configuration).dataTask(with: request) { _, response, error in
+            let result: SignalProbe
+            if let error = error as? URLError, error.code == .cannotConnectToHost {
+                result = .notRunning
+            } else if let error {
+                result = .failed(error.localizedDescription)
+            } else {
+                result = .status((response as? HTTPURLResponse)?.statusCode ?? -1)
+            }
+            lock.withLock { answer = result }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + timeout + 2)
+        return lock.withLock { answer } ?? .failed("no answer within \(timeout + 2) s")
     }
 
     /// Is anything answering there, and which Evlat is it?
@@ -890,6 +969,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         registry.register(claudeUsage)
         if let home { registry.register(CodexUsageProvider(home: home)) }
         registry.register(chats.provider)
+        // Memory only; its rows come from the listener below.
+        registry.register(signals)
         startHookListener()
         startRemoteTunnels()
         installStatusItem()
@@ -1592,6 +1673,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         let listener = HookListener(
             port: choice.port,
+            // Written once bound, under this controller's home: a controller
+            // built without one (every test) has no key and refuses `/signal`.
+            signalKey: Self.signalKeyWriter(home: home),
             // Binding is asynchronous, so the outcome cannot be returned from
             // here. It is not swallowed either: `Evlat --list` reads the port
             // back over `/health` and says who holds it.
@@ -1766,11 +1850,28 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             if let chats { chats.permissionAsked(request) } else {
                 hookListener?.answer(request.id, with: LocalAPI.unknownToken)
             }
-        case .signal:
-            // Unreachable until the listener carries a key and the provider
-            // is registered (`012/phase-2`).
-            break
+        case .signal(let report):
+            // The cap is known here, after the listener answered `{}`; a
+            // dropped row is said on stderr, where the rows' trace is read.
+            if case .dropped(let limit) = signals.apply(report) {
+                FileHandle.standardError.write(Data(Self.droppedSignalLine(id: report.id, limit: limit).utf8))
+            }
+            scheduleRefresh()
         }
+    }
+
+    nonisolated static func droppedSignalLine(id: String, limit: Int) -> String {
+        "Evlat: signal \(id) dropped: \(limit) rows\n"
+    }
+
+    /// What a local listener is given to make its `/signal` key once bound:
+    /// the key file for the bound port under `home` (`SignalKey`). No home,
+    /// or an isolated process, and it makes none.
+    nonisolated static func signalKeyWriter(
+        home: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> (UInt16) -> String? {
+        { port in SignalKey.location(port: port, home: home, environment: environment).flatMap(SignalKey.write(to:)) }
     }
 
     /// One event, from the listener's callback. Internal so the coalescing has
