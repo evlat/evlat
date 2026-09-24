@@ -37,7 +37,8 @@ final class ChatStore {
 
     /// Moves a pruned workspace to the Trash — recoverable, never
     /// `removeItem`. Handed in so a test watches it instead of filling the
-    /// user's Trash.
+    /// user's Trash; the default never reaches the real one
+    /// (`ChatStore.trash(environment:)` is the app's choice).
     private let trash: (URL) throws -> Void
 
     /// The chats' state, and their rows. Read against the store's clock.
@@ -56,7 +57,7 @@ final class ChatStore {
     init(root: URL?, platform: Platform, locator: ClaudeLocator, now: @escaping () -> Date = Date.init,
          signal: @escaping (Int32, Int32) -> Void = { _ = kill($0, $1) },
          environment: [String: String] = ProcessInfo.processInfo.environment,
-         trash: @escaping (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
+         trash: @escaping (URL) throws -> Void = ChatStore.setAside,
          onChange: @escaping () -> Void = {}) {
         provider = ChatsProvider(now: now)
         self.trash = trash
@@ -80,6 +81,32 @@ final class ChatStore {
         }
         if let port = environment["EVLAT_PORT"], !port.isEmpty { return nil }
         return home?.appendingPathComponent("Library/Application Support/Evlat", isDirectory: true)
+    }
+
+    /// How a pruned workspace leaves: the user's Trash, unless the store
+    /// is an isolated one (`EVLAT_CHATS` or `EVLAT_PORT` set — a test, a
+    /// measurement, a look by eye). Then it is set aside under the store's
+    /// own root, and the real Trash is never touched (`011` kapı: a look by
+    /// eye had left a `chats/<UUID>` there).
+    static func trash(environment: [String: String]) -> (URL) throws -> Void {
+        let isolated = [environment["EVLAT_CHATS"], environment["EVLAT_PORT"]]
+            .contains { !($0?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) }
+        return isolated ? setAside : { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    }
+
+    /// `<root>/chats/<UUID>` → `<root>/trash/<UUID>[-n]`: recoverable like
+    /// the Trash, and inside the store that made it.
+    static func setAside(_ folder: URL) throws {
+        let bin = folder.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        var target = bin.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+        var n = 1
+        while FileManager.default.fileExists(atPath: target.path) {
+            target = bin.appendingPathComponent("\(folder.lastPathComponent)-\(n)", isDirectory: true)
+            n += 1
+        }
+        try FileManager.default.moveItem(at: folder, to: target)
     }
 
     // MARK: - Reading
@@ -374,6 +401,7 @@ final class ChatStore {
         }
         index.entries.removeAll { ids.contains($0.id) }
         for id in ids where provider[id]?.isRunning != true { provider[id] = nil }
+        for id in ids { walked[id] = nil }
         save()
         onChange()
     }
@@ -394,9 +422,22 @@ final class ChatStore {
     /// Files a workspace chat made, once its turn is over: what is in its
     /// own folder, hidden ones aside, newest first. A chat in the user's
     /// folder lists none — what is there is the user's already.
+    ///
+    /// Walked once per finished turn, not per refresh: an open balloon
+    /// refreshes every poll, and a turn's files are made while it runs.
     func workspaceFiles(_ id: String, limit: Int = 8) -> [URL] {
         guard let chat = provider[id], chat.isWorkspace, !chat.isRunning else { return [] }
-        let folder = URL(fileURLWithPath: chat.folder, isDirectory: true)
+        if let cached = walked[id], cached.since == chat.since, cached.limit == limit { return cached.files }
+        let files = walk(chat.folder, limit: limit)
+        walked[id] = (chat.since, limit, files)
+        return files
+    }
+
+    /// `workspaceFiles`' last walk per chat, keyed by the turn's end.
+    private var walked: [String: (since: Date?, limit: Int, files: [URL])] = [:]
+
+    private func walk(_ path: String, limit: Int) -> [URL] {
+        let folder = URL(fileURLWithPath: path, isDirectory: true)
         guard let walker = FileManager.default.enumerator(
             at: folder, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }

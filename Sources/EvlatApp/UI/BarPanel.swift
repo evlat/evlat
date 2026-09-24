@@ -268,7 +268,7 @@ public final class BarHostingView: NSHostingView<AnyView> {
 
     /// The drag target is **event-driven**: AppKit calls these only while a
     /// drag is over the window, and `wantsPeriodicDraggingUpdates` is off, so
-    /// a cursor held still over the bar costs nothing either. With no drag
+    /// AppKit sends no periodic updates while the cursor is still. With no drag
     /// on, nothing here runs at all.
     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         dragOver(sender)
@@ -550,9 +550,15 @@ enum FileDrop {
 
     /// The files, and which of them are folders — the one thing the core's
     /// `ChatFolder` cannot tell from a path.
+    ///
+    /// A dropped link is named by what it points at: `ChatFolder`'s "never
+    /// the home or above" reads paths only, and a link to the home would
+    /// otherwise pass it and become a turn's folder (`011` kapı).
     static func items(from pasteboard: NSPasteboard) -> [ChatFolder.Item] {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
-        return urls.filter(\.isFileURL).map { url in
+        return urls.filter(\.isFileURL).map { dropped in
+            let isLink = (try? dropped.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
+            let url = isLink ? dropped.resolvingSymlinksInPath() : dropped
             var isDirectory: ObjCBool = false
             _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             return ChatFolder.Item(path: url.path, isDirectory: isDirectory.boolValue)

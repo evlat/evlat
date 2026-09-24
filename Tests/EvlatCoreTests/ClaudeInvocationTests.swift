@@ -36,6 +36,19 @@ final class ClaudeInvocationTests: XCTestCase {
         ])
     }
 
+    /// A value that would read as an option never reaches the list
+    /// flags: a folder must be absolute, a rule must not lead with `-`.
+    func testAValueThatReadsAsAnOptionIsDropped() {
+        let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: true,
+                                         prompt: "hi", attachments: [], directory: "/tmp/p",
+                                         addDirectories: ["--dangerously-skip-permissions", "rel", "/a"],
+                                         allowedTools: ["--permission-mode=bypassPermissions", "", "Read"])
+        XCTAssertEqual(Array(call.arguments.suffix(6)), [
+            "--add-dir", "/a", "--allowedTools", "Read", "--resume", "S1",
+        ])
+        XCTAssertFalse(call.arguments.contains { $0.hasPrefix("--dangerously") || $0.hasPrefix("--permission-mode") })
+    }
+
     /// A started turn asks through its own hook: nothing prompts, the
     /// inline hook decides (`phase-3`).
     func testAStartedTurnAsksThroughItsHook() {

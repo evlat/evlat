@@ -32,12 +32,22 @@ public struct ClaudeInvocation: Equatable {
     /// `addDirectories` and `allowedTools` are what the chat was granted
     /// before (`phase-3`); both flags take a list, so each value gets its own
     /// flag — a bare list would swallow the option after it.
+    ///
+    /// Both lists come from a card's suggestions, which Claude wrote: a
+    /// value that would read as an option (`-…`) is dropped, and a folder
+    /// must be absolute. A list flag takes a dash-led value as the next
+    /// option, so `--add-dir --dangerously-…` would be a new flag, not a
+    /// folder (`011` kapı).
     public static func turn(chatID: String, sessionID: String, resume: Bool,
                             prompt: String, attachments: [String], directory: String,
                             addDirectories: [String] = [], allowedTools: [String] = []) -> ClaudeInvocation {
         var arguments = base
-        for directory in addDirectories { arguments += ["--add-dir", directory] }
-        for rule in allowedTools { arguments += ["--allowedTools", rule] }
+        for directory in addDirectories where directory.hasPrefix("/") {
+            arguments += ["--add-dir", directory]
+        }
+        for rule in allowedTools where !rule.isEmpty && !rule.hasPrefix("-") {
+            arguments += ["--allowedTools", rule]
+        }
         arguments += resume ? ["--resume", sessionID] : ["--session-id", sessionID]
         return ClaudeInvocation(arguments: arguments,
                                 input: userLine(prompt: prompt, attachments: attachments),

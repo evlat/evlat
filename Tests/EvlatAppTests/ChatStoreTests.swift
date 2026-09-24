@@ -148,6 +148,27 @@ final class ChatStoreTests: XCTestCase {
         return folder
     }
 
+    /// An isolated store (`EVLAT_CHATS`, `EVLAT_PORT`) sets a pruned
+    /// workspace aside under its own root, never in the user's Trash; the
+    /// store's default does the same, so a test that forgets cannot either.
+    func testAnIsolatedStoreNeverReachesTheRealTrash() throws {
+        let first = try makeWorkspace(ids[0])
+        try ChatStore.trash(environment: ["EVLAT_CHATS": directory.path])(first)
+        let second = try makeWorkspace(ids[0])
+        try ChatStore.trash(environment: ["EVLAT_PORT": "48999"])(second)
+        let bin = directory.appendingPathComponent("trash")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bin.path).sorted(),
+                       [ids[0], "\(ids[0])-1"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bin.appendingPathComponent("\(ids[0])/out.txt").path))
+
+        _ = try makeWorkspace(ids[1])
+        try writeIndex(ChatIndex(entries: [entry(ids[1], days: 8)]))
+        _ = ChatStore(root: directory, platform: .unknown,
+                      locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]), now: { [now] in now })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bin.appendingPathComponent(ids[1]).path))
+    }
+
     /// A week after its last activity a chat goes, and only its own
     /// `chats/<UUID>` goes to the Trash — a chat in the user's folder
     /// leaves that folder alone; pinned and recent chats stay.

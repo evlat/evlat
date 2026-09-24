@@ -35,7 +35,7 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 ## Şu an nerede
 
 `001`–`008` teslim edildi, `009`–`010` teslim bekliyor. `011`'in (sohbet balonu) beş phase'i kodlandı, kapı ve
-teslim bekliyor: maskota sol tık ya da ⌥Space bir balon açar, iş kullanıcının
+teslim bekliyor: maskota sol tık ya da kısayol (varsayılan ⇧⌘Space, menüden değişir) bir balon açar, iş kullanıcının
 `claude -p` kurulumuyla koşar (`Action` → `ChatStore`), izin balonda kartla
 cevaplanır, dosya maskota bırakılır; kapatılan iş barda maskot yüzlü bir
 `kind: .job` satırı olarak sürer ([Sohbete dön]), görülünce Geçmiş'e çekilir,

@@ -869,6 +869,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let chats = ChatStore(root: Self.chatRoot(home: home), platform: Self.darwinPlatform,
                               locator: ClaudeLocator(),
                               now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
+                              trash: ChatStore.trash(environment: ProcessInfo.processInfo.environment),
                               onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         self.chats = chats
         registry.register(Self.makeSessionsProvider(excluding: { [weak chats] in chats?.sessionIDs ?? [] }))

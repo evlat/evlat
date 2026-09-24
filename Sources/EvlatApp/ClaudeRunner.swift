@@ -52,6 +52,7 @@ final class ClaudeRunner {
         let closed = DispatchGroup()
         closed.enter()
         closed.enter()
+        let outputEnd = StderrTail()
         output.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard data.isEmpty else {
@@ -59,7 +60,9 @@ final class ClaudeRunner {
                 return
             }
             handle.readabilityHandler = nil
-            closed.leave()
+            // Once, like stderr's: a second empty read would leave the
+            // group unbalanced, and libdispatch traps on that.
+            if outputEnd.finish() { closed.leave() }
         }
         errors.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -87,22 +90,40 @@ final class ClaudeRunner {
         // SIGPIPE and take Evlat with it. The flag turns that into an error.
         let fd = input.fileHandleForWriting.fileDescriptor
         _ = fcntl(fd, F_SETNOSIGPIPE, 1)
-        try? input.fileHandleForWriting.write(contentsOf: invocation.input)
+        // Off the main queue: a line past the pipe's 64 KB (a pasted log)
+        // would block until `claude` reads stdin, the UI with it. The same
+        // serial queue closes stdin, so a close never cuts a write short.
+        let writer = input.fileHandleForWriting, line = invocation.input
+        stdin.async { try? writer.write(contentsOf: line) }
         return nil
     }
+
+    /// Stdin's writes and its close, in order.
+    private let stdin = DispatchQueue(label: "dev.kalaomer.evlat.claude-stdin")
 
     /// Stdin closed. After the `result` this is what lets the process exit
     /// (measured, `011/phase-1`: 0.8 s later).
     func closeInput() {
-        try? input.fileHandleForWriting.close()
+        let writer = input.fileHandleForWriting
+        stdin.async { try? writer.close() }
     }
+
+    /// How long Stop waits after SIGINT before SIGTERM.
+    static let stopGrace: TimeInterval = 5
 
     /// Ends the turn: SIGINT, the documented way ("To end the turn instead,
     /// send SIGINT"), and stdin closed so the process does not wait for a
-    /// next message. Whether SIGINT alone exits 2.1.281 is not measured.
+    /// next message. Whether SIGINT alone exits 2.1.281 is not measured, so
+    /// a turn still running `stopGrace` later gets SIGTERM: Stop must end
+    /// it, or the chat stays running until Evlat quits.
     func interrupt() {
-        if process.isRunning { kill(process.processIdentifier, SIGINT) }
+        guard process.isRunning else { return closeInput() }
+        kill(process.processIdentifier, SIGINT)
         closeInput()
+        let process = self.process
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopGrace) {
+            if process.isRunning { process.terminate() }
+        }
     }
 
     /// Evlat is quitting.
@@ -159,8 +180,10 @@ final class ClaudeLocator {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 // A miss is not kept: `claude` may be installed, or a slow
-                // shell may answer, by the next send.
-                if location.executable != nil { self.found = location }
+                // shell may answer, by the next send. Nor a hit on the
+                // inherited `PATH` alone: turns would run with Finder's
+                // short one for good.
+                if location.executable != nil, location.path != nil { self.found = location }
                 let waiting = self.waiting
                 self.waiting = []
                 waiting.forEach { $0(location) }
@@ -212,7 +235,9 @@ final class ClaudeLocator {
         }
         let answered = done.wait(timeout: .now() + timeout) == .success
         output.fileHandleForReading.readabilityHandler = nil
-        if process.isRunning { process.terminate() }
+        // SIGKILL, not `terminate()`: an interactive shell (`-i`) ignores
+        // SIGTERM, and a hung rc file would leave one shell per lookup.
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         return answered ? markedPath(in: collected.text) : nil
     }
 
