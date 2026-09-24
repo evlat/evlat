@@ -112,20 +112,20 @@ public struct HookEvent: Equatable {
         return nil
     }
 
-    /// A `command`, whole: what a permission card shows, so no part of it is
-    /// allowed unseen — the one-line subject is capped and a card cuts it,
-    /// and a real `claude` (2.1.281) wrote `\` + newline between the parts
-    /// of a command whose third part was `rm`, while the card said `\`.
-    /// Continuations joined, blank lines dropped, capped at `commandLimit`.
+    /// A `command`, whole and as written: what a permission card shows,
+    /// so no part of it is allowed unseen — the one-line subject is capped
+    /// and a card cut it, and a real `claude` (2.1.281) wrote `\` + newline
+    /// between the parts of a command whose third part was `rm`, while the
+    /// card said `\`. Only blank lines at either end go; nothing is capped
+    /// (the request itself is bounded by the listener) and nothing is
+    /// rejoined — inside quotes or a heredoc a `\` stays literal.
     public static func fullCommand(of input: [String: Any]?) -> String? {
         guard let command = input?["command"] as? String else { return nil }
-        let lines = lines(of: command)
-        guard !lines.isEmpty else { return nil }
-        return capped(lines.joined(separator: "\n"), at: commandLimit)
+        let lines = command.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        guard let first = lines.firstIndex(where: { !$0.allSatisfy(\.isWhitespace) }),
+              let last = lines.lastIndex(where: { !$0.allSatisfy(\.isWhitespace) }) else { return nil }
+        return lines[first...last].joined(separator: "\n")
     }
-
-    /// The longest command a card shows whole.
-    public static let commandLimit = 4000
 
     /// A value's non-blank lines, trimmed, with a shell line continuation
     /// (`\` at a line's end) read as the shell reads it: one line. Without

@@ -117,18 +117,17 @@ final class HookEventTests: XCTestCase {
                        "an escaped backslash at a line's end is no continuation")
     }
 
-    /// The card's command is the whole of it — every line, continuations
-    /// joined, blank lines dropped — and only `command` has one.
-    func testTheFullCommandKeepsEveryLine() {
-        let command = "\\\nls -A old && \\\n  rm old/a.tmp\n\nfind . | sort\n"
+    /// The card's command is the whole of it, as written — only blank
+    /// lines at either end go — and only `command` has one.
+    func testTheFullCommandIsTheCommandAsWritten() {
+        let command = "\n\\\nls -A old && \\\n  rm old/a.tmp\n\ncat <<'EOF' > f\na \\\nb\nEOF\n  \n"
         XCTAssertEqual(HookEvent.fullCommand(of: ["command": command]),
-                       "ls -A old && rm old/a.tmp\nfind . | sort")
+                       "\\\nls -A old && \\\n  rm old/a.tmp\n\ncat <<'EOF' > f\na \\\nb\nEOF")
         XCTAssertEqual(HookEvent.fullCommand(of: ["command": "mkdir out"]), "mkdir out")
         XCTAssertNil(HookEvent.fullCommand(of: ["file_path": "/tmp/a.txt"]), "a path is not a command")
         XCTAssertNil(HookEvent.fullCommand(of: ["command": " \n "]))
-        let long = String(repeating: "x", count: HookEvent.commandLimit * 2)
-        XCTAssertLessThanOrEqual(HookEvent.fullCommand(of: ["command": long])?.count ?? 0,
-                                 HookEvent.commandLimit + 1)
+        let long = String(repeating: "x", count: 10_000) + "; rm -rf x"
+        XCTAssertEqual(HookEvent.fullCommand(of: ["command": long]), long, "nothing is cut")
     }
 
     /// A single-line subject is capped too: a one-line script can be any size.
