@@ -384,11 +384,12 @@ public final class BarHostingView: NSHostingView<AnyView> {
     /// Clicks are read from geometry, like the hovered row: the rows are laid
     /// out from constants (`AppController.slotTop`), and one route for both
     /// means a click and a hover can never disagree about where anything is.
-    /// Today the only click taken is `[Go to session]`'s; any other goes on
-    /// to SwiftUI.
+    /// The clicks taken are `[Go to session]`'s and the mascot's; any other
+    /// goes on to SwiftUI. A ctrl-click is a right click — the menu's
+    /// (`menu(for:)`), never the mascot's balloon.
     public override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if onClick?(point) == true { return }
+        if !event.modifierFlags.contains(.control), onClick?(point) == true { return }
         super.mouseDown(with: event)
     }
 

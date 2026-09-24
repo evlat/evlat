@@ -134,3 +134,19 @@
 "remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'ları kaldır'ı kullan.";
 "remote.remove.cancel" = "Vazgeç";
 "remote.remove.do" = "Kaldır";
+
+/* Sohbet balonu (011) */
+"chat.placeholder" = "Ne yapayım?";
+"chat.hint" = "Dosya bırakabilirsin · Esc kapatır";
+"chat.missing" = "Claude Code bulunamadı — kurduktan sonra balonu yeniden aç.";
+"chat.working" = "Çalışıyor…";
+"chat.suggestion.capabilities" = "Neler yapabilirsin?";
+"chat.suggestion.memory" = "En çok belleği ne kullanıyor?";
+"chat.suggestion.disk" = "Diskte ne kadar yer kaldı?";
+"chat.failure.noBinary" = "Claude Code bulunamadı.";
+"chat.failure.launch" = "Claude başlatılamadı.";
+"chat.failure.exited" = "Claude cevap vermeden durdu.";
+"chat.failure.result" = "Tur bir hatayla bitti.";
+"chat.failure.interrupted" = "Bu çalışırken Evlat kapandı.";
+"menu.hotkey" = "Kısayol ⌥Space";
+"menu.hotkey.failure" = "Kısayol kaydedilemedi ({status})";

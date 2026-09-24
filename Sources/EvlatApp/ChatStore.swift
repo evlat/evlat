@@ -71,6 +71,12 @@ final class ChatStore {
 
     var sessionIDs: Set<String> { provider.sessionIDs }
 
+    /// Is there a `claude` to send to? For the balloon's empty state; the
+    /// same lookup a turn makes, so the two never disagree. Main queue.
+    func locateClaude(_ completion: @escaping (Bool) -> Void) {
+        locator.locate { completion($0.executable != nil) }
+    }
+
     // MARK: - Acting
 
     /// A new, empty chat in `folder`, or in its own workspace

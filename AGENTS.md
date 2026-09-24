@@ -92,6 +92,19 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   ölçülür; çarpım 90 sn'yi iki yönde de şaşırıyor (`003`'te %37 altında, ~2 kat
   üstünde), kapı yine 90 sn'dir. Döngüsüz klipte: *klip içi × `movingTime` /
   pencere*.
+- **Anahtar `.nonactivatingPanel` varken `NSApp.isActive` `true` okur.**
+  Balon (`ChatPanel`) klavyeyi alınca AppKit'in bayrağı `true` oldu; öndeki
+  uygulama, menü çubuğunun sahibi ve `NSRunningApplication.current.isActive`
+  değişmedi, panel gidince bayrak `false`'a döndü (`011/phase-2`, ayrı süreçte
+  ölçüldü). "Evlat öne gelmedi" sınaması bu üçüne bakar, `NSApp.isActive`'e
+  değil.
+- **`HoverIntent.closeNow` bekleyen açılışı düşürmez.** Maskota tıklamaya
+  gelen imleç barı açmayı zaten istemişti; balon açılırken `closeNow` kapalı
+  barda hiçbir şey yapmadı ve 80 ms sonra liste balonun altında açıldı
+  (`011/phase-2`, gözle). Kapalı barda bekleyen açılışı `pointerExited` düşürür.
+- **Bara gelen ctrl-tık `mouseDown`'dan da geçer.** Maskota sol tık balonu
+  açınca ctrl-tık (menü) da balonu açtı ve bir sınamada anahtar panel sızdırdı
+  (`011/phase-2`); `BarHostingView.mouseDown` ctrl'lü tıkı `onClick`'e vermez.
 - **`proc_pidpath` kendini güncellemiş bir uygulamanın eski sürecinde boş
   döner** (`ENOENT`) — Orca'nın pty yardımcısı böyleydi ve 13 oturum
   "bulunamadı" okudu (`005/phase-5`). Başlatıldığı yol argüman alanında

@@ -61,8 +61,25 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     })
     private var hookListener: HookListener?
     /// The chats (`011`) and their `claude -p` turns; `nil` until launch.
-    /// Registered in `registry` as the `evlat` provider.
-    private(set) var chats: ChatStore?
+    /// Registered in `registry` as the `evlat` provider. Internal so a test
+    /// hands its own store (a fake `claude`, a temporary root).
+    var chats: ChatStore?
+    /// The balloon (`011/phase-2`): what it draws and its window, built on
+    /// first use.
+    let chatModel = ChatModel()
+    private(set) var chatPanel: ChatPanel?
+    /// Is the balloon on screen? The one place that says so: hover and the
+    /// toggles read it.
+    private(set) var isChatOpen = false
+    /// The chat the balloon speaks for; made by the first prompt, so an
+    /// opened and closed balloon leaves no row.
+    private(set) var currentChat: String?
+    /// ⌥Space (`HotKey`); `nil` until launch — a test hands a fake, and a
+    /// controller without one registers nothing.
+    var hotKey: HotKeyRegistration?
+    /// The last registration's answer while the shortcut is on; `nil` when
+    /// off or never tried. A failure is the menu's dim line.
+    private(set) var hotKeyStatus: OSStatus?
     /// The remote machines' listeners and `ssh` processes; `nil` until
     /// launch. Its providers are registered in `registry` by it.
     private(set) var remote: RemoteTunnels?
@@ -854,6 +871,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         startHookListener()
         startRemoteTunnels()
         installStatusItem()
+        // Here and nowhere else: `installPanel` runs in every test, and a
+        // test must never take the user's ⌥Space.
+        let hotKey = HotKey()
+        hotKey.onPress = { [weak self] in MainActor.assumeIsolated { self?.hotKeyPressed() } }
+        self.hotKey = hotKey
+        applyHotKey()
 
         // The environment over the stored choice, the right over nothing.
         // Read here, never written back: only the menu writes.
@@ -902,26 +925,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         tracker.start()
         gaze = tracker
 
-        panel.onPointer = { [weak self] pointer in
-            guard let self else { return }
-            switch pointer {
-            case .entered:
-                self.hover.pointerEntered()
-            case .exited:
-                // Off the bar is off every row: a switch still pending
-                // would otherwise select after the cursor has gone.
-                self.rowSwitch.cancel()
-                if self.barState.hovered != nil { self.barState.hovered = nil }
-                self.hover.pointerExited()
-            case .moved(let point):
-                // A move is only reported inside the bar, so it also says
-                // "still here" — which is what cancels a close pending from a
-                // missed exit/enter pair.
-                self.hover.pointerEntered()
-                self.gaze?.observe(point)
-                self.pointerMoved(point)
-            }
-        }
+        panel.onPointer = { [weak self] pointer in self?.pointer(pointer) }
 
         // Resolution changes, an unplugged display, or the Dock moving to the
         // right edge all change `visibleFrame`. Without this the bar keeps a
@@ -931,8 +935,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
-        ) { [weak panel] _ in
-            MainActor.assumeIsolated { panel?.reposition() }
+        ) { [weak self, weak panel] _ in
+            MainActor.assumeIsolated {
+                // The balloon is placed once, beside the mascot; a bar that
+                // moves under it would leave it pointing at nothing.
+                self?.closeChat()
+                panel?.reposition()
+            }
         }
     }
 
@@ -987,11 +996,150 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// believed open would ignore the next enter — then the window, its hover
     /// areas and the body take the new edge. Activates nothing.
     func dock(_ edge: BarPanel.Edge) {
+        closeChat()
         hover.closeNow()
         // The intent may already have believed the bar closed.
         if barState.isOpen { closeBar() }
         panel?.edge = edge
         if barState.edge != edge { barState.edge = edge }
+    }
+
+    /// The cursor over the bar. While the balloon is open hover is not told:
+    /// the balloon is the one thing talking, and an intent that believed
+    /// the bar open while it stayed closed would ignore the next enter.
+    /// The eyes still follow the cursor.
+    func pointer(_ pointer: BarHostingView.Pointer) {
+        switch pointer {
+        case .entered:
+            guard !isChatOpen else { return }
+            hover.pointerEntered()
+        case .exited:
+            // Off the bar is off every row: a switch still pending
+            // would otherwise select after the cursor has gone.
+            rowSwitch.cancel()
+            if barState.hovered != nil { barState.hovered = nil }
+            hover.pointerExited()
+        case .moved(let point):
+            gaze?.observe(point)
+            guard !isChatOpen else { return }
+            // A move is only reported inside the bar, so it also says
+            // "still here" — which is what cancels a close pending from a
+            // missed exit/enter pair.
+            hover.pointerEntered()
+            pointerMoved(point)
+        }
+    }
+
+    // MARK: - The balloon
+
+    /// The mascot's left click and the shortcut.
+    func toggleChat() {
+        isChatOpen ? closeChat() : openChat()
+    }
+
+    /// Out of the mascot, with the keyboard, Evlat still in the background
+    /// (`ChatPanel`). The open list and its card close first: the balloon is
+    /// the one thing talking.
+    func openChat() {
+        guard !isChatOpen, let bar = panel else { return }
+        hover.closeNow()
+        // The cursor that came to click the mascot has already asked for
+        // the bar to open; `closeNow` leaves a pending opening alone, and
+        // a leave on a closed bar is what drops it (seen by eye: the list
+        // opened under a fresh balloon).
+        hover.pointerExited()
+        // The intent may already have believed the bar closed.
+        if barState.isOpen { closeBar() }
+        let balloon = chatPanel ?? makeChatPanel()
+        isChatOpen = true
+        if chatModel.edge != bar.edge { chatModel.edge = bar.edge }
+        syncChat()
+        // Asked each time: `claude` may have been installed since. Known at
+        // once after the first find (or with `EVLAT_CLAUDE`).
+        chats?.locateClaude { [weak self] found in
+            guard let self, self.chatModel.claudeMissing == found else { return }
+            self.chatModel.claudeMissing = !found
+        }
+        chatModel.opened()
+        // A short fade in: it comes out of the mascot rather than popping.
+        // Leaving is at once — Esc should feel instant.
+        balloon.alphaValue = 0
+        balloon.present(beside: bar, edge: bar.edge)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.14
+            balloon.animator().alphaValue = 1
+        }
+    }
+
+    /// Ordered out. Nothing is handed back: the app in front never lost
+    /// being the active one, so the keyboard is simply its again.
+    func closeChat() {
+        guard isChatOpen else { return }
+        isChatOpen = false
+        chatPanel?.orderOut(nil)
+    }
+
+    private func makeChatPanel() -> ChatPanel {
+        let balloon = ChatPanel(content: ChatView(model: chatModel))
+        balloon.onClose = { [weak self] in self?.closeChat() }
+        chatModel.onSend = { [weak self] text in self?.send(text) }
+        chatPanel = balloon
+        return balloon
+    }
+
+    /// A prompt from the balloon: the chat is made with the first one, in
+    /// its own workspace (`phase-4` brings the dropped files' folder).
+    private func send(_ text: String) {
+        guard let chats else { return }
+        let id = currentChat ?? chats.newChat()
+        currentChat = id
+        chats.perform(.send(chat: id, text: text, attachments: []))
+        syncChat()
+    }
+
+    /// The balloon's lines follow its chat.
+    private func syncChat() {
+        chatModel.update(from: currentChat.flatMap { chats?.chat($0) })
+    }
+
+    func hotKeyPressed() {
+        toggleChat()
+    }
+
+    /// The stored switch, default on.
+    nonisolated static let hotKeyKey = "chat.hotkey"
+
+    nonisolated static func hotKeyEnabled(_ defaults: UserDefaults?) -> Bool {
+        defaults?.object(forKey: hotKeyKey) as? Bool ?? true
+    }
+
+    /// Without storage (every test) the switch is kept here: still applied,
+    /// like the edge, only not remembered.
+    private var hotKeyUnstored = true
+    private var isHotKeyOn: Bool { defaults.map(Self.hotKeyEnabled) ?? hotKeyUnstored }
+
+    /// Registers or unregisters the shortcut as the switch says; the answer
+    /// is kept for the menu.
+    func applyHotKey() {
+        guard let hotKey else { return }
+        if isHotKeyOn {
+            let status = hotKey.register()
+            hotKeyStatus = status
+            if status != noErr { NSLog("Evlat: the shortcut was not registered (%d)", status) }
+        } else {
+            hotKey.unregister()
+            hotKeyStatus = nil
+        }
+    }
+
+    /// The menus' "Shortcut ⌥Space": stored, then applied. Activates nothing.
+    @objc func toggleHotKey(_ sender: Any?) {
+        if let defaults {
+            defaults.set(!isHotKeyOn, forKey: Self.hotKeyKey)
+        } else {
+            hotKeyUnstored.toggle()
+        }
+        applyHotKey()
     }
 
     /// Binds the hook port. Every event that arrives goes to
@@ -1133,6 +1281,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
+        hotKey?.unregister()
         hookListener?.stop()
         remote?.stopAll()
         chats?.stopAll()
@@ -1281,6 +1430,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
         }
         syncSelection(snapshot.ordered)
+        if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
         if let remoteWindow, remoteWindow.isVisible { remoteWindow.model.reload() }
@@ -1388,14 +1538,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return sessionRows.rows[slot].entity
     }
 
-    /// The only click the bar takes is `[Go to session]`'s. Rows and rings
-    /// take none: the card comes by hover (`005`, user's decision), and a
-    /// click on a row it already speaks for has nothing left to do.
+    /// The bar takes two clicks: `[Go to session]`'s, and the mascot's,
+    /// which opens or closes the balloon (`011`). Rows and rings take none:
+    /// the card comes by hover (`005`, user's decision), and a click on a
+    /// row it already speaks for has nothing left to do.
     private func click(at point: CGPoint) -> Bool {
-        guard barState.selected != nil, let button = goButtonRect, button.contains(point) else {
-            return false
+        if barState.selected != nil, let button = goButtonRect, button.contains(point) {
+            goToSession()
+            return true
         }
-        goToSession()
+        guard let panel, let bounds = panel.contentView?.bounds,
+              Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
+                                fromTop: point.y - bounds.minY) else { return false }
+        toggleChat()
         return true
     }
 
@@ -1482,6 +1637,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Every title the menus ask the catalogue for; the phases' are
     /// `StatusLine`'s.
     static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
+                           "menu.hotkey", "menu.hotkey.failure",
                            "menu.quit", "menu.force", "menu.force.follow",
                            "menu.hooks.install", "menu.hooks.update", "menu.hooks.remove",
                            "menu.hooks.hint.claude", "menu.hooks.hint.codex", "menu.hooks.hint.remove",
@@ -1536,6 +1692,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let edgeItem = menu.addItem(withTitle: L10n.t("menu.edge", in: lang), action: nil,
                                     keyEquivalent: "")
         edgeItem.submenu = edges
+        addHotKeyEntry(to: menu, in: lang)
 
         if diagnostics {
             // Forcing a phase so it can be looked at: `waiting` and `failed`
@@ -1566,6 +1723,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
 
+    }
+
+    /// "Shortcut ⌥Space", marked while on; under it a refused registration's
+    /// dim line (`008`'s pattern) with Carbon's number. The line does not
+    /// name another app: Carbon does not say who holds a key (measured).
+    private func addHotKeyEntry(to menu: NSMenu, in lang: String) {
+        let entry = menu.addItem(withTitle: L10n.t("menu.hotkey", in: lang),
+                                 action: #selector(toggleHotKey(_:)), keyEquivalent: "")
+        entry.state = isHotKeyOn ? .on : .off
+        entry.target = self
+        if let status = hotKeyStatus, status != noErr {
+            let line = menu.addItem(withTitle: L10n.t("menu.hotkey.failure", ["status": "\(status)"], in: lang),
+                                    action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            line.indentationLevel = 1
+        }
     }
 
     /// One entry per agent whose directory exists, titled by what the file
@@ -1701,7 +1874,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// A right click (or ctrl-click) on the bar, in the content view's
     /// (flipped) coordinates: the menu over the mascot, nothing anywhere
-    /// else. A left click on the mascot stays reserved.
+    /// else. A left click on the mascot is the balloon's (`click(at:)`).
     func menu(at point: CGPoint) -> NSMenu? {
         guard let panel, let bounds = panel.contentView?.bounds,
               Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),

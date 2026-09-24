@@ -192,3 +192,19 @@
 "remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, use Remove hooks.";
 "remote.remove.cancel" = "Cancel";
 "remote.remove.do" = "Remove";
+
+/* The chat balloon (011) */
+"chat.placeholder" = "What should I do?";
+"chat.hint" = "You can drop files · Esc closes";
+"chat.missing" = "Claude Code was not found — install it, then open this again.";
+"chat.working" = "Working…";
+"chat.suggestion.capabilities" = "What can you do?";
+"chat.suggestion.memory" = "What's using the most memory?";
+"chat.suggestion.disk" = "How much disk space is left?";
+"chat.failure.noBinary" = "Claude Code was not found.";
+"chat.failure.launch" = "Claude could not be started.";
+"chat.failure.exited" = "Claude stopped without an answer.";
+"chat.failure.result" = "The turn ended with an error.";
+"chat.failure.interrupted" = "Evlat was closed while this was running.";
+"menu.hotkey" = "Shortcut ⌥Space";
+"menu.hotkey.failure" = "Could not register the shortcut ({status})";
