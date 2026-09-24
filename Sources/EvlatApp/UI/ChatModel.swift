@@ -20,6 +20,17 @@ final class ChatModel: ObservableObject {
     @Published var draft = ""
     /// Counts the balloon's openings; a change takes the field's focus.
     @Published private(set) var openings = 0
+    /// Files dropped for the next prompt (`011/phase-4`): chips over the
+    /// line, sent with it and cleared.
+    @Published private(set) var attachments: [ChatFolder.Item] = []
+    /// The folder the chat runs in, for the corner label; `nil` is its own
+    /// workspace. Written by the controller.
+    @Published private(set) var folder: String?
+    /// Sent once: the folder is the chat's for good and the label only
+    /// shows it (Karar 8).
+    @Published private(set) var folderLocked = false
+    /// A file is being dragged over the balloon.
+    @Published var dropTargeted = false
 
     /// The prompt, trimmed. The controller turns it into `Action.send`.
     var onSend: ((String) -> Void)?
@@ -27,6 +38,11 @@ final class ChatModel: ObservableObject {
     var onAnswer: ((String, Action.Decision) -> Void)?
     /// The stop button: `Action.stop`.
     var onStop: (() -> Void)?
+    /// A chip was added or removed: the folder may follow the files.
+    var onAttachmentsChange: (() -> Void)?
+    /// The folder label: choose another before the first prompt, show it
+    /// in Finder after.
+    var onFolder: (() -> Void)?
 
     /// Three prompts a bare `claude -p` can answer from its own folder,
     /// asking for no folder the system guards (Downloads, Desktop) and no
@@ -34,12 +50,54 @@ final class ChatModel: ObservableObject {
     /// user (Kapsam Dışı). Sent as they are.
     static let suggestionKeys = ["chat.suggestion.capabilities", "chat.suggestion.memory",
                                  "chat.suggestion.disk"]
+
+    /// With files, the suggestions follow what they are (`011/phase-4`):
+    /// PDFs are summarised or mined for tables, and two of them compared;
+    /// images explained or read; one folder organised or looked into. A
+    /// mix — or a kind with nothing particular to offer — gets what fits
+    /// any file. Never the file-less three: "how much disk is left" is not
+    /// a question about a dropped report.
+    static func suggestionKeys(for items: [ChatFolder.Item]) -> [String] {
+        guard !items.isEmpty else { return suggestionKeys }
+        let compare = items.count == 2 ? ["chat.suggestion.compareTwo"]
+            : items.count > 2 ? ["chat.suggestion.compare"] : []
+        switch ChatFolder.kind(of: items) {
+        case .pdf?:
+            return ["chat.suggestion.summarize", "chat.suggestion.tables"] + compare
+        case .image?:
+            return ["chat.suggestion.explain", "chat.suggestion.text"] + compare
+        case .folder? where items.count == 1:
+            return ["chat.suggestion.organize", "chat.suggestion.contents"]
+        default:
+            return ["chat.suggestion.summarize", "chat.suggestion.explain"] + compare
+        }
+    }
+
+    static let fileSuggestionKeys = ["chat.suggestion.summarize", "chat.suggestion.tables",
+                                     "chat.suggestion.compareTwo", "chat.suggestion.compare",
+                                     "chat.suggestion.explain", "chat.suggestion.text",
+                                     "chat.suggestion.organize", "chat.suggestion.contents"]
+
     /// Every key the balloon asks for, but the failures'.
-    static let keys = ["chat.placeholder", "chat.hint", "chat.missing", "chat.working", "chat.stop",
+    static let keys = ["chat.placeholder", "chat.placeholder.file", "chat.placeholder.files",
+                       "chat.hint", "chat.missing", "chat.working", "chat.stop",
                        "chat.permission.title", "chat.permission.tool", "chat.permission.folder",
                        "chat.permission.allow", "chat.permission.deny", "chat.permission.always",
-                       "chat.permission.access", "chat.tool.running", "chat.tool.done", "chat.tool.failed"]
-        + suggestionKeys + outcomeKeys
+                       "chat.permission.access", "chat.tool.running", "chat.tool.done", "chat.tool.failed",
+                       "chat.file.remove", "chat.folder.workspace", "chat.folder.change", "chat.folder.show"]
+        + suggestionKeys + fileSuggestionKeys + outcomeKeys
+
+    /// What the balloon offers now.
+    var suggestions: [String] { Self.suggestionKeys(for: attachments) }
+
+    /// The line's prompt: what to do, or what to do with these.
+    var placeholderKey: String {
+        switch attachments.count {
+        case 0: return "chat.placeholder"
+        case 1: return "chat.placeholder.file"
+        default: return "chat.placeholder.files"
+        }
+    }
 
     static let outcomeKeys = ["chat.permission.allowed", "chat.permission.allowedAlways",
                               "chat.permission.denied", "chat.permission.expired"]
@@ -110,5 +168,37 @@ final class ChatModel: ObservableObject {
 
     func opened() {
         openings &+= 1
+    }
+
+    /// Dropped files, after those already there; one dropped twice is kept
+    /// once.
+    func add(_ items: [ChatFolder.Item]) {
+        let new = items.reduce(into: [ChatFolder.Item]()) { kept, item in
+            if !attachments.contains(item), !kept.contains(item) { kept.append(item) }
+        }
+        guard !new.isEmpty else { return }
+        attachments += new
+        onAttachmentsChange?()
+    }
+
+    func remove(_ item: ChatFolder.Item) {
+        guard let index = attachments.firstIndex(of: item) else { return }
+        attachments.remove(at: index)
+        onAttachmentsChange?()
+    }
+
+    /// The files going out with a prompt: handed over and cleared.
+    func takeAttachments() -> [ChatFolder.Item] {
+        defer { if !attachments.isEmpty { attachments = [] } }
+        return attachments
+    }
+
+    func setFolder(_ path: String?, locked: Bool) {
+        if folder != path { folder = path }
+        if folderLocked != locked { folderLocked = locked }
+    }
+
+    func folderTapped() {
+        onFolder?()
     }
 }

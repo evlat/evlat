@@ -133,6 +133,44 @@ final class MascotPoseTests: XCTestCase {
     func testTransitionIsASpring() {
         XCTAssertEqual(MascotPose.transition, .spring(response: 0.38, dampingFraction: 0.72))
     }
+
+    /// The five phases' faces, field by field. `011/phase-4` added a pose
+    /// that is not a phase (`catching`); the table it sits beside must not
+    /// move with it.
+    func testTheFivePhasesAreUnchanged() {
+        XCTAssertEqual(MascotPose.resting(for: .idle), MascotPose(gazeMix: 0.85))
+        XCTAssertEqual(MascotPose.resting(for: .working), MascotPose(eyeOpen: 0.92, eyeSquint: 0.34, gazeMix: 0.30))
+        XCTAssertEqual(MascotPose.resting(for: .waiting), MascotPose(eyeOpen: 1.28, scaleX: 1.03, scaleY: 1.04))
+        XCTAssertEqual(MascotPose.resting(for: .review),
+                       MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, tilt: 9, gazeMix: 0.60))
+        XCTAssertEqual(MascotPose.resting(for: .failed),
+                       MascotPose(eyeOpen: 0.55, eyeSquint: 0.5, scaleX: 1.07, scaleY: 0.9, gazeMix: 0.45))
+    }
+
+    /// A file on its way to the bar (`011/phase-4`, Karar 9): the eyes open
+    /// wider than any phase opens them — `waiting` included, or catching
+    /// would read as one more "I need you" — the body reaches up a little,
+    /// and the gaze is the file's entirely. No mouth: the face is the eyes.
+    func testCatchingWidensTheEyesStretchesAndLocksOn() {
+        let catching = MascotPose.catching
+        for phase in Phase.allCases {
+            XCTAssertGreaterThan(catching.eyeOpen, MascotPose.resting(for: phase).eyeOpen, "\(phase)")
+        }
+        XCTAssertGreaterThan(catching.scaleY, 1, "it reaches")
+        XCTAssertGreaterThan(catching.scaleY, catching.scaleX, "taller, not bigger")
+        XCTAssertEqual(catching.gazeMix, 1, "the eyes are on the file")
+        XCTAssertEqual(catching.eyeSquint, 0)
+        XCTAssertEqual(catching.tilt, 0)
+    }
+
+    /// What the body draws: its own pose, or — while a file is caught —
+    /// the catching face turned to the file, whatever the pose was.
+    func testTheCaughtFaceReplacesThePose() {
+        let pose = MascotPose.resting(for: .working)
+        XCTAssertEqual(MascotPose.drawn(pose, catching: nil), pose)
+        let toward = CGSize(width: -0.9, height: 0.2)
+        XCTAssertEqual(MascotPose.drawn(pose, catching: toward), MascotPose.catching.blending(gaze: toward))
+    }
 }
 
 /// The model decides what the view shows.
@@ -170,5 +208,20 @@ final class MascotModelTests: XCTestCase {
         XCTAssertFalse(model.isAwake)
         model.hasLive = true
         XCTAssertTrue(model.isAwake)
+    }
+
+    /// Catching is not a phase: the aggregate and what is forced stay as
+    /// they are, and an asleep mascot catches in place — the face changes
+    /// on the body already drawn, so it springs rather than crossfades
+    /// between two views.
+    func testCatchingIsNotAPhase() {
+        let model = MascotModel()
+        model.phase = .working
+        model.catching = true
+        XCTAssertEqual(model.effectivePhase, .working)
+        XCTAssertFalse(model.isAwake, "nothing live: it catches asleep, on the same body")
+        XCTAssertEqual(model.caughtGaze, model.gaze)
+        model.catching = false
+        XCTAssertNil(model.caughtGaze)
     }
 }

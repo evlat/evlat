@@ -44,8 +44,45 @@ struct MascotView: View {
             }
         }
         .frame(width: size, height: size)
+        // A caught file (`011/phase-4`) is drawn by whichever body is on
+        // screen, read from the environment — not handed to `ClipPlayer` as
+        // a stored value, whose scheduled steps close over a copy (AGENTS →
+        // Tuzaklar). The walk goes on underneath; the face is the file's.
+        .environment(\.caughtGaze, model.caughtGaze)
+        .background { dropRing }
         .animation(MascotPose.transition, value: model.effectivePhase)
         .animation(MascotPose.transition, value: model.gaze)
+        .animation(MascotPose.transition, value: model.catching)
+    }
+
+    /// Where to drop: a soft ring around the mascot, only while a file is
+    /// over the bar. Out of the tree otherwise — nothing is drawn for it
+    /// when no drag is on.
+    @ViewBuilder private var dropRing: some View {
+        if model.catching {
+            let ring = RoundedRectangle(cornerRadius: size * 0.3 + Self.ringInset, style: .continuous)
+            ring.fill(Color.white.opacity(0.06))
+                .overlay(ring.strokeBorder(Color.white.opacity(0.34), lineWidth: 1.5))
+                .padding(-Self.ringInset)
+                .transition(.opacity.combined(with: .scale(scale: 0.86)))
+        }
+    }
+
+    /// How far the ring stands off the mascot: inside the bar's width
+    /// (`AppController.barWidth` 54 against a 34 mascot).
+    static let ringInset: CGFloat = 6
+}
+
+private struct CaughtGazeKey: EnvironmentKey {
+    static let defaultValue: CGSize? = nil
+}
+
+extension EnvironmentValues {
+    /// The caught file's direction while one is being dragged over the bar;
+    /// `nil` otherwise. See `MascotPose.drawn`.
+    var caughtGaze: CGSize? {
+        get { self[CaughtGazeKey.self] }
+        set { self[CaughtGazeKey.self] = newValue }
     }
 }
 
@@ -175,23 +212,28 @@ private struct ClipPlayer: View {
 /// phases — the one thing a phase drives directly, the shudder, hangs above it
 /// in `MascotView`.
 private struct MascotBody: View {
+    /// The pose it was handed; `drawn` is what it draws.
     let pose: MascotPose
     let size: CGFloat
+    @Environment(\.caughtGaze) private var caughtGaze
+
+    private var drawn: MascotPose { MascotPose.drawn(pose, catching: caughtGaze) }
 
     var body: some View {
-        ZStack {
+        let pose = drawn
+        return ZStack {
             RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
                 .fill(Color.white.opacity(0.92))
-            eyes
+            eyes(pose)
         }
         .scaleEffect(x: pose.scaleX, y: pose.scaleY, anchor: .center)
         .rotationEffect(.degrees(pose.tilt))
     }
 
-    private var eyes: some View {
+    private func eyes(_ pose: MascotPose) -> some View {
         HStack(spacing: size * 0.16) {
-            eye(side: -1)
-            eye(side: 1)
+            eye(side: -1, pose)
+            eye(side: 1, pose)
         }
         // The eyes are children of the body: when it tilts they go with it. If
         // they lived in their own coordinate space the result would read as two
@@ -202,7 +244,7 @@ private struct MascotBody: View {
     /// One eye. A cube's face is flat, so instead of the sphere's angle mapping
     /// this uses **perspective narrowing**: as the face turns, the far eye gets
     /// thinner.
-    private func eye(side: Double) -> some View {
+    private func eye(side: Double, _ pose: MascotPose) -> some View {
         // If the face turns by `yaw`, the eye on the opposite side travels
         // toward the edge and narrows. Close to a cosine, but nearly linear,
         // which suits a cube.

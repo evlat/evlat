@@ -195,6 +195,20 @@
 
 /* The chat balloon (011) */
 "chat.placeholder" = "What should I do?";
+"chat.placeholder.file" = "What should I do with it?";
+"chat.placeholder.files" = "What should I do with these files?";
+"chat.suggestion.summarize" = "Summarize";
+"chat.suggestion.tables" = "Extract the tables";
+"chat.suggestion.compareTwo" = "Compare the two";
+"chat.suggestion.compare" = "Compare them";
+"chat.suggestion.explain" = "Explain";
+"chat.suggestion.text" = "Extract the text";
+"chat.suggestion.organize" = "Organize";
+"chat.suggestion.contents" = "What's inside?";
+"chat.file.remove" = "Remove";
+"chat.folder.workspace" = "Own folder";
+"chat.folder.change" = "Works in {folder} — click to choose another folder";
+"chat.folder.show" = "Works in {folder} — click to show it in Finder";
 "chat.hint" = "You can drop files · Esc closes";
 "chat.missing" = "Claude Code was not found — install it, then open this again.";
 "chat.working" = "Working…";

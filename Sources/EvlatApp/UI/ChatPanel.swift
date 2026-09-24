@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
+import EvlatCore
 
 /// The balloon's window (`011`, Karar 7): the one Evlat window that takes the
 /// keyboard — and still never makes Evlat the active app.
@@ -18,6 +19,17 @@ final class ChatPanel: NSPanel {
     /// The balloon wants to close: Esc, or the keyboard went elsewhere. The
     /// controller closes it, so every way out passes one place.
     var onClose: (() -> Void)?
+    /// Files dropped on the balloon (`011/phase-4`): added to the next prompt.
+    var onFiles: (([ChatFolder.Item]) -> Void)? {
+        get { drop.onFiles }
+        set { drop.onFiles = newValue }
+    }
+    /// A file drag came over the balloon (`true`) or left it.
+    var onDropTarget: ((Bool) -> Void)? {
+        get { drop.onTarget }
+        set { drop.onTarget = newValue }
+    }
+    private let drop: ChatDropView
 
     /// The balloon's own width; the window adds the tail and the shadow's room.
     static let balloonWidth: CGFloat = 320
@@ -42,6 +54,7 @@ final class ChatPanel: NSPanel {
                              height: outerMargin + maxBalloonHeight + outerMargin)
 
     init(content: some View) {
+        drop = ChatDropView(frame: NSRect(origin: .zero, size: Self.size))
         super.init(contentRect: NSRect(origin: .zero, size: Self.size),
                    // `.nonactivatingPanel`: taking the keyboard does not bring
                    // Evlat forward (`canBecomeKey` below).
@@ -60,7 +73,14 @@ final class ChatPanel: NSPanel {
         let hosting = NSHostingView(rootView: AnyView(content))
         // The window's size is this class's: see `BarPanel`.
         hosting.sizingOptions = []
-        contentView = hosting
+        // The content and, over it, the drop layer (`ChatDropView`).
+        let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
+        for layer in [hosting, drop] as [NSView] {
+            layer.frame = container.bounds
+            layer.autoresizingMask = [.width, .height]
+            container.addSubview(layer)
+        }
+        contentView = container
     }
 
     override var canBecomeKey: Bool { true }
@@ -113,5 +133,51 @@ final class ChatPanel: NSPanel {
         let eyes = AppController.gazeAnchor(frame: barFrame, edge: edge).y
         let top = min(eyes + tailCenter, visible.maxY) + outerMargin
         return NSPoint(x: x, y: top - size.height)
+    }
+}
+
+/// Files dropped on the balloon (`011/phase-4`): the open balloon takes
+/// more. A transparent layer **over** the SwiftUI content, not the hosting
+/// view itself: the line's field editor sits deepest under the cursor and
+/// registers for text — which a file URL also offers — so it won the drop
+/// and typed the path into the line (seen by eye). SwiftUI's text field will
+/// not take another field editor (it crashed on one), so the drop is caught
+/// above it instead. Clicks pass through (`hitTest` is `nil`); drags do
+/// not, because AppKit finds a drag's target by registered type and frame.
+/// Event-driven like the bar's: it runs only while a drag is over the window.
+final class ChatDropView: NSView {
+    var onFiles: (([ChatFolder.Item]) -> Void)?
+    var onTarget: ((Bool) -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not built from a nib") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard FileDrop.hasFiles(sender.draggingPasteboard) else { return [] }
+        onTarget?(true)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        FileDrop.hasFiles(sender.draggingPasteboard) ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { onTarget?(false) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { onTarget?(false) }
+    override func wantsPeriodicDraggingUpdates() -> Bool { false }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let items = FileDrop.items(from: sender.draggingPasteboard)
+        onTarget?(false)
+        guard !items.isEmpty else { return false }
+        onFiles?(items)
+        return true
     }
 }

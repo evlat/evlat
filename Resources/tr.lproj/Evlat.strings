@@ -137,6 +137,20 @@
 
 /* Sohbet balonu (011) */
 "chat.placeholder" = "Ne yapayım?";
+"chat.placeholder.file" = "Bununla ne yapayım?";
+"chat.placeholder.files" = "Bu dosyalarla ne yapayım?";
+"chat.suggestion.summarize" = "Özetle";
+"chat.suggestion.tables" = "Tabloları çıkar";
+"chat.suggestion.compareTwo" = "İkisini karşılaştır";
+"chat.suggestion.compare" = "Karşılaştır";
+"chat.suggestion.explain" = "Açıkla";
+"chat.suggestion.text" = "Metni çıkar";
+"chat.suggestion.organize" = "Düzenle";
+"chat.suggestion.contents" = "İçinde ne var?";
+"chat.file.remove" = "Kaldır";
+"chat.folder.workspace" = "Kendi klasörü";
+"chat.folder.change" = "{folder} içinde çalışır — başka klasör seçmek için tıkla";
+"chat.folder.show" = "{folder} içinde çalışır — Finder'da göstermek için tıkla";
 "chat.hint" = "Dosya bırakabilirsin · Esc kapatır";
 "chat.missing" = "Claude Code bulunamadı — kurduktan sonra balonu yeniden aç.";
 "chat.working" = "Çalışıyor…";

@@ -31,6 +31,19 @@ enum ChatPalette {
     static let cardTitle = Color(.sRGB, red: 245 / 255, green: 196 / 255, blue: 105 / 255)
     static let cardText = Color(.sRGB, red: 217 / 255, green: 201 / 255, blue: 166 / 255)
     static let cardCode = Color(.sRGB, red: 243 / 255, green: 227 / 255, blue: 192 / 255)
+
+    // A dropped file's chip (reference screen 3): a quiet tile, its
+    // extension in a small tag tinted by kind.
+    static let chip = Color(.sRGB, red: 31 / 255, green: 32 / 255, blue: 35 / 255)
+    static let chipName = Color(.sRGB, red: 226 / 255, green: 226 / 255, blue: 226 / 255)
+    static let tagDocument = Color(.sRGB, red: 45 / 255, green: 58 / 255, blue: 74 / 255)
+    static let tagDocumentText = Color(.sRGB, red: 159 / 255, green: 195 / 255, blue: 238 / 255)
+    static let tagImage = Color(.sRGB, red: 58 / 255, green: 45 / 255, blue: 74 / 255)
+    static let tagImageText = Color(.sRGB, red: 210 / 255, green: 177 / 255, blue: 240 / 255)
+    static let tagOther = Color(.sRGB, red: 44 / 255, green: 46 / 255, blue: 50 / 255)
+    static let tagOtherText = Color(.sRGB, red: 176 / 255, green: 179 / 255, blue: 184 / 255)
+    /// The balloon's edge while a file is over it.
+    static let dropEdge = Color(.sRGB, red: 120 / 255, green: 124 / 255, blue: 132 / 255)
 }
 
 /// The balloon (`011`, Karar 7): out of the mascot, its tail on the bar.
@@ -67,9 +80,12 @@ struct ChatView: View {
             } else {
                 if !model.messages.isEmpty { transcript }
                 if let failure = model.failure { failureLine(failure) }
+                if !model.attachments.isEmpty { chips }
                 field
-                if model.messages.isEmpty { suggestions }
-                hint
+                // Files dropped on a running exchange bring their own
+                // suggestions back.
+                if model.messages.isEmpty || !model.attachments.isEmpty { suggestions }
+                footer
             }
         }
         .padding(12)
@@ -79,8 +95,11 @@ struct ChatView: View {
         .frame(maxHeight: ChatPanel.maxBalloonHeight, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)
         .background(shape.fill(ChatPalette.ground))
-        .overlay(shape.stroke(ChatPalette.edge, lineWidth: 1))
+        .overlay(shape.stroke(model.dropTargeted ? ChatPalette.dropEdge : ChatPalette.edge,
+                              lineWidth: model.dropTargeted ? 1.5 : 1))
         .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 8)
+        .animation(.easeOut(duration: 0.12), value: model.dropTargeted)
+        .animation(.smooth(duration: 0.2), value: model.attachments)
     }
 
     // MARK: - Parts
@@ -101,7 +120,7 @@ struct ChatView: View {
     private var field: some View {
         HStack(spacing: 8) {
             TextField("", text: $model.draft,
-                      prompt: Text(L10n.t("chat.placeholder")).foregroundColor(ChatPalette.placeholder))
+                      prompt: Text(L10n.t(model.placeholderKey)).foregroundColor(ChatPalette.placeholder))
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundStyle(ChatPalette.text)
@@ -130,16 +149,34 @@ struct ChatView: View {
 
     private var suggestions: some View {
         FlowLayout(spacing: 6) {
-            ForEach(ChatModel.suggestionKeys, id: \.self) { key in
+            ForEach(model.suggestions, id: \.self) { key in
                 SuggestionChip(title: L10n.t(key)) { model.submit(L10n.t(key)) }
             }
         }
     }
 
-    private var hint: some View {
-        Text(L10n.t("chat.hint"))
-            .font(.system(size: 11))
-            .foregroundStyle(ChatPalette.faint)
+    /// The dropped files, each a chip that can be taken off.
+    private var chips: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(model.attachments, id: \.self) { item in
+                FileChip(item: item) { model.remove(item) }
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+            }
+        }
+    }
+
+    /// The hint, and in the corner the folder the chat works in.
+    private var footer: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(L10n.t("chat.hint"))
+                .font(.system(size: 11))
+                .foregroundStyle(ChatPalette.faint)
+                .lineLimit(1)
+                // The hint is read whole; a long folder name gives way.
+                .layoutPriority(1)
+            Spacer(minLength: 0)
+            FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
+        }
     }
 
     private func failureLine(_ failure: ChatSession.Failure) -> some View {
@@ -163,7 +200,7 @@ struct ChatView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(model.messages.enumerated()), id: \.offset) { index, message in
-                        MessageLine(message: message, answer: model.answer).id(index)
+                        MessageLine(message: message, folder: model.folder, answer: model.answer).id(index)
                     }
                     if model.isRunning, !Self.isReplying(model.messages), !Self.isAsking(model.messages) {
                         Text(L10n.t("chat.working"))
@@ -200,24 +237,27 @@ struct ChatView: View {
 /// One line of the exchange.
 private struct MessageLine: View {
     let message: ChatSession.Message
+    /// The chat's folder: a dropped folder that is the chat's own is sent
+    /// as `./` and shown by its name.
+    let folder: String?
     let answer: (String, Action.Decision) -> Void
 
     var body: some View {
         switch message {
-        case .user(let text, _):
-            HStack {
-                Spacer(minLength: 40)
-                Text(text)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(ChatPalette.text)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10,
-                                                       bottomTrailingRadius: 3, topTrailingRadius: 10,
-                                                       style: .continuous)
-                        .fill(ChatPalette.mine))
-                    .textSelection(.enabled)
+        case .user(let text, let attachments):
+            VStack(alignment: .trailing, spacing: 4) {
+                bubble(text)
+                if !attachments.isEmpty {
+                    // What went with it, by name: quiet, under the line.
+                    Text(attachments.map(name).joined(separator: " · "))
+                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ChatPalette.faint)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .padding(.leading, 40)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .reply(let text):
             Text(text)
                 .font(.system(size: 12.5))
@@ -234,6 +274,137 @@ private struct MessageLine: View {
                 AnsweredLine(card: card)
             }
         }
+    }
+}
+
+extension MessageLine {
+    /// An attachment as the line under a prompt names it.
+    func name(_ attachment: String) -> String {
+        attachment == "./" ? (folder as NSString?)?.lastPathComponent ?? attachment
+            : (attachment as NSString).lastPathComponent
+    }
+
+    /// The user's own line, on the right.
+    func bubble(_ text: String) -> some View {
+        HStack {
+            Spacer(minLength: 40)
+            Text(text)
+                .font(.system(size: 12.5))
+                .foregroundStyle(ChatPalette.text)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10,
+                                                   bottomTrailingRadius: 3, topTrailingRadius: 10,
+                                                   style: .continuous)
+                    .fill(ChatPalette.mine))
+                .textSelection(.enabled)
+        }
+    }
+}
+
+/// A dropped file: its kind's tag or a folder's icon, its name, and × to
+/// take it off (reference screen 3).
+private struct FileChip: View {
+    let item: ChatFolder.Item
+    let remove: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            tag
+            Text(item.name)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(ChatPalette.chipName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 170, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
+                    .frame(width: 14, height: 14)
+                    .background(Circle().fill(hovered ? ChatPalette.button : .clear))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovered = $0 }
+            .help(L10n.t("chat.file.remove"))
+            .accessibilityLabel(L10n.t("chat.file.remove") + " " + item.name)
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(ChatPalette.chip))
+        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(ChatPalette.fieldEdge, lineWidth: 1))
+        .help(item.path)
+        .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+
+    @ViewBuilder private var tag: some View {
+        switch ChatFolder.kind(of: item) {
+        case .folder:
+            Image(systemName: "folder.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(ChatPalette.tagDocumentText)
+        case let kind:
+            if let label = ChatFolder.label(of: item) {
+                let (ground, ink) = Self.colors(kind)
+                Text(label.count > 4 ? String(label.prefix(4)) : label)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(ink)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(ground))
+            } else {
+                Image(systemName: "doc")
+                    .font(.system(size: 10))
+                    .foregroundStyle(ChatPalette.tagOtherText)
+            }
+        }
+    }
+
+    private static func colors(_ kind: ChatFolder.Kind) -> (Color, Color) {
+        switch kind {
+        case .pdf: return (ChatPalette.tagDocument, ChatPalette.tagDocumentText)
+        case .image: return (ChatPalette.tagImage, ChatPalette.tagImageText)
+        case .folder, .other: return (ChatPalette.tagOther, ChatPalette.tagOtherText)
+        }
+    }
+}
+
+/// The folder the chat works in, in the balloon's corner: its name, or
+/// "own folder" for the workspace. Before the first prompt a click
+/// chooses another; after it, it shows the folder in Finder (Karar 8).
+private struct FolderLabel: View {
+    let folder: String?
+    let locked: Bool
+    let action: () -> Void
+    @State private var hovered = false
+
+    private var name: String {
+        folder.map { ($0 as NSString).lastPathComponent } ?? L10n.t("chat.folder.workspace")
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                    .font(.system(size: 9.5, weight: .medium))
+                Text(name)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
+            .frame(maxWidth: 130, alignment: .trailing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(L10n.t(locked ? "chat.folder.show" : "chat.folder.change",
+                     ["folder": folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? name]))
+        .animation(.easeOut(duration: 0.1), value: hovered)
     }
 }
 

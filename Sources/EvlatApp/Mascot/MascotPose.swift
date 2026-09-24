@@ -99,6 +99,26 @@ public struct MascotPose: Equatable {
         }
     }
 
+    /// A file on its way to the bar (`011/phase-4`, Karar 9). **Not a
+    /// phase**: nothing aggregates to it and the table above does not know
+    /// it; the drop target raises it while a drag is over the bar and drops
+    /// it when the drag leaves or lands.
+    ///
+    /// Built from the fields every phase already has, because the face is
+    /// the eyes (ROADMAP → no mouth): they open wider than `waiting` opens
+    /// them — otherwise catching would read as one more "I need you" — the
+    /// body reaches up a little, taller rather than bigger, and the gaze is
+    /// the file's entirely.
+    public static let catching = MascotPose(eyeOpen: 1.42, scaleX: 0.97, scaleY: 1.06, gazeMix: 1)
+
+    /// What the body draws: `pose`, or — while a file is caught — the
+    /// catching face turned to `catching`, the drag's direction. One rule
+    /// for every branch of `MascotView`, so the face changes on the body
+    /// already on screen and the spring carries it.
+    public static func drawn(_ pose: MascotPose, catching gaze: CGSize?) -> MascotPose {
+        gaze.map { Self.catching.blending(gaze: $0) } ?? pose
+    }
+
     /// The transition spring. Kept in one place so every phase change feels the
     /// same.
     ///

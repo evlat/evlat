@@ -105,6 +105,20 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
 - **Bara gelen ctrl-tık `mouseDown`'dan da geçer.** Maskota sol tık balonu
   açınca ctrl-tık (menü) da balonu açtı ve bir sınamada anahtar panel sızdırdı
   (`011/phase-2`); `BarHostingView.mouseDown` ctrl'lü tıkı `onClick`'e vermez.
+- **Balonun satırı sürüklenen dosyayı metin diye alır; SwiftUI başka alan
+  editörüne izin vermez.** Alan editörü imlecin altındaki en derin görünümdür
+  ve metin türüne kayıtlıdır (dosya URL'si de metin sunar): bırakılan dosyanın
+  yolu satıra yazıldı. Özel alan editörü (`fieldEditor(_:for:)`) süreci
+  düşürdü — `TextField` `_SystemTextFieldFieldEditor` bekliyor. Çare içeriğin
+  **üstünde** duran, dosyaya kayıtlı, `hitTest`'i `nil` bir katman
+  (`ChatDropView`, `011/phase-4`, gözle).
+- **Pencerenin şeffaf pikseli sürüklemeyi almaz.** Barın 485 pt'lik zarfında
+  yalnız çizili 54 pt sürükleme olayı gördü (`011/phase-4`, ölçüldü): "bara
+  yaklaşma" alanı çizili bardır.
+- **`NSApp.deactivate()` eşzamanlı değil.** Klasör panelinden sonra
+  `deactivate` + balonu hemen `makeKey`: ardından gelen istifa balonun
+  klavyesini aldı, balon kapandı ve Evlat önde kaldı (`011/phase-4`, gözle).
+  Önceki uygulama `activate` edilir, balon `didResignActive`'ten sonra döner.
 - **`proc_pidpath` kendini güncellemiş bir uygulamanın eski sürecinde boş
   döner** (`ENOENT`) — Orca'nın pty yardımcısı böyleydi ve 13 oturum
   "bulunamadı" okudu (`005/phase-5`). Başlatıldığı yol argüman alanında

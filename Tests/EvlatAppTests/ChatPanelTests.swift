@@ -347,6 +347,140 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(controller.chatModel.claudeMissing)
     }
 
+    // MARK: - Dropped files (`phase-4`)
+
+    /// A point on the drawn bar, in the content view's coordinates.
+    private func onBar(_ controller: AppController, fromEdge x: CGFloat, fromTop y: CGFloat) throws -> CGPoint {
+        let panel = try XCTUnwrap(controller.panel)
+        let bounds = try XCTUnwrap(panel.contentView?.bounds)
+        return CGPoint(x: panel.edge.x(atInset: x, in: bounds), y: bounds.minY + y)
+    }
+
+    /// Over the drawn bar the mascot catches the file; off it, or when the
+    /// drag leaves, it lets go. Catching is not a phase and wakes nothing.
+    func testADragOverTheBarIsCaughtAndLetGo() throws {
+        let controller = controller(edge: .left)
+        defer { close(controller) }
+        let mascot = try onBar(controller, fromEdge: AppController.barWidth / 2, fromTop: mascotMiddle)
+        XCTAssertTrue(controller.drag(.over(point: mascot, screen: .zero)), "the mascot takes it")
+        XCTAssertTrue(controller.mascot.catching)
+        XCTAssertEqual(controller.mascot.phase, .idle, "not a phase")
+        let beside = try onBar(controller, fromEdge: AppController.barWidth + 10, fromTop: mascotMiddle)
+        XCTAssertFalse(controller.drag(.over(point: beside, screen: .zero)), "the room beside the bar is not bar")
+        XCTAssertFalse(controller.mascot.catching)
+        _ = controller.drag(.over(point: mascot, screen: .zero))
+        _ = controller.drag(.left)
+        XCTAssertFalse(controller.mascot.catching, "a drag that leaves is let go")
+        XCTAssertFalse(controller.isChatOpen)
+
+        // The right edge, the mirror: measured from the same helper.
+        let right = self.controller(edge: .right)
+        defer { close(right) }
+        XCTAssertTrue(right.drag(.over(point: try onBar(right, fromEdge: AppController.barWidth / 2,
+                                                        fromTop: mascotMiddle), screen: .zero)))
+        XCTAssertFalse(right.drag(.over(point: try onBar(right, fromEdge: AppController.barWidth + 10,
+                                                         fromTop: mascotMiddle), screen: .zero)))
+        XCTAssertFalse(right.mascot.catching)
+    }
+
+    /// Let go on the bar: the balloon opens with the files as chips, the
+    /// suggestions are the PDFs', and the folder is theirs.
+    func testADropOpensTheBalloonWithTheFiles() throws {
+        let controller = controller(edge: .left)
+        defer { close(controller) }
+        let items = [ChatFolder.Item(path: "/tmp/q3/rapor.pdf", isDirectory: false),
+                     ChatFolder.Item(path: "/tmp/q3/fatura.pdf", isDirectory: false)]
+        let mascot = try onBar(controller, fromEdge: AppController.barWidth / 2, fromTop: mascotMiddle)
+        _ = controller.drag(.over(point: mascot, screen: .zero))
+        XCTAssertTrue(controller.drag(.drop(point: mascot, items: items)))
+        XCTAssertFalse(controller.mascot.catching, "caught and handed over")
+        XCTAssertTrue(controller.isChatOpen)
+        XCTAssertEqual(controller.chatModel.attachments, items)
+        XCTAssertEqual(controller.chatModel.suggestions,
+                       ["chat.suggestion.summarize", "chat.suggestion.tables", "chat.suggestion.compareTwo"])
+        XCTAssertEqual(controller.chatModel.placeholderKey, "chat.placeholder.files")
+        XCTAssertEqual(controller.chatModel.folder, "/tmp/q3")
+        XCTAssertFalse(controller.chatModel.folderLocked)
+
+        // The open balloon takes another; the same one twice is kept once.
+        controller.attach([ChatFolder.Item(path: "/tmp/q4/photo.png", isDirectory: false), items[0]])
+        XCTAssertEqual(controller.chatModel.attachments.count, 3)
+        XCTAssertEqual(controller.chatModel.folder, "/tmp", "the folder follows the files until the first prompt")
+        controller.chatModel.remove(controller.chatModel.attachments[2])
+        XCTAssertEqual(controller.chatModel.folder, "/tmp/q3")
+
+        let beside = try onBar(controller, fromEdge: AppController.barWidth + 10, fromTop: mascotMiddle)
+        XCTAssertFalse(controller.drag(.drop(point: beside, items: items)), "not on the bar, not taken")
+    }
+
+    /// The first prompt makes the chat in the files' folder and names them
+    /// from it; after it the folder is the chat's and the label only shows
+    /// it — a file from elsewhere goes by its full path.
+    func testTheFilesGoWithThePromptFromTheirFolder() throws {
+        let controller = controller(edge: .left)
+        defer { close(controller) }
+        let folder = directory.appendingPathComponent("q3")
+        // A `claude` that is found: no listener is handed in, so the turn
+        // ends before anything runs — the prompt and its files are recorded.
+        controller.chats = ChatStore(root: directory, platform: .unknown,
+                                     locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/usr/bin/true"]))
+        controller.attach([ChatFolder.Item(path: folder.appendingPathComponent("rapor.pdf").path, isDirectory: false),
+                           ChatFolder.Item(path: "/elsewhere/fatura.pdf", isDirectory: false)])
+        XCTAssertNil(controller.chatModel.folder, "nothing in common but the root: its own workspace")
+        controller.chatModel.remove(controller.chatModel.attachments[1])
+        controller.attach([ChatFolder.Item(path: folder.appendingPathComponent("sub/ek.png").path, isDirectory: false)])
+        XCTAssertEqual(controller.chatModel.folder, folder.path)
+
+        XCTAssertTrue(controller.chatModel.submit("Summarize"))
+        let id = try XCTUnwrap(controller.currentChat)
+        let chat = try XCTUnwrap(controller.chats?.chat(id))
+        XCTAssertEqual(chat.folder, folder.path)
+        XCTAssertFalse(chat.isWorkspace)
+        XCTAssertEqual(chat.messages.first, .user(text: "Summarize", attachments: ["rapor.pdf", "sub/ek.png"]))
+        XCTAssertTrue(controller.chatModel.attachments.isEmpty, "sent and cleared")
+        XCTAssertEqual(controller.chatModel.folder, folder.path)
+        XCTAssertTrue(controller.chatModel.folderLocked, "sent once: the folder is the chat's")
+
+        controller.attach([ChatFolder.Item(path: "/elsewhere/fatura.pdf", isDirectory: false)])
+        XCTAssertEqual(controller.chatModel.folder, folder.path, "a later file does not move the chat")
+    }
+
+    /// The balloon's drop layer lies over its content, so the line's field
+    /// editor never takes a file as text (seen by eye), and it lets every
+    /// click through to the content under it.
+    func testTheBalloonsDropLayerIsOnTopAndLetsClicksThrough() throws {
+        let panel = ChatPanel(content: Color.red)
+        defer { panel.close() }
+        let container = try XCTUnwrap(panel.contentView)
+        let drop = try XCTUnwrap(container.subviews.last as? ChatDropView, "on top of the content")
+        XCTAssertTrue(drop.registeredDraggedTypes.contains(.fileURL))
+        XCTAssertEqual(drop.frame, container.bounds)
+        XCTAssertNil(drop.hitTest(CGPoint(x: 10, y: 10)))
+        XCTAssertFalse(container.hitTest(CGPoint(x: 10, y: 10)) is ChatDropView, "a click reaches the content")
+        var dropped: [ChatFolder.Item] = []
+        panel.onFiles = { dropped = $0 }
+        drop.onFiles?([ChatFolder.Item(path: "/tmp/a.pdf", isDirectory: false)])
+        XCTAssertEqual(dropped.count, 1)
+    }
+
+    /// With files the suggestions follow what they are.
+    func testTheSuggestionsFollowTheFiles() {
+        func keys(_ paths: [(String, Bool)]) -> [String] {
+            ChatModel.suggestionKeys(for: paths.map { ChatFolder.Item(path: $0.0, isDirectory: $0.1) })
+        }
+        XCTAssertEqual(keys([]), ChatModel.suggestionKeys, "no files: the three for a bare prompt")
+        XCTAssertEqual(keys([("/a/x.pdf", false)]), ["chat.suggestion.summarize", "chat.suggestion.tables"])
+        XCTAssertEqual(keys([("/a/x.png", false)]), ["chat.suggestion.explain", "chat.suggestion.text"])
+        XCTAssertEqual(keys([("/a/q3", true)]), ["chat.suggestion.organize", "chat.suggestion.contents"])
+        XCTAssertEqual(keys([("/a/x.pdf", false), ("/a/y.png", false)]),
+                       ["chat.suggestion.summarize", "chat.suggestion.explain", "chat.suggestion.compareTwo"],
+                       "mixed: what fits any file")
+        XCTAssertEqual(keys([("/a/x.pdf", false), ("/a/y.pdf", false), ("/a/z.pdf", false)]).last,
+                       "chat.suggestion.compare")
+        XCTAssertEqual(L10n.t("chat.suggestion.compareTwo", in: "tr"), "İkisini karşılaştır")
+        XCTAssertEqual(L10n.t("chat.placeholder.files", in: "tr"), "Bu dosyalarla ne yapayım?")
+    }
+
     // MARK: - Words
 
     func testEveryBalloonKeyIsInBothTables() {

@@ -74,6 +74,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The chat the balloon speaks for; made by the first prompt, so an
     /// opened and closed balloon leaves no row.
     private(set) var currentChat: String?
+    /// A folder picked from the balloon's label before the first prompt
+    /// (`011/phase-4`); it wins over the one the files suggest.
+    private(set) var chosenFolder: String?
+    /// The folder panel is up: the balloon is ordered out for it, and its
+    /// losing the keyboard to the panel is not a close.
+    private var choosingFolder = false
     /// ⌥Space (`HotKey`); `nil` until launch — a test hands a fake, and a
     /// controller without one registers nothing.
     var hotKey: HotKeyRegistration?
@@ -989,6 +995,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         panel.onMenu = { [weak self] point in
             self?.menu(at: point)
         }
+        panel.onDrag = { [weak self] drag in
+            self?.drag(drag) ?? false
+        }
         rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
         self.panel = panel
         return panel
@@ -1058,6 +1067,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         isChatOpen = true
         if chatModel.edge != bar.edge { chatModel.edge = bar.edge }
         syncChat()
+        refreshFolder()
         // Asked each time: `claude` may have been installed since. Known at
         // once after the first find (or with `EVLAT_CLAUDE`).
         chats?.locateClaude { [weak self] found in
@@ -1085,7 +1095,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     private func makeChatPanel() -> ChatPanel {
         let balloon = ChatPanel(content: ChatView(model: chatModel))
-        balloon.onClose = { [weak self] in self?.closeChat() }
+        balloon.onClose = { [weak self] in
+            guard let self, !self.choosingFolder else { return }
+            self.closeChat()
+        }
+        balloon.onFiles = { [weak self] items in self?.attach(items) }
+        balloon.onDropTarget = { [weak self] over in
+            guard let self, self.chatModel.dropTargeted != over else { return }
+            self.chatModel.dropTargeted = over
+        }
+        chatModel.onAttachmentsChange = { [weak self] in self?.refreshFolder() }
+        chatModel.onFolder = { [weak self] in self?.folderTapped() }
         chatModel.onSend = { [weak self] text in self?.send(text) }
         chatModel.onAnswer = { [weak self] request, decision in
             self?.chats?.perform(.answer(request: request, decision: decision))
@@ -1101,14 +1121,149 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// A prompt from the balloon: the chat is made with the first one, in
-    /// its own workspace (`phase-4` brings the dropped files' folder).
+    /// the folder the label shows (`pendingFolder`); the files go with it,
+    /// named from that folder.
     private func send(_ text: String) {
         guard let chats else { return }
-        let id = currentChat ?? chats.newChat()
+        let id = currentChat ?? chats.newChat(folder: pendingFolder)
         currentChat = id
-        chats.perform(.send(chat: id, text: text, attachments: []))
+        let folder = chats.chat(id)?.folder ?? ""
+        let files = chatModel.takeAttachments().map { ChatFolder.attachmentPath($0.path, in: folder) }
+        chosenFolder = nil
+        chats.perform(.send(chat: id, text: text, attachments: files))
         syncChat()
+        refreshFolder()
     }
+
+    // MARK: - Dropped files (`011/phase-4`)
+
+    /// The folder a chat made now would run in: the one picked from the
+    /// label, else the one the files suggest, else (`nil`) its own
+    /// workspace. Never the home (`ChatFolder`).
+    var pendingFolder: String? {
+        chosenFolder ?? ChatFolder.folder(for: chatModel.attachments, home: NSHomeDirectory())
+    }
+
+    /// The corner label follows the files until the first prompt, then
+    /// stays with the chat's folder.
+    private func refreshFolder() {
+        if let id = currentChat, let chat = chats?.chat(id) {
+            chatModel.setFolder(chat.isWorkspace ? nil : chat.folder, locked: true)
+        } else {
+            chatModel.setFolder(pendingFolder, locked: false)
+        }
+    }
+
+    /// Files for the next prompt: chips in the balloon, which opens for
+    /// them if it is not open yet.
+    func attach(_ items: [ChatFolder.Item]) {
+        guard !items.isEmpty else { return }
+        chatModel.add(items)
+        if !isChatOpen { openChat() }
+    }
+
+    /// A file drag over the bar. The mascot catches it while it is over the
+    /// drawn bar — its eyes open and follow it (`MascotPose.catching`) and
+    /// a ring shows where to let go — and lets go of it when it leaves or
+    /// lands. Called only while a drag is on; it writes nothing that did
+    /// not change.
+    func drag(_ drag: BarHostingView.Drag) -> Bool {
+        switch drag {
+        case .over(let point, let screen):
+            let over = isOverDrawnBar(point)
+            setCatching(over)
+            if over { gaze?.observe(screen) }
+            return over
+        case .left:
+            setCatching(false)
+            return false
+        case .drop(let point, let items):
+            setCatching(false)
+            guard isOverDrawnBar(point), !items.isEmpty else { return false }
+            attach(items)
+            return true
+        }
+    }
+
+    private func setCatching(_ on: Bool) {
+        if mascot.catching != on { mascot.catching = on }
+    }
+
+    /// The drawn bar, not the window: the transparent room beside and below
+    /// it is the desktop's.
+    private func isOverDrawnBar(_ point: CGPoint) -> Bool {
+        guard let panel, let bounds = panel.contentView?.bounds else { return false }
+        let x = panel.edge.inset(of: point.x, in: bounds)
+        let y = point.y - bounds.minY
+        let width = barState.isOpen ? barState.openWidth : Self.barWidth
+        return x >= 0 && x <= width && y >= 0 && y <= barState.drawnLength
+    }
+
+    /// The label: before the first prompt it picks another folder, after
+    /// it shows the chat's in Finder. Picking brings Evlat forward — the
+    /// user asked for a panel (Karar 7) — and hands the front back after.
+    private func folderTapped() {
+        if let id = currentChat, let chat = chats?.chat(id) {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: chat.folder, isDirectory: true)])
+            return
+        }
+        let open = NSOpenPanel()
+        open.canChooseDirectories = true
+        open.canChooseFiles = false
+        open.allowsMultipleSelection = false
+        open.canCreateDirectories = true
+        open.directoryURL = pendingFolder.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        // The balloon sits above ordinary windows (`.statusBar`) and would
+        // cover the panel; it steps aside and comes back after.
+        let previous = NSWorkspace.shared.frontmostApplication
+        choosingFolder = true
+        chatPanel?.orderOut(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        open.begin { [weak self] response in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if response == .OK, let url = open.url { self.chosenFolder = url.path }
+                self.refreshFolder()
+                self.handBack(to: previous)
+            }
+        }
+    }
+
+    /// After the folder panel: the app that was in front gets the front
+    /// back, and only **then** does the balloon return with the keyboard —
+    /// the Spotlight pattern it opened with. Returned while Evlat was still
+    /// active, the resign that follows took the keyboard from it and closed
+    /// it, and Evlat stayed in front (seen by eye; `deactivate` is not
+    /// synchronous).
+    ///
+    /// The balloon is ordered out until then, so its closing rules are back
+    /// in force at once. The resign is waited for a moment at most: if it
+    /// never comes (the app that was in front quit meanwhile), the balloon
+    /// returns anyway rather than stay "open" and unseen.
+    private func handBack(to previous: NSRunningApplication?) {
+        choosingFolder = false
+        var token: NSObjectProtocol?
+        var done = false
+        let reopen = { [weak self] in
+            guard !done else { return }
+            done = true
+            if let token { NotificationCenter.default.removeObserver(token) }
+            guard let self, self.isChatOpen, let bar = self.panel else { return }
+            self.chatPanel?.present(beside: bar, edge: bar.edge)
+        }
+        guard NSApp.isActive else { return reopen() }
+        token = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                                                       object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { reopen() }
+        }
+        let handedBack = previous.map { $0 != NSRunningApplication.current && $0.activate() } ?? false
+        if !handedBack { NSApp.deactivate() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.handBackWait) { reopen() }
+    }
+
+    /// How long the balloon waits for Evlat to step back after the folder
+    /// panel before it returns regardless.
+    static let handBackWait: TimeInterval = 1
 
     /// The balloon's lines follow its chat.
     private func syncChat() {

@@ -18,6 +18,10 @@ public final class MascotModel: ObservableObject {
     /// `waiting` and `failed` cannot be produced without hooks (`002`), so
     /// there would otherwise be no way to see those two expressions.
     @Published public var override: Phase?
+    /// A file is being dragged over the bar (`011/phase-4`): the mascot
+    /// catches it. Not a phase and not `override` — see `MascotPose.catching`.
+    /// Written only when it changes; nothing writes it while no drag is on.
+    @Published public var catching = false
 
     public init() {}
 
@@ -29,5 +33,14 @@ public final class MascotModel: ObservableObject {
     /// nothing else, so while no session was live the status menu used to put a
     /// motionless cube on screen — the one state you cannot inspect is the one
     /// the menu item exists to let you inspect.
+    ///
+    /// Catching does not wake it (`011/phase-4`): the caught face is drawn by
+    /// whichever branch is on screen (`caughtGaze`), so the eyes spring open
+    /// on the body already there. Waking would swap the asleep body for the
+    /// clip player and the face would crossfade between two views instead.
     public var isAwake: Bool { hasLive || override != nil }
+
+    /// Where the caught file is, while one is: the gaze the catching face
+    /// turns to. `nil` when nothing is being caught.
+    public var caughtGaze: CGSize? { catching ? gaze : nil }
 }

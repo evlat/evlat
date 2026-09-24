@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import EvlatCore
 
 /// The bar window: docked to a screen edge, never steals focus.
 ///
@@ -65,6 +66,13 @@ public final class BarPanel: NSPanel {
     public var onMenu: ((CGPoint) -> NSMenu?)? {
         get { hosting.onMenu }
         set { hosting.onMenu = newValue }
+    }
+
+    /// A file drag over the bar (`011/phase-4`), in the content view's
+    /// (flipped) coordinates. `true` takes it; see `BarHostingView.Drag`.
+    public var onDrag: ((BarHostingView.Drag) -> Bool)? {
+        get { hosting.onDrag }
+        set { hosting.onDrag = newValue }
     }
 
     private let hosting: BarHostingView
@@ -233,6 +241,70 @@ public final class BarHostingView: NSHostingView<AnyView> {
         /// A move over the bar, in screen coordinates — the space the gaze
         /// monitor reads.
         case moved(CGPoint)
+    }
+
+    /// A drag carrying files (`011/phase-4`). Other drags are not reported.
+    public enum Drag {
+        /// Over the window at `point` (content view, flipped); `screen` is
+        /// the same point in the gaze monitor's space. Answer: is it taken
+        /// here?
+        case over(point: CGPoint, screen: CGPoint)
+        /// Gone: out of the window, ended elsewhere, or cancelled.
+        case left
+        /// Let go at `point`: the files. Answer: were they taken?
+        case drop(point: CGPoint, items: [ChatFolder.Item])
+    }
+
+    /// See `BarPanel.onDrag`.
+    var onDrag: ((Drag) -> Bool)?
+
+    public required init(rootView: AnyView) {
+        super.init(rootView: rootView)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not built from a nib") }
+
+    /// The drag target is **event-driven**: AppKit calls these only while a
+    /// drag is over the window, and `wantsPeriodicDraggingUpdates` is off, so
+    /// a cursor held still over the bar costs nothing either. With no drag
+    /// on, nothing here runs at all.
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragOver(sender)
+    }
+
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragOver(sender)
+    }
+
+    public override func draggingExited(_ sender: NSDraggingInfo?) {
+        _ = onDrag?(.left)
+    }
+
+    /// A drag that ends anywhere — dropped elsewhere, Esc — after passing
+    /// over the bar; `draggingExited` is not promised for every one.
+    public override func draggingEnded(_ sender: NSDraggingInfo) {
+        _ = onDrag?(.left)
+    }
+
+    public override func wantsPeriodicDraggingUpdates() -> Bool { false }
+
+    public override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        FileDrop.hasFiles(sender.draggingPasteboard)
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let items = FileDrop.items(from: sender.draggingPasteboard)
+        guard !items.isEmpty else { return false }
+        return onDrag?(.drop(point: convert(sender.draggingLocation, from: nil), items: items)) ?? false
+    }
+
+    private func dragOver(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard FileDrop.hasFiles(sender.draggingPasteboard), let window else { return [] }
+        let screen = window.convertPoint(toScreen: sender.draggingLocation)
+        let taken = onDrag?(.over(point: convert(sender.draggingLocation, from: nil), screen: screen)) ?? false
+        return taken ? .copy : []
     }
 
     /// The drawn parts the cursor can be over, one tracking area each.
@@ -464,5 +536,26 @@ extension BarPanel.Edge {
     /// The `x` that is `inset` in from this edge of `rect`.
     func x(atInset inset: CGFloat, in rect: CGRect) -> CGFloat {
         isLeft ? rect.minX + inset : rect.maxX - inset
+    }
+}
+
+/// Files on a drag's pasteboard (`011/phase-4`): file URLs only — a file
+/// promise (Mail, Photos) is not a path yet and is not taken.
+enum FileDrop {
+    private static let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+
+    static func hasFiles(_ pasteboard: NSPasteboard) -> Bool {
+        pasteboard.canReadObject(forClasses: [NSURL.self], options: options)
+    }
+
+    /// The files, and which of them are folders — the one thing the core's
+    /// `ChatFolder` cannot tell from a path.
+    static func items(from pasteboard: NSPasteboard) -> [ChatFolder.Item] {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return urls.filter(\.isFileURL).map { url in
+            var isDirectory: ObjCBool = false
+            _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            return ChatFolder.Item(path: url.path, isDirectory: isDirectory.boolValue)
+        }
     }
 }
