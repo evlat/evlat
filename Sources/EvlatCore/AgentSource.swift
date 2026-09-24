@@ -46,14 +46,21 @@ public enum AgentSource: String, CaseIterable {
     /// The agent's own directory under `home`. Its existence is what says the
     /// agent is installed at all; the writer never creates it.
     public func configDirectory(home: URL) -> URL {
-        home.appendingPathComponent(self == .claude ? ".claude" : ".codex")
+        home.appendingPathComponent(configDirectoryName)
     }
 
     /// The file the agent reads its hooks from. `home` has no default: a caller
     /// that forgets to pass one must not land on the user's real settings.
     public func settingsFile(home: URL) -> URL {
-        configDirectory(home: home).appendingPathComponent(self == .claude ? "settings.json" : "hooks.json")
+        configDirectory(home: home).appendingPathComponent(settingsFileName)
     }
+
+    /// The same file relative to a home: a server's `$HOME`, which only the
+    /// server's shell knows (`RemoteSettings`).
+    public var settingsPath: String { configDirectoryName + "/" + settingsFileName }
+
+    private var configDirectoryName: String { self == .claude ? ".claude" : ".codex" }
+    private var settingsFileName: String { self == .claude ? "settings.json" : "hooks.json" }
 
     /// Translates a source's hook body into the canonical vocabulary. An event
     /// this adapter does not know is passed through **unchanged** rather than

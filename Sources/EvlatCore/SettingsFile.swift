@@ -61,13 +61,7 @@ public enum SettingsFile {
         let changed = transform(settings)
         if NSDictionary(dictionary: changed).isEqual(to: settings) { return .unchanged }
 
-        let data: Data
-        do {
-            data = try JSONSerialization.data(
-                withJSONObject: changed, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        } catch {
-            throw Failure.unwritable
-        }
+        let data = try encode(changed)
 
         // The backups carry the target's mode: `settings.json` can hold keys
         // under `env`, and a 0644 copy of a 0600 file would expose them.
@@ -134,9 +128,20 @@ public enum SettingsFile {
         do { return try Data(contentsOf: target) } catch { throw Failure.unreadable }
     }
 
+    /// The bytes a write puts in the file. Shared with `RemoteSettings`, so a
+    /// server's file gets the bytes this Mac's would.
+    static func encode(_ settings: [String: Any]) throws -> Data {
+        do {
+            return try JSONSerialization.data(
+                withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        } catch {
+            throw Failure.unwritable
+        }
+    }
+
     /// An absent or blank file is an empty object; anything else must be a
-    /// JSON object, or nothing is written over it.
-    private static func parse(_ data: Data?) throws -> [String: Any] {
+    /// JSON object, or nothing is written over it. Shared with `RemoteSettings`.
+    static func parse(_ data: Data?) throws -> [String: Any] {
         guard let data, !String(decoding: data, as: UTF8.self)
             .allSatisfy({ $0.isWhitespace }) else { return [:] }
         guard let object = try? JSONSerialization.jsonObject(with: data),

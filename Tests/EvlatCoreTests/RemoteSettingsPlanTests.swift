@@ -1,0 +1,57 @@
+import XCTest
+@testable import EvlatCore
+
+/// `RemoteSettings`' pure half: exit codes, the read's output, the plan. The
+/// scripts themselves run against a fake `ssh` in `EvlatAppTests.RemoteSettingsTests`.
+final class RemoteSettingsPlanTests: XCTestCase {
+    func testExitCodesMapToTheLocalFailuresAndAnythingElseIsUnreachable() {
+        XCTAssertNil(RemoteSettings.failure(exitCode: 0))
+        XCTAssertEqual(RemoteSettings.failure(exitCode: 10), .file(.noDirectory))
+        XCTAssertEqual(RemoteSettings.failure(exitCode: 11), .file(.unreadable))
+        XCTAssertEqual(RemoteSettings.failure(exitCode: 12), .file(.changedUnderneath))
+        XCTAssertEqual(RemoteSettings.failure(exitCode: 13), .file(.unwritable))
+        for code: Int32 in [1, 2, 126, 127, 255] {
+            XCTAssertEqual(RemoteSettings.failure(exitCode: code), .unreachable, "\(code)")
+        }
+    }
+
+    func testTheReadFindsItsLineBehindABanner() throws {
+        let output = Data("motd\nN2 no\nN 123 45\n{\"a\":1}\n".utf8)
+        let snapshot = try RemoteSettings.snapshot(exitCode: 0, output: output, nonce: "N")
+        XCTAssertEqual(snapshot, RemoteSettings.Snapshot(bytes: Data("{\"a\":1}\n".utf8), checksum: "123 45"))
+        let none = try RemoteSettings.snapshot(exitCode: 0, output: Data("N absent\n".utf8), nonce: "N")
+        XCTAssertEqual(none, RemoteSettings.Snapshot(bytes: nil, checksum: "absent"))
+        XCTAssertThrowsError(try RemoteSettings.snapshot(exitCode: 0, output: Data("motd\n".utf8), nonce: "N")) {
+            XCTAssertEqual($0 as? RemoteSettings.Failure, .file(.unreadable))
+        }
+        XCTAssertThrowsError(try RemoteSettings.snapshot(exitCode: 255, output: Data(), nonce: "N")) {
+            XCTAssertEqual($0 as? RemoteSettings.Failure, .unreachable)
+        }
+    }
+
+    func testThePlanWritesNothingWhenNothingChanges() throws {
+        let installed = try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude))
+        XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .install, original: installed))
+        XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .remove, original: nil))
+        XCTAssertNil(try RemoteSettings.plan(.statusLine, .remove, original: Data("{}".utf8)))
+        let write = try XCTUnwrap(try RemoteSettings.plan(.statusLine, .install, original: nil))
+        XCTAssertEqual(write.backup, Data("null".utf8), "no statusLine before: the backup says so")
+    }
+
+    /// An install that cannot reach current without overwriting someone
+    /// else's value is refused, as the local writer refuses it.
+    func testAnInstallThatCannotBeCompletedIsMalformed() {
+        let foreign = Data(#"{"hooks":"not an object"}"#.utf8)
+        XCTAssertThrowsError(try RemoteSettings.plan(.hooks(.claude), .install, original: foreign)) {
+            XCTAssertEqual($0 as? RemoteSettings.Failure, .file(.malformed))
+        }
+    }
+
+    /// The script carries a quoted path; the only `$` is the server's `HOME`.
+    func testThePathIsTheServersHome() {
+        let script = RemoteSettings.readScript(path: AgentSource.claude.settingsPath, nonce: "N")
+        XCTAssertTrue(script.contains(#"f="$HOME"/'.claude/settings.json'"#))
+        XCTAssertFalse(script.contains(NSHomeDirectory()), "this Mac's home never enters")
+        XCTAssertEqual(RemoteSettings.arguments(target: "devbox").suffix(3), ["--", "devbox", "sh -s"])
+    }
+}

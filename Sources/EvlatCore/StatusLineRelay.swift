@@ -128,6 +128,21 @@ public enum StatusLineRelay {
 
     // MARK: - Files
 
+    /// Appended to the settings file's name for the install's own backup.
+    static let backupExtension = "statusline.evlat.bak"
+
+    /// What that backup holds: the `statusLine` as it was, `null` for none.
+    /// Shared with `RemoteSettings`, so a server's backup has the same bytes.
+    static func backupContents(of settings: [String: Any]) throws -> Data {
+        do {
+            return try JSONSerialization.data(
+                withJSONObject: settings["statusLine"] ?? NSNull(),
+                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])
+        } catch {
+            throw SettingsFile.Failure.unwritable
+        }
+    }
+
     public static func state(at url: URL) throws -> State {
         state(of: try SettingsFile.read(url))
     }
@@ -140,17 +155,9 @@ public enum StatusLineRelay {
     /// A refusal writes nothing and is `malformed`, as for the hooks.
     @discardableResult
     public static func install(at url: URL) throws -> SettingsFile.Outcome {
-        let backup = url.appendingPathExtension("statusline.evlat.bak")
+        let backup = url.appendingPathExtension(backupExtension)
         let outcome = try SettingsFile.apply(at: url, backUp: { settings, mode in
-            let data: Data
-            do {
-                data = try JSONSerialization.data(
-                    withJSONObject: settings["statusLine"] ?? NSNull(),
-                    options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])
-            } catch {
-                throw SettingsFile.Failure.unwritable
-            }
-            try SettingsFile.replace(backup, with: data, mode: mode)
+            try SettingsFile.replace(backup, with: try backupContents(of: settings), mode: mode)
         }) { installing(into: $0) ?? $0 }
         if outcome == .unchanged, try state(at: url) != .current { throw SettingsFile.Failure.malformed }
         return outcome
