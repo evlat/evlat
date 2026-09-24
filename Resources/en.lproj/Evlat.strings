@@ -238,3 +238,17 @@
 "chat.tool.failed" = "Failed";
 "menu.hotkey" = "Shortcut ⌥Space";
 "menu.hotkey.failure" = "Could not register the shortcut ({status})";
+
+/* The history and a chat's own files (`011/phase-5`). Old chats leave by
+   themselves after a week; a pinned one stays. */
+"card.task" = "Evlat task";
+"card.return" = "Back to chat";
+"chat.new" = "New";
+"chat.history" = "History";
+"chat.history.pin" = "Pin — kept past the week";
+"chat.history.unpin" = "Unpin";
+"chat.history.remove" = "Remove from history";
+"chat.history.clear" = "Clear history";
+"chat.files" = "Made in this chat";
+"chat.file.save" = "Save…";
+"chat.file.show" = "Show in Finder";

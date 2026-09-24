@@ -31,6 +31,23 @@ final class ChatModel: ObservableObject {
     @Published private(set) var folderLocked = false
     /// A file is being dragged over the balloon.
     @Published var dropTargeted = false
+    /// Does the balloon speak for a chat? Then `[+ New]` takes the hint's
+    /// place (`011/phase-5`).
+    @Published private(set) var hasChat = false
+    /// The history, under an empty balloon: pinned first, then the latest.
+    @Published private(set) var history: [HistoryItem] = []
+    /// Files a workspace chat made, once its turn is over: full paths.
+    @Published private(set) var files: [String] = []
+
+    /// One chat in the history: what it was about, where, when.
+    struct HistoryItem: Equatable, Identifiable {
+        let id: String
+        let title: String
+        /// The user's folder; `nil` is its own workspace.
+        let folder: String?
+        let when: Date
+        let pinned: Bool
+    }
 
     /// The prompt, trimmed. The controller turns it into `Action.send`.
     var onSend: ((String) -> Void)?
@@ -43,6 +60,16 @@ final class ChatModel: ObservableObject {
     /// The folder label: choose another before the first prompt, show it
     /// in Finder after.
     var onFolder: (() -> Void)?
+    /// `[+ New]`: an empty balloon, the chat left where it is.
+    var onNew: (() -> Void)?
+    /// A history row: that chat, to go on with.
+    var onOpen: ((String) -> Void)?
+    var onPin: ((String, Bool) -> Void)?
+    var onRemove: ((String) -> Void)?
+    var onClearHistory: (() -> Void)?
+    /// A made file's buttons: `[Save…]` and `[Show in Finder]`.
+    var onSaveFile: ((String) -> Void)?
+    var onRevealFile: ((String) -> Void)?
 
     /// Three prompts a bare `claude -p` can answer from its own folder,
     /// asking for no folder the system guards (Downloads, Desktop) and no
@@ -84,7 +111,10 @@ final class ChatModel: ObservableObject {
                        "chat.permission.title", "chat.permission.tool", "chat.permission.folder",
                        "chat.permission.allow", "chat.permission.deny", "chat.permission.always",
                        "chat.permission.access", "chat.tool.running", "chat.tool.done", "chat.tool.failed",
-                       "chat.file.remove", "chat.folder.workspace", "chat.folder.change", "chat.folder.show"]
+                       "chat.file.remove", "chat.folder.workspace", "chat.folder.change", "chat.folder.show",
+                       "chat.new", "chat.history", "chat.history.pin", "chat.history.unpin",
+                       "chat.history.remove", "chat.history.clear", "chat.files", "chat.file.save",
+                       "chat.file.show"]
         + suggestionKeys + fileSuggestionKeys + outcomeKeys
 
     /// What the balloon offers now.
@@ -201,4 +231,29 @@ final class ChatModel: ObservableObject {
     func folderTapped() {
         onFolder?()
     }
+
+    // MARK: - History and made files (`011/phase-5`)
+
+    func setHasChat(_ value: Bool) {
+        if hasChat != value { hasChat = value }
+    }
+
+    func setHistory(_ items: [HistoryItem]) {
+        if history != items { history = items }
+    }
+
+    func setFiles(_ paths: [String]) {
+        if files != paths { files = paths }
+    }
+
+    /// Is there anything "Clear history" would take? Pinned chats stay.
+    var canClearHistory: Bool { history.contains { !$0.pinned } }
+
+    func newChat() { onNew?() }
+    func open(_ id: String) { onOpen?(id) }
+    func pin(_ id: String, _ pinned: Bool) { onPin?(id, pinned) }
+    func removeFromHistory(_ id: String) { onRemove?(id) }
+    func clearHistory() { onClearHistory?() }
+    func save(_ path: String) { onSaveFile?(path) }
+    func reveal(_ path: String) { onRevealFile?(path) }
 }

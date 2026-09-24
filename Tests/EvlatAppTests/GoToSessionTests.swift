@@ -198,4 +198,94 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertTrue(line.hasSuffix("→ Orca (closed)"), line)
         XCTAssertFalse(line.contains("4242"), line)
     }
+
+    // MARK: - Evlat's own chat (`011/phase-5`)
+
+    private let chatID = "6B1F3C52-7B8B-4F4B-9C1E-2B7C1D0E9A11"
+
+    /// A controller whose chats hold one finished, unseen chat — a row on
+    /// the bar — read back from a temporary root.
+    private func chatController() throws -> (AppController, URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("evlat-go-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let now = Date()
+        try ChatIndex(entries: [ChatIndex.Entry(
+            id: chatID, sessionID: "S1", title: "Tidy Downloads", folder: "/tmp/somewhere", isWorkspace: false,
+            createdAt: now, lastActivity: now, lastReply: "Moved 42 files.", started: true, unseen: .review)])
+            .encoded().write(to: root.appendingPathComponent(ChatStore.indexName))
+        let controller = AppController()
+        let chats = ChatStore(root: root, platform: .unknown,
+                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+        controller.chats = chats
+        controller.registry.register(chats.provider)
+        controller.detail.resolveHost = { [unowned self] pid in self.resolved.append(pid); return .notFound }
+        controller.detail.activate = { [unowned self] app in self.activated.append(app); return true }
+        controller.installPanel()
+        controller.refresh()
+        return (controller, root)
+    }
+
+    /// A chat's row is a job with the mascot's face and the "Evlat" tag;
+    /// its card looks for no terminal and offers `[Back to chat]`, never a
+    /// dim "not found".
+    func testAChatsRowAndCard() throws {
+        let (controller, root) = try chatController()
+        defer { controller.panel?.close(); controller.chatPanel?.close(); try? FileManager.default.removeItem(at: root) }
+        let row = try XCTUnwrap(controller.sessionRows.rows.first)
+        XCTAssertEqual(row.kind, .job)
+        XCTAssertEqual(row.tag, "Evlat")
+        XCTAssertEqual(row.label, "Tidy Downloads")
+        XCTAssertNotNil(row.enteredAt, "a chat's phase time is known even when first seen in it")
+        controller.select(row.entity)
+        let detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertEqual(detail.kind, .job)
+        XCTAssertEqual(detail.folder, "/tmp/somewhere")
+        XCTAssertNil(detail.activity?.toolCount, "no \"0 tools\"")
+        XCTAssertEqual(resolved, [], "no terminal to look for")
+        XCTAssertTrue(DetailCard.showsButton(detail))
+        XCTAssertEqual(DetailCard.returnButton(in: "tr"), .init(title: "Sohbete dön", enabled: true))
+        XCTAssertEqual(DetailCard.returnButton(in: "en"), .init(title: "Back to chat", enabled: true))
+    }
+
+    /// `[Back to chat]` opens the balloon with that chat; the bar closes,
+    /// nothing is activated, and the chat, now seen, leaves the bar.
+    func testBackToChatOpensTheBalloonWithIt() throws {
+        let (controller, root) = try chatController()
+        defer { controller.closeChat(); controller.panel?.close(); controller.chatPanel?.close()
+                try? FileManager.default.removeItem(at: root) }
+        controller.select(try XCTUnwrap(controller.sessionRows.rows.first).entity)
+        controller.goToSession()
+        XCTAssertTrue(controller.isChatOpen)
+        XCTAssertEqual(controller.currentChat, chatID)
+        XCTAssertFalse(controller.barState.isOpen)
+        XCTAssertEqual(activated, [])
+        XCTAssertEqual(controller.chatModel.messages, [.reply("Moved 42 files.")])
+        XCTAssertTrue(controller.chatModel.hasChat)
+        controller.refresh()
+        XCTAssertEqual(controller.sessionRows.rows, [], "seen: in the history now")
+        XCTAssertEqual(controller.chats?.history.map(\.id), [chatID])
+    }
+
+    /// A balloon opened with nothing asked for takes the chat still on the
+    /// bar; `[+ New]` empties it and the chat is in the history list.
+    func testTheBalloonOpensWithAnUnseenChatAndNewEmptiesIt() throws {
+        let (controller, root) = try chatController()
+        defer { controller.closeChat(); controller.panel?.close(); controller.chatPanel?.close()
+                try? FileManager.default.removeItem(at: root) }
+        controller.openChat()
+        XCTAssertEqual(controller.currentChat, chatID)
+        controller.chatModel.newChat()
+        XCTAssertNil(controller.currentChat)
+        XCTAssertFalse(controller.chatModel.hasChat)
+        XCTAssertEqual(controller.chatModel.history.map(\.id), [chatID])
+        XCTAssertEqual(controller.chatModel.history.first?.folder, "/tmp/somewhere")
+        controller.closeChat()
+        controller.openChat()
+        XCTAssertNil(controller.currentChat, "seen and off the bar: an empty balloon")
+        controller.chatModel.open(chatID)
+        XCTAssertEqual(controller.currentChat, chatID)
+        controller.chatModel.removeFromHistory(chatID)
+        XCTAssertNil(controller.currentChat, "its chat gone, the balloon empties")
+        XCTAssertEqual(controller.chatModel.history, [])
+    }
 }

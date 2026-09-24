@@ -42,11 +42,17 @@ public struct ChatIndex: Equatable, Codable {
         /// naming the session again? A chat cut off after `system/init`
         /// would otherwise be refused for ever ("session id in use").
         public var started: Bool
+        /// The last turn's end — `review` or `failed` — while the balloon has
+        /// not shown it (`phase-5`): a relaunch brings its row back until
+        /// `ChatSession.unseenLifetime`. Optional, so a file written before
+        /// it existed still reads (a missing key is `nil`, "seen").
+        public var unseen: Phase?
 
         public init(id: String, sessionID: String, title: String? = nil, folder: String,
                     isWorkspace: Bool, createdAt: Date, lastActivity: Date, pinned: Bool = false,
                     lastReply: String? = nil, allowedRules: [String] = [],
-                    addedDirectories: [String] = [], run: Run? = nil, started: Bool = false) {
+                    addedDirectories: [String] = [], run: Run? = nil, started: Bool = false,
+                    unseen: Phase? = nil) {
             self.id = id
             self.sessionID = sessionID
             self.title = title
@@ -60,6 +66,7 @@ public struct ChatIndex: Equatable, Codable {
             self.addedDirectories = addedDirectories
             self.run = run
             self.started = started
+            self.unseen = unseen
         }
     }
 
@@ -124,4 +131,36 @@ public struct ChatIndex: Equatable, Codable {
         }
         return (terminate, running.map(\.id))
     }
+
+    // MARK: - History and pruning (`phase-5`)
+
+    /// How long a chat is kept after its last activity, pinned ones aside:
+    /// the history cleans itself, the user never has to.
+    public static let lifetime: TimeInterval = 7 * 86_400
+
+    /// Entries past `lifetime` at `now`: neither pinned nor running.
+    public func expired(at now: Date) -> [Entry] {
+        entries.filter { !$0.pinned && $0.run == nil && now.timeIntervalSince($0.lastActivity) >= Self.lifetime }
+    }
+
+    /// The history's order: pinned first, then the latest activity first.
+    public static func historyOrder(_ a: Entry, _ b: Entry) -> Bool {
+        if a.pinned != b.pinned { return a.pinned }
+        if a.lastActivity != b.lastActivity { return a.lastActivity > b.lastActivity }
+        return a.id < b.id
+    }
+
+    /// The one path a chat's workspace may be removed from: `chats/<id>`
+    /// directly under `root`, the id a UUID read back in its canonical
+    /// form. Built from the id alone, **never from an entry's `folder`**:
+    /// that is where a user's own folder would be named. `nil` for an id
+    /// that is not a UUID — `..`, empty, a path.
+    public static func workspace(of id: String, under root: URL) -> URL? {
+        guard let uuid = UUID(uuidString: id), uuid.uuidString == id.uppercased() else { return nil }
+        return root.appendingPathComponent("chats", isDirectory: true)
+            .appendingPathComponent(uuid.uuidString, isDirectory: true)
+    }
 }
+
+/// Written into the index as its name (`ChatIndex.Entry.unseen`).
+extension Phase: Codable {}

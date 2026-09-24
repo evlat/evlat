@@ -117,7 +117,7 @@ struct SessionColumn: View {
                 name += numberGap
                     + ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
             }
-            if let machine = row.machine { name += machineGap + machineWidth(machine) }
+            if let tag = row.tag { name += machineGap + machineWidth(tag) }
             return max(name, status)
         }.max() ?? 0
         return min(ceil(widest), nameMaxWidth)
@@ -240,7 +240,7 @@ struct SessionColumn: View {
             ForEach(showsNames ? model.rows : model.closedRows) { row in
                 // Centred in the collapsed bar's width, the same column the
                 // mascot sits in.
-                SessionIndicator(phase: row.phase, source: row.source,
+                SessionIndicator(phase: row.phase, source: row.source, face: row.kind == .job,
                                  // Only a beating row sees the counter move. A
                                  // still row's trigger never changes on the
                                  // beat, so it plays nothing and draws nothing.
@@ -311,7 +311,7 @@ struct SessionColumn: View {
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow) -> some View {
         VStack(alignment: docked, spacing: 1) {
-            name(row.label, duplicate: row.duplicate, machine: row.machine,
+            name(row.label, duplicate: row.duplicate, machine: row.tag,
                  color: row.phase == .idle || !row.isLive
                  ? BarPalette.textSecondary : BarPalette.textPrimary)
             if showsNames {
@@ -648,6 +648,10 @@ extension StatusLine.Unit {
 struct SessionIndicator: View {
     let phase: Phase
     var source: AgentSource? = nil
+    /// Evlat's own chat (`kind == .job`): the mascot's small face inside
+    /// the ring where a session has its tool's mark. Still — the ring's
+    /// beat is the one gesture.
+    var face = false
     let beat: Int
     var isLive = true
 
@@ -703,7 +707,10 @@ struct SessionIndicator: View {
     /// The tool's mark, in the phase's colour: the ring and the mark say the
     /// same state, the mark alone says where the session runs.
     @ViewBuilder private var mark: some View {
-        if let source {
+        if face {
+            MascotFaceMark(eye: markColor == BarPalette.textPrimary ? .black : markColor)
+                .frame(width: size * 0.5, height: size * 0.5)
+        } else if let source {
             SourceGlyph(source: source)
                 .fill(markColor, style: FillStyle(eoFill: true))
                 .frame(width: size * 0.56, height: size * 0.56)
@@ -819,5 +826,31 @@ struct IndicatorGesture {
         [spin(for: phase), pulse(for: phase), glow(for: phase)]
             .map { $0.reduce(0) { $0 + $1.duration } }
             .max() ?? 0
+    }
+}
+
+/// The mascot's face, small (reference screen 5): a light rounded square,
+/// two upright eyes. Drawn once and still; the ring around it does the
+/// talking.
+struct MascotFaceMark: View {
+    /// The eyes' colour: dark on the working ring, the phase's colour on
+    /// the others, so the face says the ring's state too.
+    var eye: Color = .black
+
+    var body: some View {
+        GeometryReader { box in
+            let side = min(box.size.width, box.size.height)
+            ZStack {
+                RoundedRectangle(cornerRadius: side * 0.3, style: .continuous)
+                    .fill(Color.white.opacity(0.92))
+                HStack(spacing: side * 0.22) {
+                    Capsule().frame(width: side * 0.13, height: side * 0.34)
+                    Capsule().frame(width: side * 0.13, height: side * 0.34)
+                }
+                .foregroundStyle(eye == .black ? Color.black.opacity(0.9) : eye)
+            }
+            .frame(width: side, height: side)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }

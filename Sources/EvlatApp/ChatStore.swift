@@ -35,8 +35,13 @@ final class ChatStore {
     /// scenario rather than through the process's environment.
     private let environment: [String: String]
 
-    /// The chats' state, and their rows.
-    let provider = ChatsProvider()
+    /// Moves a pruned workspace to the Trash — recoverable, never
+    /// `removeItem`. Handed in so a test watches it instead of filling the
+    /// user's Trash.
+    private let trash: (URL) throws -> Void
+
+    /// The chats' state, and their rows. Read against the store's clock.
+    let provider: ChatsProvider
     private var runners: [String: ClaudeRunner] = [:]
     private var streams: [String: ChatStream] = [:]
     /// The running turns' permission tokens → their chat. A turn's token is
@@ -51,7 +56,10 @@ final class ChatStore {
     init(root: URL?, platform: Platform, locator: ClaudeLocator, now: @escaping () -> Date = Date.init,
          signal: @escaping (Int32, Int32) -> Void = { _ = kill($0, $1) },
          environment: [String: String] = ProcessInfo.processInfo.environment,
+         trash: @escaping (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
          onChange: @escaping () -> Void = {}) {
+        provider = ChatsProvider(now: now)
+        self.trash = trash
         self.environment = environment
         self.root = root
         self.platform = platform
@@ -96,8 +104,8 @@ final class ChatStore {
     @discardableResult
     func newChat(folder: String? = nil) -> String {
         let id = UUID().uuidString
-        let workspace = (root ?? FileManager.default.temporaryDirectory.appendingPathComponent("evlat-chats"))
-            .appendingPathComponent("chats/\(id)", isDirectory: true)
+        let workspace = ChatIndex.workspace(of: id, under: workspaceBase)
+            ?? workspaceBase.appendingPathComponent("chats/\(id)", isDirectory: true)
         provider[id] = ChatSession(id: id, sessionID: UUID().uuidString.lowercased(),
                                 folder: folder ?? workspace.path, isWorkspace: folder == nil)
         return id
@@ -286,6 +294,122 @@ final class ChatStore {
         onChange()
     }
 
+    // MARK: - Seen, history, pruning (`phase-5`)
+
+    /// Where workspaces are made: the root, or a temporary directory for a
+    /// store kept in memory.
+    private var workspaceBase: URL {
+        root ?? FileManager.default.temporaryDirectory.appendingPathComponent("evlat-chats", isDirectory: true)
+    }
+
+    /// The balloon drew the chat's end: its row goes, and the index
+    /// forgets that it was unseen. Its activity is not moved: looking is
+    /// not using, and the history's week counts from the last turn.
+    func markSeen(_ id: String) {
+        guard var chat = provider[id], chat.markSeen() else { return }
+        provider[id] = chat
+        if let i = index.entries.firstIndex(where: { $0.id == id }), index.entries[i].unseen != nil {
+            index.entries[i].unseen = nil
+            save()
+        }
+        onChange()
+    }
+
+    /// The history: chats with no row — neither running nor waiting to be
+    /// seen — pinned first, then the latest first.
+    var history: [ChatIndex.Entry] {
+        let now = now()
+        return index.entries.filter { entry in
+            entry.run == nil && provider[entry.id].map { $0.signal(at: now) == nil && !$0.isRunning } ?? true
+        }.sorted(by: ChatIndex.historyOrder)
+    }
+
+    /// A chat from the history, ready to go on: already here, or read
+    /// back from its entry (its last reply as its one line). `false` for
+    /// an id the index does not hold.
+    @discardableResult
+    func open(_ id: String) -> Bool {
+        if provider[id] != nil { return true }
+        guard let entry = index.entries.first(where: { $0.id == id }) else { return false }
+        provider[id] = ChatSession.restored(entry)
+        return true
+    }
+
+    func setPinned(_ id: String, _ pinned: Bool) {
+        guard let i = index.entries.firstIndex(where: { $0.id == id }), index.entries[i].pinned != pinned else { return }
+        index.entries[i].pinned = pinned
+        save()
+        onChange()
+    }
+
+    /// The history's ×: the chat goes, its workspace to the Trash. Not
+    /// while a turn runs.
+    func remove(_ id: String) {
+        guard provider[id]?.isRunning != true,
+              let entry = index.entries.first(where: { $0.id == id }), entry.run == nil else { return }
+        discard([entry])
+    }
+
+    /// "Clear history": every chat in it but the pinned ones.
+    func clearHistory() {
+        discard(history.filter { !$0.pinned })
+    }
+
+    /// The week's rule, at launch and whenever the balloon opens.
+    func prune() {
+        discard(index.expired(at: now()))
+    }
+
+    /// Entries out of the index and the provider; a workspace's folder to
+    /// the Trash. Nothing while the file could not be read: the entries
+    /// are not known, and neither is what is safe to remove.
+    private func discard(_ entries: [ChatIndex.Entry]) {
+        guard indexError == nil, !entries.isEmpty else { return }
+        let ids = Set(entries.map(\.id))
+        for entry in entries where entry.isWorkspace {
+            guard let folder = removableWorkspace(entry.id) else { continue }
+            do { try trash(folder) } catch {
+                NSLog("Evlat: chat workspace not moved to the Trash (%@)", error.localizedDescription)
+            }
+        }
+        index.entries.removeAll { ids.contains($0.id) }
+        for id in ids where provider[id]?.isRunning != true { provider[id] = nil }
+        save()
+        onChange()
+    }
+
+    /// A chat's workspace, if it may be removed: the id's own
+    /// `chats/<UUID>` (`ChatIndex.workspace`), a direct child of the
+    /// store's `chats/`, and there. Never the entry's `folder`.
+    func removableWorkspace(_ id: String) -> URL? {
+        let chats = workspaceBase.appendingPathComponent("chats", isDirectory: true).standardizedFileURL
+        guard let folder = ChatIndex.workspace(of: id, under: workspaceBase)?.standardizedFileURL,
+              folder.deletingLastPathComponent().path == chats.path else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return folder
+    }
+
+    /// Files a workspace chat made, once its turn is over: what is in its
+    /// own folder, hidden ones aside, newest first. A chat in the user's
+    /// folder lists none — what is there is the user's already.
+    func workspaceFiles(_ id: String, limit: Int = 8) -> [URL] {
+        guard let chat = provider[id], chat.isWorkspace, !chat.isRunning else { return [] }
+        let folder = URL(fileURLWithPath: chat.folder, isDirectory: true)
+        guard let walker = FileManager.default.enumerator(
+            at: folder, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var files: [(URL, Date)] = []
+        for case let url as URL in walker {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard values?.isRegularFile == true else { continue }
+            files.append((url, values?.contentModificationDate ?? .distantPast))
+            if files.count >= 200 { break }
+        }
+        return files.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.path < $1.0.path }.prefix(limit).map(\.0)
+    }
+
     // MARK: - Index
 
     private func load() {
@@ -301,17 +425,21 @@ final class ChatStore {
         }
         let orphans = index.orphans(platform: platform)
         orphans.terminate.forEach { signal($0, SIGTERM) }
-        guard !orphans.interrupted.isEmpty else { return }
         for i in index.entries.indices where orphans.interrupted.contains(index.entries[i].id) {
             let entry = index.entries[i]
-            var chat = ChatSession(id: entry.id, sessionID: entry.sessionID, folder: entry.folder,
-                                   isWorkspace: entry.isWorkspace, title: entry.title,
-                                   hasStarted: entry.started)
+            var chat = ChatSession.restored(entry)
             chat.fail(.interrupted, at: entry.lastActivity)
             provider[entry.id] = chat
             index.entries[i].run = nil
+            index.entries[i].unseen = .failed
         }
-        save()
+        // An end the balloon never showed keeps its row across a relaunch,
+        // until its time is up (`ChatSession.unseenLifetime`).
+        for entry in index.entries where entry.unseen != nil && provider[entry.id] == nil {
+            provider[entry.id] = ChatSession.restored(entry)
+        }
+        if !orphans.interrupted.isEmpty { save() }
+        prune()
     }
 
     /// The chat's entry, created with its first turn, updated after.
@@ -319,15 +447,17 @@ final class ChatStore {
         let stamp = now()
         if let i = index.entries.firstIndex(where: { $0.id == chat.id }) {
             index.entries[i].lastActivity = stamp
-            index.entries[i].title = chat.title
+            index.entries[i].title = chat.title ?? chat.promptLabel ?? index.entries[i].title
             index.entries[i].started = chat.hasStarted
             index.entries[i].run = chat.isRunning ? (run ?? index.entries[i].run) : nil
+            index.entries[i].unseen = chat.unseenPhase
             if let reply = chat.lastReply { index.entries[i].lastReply = reply }
         } else {
             index.entries.append(ChatIndex.Entry(
-                id: chat.id, sessionID: chat.sessionID, title: chat.title, folder: chat.folder,
+                id: chat.id, sessionID: chat.sessionID, title: chat.title ?? chat.promptLabel, folder: chat.folder,
                 isWorkspace: chat.isWorkspace, createdAt: stamp, lastActivity: stamp,
-                lastReply: chat.lastReply, run: chat.isRunning ? run : nil, started: chat.hasStarted))
+                lastReply: chat.lastReply, run: chat.isRunning ? run : nil, started: chat.hasStarted,
+                unseen: chat.unseenPhase))
         }
         save()
     }

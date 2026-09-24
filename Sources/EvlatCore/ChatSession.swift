@@ -28,8 +28,8 @@ public struct ChatSession: Equatable {
     public var folder: String
     /// Is `folder` Evlat's own `chats/<id>/` rather than the user's?
     public var isWorkspace: Bool
-    /// `nil` until one is given (`phase-5`, from the first reply); the row
-    /// falls back to the first prompt.
+    /// `nil` until the first reply gives one (its first sentence, `phase-5`);
+    /// the row falls back to the first prompt.
     public var title: String?
 
     public private(set) var messages: [Message] = []
@@ -48,6 +48,10 @@ public struct ChatSession: Equatable {
     public private(set) var lastTool: Signal.Activity.Tool?
     public private(set) var toolCount = 0
     public private(set) var lastReply: String?
+    /// Has the balloon shown this turn's end (`phase-5`)? A finished chat
+    /// the user has seen has no row: it is in the history. A new turn
+    /// clears it.
+    public private(set) var seen = false
     /// Did this turn's `result` arrive? An exit without one is a crash.
     private var resultSeen = false
     /// Is the last message a reply still being streamed? Deltas append to
@@ -137,6 +141,7 @@ public struct ChatSession: Equatable {
         lastTool = nil
         toolCount = 0
         lastReply = nil
+        seen = false
         set(.working, word: "send", at: now)
         return ClaudeInvocation.turn(chatID: id, sessionID: sessionID, resume: hasStarted,
                                      prompt: prompt, attachments: attachments, directory: folder,
@@ -183,6 +188,9 @@ public struct ChatSession: Equatable {
             resultSeen = true
             replyOpen = false
             lastReply = HookEvent.firstParagraph(result.text)
+            if title == nil, !result.isError, result.subtype == "success" {
+                title = Self.title(fromReply: result.text ?? lastReplyText)
+            }
             if stopRequested {
                 set(.review, word: Self.stoppedWord, at: now)
             } else if result.isError || result.subtype != "success" {
@@ -333,15 +341,102 @@ public struct ChatSession: Equatable {
         since = now
     }
 
-    /// The bar's row, or `nil` for a chat that was never sent anything.
-    public func signal() -> Signal? {
+    // MARK: - Seen, and the row's life (`phase-5`)
+
+    /// A finished chat nobody looked at keeps its row this long after it
+    /// ended, then goes to the history on its own: the bar does not collect
+    /// yesterday's answers.
+    public static let unseenLifetime: TimeInterval = 12 * 3600
+
+    /// Has the turn ended — answered, stopped or failed — with nothing running?
+    public var isFinished: Bool { !isRunning && (phase == .review || phase == .failed) }
+
+    /// The balloon drew this chat's end. `true` when that changed anything.
+    @discardableResult
+    public mutating func markSeen() -> Bool {
+        guard isFinished, !seen else { return false }
+        seen = true
+        return true
+    }
+
+    /// The bar's row at `now`, or `nil`: a chat never sent anything, a
+    /// finished one already seen, or one left unseen past `unseenLifetime`.
+    /// Read, not scheduled: the row leaves at the first scan after its time.
+    public func signal(at now: Date) -> Signal? {
         guard let phase, let since else { return nil }
-        return Signal(provider: Self.provider, entity: "evlat:\(id)", kind: .job, phase: phase,
+        if isFinished {
+            guard !seen, now.timeIntervalSince(since) < Self.unseenLifetime else { return nil }
+        }
+        return Signal(provider: Self.provider, entity: Self.entity(id), kind: .job, phase: phase,
                       label: label, detail: folder, source: nil, fidelity: .official,
                       rawStatus: word, updatedAt: since,
                       activity: Signal.Activity(lastTool: lastTool, blockingTool: blocking,
                                                 waitKind: blocking == nil ? nil : .approval,
-                                                lastReply: lastReply, toolCount: toolCount))
+                                                lastReply: lastReply,
+                                                // "0 tools" says nothing; a turn
+                                                // that used none shows no count.
+                                                toolCount: toolCount > 0 ? toolCount : nil))
+    }
+
+    /// A chat's `Signal.entity`.
+    public static func entity(_ id: String) -> String { "evlat:\(id)" }
+
+    /// The chat an `entity` names, or `nil` for anything that is not a chat's.
+    public static func chatID(fromEntity entity: String) -> String? {
+        let prefix = "evlat:"
+        guard entity.hasPrefix(prefix) else { return nil }
+        let id = String(entity.dropFirst(prefix.count))
+        return id.isEmpty ? nil : id
+    }
+
+    /// A chat read back from the index: the last reply as its one line (the
+    /// conversation stays Claude's), no row unless its end was never seen —
+    /// then `review` or `failed` from when it ended, as it was.
+    public static func restored(_ entry: ChatIndex.Entry) -> ChatSession {
+        var chat = ChatSession(id: entry.id, sessionID: entry.sessionID, folder: entry.folder,
+                               isWorkspace: entry.isWorkspace, title: entry.title,
+                               hasStarted: entry.started)
+        chat.lastReply = entry.lastReply
+        if let reply = entry.lastReply, !reply.isEmpty { chat.messages = [.reply(reply)] }
+        if let phase = entry.unseen, phase == .review || phase == .failed {
+            chat.set(phase, word: "evlat/restored", at: entry.lastActivity)
+        }
+        return chat
+    }
+
+    /// The finished phase the index keeps while the end is unseen, so a
+    /// relaunch brings the row back; `nil` once seen, or while running.
+    public var unseenPhase: Phase? { isFinished && !seen ? phase : nil }
+
+    /// A title from a reply: its first sentence on its first line, bare of
+    /// markdown's marks, cut to `labelLimit`. `nil` for an empty reply.
+    public static func title(fromReply reply: String?) -> String? {
+        guard let reply else { return nil }
+        let line = reply.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.trimmingCharacters(in: CharacterSet(charactersIn: "#*-_>` ")).isEmpty }
+        guard var text = line?.trimmingCharacters(in: CharacterSet(charactersIn: "#*-_>` ")) else { return nil }
+        text = text.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+        // The first sentence: up to a stop that ends a word ("3.5" is not one).
+        var end = text.endIndex
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(after: index)
+            if ".!?:".contains(text[index]), next == text.endIndex || text[next] == " " {
+                end = text[index] == ":" ? index : next
+                break
+            }
+            index = next
+        }
+        let sentence = text[..<end].trimmingCharacters(in: .whitespaces)
+        guard !sentence.isEmpty else { return nil }
+        return sentence.count > labelLimit ? String(sentence.prefix(labelLimit)) + "…" : sentence
+    }
+
+    /// The streamed reply, when the result carried no text of its own.
+    private var lastReplyText: String? {
+        for case .reply(let text) in messages.reversed() { return text }
+        return nil
     }
 
     /// The oldest open card's tool, while the chat waits on it.
@@ -356,13 +451,20 @@ public struct ChatSession: Equatable {
     /// The title, else the first prompt's first line, capped; else the folder.
     private var label: String {
         if let title, !title.isEmpty { return title }
+        return promptLabel ?? (folder as NSString).lastPathComponent
+    }
+
+    /// The first prompt's first line, capped: what the index keeps as the
+    /// title until a reply gives one — a chat read back has no prompt, and
+    /// a workspace's folder is a UUID nobody should read.
+    public var promptLabel: String? {
         for case .user(let text, _) in messages {
             if let line = text.split(whereSeparator: \.isNewline)
                 .map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) {
                 return line.count > Self.labelLimit ? String(line.prefix(Self.labelLimit)) + "…" : line
             }
         }
-        return (folder as NSString).lastPathComponent
+        return nil
     }
 
     /// The longest label taken from a prompt; the list cuts the rest.

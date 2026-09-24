@@ -77,9 +77,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// A folder picked from the balloon's label before the first prompt
     /// (`011/phase-4`); it wins over the one the files suggest.
     private(set) var chosenFolder: String?
-    /// The folder panel is up: the balloon is ordered out for it, and its
+    /// The folder or save panel is up: the balloon is ordered out for it, and its
     /// losing the keyboard to the panel is not a close.
-    private var choosingFolder = false
+    private var choosingInPanel = false
     /// ⌥Space (`HotKey`); `nil` until launch — a test hands a fake, and a
     /// controller without one registers nothing.
     var hotKey: HotKeyRegistration?
@@ -1053,8 +1053,25 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Out of the mascot, with the keyboard, Evlat still in the background
     /// (`ChatPanel`). The open list and its card close first: the balloon is
     /// the one thing talking.
-    func openChat() {
-        guard !isChatOpen, let bar = panel else { return }
+    ///
+    /// Which chat it speaks for (`011/phase-5`): `chat` when one is asked
+    /// for (`[Back to chat]`); none when `fresh` (files dropped on a closed
+    /// balloon start their own); else a chat still on the bar — running
+    /// first, then the latest unseen end — else none, and the empty
+    /// balloon shows the history. Old chats are pruned first.
+    func openChat(chat requested: String? = nil, fresh: Bool = false) {
+        guard let bar = panel else { return }
+        if isChatOpen {
+            // Already out: only a chat asked for changes what it shows.
+            if let requested { show(requested) }
+            return
+        }
+        chats?.prune()
+        if let requested, chats?.open(requested) == true {
+            currentChat = requested
+        } else {
+            currentChat = fresh ? nil : openingChat()
+        }
         hover.closeNow()
         // The cursor that came to click the mascot has already asked for
         // the bar to open; `closeNow` leaves a pending opening alone, and
@@ -1085,6 +1102,32 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
+    /// A chat still on the bar, for a balloon opened with none asked for:
+    /// the one it showed last, if it still has a row; else a running one;
+    /// else the latest end nobody has seen. `nil` when the bar has none.
+    private func openingChat() -> String? {
+        guard let chats else { return nil }
+        let now = now()
+        if let id = currentChat, chats.chat(id)?.signal(at: now) != nil { return id }
+        return chats.provider.chats.values
+            .filter { $0.signal(at: now) != nil }
+            .max { a, b in
+                if a.isRunning != b.isRunning { return b.isRunning }
+                return (a.since ?? .distantPast) < (b.since ?? .distantPast)
+            }?.id
+    }
+
+    /// The balloon switches to a chat: from the history, or `[Back to chat]`
+    /// while it is out. What was typed for another chat stays in the line.
+    func show(_ id: String?) {
+        if let id, chats?.open(id) != true { return }
+        currentChat = id
+        chosenFolder = nil
+        syncChat()
+        refreshFolder()
+        chatModel.opened()
+    }
+
     /// Ordered out. Nothing is handed back: the app in front never lost
     /// being the active one, so the keyboard is simply its again.
     func closeChat() {
@@ -1096,7 +1139,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func makeChatPanel() -> ChatPanel {
         let balloon = ChatPanel(content: ChatView(model: chatModel))
         balloon.onClose = { [weak self] in
-            guard let self, !self.choosingFolder else { return }
+            guard let self, !self.choosingInPanel else { return }
             self.closeChat()
         }
         balloon.onFiles = { [weak self] items in self?.attach(items) }
@@ -1115,6 +1158,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             guard let self, let id = self.currentChat else { return }
             self.chats?.perform(.stop(chat: id))
             self.syncChat()
+        }
+        chatModel.onNew = { [weak self] in self?.show(nil) }
+        chatModel.onOpen = { [weak self] id in self?.show(id) }
+        chatModel.onPin = { [weak self] id, pinned in
+            self?.chats?.setPinned(id, pinned)
+            self?.syncChat()
+        }
+        chatModel.onRemove = { [weak self] id in
+            self?.chats?.remove(id)
+            self?.forgetCurrentIfGone()
+        }
+        chatModel.onClearHistory = { [weak self] in
+            self?.chats?.clearHistory()
+            self?.forgetCurrentIfGone()
+        }
+        chatModel.onSaveFile = { [weak self] path in self?.saveFile(path) }
+        chatModel.onRevealFile = { path in
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
         chatPanel = balloon
         return balloon
@@ -1159,7 +1220,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func attach(_ items: [ChatFolder.Item]) {
         guard !items.isEmpty else { return }
         chatModel.add(items)
-        if !isChatOpen { openChat() }
+        // Dropped on a closed balloon, the files start a chat of their own
+        // rather than joining one that may still be running.
+        if !isChatOpen { openChat(fresh: true) }
     }
 
     /// A file drag over the bar. The mascot catches it while it is over the
@@ -1216,7 +1279,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The balloon sits above ordinary windows (`.statusBar`) and would
         // cover the panel; it steps aside and comes back after.
         let previous = NSWorkspace.shared.frontmostApplication
-        choosingFolder = true
+        choosingInPanel = true
         chatPanel?.orderOut(nil)
         NSApp.activate(ignoringOtherApps: true)
         open.begin { [weak self] response in
@@ -1241,7 +1304,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// never comes (the app that was in front quit meanwhile), the balloon
     /// returns anyway rather than stay "open" and unseen.
     private func handBack(to previous: NSRunningApplication?) {
-        choosingFolder = false
+        choosingInPanel = false
         var token: NSObjectProtocol?
         var done = false
         let reopen = { [weak self] in
@@ -1265,9 +1328,74 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// panel before it returns regardless.
     static let handBackWait: TimeInterval = 1
 
-    /// The balloon's lines follow its chat.
+    /// The balloon's lines follow its chat. A finished chat on screen is
+    /// seen: its row leaves the bar for the history (`011/phase-5`). The
+    /// history and a workspace's files are written here too, each only
+    /// when it changed.
     private func syncChat() {
-        chatModel.update(from: currentChat.flatMap { chats?.chat($0) })
+        let chat = currentChat.flatMap { chats?.chat($0) }
+        chatModel.update(from: chat)
+        chatModel.setHasChat(chat != nil)
+        if isChatOpen, let chat, chat.isFinished, !chat.seen { chats?.markSeen(chat.id) }
+        chatModel.setHistory(chats?.history.filter { $0.id != currentChat }.map {
+            ChatModel.HistoryItem(id: $0.id, title: $0.title ?? L10n.t("chat.folder.workspace"),
+                                  folder: $0.isWorkspace ? nil : $0.folder,
+                                  when: $0.lastActivity, pinned: $0.pinned)
+        } ?? [])
+        chatModel.setFiles(chat.map { chats?.workspaceFiles($0.id).map(\.path) ?? [] } ?? [])
+    }
+
+    /// After a × or a clear: a balloon speaking for a chat that is gone
+    /// goes back to empty.
+    private func forgetCurrentIfGone() {
+        if let id = currentChat, chats?.chat(id) == nil {
+            currentChat = nil
+            refreshFolder()
+        }
+        syncChat()
+    }
+
+    /// `[Save…]` on a made file: a copy where the user says. The panel
+    /// needs Evlat in front, like the folder panel, and hands the front
+    /// back after.
+    private func saveFile(_ path: String) {
+        let source = URL(fileURLWithPath: path)
+        let save = NSSavePanel()
+        save.nameFieldStringValue = source.lastPathComponent
+        save.canCreateDirectories = true
+        save.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        let previous = NSWorkspace.shared.frontmostApplication
+        choosingInPanel = true
+        chatPanel?.orderOut(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        save.begin { [weak self] response in
+            MainActor.assumeIsolated {
+                if response == .OK, let target = save.url {
+                    do {
+                        if FileManager.default.fileExists(atPath: target.path) {
+                            // The panel already asked whether to replace it.
+                            _ = try FileManager.default.replaceItemAt(target, withItemAt: Self.copyForReplace(source))
+                        } else {
+                            try FileManager.default.copyItem(at: source, to: target)
+                        }
+                    } catch {
+                        NSLog("Evlat: file not saved (%@)", error.localizedDescription)
+                    }
+                }
+                self?.handBack(to: previous)
+            }
+        }
+    }
+
+    /// `replaceItemAt` moves the new item in: a temporary copy is moved,
+    /// never the workspace's own file.
+    nonisolated static func copyForReplace(_ source: URL) throws -> URL {
+        let copy = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        let file = copy.appendingPathComponent(source.lastPathComponent)
+        try FileManager.default.copyItem(at: source, to: file)
+        return file
     }
 
     func hotKeyPressed() {
@@ -1752,6 +1880,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// activated (`SessionHost.activate`). If the app is gone, nothing opens
     /// and the card says so.
     func goToSession() {
+        // Evlat's own chat has no terminal: its button is `[Back to chat]`,
+        // and the balloon opens with it — the bar closes on the way.
+        if detail.detail?.kind == .job, let entity = detail.detail?.entity,
+           let id = ChatSession.chatID(fromEntity: entity) {
+            openChat(chat: id)
+            return
+        }
         guard detail.go() else { return }
         hover.closeNow()
         // The intent may already have believed the bar closed.

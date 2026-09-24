@@ -77,4 +77,56 @@ final class ChatIndexTests: XCTestCase {
         XCTAssertEqual(index.orphans(platform: platform).terminate, [])
         XCTAssertEqual(index.orphans(platform: platform).interrupted, [id])
     }
+
+    // MARK: - History and pruning (`phase-5`)
+
+    /// A file written before `unseen` existed still reads: the key is
+    /// optional, and a missing one means "seen".
+    func testAFileWithoutTheNewKeyStillReads() throws {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: ChatIndex(entries: [entry()]).encoded())
+            as? [String: Any])
+        var entries = try XCTUnwrap(json["entries"] as? [[String: Any]])
+        entries[0]["unseen"] = nil
+        json["entries"] = entries
+        let index = try ChatIndex.decode(JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(index.entries.first?.unseen)
+        var unseen = entry()
+        unseen.unseen = .failed
+        XCTAssertEqual(try ChatIndex.decode(ChatIndex(entries: [unseen]).encoded()).entries.first?.unseen, .failed)
+    }
+
+    /// A week after the last activity, unless pinned or running.
+    func testExpiredEntries() {
+        let week = ChatIndex.lifetime
+        var old = entry()
+        var pinned = entry()
+        pinned.id = "0C9E7D1A-8E57-4B9B-8D0F-7F2B4E6A1C33"
+        pinned.pinned = true
+        var running = entry(run: ChatIndex.Run(pid: 1, startedAt: t0))
+        running.id = "5A8F2E10-3C4D-4E5F-8A9B-0C1D2E3F4A5B"
+        old.lastActivity = t0
+        pinned.lastActivity = t0
+        running.lastActivity = t0
+        let index = ChatIndex(entries: [old, pinned, running])
+        XCTAssertEqual(index.expired(at: t0 + week - 1), [])
+        XCTAssertEqual(index.expired(at: t0 + week).map(\.id), [id])
+    }
+
+    func testTheHistorysOrder() {
+        var a = entry(); a.lastActivity = t0
+        var b = entry(); b.id = "B"; b.lastActivity = t0 + 10
+        var c = entry(); c.id = "C"; c.lastActivity = t0 - 10; c.pinned = true
+        XCTAssertEqual([a, b, c].sorted(by: ChatIndex.historyOrder).map(\.id), ["C", "B", id])
+    }
+
+    /// The one path a workspace is removed from is built from a UUID id,
+    /// directly under `chats/`; anything else has none.
+    func testAWorkspacePathComesFromAUUIDAlone() {
+        let root = URL(fileURLWithPath: "/tmp/evlat-root", isDirectory: true)
+        XCTAssertEqual(ChatIndex.workspace(of: id, under: root)?.path, "/tmp/evlat-root/chats/\(id)")
+        XCTAssertEqual(ChatIndex.workspace(of: id.lowercased(), under: root)?.path, "/tmp/evlat-root/chats/\(id)")
+        for bad in ["", "..", "../\(id)", "\(id)/..", "/Users/someone", "not-a-uuid"] {
+            XCTAssertNil(ChatIndex.workspace(of: bad, under: root), bad)
+        }
+    }
 }

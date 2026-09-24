@@ -34,6 +34,15 @@ public struct SessionRow: Equatable, Identifiable {
     /// `nil` while it can, and always on this Mac. Its moment is frozen while
     /// the row is dimmed, so it passes the deadband without writing.
     public let dim: Signal.Machine.Dim?
+    /// A `.job` is Evlat's own chat (`011`): its ring holds the mascot's
+    /// face, its name the "EVLAT" tag, its card `[Back to chat]`. Read from
+    /// the signal's kind, never from the provider's name.
+    public let kind: Signal.Kind
+
+    /// The small caps beside the name: the machine's for a remote row,
+    /// "EVLAT" for a chat — a name, not catalogue text.
+    public var tag: String? { kind == .job ? Self.jobTag : machine }
+    public static let jobTag = "Evlat"
 
     /// `Signal.isLive`: false for a remote row nobody can currently hear.
     /// Such a row is listed but does not beat, and sorts under the live ones.
@@ -44,8 +53,9 @@ public struct SessionRow: Equatable, Identifiable {
     public init(entity: String, label: String, phase: Phase,
                 source: AgentSource? = nil, duplicate: Int = 0,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
-                machine: String? = nil, dim: Signal.Machine.Dim? = nil) {
+                machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session) {
         self.entity = entity
+        self.kind = kind
         self.label = label
         self.phase = phase
         self.source = source
@@ -63,7 +73,7 @@ public struct SessionRow: Equatable, Identifiable {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
-                  machine: signal.machine?.name, dim: signal.machine?.dim)
+                  machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind)
     }
 
     /// Whether this row moves on the beat. `working` turns its arc, `waiting`
@@ -236,7 +246,11 @@ public final class SessionRowsModel: ObservableObject {
         }
         let numbers = Self.duplicateNumbers(signals)
         let next = ordered.map {
-            SessionRow($0, duplicate: numbers[$0.entity] ?? 0, enteredAt: enteredAt[$0.entity])
+            // A chat's stamp is the moment its phase began (`ChatSession`),
+            // never moved by a tool event: its time is known even for a row
+            // first seen already in it — one read back at launch.
+            SessionRow($0, duplicate: numbers[$0.entity] ?? 0,
+                       enteredAt: enteredAt[$0.entity] ?? ($0.kind == .job ? $0.updatedAt : nil))
         }
         if rows != next { rows = next }
         setBeating(drawnRows.contains(where: \.beats))

@@ -16,6 +16,10 @@ public struct SessionDetail: Equatable {
     public let machine: String?
     /// The row's, so the card's line and the status line's agree.
     public let dim: Signal.Machine.Dim?
+    /// `.job` for Evlat's own chat: no terminal, `[Back to chat]` instead.
+    public let kind: Signal.Kind
+    /// The chat's folder, for the footer (`Signal.detail`); `nil` for a session.
+    public let folder: String?
     /// Where the session runs, for the footer and the button. Resolved when
     /// the card comes up and on the click, not on every snapshot; never for
     /// a remote session.
@@ -23,8 +27,11 @@ public struct SessionDetail: Equatable {
 
     public init(entity: String, label: String, source: AgentSource?, phase: Phase,
                 enteredAt: Date?, activity: Signal.Activity?,
-                machine: String? = nil, dim: Signal.Machine.Dim? = nil) {
+                machine: String? = nil, dim: Signal.Machine.Dim? = nil,
+                kind: Signal.Kind = .session, folder: String? = nil) {
         self.entity = entity
+        self.kind = kind
+        self.folder = folder
         self.label = label
         self.source = source
         self.phase = phase
@@ -65,8 +72,11 @@ public final class DetailModel: ObservableObject {
         let pid = signal?.activity?.pid
         var next = SessionDetail(entity: row.entity, label: row.label, source: row.source,
                                  phase: row.phase, enteredAt: row.enteredAt,
-                                 activity: signal?.activity, machine: row.machine, dim: row.dim)
-        if row.machine != nil {
+                                 activity: signal?.activity, machine: row.machine, dim: row.dim,
+                                 kind: row.kind, folder: row.kind == .job ? signal?.detail : nil)
+        if row.machine != nil || row.kind == .job {
+            // Evlat's own chat has no terminal: nothing to look up, and a
+            // "not found" button would be a lie (`DetailCard.showsButton`).
             // Another computer's session: no process here to walk, and a
             // remote pid never reaches this side anyway (`LocalAPI`).
             hostKey = nil
@@ -91,7 +101,7 @@ public final class DetailModel: ObservableObject {
     /// nowhere, whatever reaches this.
     @discardableResult
     func go() -> Bool {
-        guard var current = detail, current.machine == nil else { return false }
+        guard var current = detail, current.machine == nil, current.kind != .job else { return false }
         let host = resolveHost(current.activity?.pid)
         if current.host != host {
             current.host = host

@@ -48,9 +48,13 @@ struct DetailCard: View {
     static let goKey = "card.go"
     static let closedKey = "card.closed"
     static let notFoundKey = "card.notFound"
+    /// Evlat's own chat (`011/phase-5`): its header's kind and its button.
+    static let taskKey = "card.task"
+    static let returnKey = "card.return"
     static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
     static var keys: [String] {
-        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey] + AgentSource.allCases.map(sourceKey)
+        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey]
+            + AgentSource.allCases.map(sourceKey)
     }
 
     var body: some View {
@@ -95,7 +99,9 @@ struct DetailCard: View {
             // Once a minute, and only while the card is up.
             TimelineView(.everyMinute) { context in
                 if let footer = Self.footer(enteredAt: detail.enteredAt, activity: detail.activity,
-                                            terminal: Self.terminal(detail.host),
+                                            terminal: detail.kind == .job
+                                                ? detail.folder.map(Self.folderName)
+                                                : Self.terminal(detail.host),
                                             dim: detail.dim, now: context.date) {
                     Text(verbatim: footer)
                         .font(Self.footerFont)
@@ -104,7 +110,7 @@ struct DetailCard: View {
                 }
             }
             if Self.showsButton(detail) {
-                button(Self.button(for: detail.host))
+                button(detail.kind == .job ? Self.returnButton() : Self.button(for: detail.host))
             }
         }
     }
@@ -134,6 +140,23 @@ struct DetailCard: View {
     /// rectangle is never reported and no click lands on it.
     static func showsButton(_ detail: SessionDetail) -> Bool { detail.machine == nil }
 
+    /// A chat's button: back to it in the balloon, always there to press —
+    /// it has no terminal to be missing (`011/phase-5`).
+    static func returnButton(in lang: String = L10n.language) -> ButtonState {
+        ButtonState(title: L10n.t(returnKey, in: lang), enabled: true)
+    }
+
+    /// A chat's folder as the footer names it: `~/Downloads`; its own
+    /// workspace by the balloon's word for it, never its UUID.
+    static func folderName(_ folder: String) -> String {
+        let parent = (folder as NSString).deletingLastPathComponent
+        if (parent as NSString).lastPathComponent == "chats",
+           UUID(uuidString: (folder as NSString).lastPathComponent) != nil {
+            return L10n.t("chat.folder.workspace")
+        }
+        return (folder as NSString).abbreviatingWithTildeInPath
+    }
+
     struct ButtonState: Equatable {
         let title: String
         let enabled: Bool
@@ -161,7 +184,9 @@ struct DetailCard: View {
 
     private func header(_ detail: SessionDetail) -> some View {
         HStack(spacing: 7) {
-            if let source = detail.source {
+            if detail.kind == .job {
+                MascotFaceMark().frame(width: 13, height: 13)
+            } else if let source = detail.source {
                 SourceGlyph(source: source)
                     .fill(BarPalette.textPrimary, style: FillStyle(eoFill: true))
                     .frame(width: 14, height: 14)
@@ -187,7 +212,13 @@ struct DetailCard: View {
                         .foregroundStyle(UsageBlock.headerColor)
                 }
             }
-            if let source = detail.source {
+            if detail.kind == .job {
+                Text(verbatim: L10n.t(Self.taskKey))
+                    .font(Self.sourceFont)
+                    .foregroundStyle(BarPalette.textSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            } else if let source = detail.source {
                 Text(verbatim: L10n.t(Self.sourceKey(source)))
                     .font(Self.sourceFont)
                     .foregroundStyle(BarPalette.textSecondary)

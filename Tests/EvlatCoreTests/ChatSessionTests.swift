@@ -11,7 +11,7 @@ final class ChatSessionTests: XCTestCase {
     }
 
     func testANewChatHasNoRow() {
-        XCTAssertNil(chat().signal())
+        XCTAssertNil(chat().signal(at: t0))
     }
 
     func testTheFirstTurnNamesTheSessionAndLaterOnesResumeIt() {
@@ -39,7 +39,7 @@ final class ChatSessionTests: XCTestCase {
     func testTheRowIsAnOfficialJobInEvlatsNamespace() throws {
         var chat = chat()
         _ = chat.begin(prompt: "Summarise the report\nplease", attachments: [], at: t0)
-        let signal = try XCTUnwrap(chat.signal())
+        let signal = try XCTUnwrap(chat.signal(at: t0))
         XCTAssertEqual(signal.provider, ChatSession.provider)
         XCTAssertEqual(signal.provider, "evlat")
         XCTAssertEqual(signal.entity, "evlat:C1")
@@ -61,8 +61,8 @@ final class ChatSessionTests: XCTestCase {
         chat.apply(.assistant(text: "ok", tools: []), at: t0)
         chat.apply(.result(.init(subtype: "success", isError: false, text: "ok")), at: t0 + 3)
         XCTAssertEqual(chat.phase, .review)
-        XCTAssertEqual(chat.signal()?.updatedAt, t0 + 3)
-        XCTAssertEqual(chat.signal()?.activity?.lastReply, "ok")
+        XCTAssertEqual(chat.signal(at: t0)?.updatedAt, t0 + 3)
+        XCTAssertEqual(chat.signal(at: t0)?.activity?.lastReply, "ok")
         XCTAssertEqual(chat.messages, [.user(text: "hi", attachments: []), .reply("ok")],
                        "the final message replaces the streamed text rather than doubling it")
         chat.ended(status: 0, stderr: "", at: t0 + 4)
@@ -84,8 +84,8 @@ final class ChatSessionTests: XCTestCase {
             .tool(id: "t1", name: "Bash", subject: "ls", failed: true, output: "no such file"),
             .reply("Done."),
         ])
-        XCTAssertEqual(chat.signal()?.activity?.lastTool, Signal.Activity.Tool(name: "Bash", subject: "ls"))
-        XCTAssertEqual(chat.signal()?.activity?.toolCount, 1)
+        XCTAssertEqual(chat.signal(at: t0)?.activity?.lastTool, Signal.Activity.Tool(name: "Bash", subject: "ls"))
+        XCTAssertEqual(chat.signal(at: t0)?.activity?.toolCount, 1)
     }
 
     func testAnErrorResultFails() {
@@ -115,7 +115,7 @@ final class ChatSessionTests: XCTestCase {
         chat.ended(status: 130, stderr: "", at: t0)
         XCTAssertEqual(chat.phase, .review)
         XCTAssertNil(chat.failure)
-        XCTAssertEqual(chat.signal()?.rawStatus, ChatSession.stoppedWord)
+        XCTAssertEqual(chat.signal(at: t0)?.rawStatus, ChatSession.stoppedWord)
         XCTAssertNil(chat.requestStop(at: t0), "nothing is running to stop")
     }
 
@@ -128,8 +128,8 @@ final class ChatSessionTests: XCTestCase {
         _ = chat.begin(prompt: "again", attachments: [], at: t0 + 1)
         XCTAssertEqual(chat.phase, .working)
         XCTAssertNil(chat.failure)
-        XCTAssertNil(chat.signal()?.activity?.lastTool)
-        XCTAssertEqual(chat.signal()?.activity?.toolCount, 0)
+        XCTAssertNil(chat.signal(at: t0)?.activity?.lastTool)
+        XCTAssertNil(chat.signal(at: t0)?.activity?.toolCount, "no tools yet: no count")
     }
 
     func testAFailureWithoutAProcess() {
@@ -147,7 +147,7 @@ final class ChatSessionTests: XCTestCase {
         _ = chat.begin(prompt: "hi", attachments: [], at: t0)
         let long = String(repeating: "a", count: 1000) + "\n\nsecond"
         chat.apply(.result(.init(subtype: "success", isError: false, text: long)), at: t0)
-        XCTAssertLessThanOrEqual(chat.signal()?.activity?.lastReply?.count ?? .max, HookEvent.replyLimit + 1)
+        XCTAssertLessThanOrEqual(chat.signal(at: t0)?.activity?.lastReply?.count ?? .max, HookEvent.replyLimit + 1)
     }
 }
 
@@ -172,7 +172,7 @@ final class ChatSessionPermissionTests: XCTestCase {
         var chat = running()
         XCTAssertTrue(chat.ask(request("R1", rules: [.init(toolName: "Write")]), at: t0))
         XCTAssertEqual(chat.phase, .waiting)
-        let row = try XCTUnwrap(chat.signal())
+        let row = try XCTUnwrap(chat.signal(at: t0))
         XCTAssertEqual(row.phase, .waiting)
         XCTAssertEqual(row.activity?.waitKind, .approval)
         XCTAssertEqual(row.activity?.blockingTool, Signal.Activity.Tool(name: "Write", subject: "/tmp/project/a.txt"))
@@ -181,8 +181,8 @@ final class ChatSessionPermissionTests: XCTestCase {
         XCTAssertEqual(chat.answer("R1", .allowAlways, at: t0),
                        .allow(rules: [.init(toolName: "Write")], directories: []))
         XCTAssertEqual(chat.phase, .working)
-        XCTAssertNil(chat.signal()?.activity?.waitKind)
-        XCTAssertNil(chat.signal()?.activity?.blockingTool)
+        XCTAssertNil(chat.signal(at: t0)?.activity?.waitKind)
+        XCTAssertNil(chat.signal(at: t0)?.activity?.blockingTool)
         guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
         XCTAssertEqual(card.outcome, .allowedAlways)
         XCTAssertNil(chat.answer("R1", .deny, at: t0), "an answered card is not answered twice")
@@ -195,7 +195,7 @@ final class ChatSessionPermissionTests: XCTestCase {
         XCTAssertEqual(chat.openRequests, ["R1", "R2"])
         XCTAssertEqual(chat.answer("R2", .deny, at: t0), .deny(interrupt: false))
         XCTAssertEqual(chat.phase, .waiting, "one card is still open")
-        XCTAssertEqual(chat.signal()?.activity?.blockingTool?.name, "Write")
+        XCTAssertEqual(chat.signal(at: t0)?.activity?.blockingTool?.name, "Write")
         XCTAssertEqual(chat.answer("R1", .allow, at: t0), .allow(rules: [], directories: []))
         XCTAssertEqual(chat.phase, .working)
     }
@@ -262,5 +262,104 @@ final class ChatSessionPermissionTests: XCTestCase {
         guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
         XCTAssertEqual(card.outcome, .expired)
     }
+
 }
 
+/// Seen, the row's life, the title and a chat read back (`phase-5`).
+final class ChatSessionLifeTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func chat() -> ChatSession {
+        ChatSession(id: "C1", sessionID: "S1", folder: "/tmp/project", isWorkspace: false)
+    }
+
+    private func finished(_ text: String = "Done. The report is ready.", at end: Date? = nil) -> ChatSession {
+        var chat = chat()
+        _ = chat.begin(prompt: "Summarise the report", attachments: [], at: t0)
+        chat.apply(.started(sessionID: "S1"), at: t0)
+        chat.apply(.result(.init(subtype: "success", isError: false, text: text)), at: end ?? t0 + 10)
+        chat.ended(status: 0, stderr: "", at: end ?? t0 + 10)
+        return chat
+    }
+
+    /// Running and waiting chats always have a row; a finished one only
+    /// until the balloon has shown it.
+    func testASeenFinishedChatHasNoRow() {
+        var chat = finished()
+        XCTAssertEqual(chat.signal(at: t0 + 20)?.phase, .review)
+        XCTAssertTrue(chat.markSeen())
+        XCTAssertFalse(chat.markSeen(), "once")
+        XCTAssertNil(chat.signal(at: t0 + 20), "seen: in the history, not on the bar")
+        _ = chat.begin(prompt: "more", attachments: [], at: t0 + 30)
+        XCTAssertFalse(chat.seen, "a new turn is a new end to see")
+        XCTAssertEqual(chat.signal(at: t0 + 30)?.phase, .working)
+    }
+
+    func testARunningChatCannotBeSeenAway() {
+        var chat = chat()
+        _ = chat.begin(prompt: "hi", attachments: [], at: t0)
+        XCTAssertFalse(chat.markSeen())
+        XCTAssertEqual(chat.signal(at: t0 + 13 * 3600)?.phase, .working, "no lifetime while it runs")
+    }
+
+    /// Nobody looked: the row stays 12 hours from the end, then leaves by
+    /// itself — read at the scan, never scheduled.
+    func testAnUnseenEndLeavesTheBarAfterTwelveHours() {
+        let chat = finished(at: t0)
+        XCTAssertEqual(chat.signal(at: t0 + 12 * 3600 - 1)?.phase, .review)
+        XCTAssertNil(chat.signal(at: t0 + 12 * 3600))
+        var failed = self.chat()
+        _ = failed.begin(prompt: "hi", attachments: [], at: t0)
+        failed.ended(status: 1, stderr: "boom", at: t0)
+        XCTAssertEqual(failed.signal(at: t0 + 3600)?.phase, .failed)
+        XCTAssertNil(failed.signal(at: t0 + 12 * 3600))
+    }
+
+    func testTheTitleIsTheFirstReplysFirstSentence() {
+        let chat = finished("## Done! I moved 42 files.\n\nDetails follow.")
+        XCTAssertEqual(chat.title, "Done!")
+        XCTAssertEqual(chat.signal(at: t0 + 20)?.label, "Done!")
+        XCTAssertEqual(ChatSession.title(fromReply: "Version 3.5 is out. Next"), "Version 3.5 is out.")
+        XCTAssertEqual(ChatSession.title(fromReply: "**Summary:** the report says"), "Summary")
+        XCTAssertNil(ChatSession.title(fromReply: "  \n "))
+        let long = String(repeating: "word ", count: 30)
+        XCTAssertEqual(ChatSession.title(fromReply: long)?.count, ChatSession.labelLimit + 1, "cut, with …")
+        var later = finished("First.")
+        _ = later.begin(prompt: "again", attachments: [], at: t0 + 60)
+        later.apply(.result(.init(subtype: "success", isError: false, text: "Second.")), at: t0 + 70)
+        XCTAssertEqual(later.title, "First.", "the first reply's, kept")
+        XCTAssertNil(finished().failure)
+    }
+
+    func testAFailedTurnGivesNoTitle() {
+        var chat = chat()
+        _ = chat.begin(prompt: "Summarise", attachments: [], at: t0)
+        chat.apply(.result(.init(subtype: "error_max_turns", isError: true, text: "Oops. Stopped")), at: t0)
+        XCTAssertNil(chat.title)
+    }
+
+    /// Read back from the index: the last reply as its one line, no row —
+    /// unless its end was never seen.
+    func testARestoredChat() {
+        let entry = ChatIndex.Entry(id: "C1", sessionID: "S1", title: "Report", folder: "/tmp/p",
+                                    isWorkspace: false, createdAt: t0, lastActivity: t0 + 5,
+                                    lastReply: "It is done.", started: true)
+        let seen = ChatSession.restored(entry)
+        XCTAssertEqual(seen.messages, [.reply("It is done.")])
+        XCTAssertNil(seen.signal(at: t0 + 10))
+        XCTAssertTrue(seen.hasStarted, "the next prompt resumes")
+        var unseenEntry = entry
+        unseenEntry.unseen = .review
+        let unseen = ChatSession.restored(unseenEntry)
+        XCTAssertEqual(unseen.signal(at: t0 + 10)?.phase, .review)
+        XCTAssertEqual(unseen.signal(at: t0 + 10)?.updatedAt, t0 + 5)
+        XCTAssertEqual(unseen.signal(at: t0 + 10)?.label, "Report")
+        XCTAssertEqual(unseen.unseenPhase, .review)
+    }
+
+    func testTheEntityNamesTheChat() {
+        XCTAssertEqual(ChatSession.chatID(fromEntity: ChatSession.entity("C1")), "C1")
+        XCTAssertNil(ChatSession.chatID(fromEntity: "claude:abc"))
+        XCTAssertNil(ChatSession.chatID(fromEntity: "evlat:"))
+    }
+}

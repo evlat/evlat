@@ -80,11 +80,15 @@ struct ChatView: View {
             } else {
                 if !model.messages.isEmpty { transcript }
                 if let failure = model.failure { failureLine(failure) }
+                if !model.files.isEmpty, !model.isRunning { madeFiles }
                 if !model.attachments.isEmpty { chips }
                 field
                 // Files dropped on a running exchange bring their own
                 // suggestions back.
                 if model.messages.isEmpty || !model.attachments.isEmpty { suggestions }
+                // The history under an empty balloon only: a chat on screen
+                // is the one thing talking.
+                if !model.hasChat, !model.history.isEmpty { historyList }
                 footer
             }
         }
@@ -100,6 +104,7 @@ struct ChatView: View {
         .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 8)
         .animation(.easeOut(duration: 0.12), value: model.dropTargeted)
         .animation(.smooth(duration: 0.2), value: model.attachments)
+        .animation(.smooth(duration: 0.2), value: model.history)
     }
 
     // MARK: - Parts
@@ -165,18 +170,94 @@ struct ChatView: View {
         }
     }
 
-    /// The hint, and in the corner the folder the chat works in.
+    /// The hint — or, with a chat on screen, `[+ New]` — and in the corner
+    /// the folder the chat works in.
     private var footer: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(L10n.t("chat.hint"))
-                .font(.system(size: 11))
-                .foregroundStyle(ChatPalette.faint)
-                .lineLimit(1)
-                // The hint is read whole; a long folder name gives way.
-                .layoutPriority(1)
+            if model.hasChat {
+                QuietButton(title: L10n.t("chat.new"), systemImage: "plus") { model.newChat() }
+                    .layoutPriority(1)
+            } else {
+                Text(L10n.t("chat.hint"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(ChatPalette.faint)
+                    .lineLimit(1)
+                    // The hint is read whole; a long folder name gives way.
+                    .layoutPriority(1)
+            }
             Spacer(minLength: 0)
             FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
         }
+    }
+
+    /// The history (`011/phase-5`): a few quiet rows — what, where, when —
+    /// each opening its chat; pin and × on the pointer; "Clear history"
+    /// dim under them. Old chats leave by themselves after a week, so the
+    /// list never asks to be tidied.
+    private var historyList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.t("chat.history").uppercased(with: Locale(identifier: L10n.language)))
+                .font(.system(size: 9.5, weight: .semibold))
+                .kerning(0.7)
+                .foregroundStyle(ChatPalette.faint)
+                .padding(.leading, 2)
+            ScrollView(.vertical, showsIndicators: false) {
+                TimelineView(.everyMinute) { context in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.history) { item in
+                            HistoryRow(item: item, now: context.date,
+                                       open: { model.open(item.id) },
+                                       pin: { model.pin(item.id, !item.pinned) },
+                                       remove: { model.removeFromHistory(item.id) })
+                                .transition(.opacity)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: Self.historyMaxHeight)
+            .fixedSize(horizontal: false, vertical: true)
+            if model.canClearHistory {
+                HStack {
+                    Spacer(minLength: 0)
+                    QuietButton(title: L10n.t("chat.history.clear")) { model.clearHistory() }
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    /// Four rows before the list scrolls.
+    static let historyMaxHeight: CGFloat = 4 * HistoryRow.height
+
+    /// What a workspace chat made: each file with `[Save…]` and
+    /// `[Show in Finder]` — the workspace is Evlat's and goes in a week.
+    private var madeFiles: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(L10n.t("chat.files").uppercased(with: Locale(identifier: L10n.language)))
+                .font(.system(size: 9.5, weight: .semibold))
+                .kerning(0.7)
+                .foregroundStyle(ChatPalette.faint)
+            ForEach(model.files, id: \.self) { path in
+                HStack(spacing: 6) {
+                    Image(systemName: "doc")
+                        .font(.system(size: 10))
+                        .foregroundStyle(ChatPalette.tagOtherText)
+                    Text((path as NSString).lastPathComponent)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ChatPalette.chipName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(path)
+                    Spacer(minLength: 6)
+                    QuietButton(title: L10n.t("chat.file.save")) { model.save(path) }
+                    QuietButton(title: L10n.t("chat.file.show")) { model.reveal(path) }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(ChatPalette.chip))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(ChatPalette.chipEdge, lineWidth: 1))
     }
 
     private func failureLine(_ failure: ChatSession.Failure) -> some View {
@@ -573,6 +654,113 @@ private struct CardButton: View {
                 .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .stroke(primary ? ChatPalette.amber : ChatPalette.button, lineWidth: 1))
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+}
+
+/// One chat in the history: its title, and under it where and how long
+/// ago. The row opens the chat; pin and × come with the pointer, and a
+/// pinned chat keeps its pin in sight.
+private struct HistoryRow: View {
+    let item: ChatModel.HistoryItem
+    let now: Date
+    let open: () -> Void
+    let pin: () -> Void
+    let remove: () -> Void
+    @State private var hovered = false
+
+    static let height: CGFloat = 34
+
+    private var place: String {
+        item.folder.map { ($0 as NSString).lastPathComponent } ?? L10n.t("chat.folder.workspace")
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                // The title is data: the chat's own words.
+                Text(verbatim: item.title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(hovered ? ChatPalette.text : ChatPalette.reply)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(verbatim: place + " · " + StatusLine.duration(now.timeIntervalSince(item.when),
+                                                                 in: L10n.language))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(ChatPalette.faint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 4)
+            if hovered || item.pinned {
+                IconButton(systemImage: item.pinned ? "pin.fill" : "pin",
+                           help: L10n.t(item.pinned ? "chat.history.unpin" : "chat.history.pin"),
+                           tint: item.pinned && !hovered ? ChatPalette.placeholder : nil,
+                           action: pin)
+            }
+            if hovered {
+                IconButton(systemImage: "xmark", help: L10n.t("chat.history.remove"), action: remove)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(height: Self.height)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(hovered ? ChatPalette.chipHover : .clear))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+}
+
+/// A small round icon button: the history row's pin and ×.
+private struct IconButton: View {
+    let systemImage: String
+    let help: String
+    var tint: Color? = nil
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(hovered ? ChatPalette.text : tint ?? ChatPalette.faint)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(hovered ? ChatPalette.button : .clear))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .onHover { hovered = $0 }
+    }
+}
+
+/// A dim text button: `[+ New]`, "Clear history", a made file's actions.
+private struct QuietButton: View {
+    let title: String
+    var systemImage: String? = nil
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                if let systemImage {
+                    Image(systemName: systemImage).font(.system(size: 9, weight: .semibold))
+                }
+                Text(title).font(.system(size: 11)).lineLimit(1)
+            }
+            .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(hovered ? ChatPalette.chipHover : .clear))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }

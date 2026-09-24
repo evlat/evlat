@@ -13,8 +13,13 @@ public final class ChatsProvider: Provider {
     public var id: String { Self.id }
 
     public private(set) var chats: [String: ChatSession] = [:]
+    /// The clock a row's life is read against (`ChatSession.signal(at:)`):
+    /// a finished, unseen chat leaves the bar on its own after 12 h.
+    private let now: () -> Date
 
-    public init() {}
+    public init(now: @escaping () -> Date = Date.init) {
+        self.now = now
+    }
 
     public subscript(id: String) -> ChatSession? {
         get { chats[id] }
@@ -27,6 +32,7 @@ public final class ChatsProvider: Provider {
     public var sessionIDs: Set<String> { Set(chats.values.map(\.sessionID)) }
 
     public func currentSignals() -> [Signal] {
-        chats.values.compactMap { $0.signal() }.sorted { $0.entity < $1.entity }
+        let now = now()
+        return chats.values.compactMap { $0.signal(at: now) }.sorted { $0.entity < $1.entity }
     }
 }

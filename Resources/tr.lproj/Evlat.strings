@@ -180,3 +180,17 @@
 "chat.tool.failed" = "Başarısız";
 "menu.hotkey" = "Kısayol ⌥Space";
 "menu.hotkey.failure" = "Kısayol kaydedilemedi ({status})";
+
+/* The history and a chat's own files (`011/phase-5`). Old chats leave by
+   themselves after a week; a pinned one stays. */
+"card.task" = "Evlat görevi";
+"card.return" = "Sohbete dön";
+"chat.new" = "Yeni";
+"chat.history" = "Geçmiş";
+"chat.history.pin" = "Sabitle — bir haftadan sonra da kalır";
+"chat.history.unpin" = "Sabitlemeyi kaldır";
+"chat.history.remove" = "Geçmişten kaldır";
+"chat.history.clear" = "Geçmişi temizle";
+"chat.files" = "Bu sohbette üretilenler";
+"chat.file.save" = "Kaydet…";
+"chat.file.show" = "Finder'da göster";
