@@ -71,7 +71,7 @@ final class RemoteMachinesTests: XCTestCase {
         let controller = AppController(defaults: defaults)
         controller.startRemoteTunnels(
             configuration: RemoteMachine.Configuration(machines: machines, fromEnvironment: !stored, rejected: []),
-            sshPath: ssh)
+            sshPath: ssh, confirmAfter: 0.2)
         controllers.append(controller)
         return controller
     }

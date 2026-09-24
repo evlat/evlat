@@ -73,11 +73,11 @@ final class RemoteTunnels {
         // Closed before sleep so the server lets go of the remote port at
         // once; reopened on wake without waiting out a pending retry.
         observers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification,
-                                               object: nil, queue: nil) { [weak self] _ in
+                                               object: nil, queue: .main) { [weak self] _ in
             self?.sleep()
         })
         observers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification,
-                                               object: nil, queue: nil) { [weak self] _ in
+                                               object: nil, queue: .main) { [weak self] _ in
             self?.wake()
         })
     }

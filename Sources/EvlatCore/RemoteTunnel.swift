@@ -150,6 +150,11 @@ public final class RemoteTunnel {
     /// - `ServerAlive*`: a dead network is noticed in ~45 s.
     /// - `ControlMaster=no`, `ControlPath=none`: riding the user's multiplexed
     ///   master would make this process's exit say nothing about the tunnel.
+    /// - `RemoteCommand=none`, `StdinNull=no`, `ForkAfterAuthentication=no`:
+    ///   a host's `~/.ssh/config` may set them (`RemoteCommand tmux new -A` is
+    ///   common); the first refuses a command-line command outright, the other
+    ///   two hand `cat` an empty stdin and take the dead man's switch away.
+    ///   On the command line they win over the config file.
     /// - `127.0.0.1:` on both ends keeps the remote end on the server's
     ///   loopback (where `GatewayPorts clientspecified` honours it).
     /// - The remote command holds the session open for as long as its stdin
@@ -168,6 +173,9 @@ public final class RemoteTunnel {
          "-o", "ConnectTimeout=10",
          "-o", "ControlMaster=no",
          "-o", "ControlPath=none",
+         "-o", "RemoteCommand=none",
+         "-o", "StdinNull=no",
+         "-o", "ForkAfterAuthentication=no",
          "-R", "127.0.0.1:\(LocalAPI.defaultPort):127.0.0.1:\(localPort)",
          "--", target, "cat >/dev/null"]
     }
@@ -213,8 +221,11 @@ public final class RemoteTunnel {
     /// drops.
     public static let stableAfter: TimeInterval = 60
     /// A process still running this long after it started counts as
-    /// connected: `ExitOnForwardFailure` has had its answer by then.
-    public static let defaultConfirmAfter: TimeInterval = 3
+    /// connected. Past `ConnectTimeout` (10 s) with room for the login and
+    /// the forward's answer (`ExitOnForwardFailure`), so a slow host is not
+    /// called connected before it is; a request arriving sooner confirms it
+    /// at once (`heard`).
+    public static let defaultConfirmAfter: TimeInterval = 15
 
     /// The wait after `failures` consecutive failures (1 = the first).
     public static func delay(afterFailures failures: Int) -> TimeInterval {

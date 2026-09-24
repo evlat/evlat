@@ -34,9 +34,8 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 
 ## Şu an nerede
 
-`001`–`003` bitti, `004` teslim bekliyor: iskelet, kenar paneli, iki sağlayıcı ve hook sunucusu
-çalışıyor; kurulu hook'lar hiçbir kurulum yapılmadan `127.0.0.1:48151`'e
-akıyor. Maskotun beş fazının her birinin kendi klibi var (`MascotClip`);
+`001`–`008` bitti, `009`–`010` teslim bekliyor: iskelet, kenar paneli, iki sağlayıcı ve hook sunucusu
+çalışıyor; kurulu hook'lar `127.0.0.1:48151`'e akıyor. Maskotun beş fazının her birinin kendi klibi var (`MascotClip`);
 altında sıradaki ilk 3–4 oturumun halkası atımla oynuyor, fazlası "+N".
 `005`'in kodu bitti: hover'da bar sola açılıp adı ve "durum · süre"yi
 gösteriyor; bir satırın üstünde durunca listenin solunda detay kartı açılıyor

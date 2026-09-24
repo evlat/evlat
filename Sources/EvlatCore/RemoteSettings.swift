@@ -46,7 +46,10 @@ public enum RemoteSettings {
 
     /// The same options as the tunnel's where they apply: never a prompt,
     /// never someone else's master connection, and none of the host's
-    /// configured forwards — one of them could be the tunnel's own port.
+    /// configured forwards — one of them could be the tunnel's own port —
+    /// and the tunnel's three config overrides (`RemoteTunnel.arguments`):
+    /// no configured `RemoteCommand`, empty stdin or fork — the script *is*
+    /// stdin.
     public static func arguments(target: String) -> [String] {
         ["-T",
          "-o", "BatchMode=yes",
@@ -56,6 +59,9 @@ public enum RemoteSettings {
          "-o", "ControlMaster=no",
          "-o", "ControlPath=none",
          "-o", "ClearAllForwardings=yes",
+         "-o", "RemoteCommand=none",
+         "-o", "StdinNull=no",
+         "-o", "ForkAfterAuthentication=no",
          "--", target, "sh -s"]
     }
 

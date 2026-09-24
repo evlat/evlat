@@ -1017,9 +1017,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// Internal so a test hands its own machines and the fake `ssh`; the
-    /// launch reads both from the environment and the stored list.
+    /// launch reads both from the environment and the stored list. A test
+    /// also shortens `confirmAfter`: the default outwaits a slow login.
     func startRemoteTunnels(configuration: RemoteMachine.Configuration? = nil,
-                            sshPath: String = AppController.sshPath()) {
+                            sshPath: String = AppController.sshPath(),
+                            confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter) {
         let configuration = configuration ?? Self.remoteConfiguration(defaults: defaults)
         for target in configuration.rejected {
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
@@ -1028,6 +1030,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let tunnels = RemoteTunnels(
             registry: registry, sshPath: sshPath, platform: Self.darwinPlatform,
             now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
+            confirmAfter: confirmAfter,
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         configuration.machines.forEach(tunnels.add)
         remote = tunnels

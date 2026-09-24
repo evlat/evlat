@@ -17,6 +17,10 @@ final class RemoteTunnelTests: XCTestCase {
             "-o", "ConnectTimeout=10",
             "-o", "ControlMaster=no",
             "-o", "ControlPath=none",
+            // A host's config must not replace the command or empty its stdin.
+            "-o", "RemoteCommand=none",
+            "-o", "StdinNull=no",
+            "-o", "ForkAfterAuthentication=no",
             // The remote end is the port the installed command names, the
             // local end the machine's own listener.
             "-R", "127.0.0.1:48151:127.0.0.1:50123",
