@@ -362,12 +362,164 @@ final class HooksProviderTests: XCTestCase {
     /// Every hook installed on this machine sends `X-Evlat-Pid` (11 of 11
     /// Claude, 8 of 8 Codex, measured in `phase-2`). An event without one
     /// cannot be checked, and the repo's answer to an unprovable check is to
-    /// trust it (`Platform.sameProcess`): dropping a live session over a
-    /// missing field is worse than the ghost it prevents.
-    func testAnEventWithoutAPidIsKept() {
+    /// trust it (`Platform.sameProcess`) — for a while. A remote machine's
+    /// rows never have a pid, so "for ever" became a leak: the row stays for
+    /// twelve hours after the last thing it heard, then goes.
+    func testAnEventWithoutAPidIsKeptForTwelveHours() {
         let hooks = provider(alive: { _ in false })
         hooks.handle(event("PermissionRequest", pid: nil))
-        XCTAssertEqual(hooks.currentSignals().count, 1)
+        clock.now += HooksProvider.pidlessLifetime - 1
+        XCTAssertEqual(hooks.currentSignals().count, 1, "trusted while it is recent")
+        clock.now += 1
+        XCTAssertTrue(hooks.currentSignals().isEmpty, "twelve hours of silence drops it")
+    }
+
+    /// Any event is proof of life, including one that says nothing about the
+    /// phase: the lifetime counts from the last thing heard, not from the
+    /// phase's stamp.
+    func testAnyEventKeepsAPidlessRowAlive() {
+        let hooks = provider(alive: { _ in false })
+        hooks.handle(event("SessionStart", pid: nil))
+        clock.now += HooksProvider.pidlessLifetime - 60
+        hooks.handle(event("Notification", notification: "idle_prompt", pid: nil))
+        clock.now += 120
+        let row = hooks.currentSignals().first
+        XCTAssertEqual(row?.phase, .idle, "the row stays")
+        XCTAssertEqual(row?.updatedAt, Date(timeIntervalSince1970: 1_790_000_000),
+                       "and its stamp is still the phase's")
+    }
+
+    // MARK: - A remote machine's rows
+
+    private let devbox = Signal.Machine.Identity(id: "m-1", name: "devbox")
+
+    /// A machine's provider: any question about a local process is a failure,
+    /// because a remote session's number means nothing on this Mac.
+    private func remote() -> HooksProvider {
+        HooksProvider(platform: Platform(isAlive: { _ in XCTFail("no local process is asked about"); return true },
+                                         processStartedAt: { _ in XCTFail("no start time is read"); return nil },
+                                         now: { [clock] in clock.now }),
+                      machine: devbox)
+    }
+
+    /// Namespaced, so the same `session_id` on two computers is two rows, and
+    /// labelled with the machine. A pid that slipped past `LocalAPI` is not
+    /// looked at either.
+    func testAMachinesRowIsNamespacedAndNeverAsksForAProcess() {
+        let hooks = remote()
+        hooks.setLink(connected: true)
+        hooks.handle(event("PermissionRequest", pid: 4242))
+        let row = hooks.currentSignals().first
+        XCTAssertEqual(row?.entity, "remote:m-1:s-1")
+        XCTAssertEqual(row?.machine?.name, "devbox")
+        XCTAssertNil(row?.activity?.pid, "a remote number is not a local process")
+        XCTAssertEqual(row?.isLive, true)
+    }
+
+    /// Without a `cwd` the label falls back to the session id — the bare
+    /// one, never the namespaced key.
+    func testARemoteRowWithoutACwdIsLabelledWithTheBareSessionId() {
+        let hooks = remote()
+        hooks.handle(event("UserPromptSubmit", cwd: nil, pid: nil))
+        XCTAssertEqual(hooks.currentSignals().first?.label, "s-1")
+    }
+
+    /// A local row has no machine, so it is always live: dimming is a
+    /// remote question.
+    func testALocalRowHasNoMachineAndIsLive() {
+        let hooks = provider()
+        hooks.handle(event("UserPromptSubmit"))
+        clock.now += 3600
+        let row = hooks.currentSignals().first
+        XCTAssertNil(row?.machine)
+        XCTAssertEqual(row?.isLive, true)
+    }
+
+    private func reachable(_ hooks: HooksProvider) -> Bool? {
+        hooks.currentSignals().first?.machine?.reachable
+    }
+
+    /// Without a tunnel the row cannot be current, whatever it last said.
+    func testWithoutALinkTheRowIsUnreachable() {
+        let hooks = remote()
+        hooks.handle(event("UserPromptSubmit", pid: nil))
+        XCTAssertEqual(reachable(hooks), false, "never connected")
+        hooks.setLink(connected: true)
+        hooks.handle(event("PostToolUse", pid: nil))
+        XCTAssertEqual(reachable(hooks), true)
+        hooks.setLink(connected: false)
+        XCTAssertEqual(reachable(hooks), false, "the tunnel went away")
+        XCTAssertEqual(hooks.currentSignals().first?.isLive, false)
+    }
+
+    /// A reconnected tunnel does not vouch for what was said before it: a
+    /// session that ended while the tunnel was down sent its `SessionEnd`
+    /// to nobody. The row lights again only once it is heard from.
+    func testAfterReconnectingTheRowWaitsToBeHeardFrom() {
+        let hooks = remote()
+        hooks.setLink(connected: true)
+        hooks.handle(event("UserPromptSubmit", pid: nil))
+        hooks.setLink(connected: false)
+        clock.now += 60
+        hooks.setLink(connected: true)
+        XCTAssertEqual(reachable(hooks), false, "not heard since the link came back")
+        clock.now += 1
+        hooks.handle(event("Notification", notification: "idle_prompt", pid: nil))
+        XCTAssertEqual(reachable(hooks), true, "any event is enough")
+    }
+
+    /// A second "connected" while already connected does not move the mark:
+    /// otherwise every request that confirms the link would dim the rows it
+    /// has not yet reached.
+    func testARepeatedConnectDoesNotResetTheLink() {
+        let hooks = remote()
+        hooks.setLink(connected: true)
+        hooks.handle(event("UserPromptSubmit", pid: nil))
+        clock.now += 5
+        hooks.setLink(connected: true)
+        XCTAssertEqual(reachable(hooks), true)
+    }
+
+    /// `kill -9` on the server sends no `SessionEnd` even with the tunnel up.
+    /// A `working` row that has been quiet for half an hour is dimmed so it
+    /// stops driving the mascot; `idle` is quiet by nature and `waiting` is
+    /// the user's business, so neither dims on silence.
+    func testOnlyASilentWorkingRowDims() {
+        for (name, expected) in [("UserPromptSubmit", false), ("SessionStart", true),
+                                 ("PermissionRequest", true), ("Stop", true)] {
+            let hooks = remote()
+            hooks.setLink(connected: true)
+            hooks.handle(event(name, pid: nil))
+            clock.now += HooksProvider.workingSilence - 1
+            XCTAssertEqual(reachable(hooks), true, "\(name): still recent")
+            clock.now += 1
+            XCTAssertEqual(reachable(hooks), expected, "\(name) after 30 minutes of silence")
+            clock = Clock()
+        }
+    }
+
+    /// A machine's rows leave on the same twelve hours as any pidless row,
+    /// dimmed or not.
+    func testAMachinesRowLeavesAfterTwelveHours() {
+        let hooks = remote()
+        hooks.setLink(connected: true)
+        hooks.handle(event("PermissionRequest", pid: nil))
+        clock.now += HooksProvider.pidlessLifetime
+        XCTAssertTrue(hooks.currentSignals().isEmpty)
+    }
+
+    /// The same `session_id` locally and on a machine is two sessions.
+    func testARemoteRowNeverMergesWithALocalOne() {
+        let local = provider()
+        local.handle(event("UserPromptSubmit", session: "s-1"))
+        let machine = remote()
+        machine.setLink(connected: true)
+        machine.handle(event("PermissionRequest", session: "s-1", pid: nil))
+        let registry = Registry()
+        registry.register(local)
+        registry.register(machine)
+        let snapshot = registry.snapshot()
+        XCTAssertEqual(snapshot.ordered.map(\.entity).sorted(), ["remote:m-1:s-1", "s-1"])
     }
 
     // MARK: - The shape of the row

@@ -27,13 +27,18 @@ public struct SessionRow: Equatable, Identifiable {
     /// reply) moves on every tool event and belongs to the card, so a busy
     /// session's burst never rewrites the column.
     public let waitKind: Signal.Activity.WaitKind?
+    /// `Signal.isLive`: false for a remote row nobody can currently hear.
+    /// Such a row is listed but does not beat, and sorts under the live ones.
+    public let isLive: Bool
 
     public var id: String { entity }
 
     public init(entity: String, label: String, phase: Phase,
                 source: AgentSource? = nil, duplicate: Int = 0,
-                enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil) {
+                enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
+                isLive: Bool = true) {
         self.entity = entity
+        self.isLive = isLive
         self.label = label
         self.phase = phase
         self.source = source
@@ -48,12 +53,17 @@ public struct SessionRow: Equatable, Identifiable {
     public init(_ signal: Signal, duplicate: Int = 0, enteredAt: Date? = nil) {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate,
-                  enteredAt: enteredAt, waitKind: signal.activity?.waitKind)
+                  enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
+                  isLive: signal.isLive)
     }
 
     /// Whether this row moves on the beat. `working` turns its arc, `waiting`
     /// pulses; the rest are still (`review`'s fade is a one-off on arrival).
+    /// A dimmed row never beats: its phase is the last thing a silent
+    /// machine said, and a clock kept running for it would spend the idle
+    /// budget on nobody.
     public var beats: Bool {
+        guard isLive else { return false }
         switch phase {
         case .working, .waiting: return true
         case .idle, .review, .failed: return false
@@ -185,6 +195,10 @@ public final class SessionRowsModel: ObservableObject {
     /// change, never on the stamp a busy session refreshes with every tool
     /// event, so the column stays still between changes; ties (rows never
     /// seen changing) fall back to the entity.
+    ///
+    /// **Live rows come first**, the same first key `Registry.Snapshot`
+    /// sorts by; without it this re-sort would mix dimmed rows back in among
+    /// the live ones.
     public func update(from signals: [Signal]) {
         for signal in signals where lastPhase[signal.entity] != signal.phase {
             if lastPhase[signal.entity] == nil {
@@ -202,6 +216,7 @@ public final class SessionRowsModel: ObservableObject {
         enteredAt = enteredAt.filter { live.contains($0.key) }
 
         let ordered = signals.sorted { a, b in
+            if a.isLive != b.isLive { return a.isLive }
             if a.phase.priority != b.phase.priority { return a.phase.priority > b.phase.priority }
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity

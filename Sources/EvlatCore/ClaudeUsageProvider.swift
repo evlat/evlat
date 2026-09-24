@@ -17,11 +17,20 @@ import Foundation
 /// **Not thread-safe, by design.** Reports are delivered on the main queue and
 /// `currentSignals()` is called there too (`Provider`'s contract).
 public final class ClaudeUsageProvider: Provider {
+    /// The local instance's id and group; a machine's instance derives its
+    /// own from them.
     public static let id = "claude-usage"
-    public var id: String { Self.id }
     /// The name the windows are grouped under on the bar. A proper name, not
     /// catalogue text (`Signal.Usage.group`).
     public static let group = "Claude"
+
+    /// `claude-usage`, or `claude-usage@{machine id}` for a remote machine's
+    /// status line: its own entities, so a remote window never overwrites
+    /// the local one even when both are the same account.
+    public let id: String
+    /// `Claude`, or `Claude · {machine name}`.
+    public let group: String
+    private let machine: Signal.Machine.Identity?
 
     private struct Stored {
         let window: UsageReport.Window
@@ -35,8 +44,11 @@ public final class ClaudeUsageProvider: Provider {
 
     /// The clock is injected (`HooksProvider`'s pattern): the observation
     /// stamp is the provider's, since `LocalAPI` has no clock.
-    public init(now: @escaping () -> Date) {
+    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil) {
         self.now = now
+        self.machine = machine
+        id = machine.map { "\(Self.id)@\($0.id)" } ?? Self.id
+        group = machine.map { "\(Self.group) · \($0.name)" } ?? Self.group
     }
 
     public func handle(_ report: UsageReport) {
@@ -57,11 +69,16 @@ public final class ClaudeUsageProvider: Provider {
     public func currentSignals() -> [Signal] {
         windows.keys.sorted().compactMap { minutes in
             windows[minutes].map { stored in
-                Signal(provider: Self.id, entity: "usage:\(Self.id):\(minutes)", kind: .usage,
-                       phase: .idle, progress: stored.window.usedPercent / 100, label: Self.group,
+                Signal(provider: id, entity: "usage:\(id):\(minutes)", kind: .usage,
+                       phase: .idle, progress: stored.window.usedPercent / 100, label: group,
                        fidelity: .official, updatedAt: stored.observed,
-                       usage: Signal.Usage(group: Self.group, windowMinutes: minutes,
-                                           resetsAt: stored.window.resetsAt))
+                       usage: Signal.Usage(group: group, windowMinutes: minutes,
+                                           resetsAt: stored.window.resetsAt),
+                       // `reachable` is not this provider's to know and no
+                       // rule reads it on a usage row (`Snapshot` splits them
+                       // out first); staleness is read from `updatedAt`. The
+                       // machine is here for the group order and the name.
+                       machine: machine.map { Signal.Machine(name: $0.name, reachable: true) })
             }
         }
     }

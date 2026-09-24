@@ -100,8 +100,12 @@ public final class Registry {
         guard let baseline = newest(.derived) else { return newest(.official) ?? newest(.manual) }
         guard let report = newest(.official) else { return baseline }
         let activity = carried(report.activity, baseline.activity)
+        // The machine is where the thing runs, not a claim about its phase,
+        // so it rides along on both branches like the activity does.
+        let machine = report.machine ?? baseline.machine
         guard admits(baseline, report.phase) else {
             return baseline.with(activity: activity.map { shown($0, on: baseline.phase) })
+                .with(machine: machine)
         }
         return Signal(provider: report.provider, entity: report.entity, kind: report.kind,
                       phase: report.phase, progress: report.progress, label: baseline.label,
@@ -109,7 +113,7 @@ public final class Registry {
                       source: report.source ?? baseline.source, fidelity: report.fidelity,
                       rawStatus: report.rawStatus, updatedAt: report.updatedAt,
                       activity: activity.map { shown($0, on: report.phase) },
-                      usage: report.usage ?? baseline.usage)
+                      usage: report.usage ?? baseline.usage, machine: machine)
     }
 
     /// A wait belongs to a row that waits. A refused report is a stale one
@@ -180,21 +184,27 @@ public final class Registry {
     /// two copies that actually drove the UI were the ones the tests did not
     /// cover.
     public struct Snapshot: Equatable {
-        /// Display order: waiting on top, then working, then recently finished,
-        /// idle at the bottom. On a tie, by `entity`: stable, never by stamp.
+        /// Display order: live rows first, dimmed ones (`Signal.isLive`) under
+        /// them. Within each part waiting on top, then working, then recently
+        /// finished, idle at the bottom. On a tie, by `entity`: stable, never
+        /// by stamp.
         public let ordered: [Signal]
-        /// The mascot's face. Highest `Phase.priority` wins; `idle` when there
-        /// is nothing at all.
+        /// The mascot's face. Highest `Phase.priority` among **live** rows
+        /// wins; `idle` when there is none. A dimmed row is one nobody can
+        /// currently hear, so its last word — a `working` from a machine whose
+        /// tunnel dropped — must not keep the face busy.
         public let aggregate: Phase
         /// Is anything live? **Not a phase**, a render condition: the mascot's
         /// blink and breath loops check this and leave the view tree when it is
         /// false (ROADMAP → Render yolu, idle drawing stops). A usage signal
         /// never enters it: a limit being read is not something live, and
         /// letting it in would keep the mascot's loops running on an idle
-        /// machine for as long as a window is known.
-        public var hasLive: Bool { !ordered.isEmpty }
-        /// The usage windows, apart from the session line: by group, then by
-        /// window length, then by `entity` — deterministic, never by stamp.
+        /// machine for as long as a window is known. A dimmed row does not
+        /// enter it either, for the same budget: it is listed, not live.
+        public let hasLive: Bool
+        /// The usage windows, apart from the session line: this Mac's groups
+        /// first, then remote machines'; within each by group, then by window
+        /// length, then by `entity` — deterministic, never by stamp.
         public let usage: [Signal]
 
         public init(signals: [Signal]) {
@@ -204,19 +214,25 @@ public final class Registry {
             let sessionLine = signals.filter { $0.kind != .usage }
             // The stamp stays out of the order: the hook refreshes it on every
             // `PostToolUse`, so sorting by it reshuffled the rows at event rate.
+            // Liveness is read from `isLive` and nothing else, never from
+            // the provider's name: the three rules below agree by reading the
+            // same derived value.
             ordered = sessionLine.sorted {
-                $0.phase.priority != $1.phase.priority
+                if $0.isLive != $1.isLive { return $0.isLive }
+                return $0.phase.priority != $1.phase.priority
                     ? $0.phase.priority > $1.phase.priority
                     : $0.entity < $1.entity
             }
-            aggregate = sessionLine.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
+            let live = sessionLine.filter(\.isLive)
+            aggregate = live.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
+            hasLive = !live.isEmpty
             // A usage row missing its field is a provider's mistake; it sorts
             // last rather than being dropped, so the mistake stays visible.
             usage = signals.filter { $0.kind == .usage }.sorted {
-                let a = ($0.usage == nil ? 1 : 0, $0.usage?.group ?? "",
-                         $0.usage?.windowMinutes ?? 0)
-                let b = ($1.usage == nil ? 1 : 0, $1.usage?.group ?? "",
-                         $1.usage?.windowMinutes ?? 0)
+                let a = ($0.usage == nil ? 1 : 0, $0.machine == nil ? 0 : 1,
+                         $0.usage?.group ?? "", $0.usage?.windowMinutes ?? 0)
+                let b = ($1.usage == nil ? 1 : 0, $1.machine == nil ? 0 : 1,
+                         $1.usage?.group ?? "", $1.usage?.windowMinutes ?? 0)
                 return a != b ? a < b : $0.entity < $1.entity
             }
         }

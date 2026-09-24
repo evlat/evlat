@@ -230,6 +230,35 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.clockStarts, 2, "a new beating stretch is a new clock")
     }
 
+    private func dimmed(_ entity: String, _ phase: Phase) -> Signal {
+        Signal(provider: "stub", entity: entity, phase: phase, label: "name-\(entity)",
+               source: .claude, fidelity: .official,
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+               machine: Signal.Machine(name: "devbox", reachable: false))
+    }
+
+    /// A dimmed row is not live, so it does not beat: a machine that went
+    /// quiet in `working` must not keep the clock — and the idle budget —
+    /// running.
+    func testADimmedWorkingRowDoesNotBeat() {
+        let model = SessionRowsModel()
+        model.update(from: [dimmed("far", .working), dimmed("ask", .waiting)])
+        XCTAssertEqual(model.rows.map(\.isLive), [false, false])
+        XCTAssertFalse(model.rows.contains(where: \.beats))
+        XCTAssertFalse(model.isBeating, "no clock for rows nobody can hear")
+        XCTAssertEqual(model.clockStarts, 0)
+        model.setOpen(true)
+        XCTAssertFalse(model.isBeating, "not in the open list either")
+    }
+
+    /// Live rows first, whatever the dimmed one says: a dimmed `waiting` is
+    /// drawn under a live `idle`.
+    func testADimmedRowIsDrawnUnderTheLiveOnes() {
+        let model = SessionRowsModel()
+        model.update(from: [dimmed("far", .waiting), signal("near", .idle)])
+        XCTAssertEqual(model.rows.map(\.entity), ["near", "far"])
+    }
+
     /// Two sessions with the same name in the same tool get a number, from the
     /// second one on; the same name in two tools does not — the mark already
     /// tells them apart. The number follows the entity, so it does not move

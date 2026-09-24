@@ -220,6 +220,39 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(withHeaders.event?.taskID, "real-task")
     }
 
+    /// A request that came through a machine's tunnel speaks for another
+    /// computer: its `$PPID` is a remote process number, and asking this Mac
+    /// about it would compare against whatever local process holds that
+    /// number. So the headers are treated as absent and the body's claim is
+    /// deleted exactly as it is for a local request without them.
+    func testATunneledRequestCarriesNoIdentity() {
+        let forged = #"{"hook_event_name":"Stop","session_id":"s-1","evlat_pid":"1234","evlat_task":"stolen"}"#
+        let request = HTTPRequest(method: "POST", target: "/hook", body: Data(forged.utf8),
+                                  taskID: "real-task", pid: "7747", origin: nil, host: "127.0.0.1:48151")
+
+        let tunneled = LocalAPI.handle(request, origin: .tunneled)
+        XCTAssertEqual(tunneled.response, LocalAPI.Response(status: .ok, body: "{}"))
+        XCTAssertNotNil(tunneled.event, "the event itself still arrives")
+        XCTAssertNil(tunneled.event?.pid, "neither the header's pid nor the body's")
+        XCTAssertNil(tunneled.event?.taskID)
+        XCTAssertEqual(tunneled.event?.sessionID, "s-1")
+
+        let local = LocalAPI.handle(request, origin: .local)
+        XCTAssertEqual(local.event?.pid, 7747, "a local request is read as before")
+        XCTAssertEqual(LocalAPI.handle(request).event?.pid, 7747, "and local is the default")
+    }
+
+    /// The tunnel changes whose identity is trusted, not who may speak: the
+    /// browser defence and the table are the same on both origins.
+    func testATunneledRequestIsDefendedLikeALocalOne() {
+        let browser = HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
+                                  origin: "https://example.com", host: "127.0.0.1:48151")
+        XCTAssertEqual(LocalAPI.handle(browser, origin: .tunneled).response.status, .forbidden)
+        let unknown = HTTPRequest(method: "POST", target: "/nope", body: Data("{}".utf8),
+                                  host: "127.0.0.1:48151")
+        XCTAssertEqual(LocalAPI.handle(unknown, origin: .tunneled).response.status, .notFound)
+    }
+
     /// The bytes on the wire. `Content-Length` counts UTF-8 bytes, not
     /// characters; a body with one multi-byte character would otherwise be cut
     /// short and the client would wait for the rest until it timed out.

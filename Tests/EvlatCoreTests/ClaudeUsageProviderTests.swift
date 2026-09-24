@@ -129,4 +129,32 @@ final class ClaudeUsageProviderTests: XCTestCase {
         provider.handle(UsageReport(claudeStatusLine: body(fiveHour: nil)))
         XCTAssertEqual(provider.currentSignals().map { $0.usage?.windowMinutes }, [10080])
     }
+
+    // MARK: - A remote machine's instance
+
+    /// The local instance keeps today's names, so nothing already drawn moves.
+    func testTheLocalInstanceKeepsItsNames() {
+        let provider = ClaudeUsageProvider(now: { Date(timeIntervalSince1970: 1_790_200_000) })
+        provider.handle(UsageReport(claudeStatusLine: body()))
+        XCTAssertEqual(provider.id, "claude-usage")
+        XCTAssertEqual(provider.group, "Claude")
+        XCTAssertEqual(provider.currentSignals().first?.usage?.group, "Claude")
+        XCTAssertNil(provider.currentSignals().first?.machine)
+    }
+
+    /// A machine's instance has its own id, group and entities, so its
+    /// windows never overwrite the local account's — even when both are the
+    /// same account (merging them is out of scope).
+    func testAMachinesInstanceIsItsOwnGroup() {
+        let provider = ClaudeUsageProvider(now: { Date(timeIntervalSince1970: 1_790_200_000) },
+                                           machine: Signal.Machine.Identity(id: "m-1", name: "devbox"))
+        provider.handle(UsageReport(claudeStatusLine: body()))
+        let signals = provider.currentSignals()
+        XCTAssertEqual(provider.id, "claude-usage@m-1")
+        XCTAssertEqual(signals.map(\.entity), ["usage:claude-usage@m-1:300", "usage:claude-usage@m-1:10080"])
+        XCTAssertEqual(signals.map(\.provider), ["claude-usage@m-1", "claude-usage@m-1"])
+        XCTAssertEqual(signals.first?.usage?.group, "Claude · devbox")
+        XCTAssertEqual(signals.first?.label, "Claude · devbox")
+        XCTAssertEqual(signals.first?.machine?.name, "devbox")
+    }
 }

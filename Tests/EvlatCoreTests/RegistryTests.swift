@@ -357,4 +357,76 @@ final class RegistryTests: XCTestCase {
         let rows = merged([signal("s", .idle, .derived, provider: "file", rawStatus: nil)])
         XCTAssertEqual(rows.map(\.provider), ["file"])
     }
+
+    // MARK: - Dimmed rows (a machine that cannot be heard)
+
+    private func remote(_ entity: String, _ phase: Phase, reachable: Bool) -> Signal {
+        Signal(provider: "stub", entity: entity, phase: phase, label: entity, fidelity: .official,
+               rawStatus: "said-so", updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+               machine: Signal.Machine(name: "devbox", reachable: reachable))
+    }
+
+    /// A dimmed row is not live: it does not drive the mascot's face.
+    func testADimmedRowDoesNotRaiseTheAggregate() {
+        let registry = Registry()
+        registry.register(StubProvider(id: "a", signals: [signal("local", .idle, .official),
+                                                          remote("far", .waiting, reachable: false)]))
+        XCTAssertEqual(registry.snapshot().aggregate, .idle)
+        let lit = Registry()
+        lit.register(StubProvider(id: "a", signals: [signal("local", .idle, .official),
+                                                     remote("far", .waiting, reachable: true)]))
+        XCTAssertEqual(lit.snapshot().aggregate, .waiting, "a reachable machine counts like a local row")
+    }
+
+    /// Only dimmed rows: nothing is live, so the mascot's loops leave the
+    /// view tree (the idle budget), though the rows are still listed.
+    func testOnlyDimmedRowsMeansNothingIsLive() {
+        let snapshot = Registry.Snapshot(signals: [remote("far", .working, reachable: false)])
+        XCTAssertFalse(snapshot.hasLive)
+        XCTAssertEqual(snapshot.aggregate, .idle)
+        XCTAssertEqual(snapshot.ordered.map(\.entity), ["far"], "listed all the same")
+        XCTAssertTrue(Registry.Snapshot(signals: [remote("far", .working, reachable: true)]).hasLive)
+    }
+
+    /// Dimmed rows sit under every live one, whatever their phase; within
+    /// each part the usual order holds.
+    func testDimmedRowsSortBelowLiveOnes() {
+        let snapshot = Registry.Snapshot(signals: [
+            remote("dim-wait", .waiting, reachable: false),
+            signal("idle", .idle, .official),
+            remote("dim-idle", .idle, reachable: false),
+            signal("work", .working, .official),
+        ])
+        XCTAssertEqual(snapshot.ordered.map(\.entity), ["work", "idle", "dim-wait", "dim-idle"])
+    }
+
+    /// The machine rides along with the merge, on both branches.
+    func testTheMachineRidesAlongWithTheMerge() {
+        let dim = remote("far", .working, reachable: false)
+        let file = Signal(provider: "file", entity: "far", phase: .working, label: "file",
+                          fidelity: .derived, rawStatus: "busy",
+                          updatedAt: Date(timeIntervalSince1970: 1_790_000_000))
+        XCTAssertEqual(merged([file], [dim]).first?.machine, dim.machine, "a refused report")
+        let waiting = remote("far", .waiting, reachable: false)
+        XCTAssertEqual(merged([file], [waiting]).first?.machine, waiting.machine, "an admitted one")
+    }
+
+    /// Local usage groups first, a machine's after them — even where the
+    /// alphabet would put `Claude · …` before `Codex`.
+    func testARemoteUsageGroupComesAfterTheLocalOnes() {
+        func usage(_ group: String, machine: Signal.Machine?) -> Signal {
+            Signal(provider: "u", entity: "usage:\(group):300", kind: .usage, phase: .idle,
+                   progress: 0.1, label: group, fidelity: .official,
+                   updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+                   usage: Signal.Usage(group: group, windowMinutes: 300,
+                                       resetsAt: Date(timeIntervalSince1970: 1_790_010_000)),
+                   machine: machine)
+        }
+        let snapshot = Registry.Snapshot(signals: [
+            usage("Claude · devbox", machine: Signal.Machine(name: "devbox", reachable: true)),
+            usage("Codex", machine: nil),
+            usage("Claude", machine: nil),
+        ])
+        XCTAssertEqual(snapshot.usage.compactMap(\.usage?.group), ["Claude", "Codex", "Claude · devbox"])
+    }
 }

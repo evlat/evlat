@@ -136,7 +136,21 @@ public enum LocalAPI {
         public let delivery: Delivery?
     }
 
-    public static func handle(_ request: HTTPRequest) -> Outcome {
+    /// Where a request came in. The listener knows and says so; what that
+    /// means for the request is decided here, so the listener stays transport.
+    public enum Origin: Equatable {
+        /// This Mac's own loopback port (`defaultPort`).
+        case local
+        /// A remote machine's `ssh` tunnel, arriving on that machine's own
+        /// loopback listener. The request is the same bytes the local hook
+        /// command sends — the installed command is identical on both sides —
+        /// but its `$PPID` and `$EVLAT_TASK` are the remote computer's. A
+        /// remote pid asked about on this Mac would name whatever local process
+        /// holds that number, so both are treated as absent.
+        case tunneled
+    }
+
+    public static func handle(_ request: HTTPRequest, origin: Origin = .local) -> Outcome {
         switch dispatch(method: request.method, target: request.target,
                         origin: request.origin, host: request.host) {
         case .forbidden:
@@ -170,9 +184,13 @@ public enum LocalAPI {
             //
             // The stamp happens before the translation, which is why an adapter
             // has to pass these keys through (`AgentSource.canonical`).
-            if let taskID = request.taskID { json[HookEvent.taskKey] = taskID }
+            //
+            // A tunneled request takes the no-header branch: its headers are
+            // real, but they speak about another computer (`Origin.tunneled`).
+            let trusted = origin == .local
+            if trusted, let taskID = request.taskID { json[HookEvent.taskKey] = taskID }
             else { json.removeValue(forKey: HookEvent.taskKey) }
-            if let pid = request.pid { json[HookEvent.pidKey] = pid }
+            if trusted, let pid = request.pid { json[HookEvent.pidKey] = pid }
             else { json.removeValue(forKey: HookEvent.pidKey) }
             // Exactly `{}`, and that is not incidental. The installed command
             // throws the answer away (`>/dev/null`), but if this body ever did

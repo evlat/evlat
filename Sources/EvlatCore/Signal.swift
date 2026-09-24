@@ -8,7 +8,10 @@ public struct Signal: Equatable {
     /// What is being described, and the key rows are merged on. It identifies
     /// the **thing**, not the provider's view of it: the same session reaches
     /// Evlat from a file record and from a hook, and `Registry` reduces those
-    /// to one row. For sessions it is the `sessionId`, which both sources see.
+    /// to one row. For a local session it is the `sessionId`, which both
+    /// sources see. A remote machine's session is `remote:{machine id}:{sessionId}`:
+    /// the same id on two computers is two sessions, and a namespaced entity
+    /// can never merge with a local row.
     public let entity: String
     public let kind: Kind
     public let phase: Phase
@@ -64,12 +67,27 @@ public struct Signal: Equatable {
     /// "three places" rule (priority, indicator language, mascot table) is not
     /// triggered.
     public let usage: Usage?
+    /// The remote computer the thing runs on; `nil` for this Mac. Drawn as a
+    /// small name next to the row, and read for one decision only: `isLive`.
+    ///
+    /// **Not a phase** — `Phase.priority` and the mascot's expression table
+    /// do not change. But unlike `activity` and `usage` it is not inert
+    /// either: a row that is not live stays out of `Registry.Snapshot`'s
+    /// aggregate and `hasLive`, sorts under the live rows, and its ring
+    /// does not beat. Those rules read `isLive`, never this field directly,
+    /// so dimming lives in one place.
+    public let machine: Machine?
+
+    /// Can what this row says be taken as current? A local row always can;
+    /// a remote one only while its machine is reachable (`Machine.reachable`,
+    /// derived by the provider at read time).
+    public var isLive: Bool { machine?.reachable != false }
 
     public init(provider: String, entity: String, kind: Kind = .session,
                 phase: Phase, progress: Double? = nil, label: String,
                 detail: String? = nil, source: AgentSource? = nil, fidelity: Fidelity,
                 rawStatus: String? = nil, updatedAt: Date, activity: Activity? = nil,
-                usage: Usage? = nil) {
+                usage: Usage? = nil, machine: Machine? = nil) {
         self.provider = provider
         self.entity = entity
         self.kind = kind
@@ -83,6 +101,7 @@ public struct Signal: Equatable {
         self.updatedAt = updatedAt
         self.activity = activity
         self.usage = usage
+        self.machine = machine
     }
 
     /// The same signal with another activity. `Registry.reconcile` needs it on
@@ -91,7 +110,47 @@ public struct Signal: Equatable {
     public func with(activity: Activity?) -> Signal {
         Signal(provider: provider, entity: entity, kind: kind, phase: phase, progress: progress,
                label: label, detail: detail, source: source, fidelity: fidelity,
-               rawStatus: rawStatus, updatedAt: updatedAt, activity: activity, usage: usage)
+               rawStatus: rawStatus, updatedAt: updatedAt, activity: activity, usage: usage,
+               machine: machine)
+    }
+
+    /// The same signal on another machine value. `Registry.reconcile` keeps
+    /// the machine on whichever row stands.
+    func with(machine: Machine?) -> Signal {
+        Signal(provider: provider, entity: entity, kind: kind, phase: phase, progress: progress,
+               label: label, detail: detail, source: source, fidelity: fidelity,
+               rawStatus: rawStatus, updatedAt: updatedAt, activity: activity, usage: usage,
+               machine: machine)
+    }
+
+    /// Which remote computer a row belongs to, as of now.
+    public struct Machine: Equatable {
+        /// The name drawn next to the row (`host` from `user@host`). A proper
+        /// name, not catalogue text.
+        public let name: String
+        /// Whether the machine can be heard right now. The provider derives
+        /// it at read time — the tunnel is up, the row has been heard from
+        /// since it came up, and a `working` row has not gone quiet — so
+        /// nothing here runs on a timer.
+        public let reachable: Bool
+
+        public init(name: String, reachable: Bool) {
+            self.name = name
+            self.reachable = reachable
+        }
+
+        /// What a provider for one machine is given: a stable id for the
+        /// entity namespace and the name to draw. The id never changes when
+        /// the name does.
+        public struct Identity: Equatable {
+            public let id: String
+            public let name: String
+
+            public init(id: String, name: String) {
+                self.id = id
+                self.name = name
+            }
+        }
     }
 
     /// One rate-limit window: which group it is shown under, how long it is

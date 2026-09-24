@@ -44,11 +44,47 @@ public final class HooksProvider: Provider {
     /// a new event resets it by moving the stamp.
     public static let reviewDecay: TimeInterval = 25
 
+    /// How long a row with no pid lives after the last thing it heard. With
+    /// no process to ask, silence is the only evidence of death: a live
+    /// tunnel delivers `SessionEnd`, so what leaks is a session killed
+    /// outright or one that ended while no tunnel was up. Twelve hours
+    /// bounds that leak on both sides, local and remote, without a count cap.
+    public static let pidlessLifetime: TimeInterval = 12 * 3600
+
+    /// How long a remote `working` row may stay quiet before it dims. A turn
+    /// that is working sends a tool event every few seconds; half an hour of
+    /// nothing is a session `kill -9` took with the tunnel still up. Only
+    /// `working` dims this way: `idle` and `review` are quiet by nature, and
+    /// `waiting`/`failed` are blocks that never lift on silence — locally
+    /// either (`blocks`).
+    public static let workingSilence: TimeInterval = 30 * 60
+
     private let platform: Platform
     private var sessions: [String: Session] = [:]
+    /// The remote computer this instance hears through its tunnel; `nil` for
+    /// this Mac's own port.
+    private let machine: Signal.Machine.Identity?
+    /// When the tunnel last came up; `nil` while it is down. Given from
+    /// outside (`setLink`) because the tunnel is the shell's; the clock is
+    /// still `platform.now()`.
+    private var connectedSince: Date?
 
-    public init(platform: Platform) {
+    /// `machine` makes this the provider for one remote computer: its rows
+    /// are namespaced, carry no pid and are live only while the machine can
+    /// be heard. Without it this is the local provider, unchanged for every
+    /// row that has a pid.
+    public init(platform: Platform, machine: Signal.Machine.Identity? = nil) {
         self.platform = platform
+        self.machine = machine
+    }
+
+    /// The tunnel came up or went down. A repeated "up" keeps the first
+    /// mark: confirming a link must not dim rows it has not reached yet.
+    /// Meaningless on the local instance, and harmless there — its rows have
+    /// no machine to be unreachable.
+    public func setLink(connected: Bool) {
+        if !connected { connectedSince = nil }
+        else if connectedSince == nil { connectedSince = platform.now() }
     }
 
     /// What an event does to a session's phase.
@@ -210,7 +246,12 @@ public final class HooksProvider: Provider {
         // No id, no row. v1 filed every anonymous event under the placeholder
         // `"unknown"`, which merged them all onto a single line; `phase-2`
         // dropped the placeholder and it is not coming back.
-        guard let entity = event.sessionID else { return }
+        guard let sessionID = event.sessionID else { return }
+        let entity = machine.map { "remote:\($0.id):\(sessionID)" } ?? sessionID
+        // A remote number means nothing on this Mac. `LocalAPI` already strips
+        // it from a tunneled request; this is the second lock, so no remote
+        // row can ever ask `processStartedAt` about a local stranger.
+        let pid = machine == nil ? event.pid : nil
         let effect = Self.effect(of: event)
         if effect == .end {
             sessions.removeValue(forKey: entity)
@@ -224,8 +265,8 @@ public final class HooksProvider: Provider {
             var session = Session(phase: phase, since: platform.now(),
                                   word: event.name, source: event.source,
                                   cwd: event.cwd,
-                                  pid: event.pid,
-                                  startedAt: event.pid.flatMap(platform.processStartedAt),
+                                  pid: pid,
+                                  startedAt: pid.flatMap(platform.processStartedAt),
                                   // The owner is recorded where the row is
                                   // opened too: a subagent's prompt is often
                                   // the first event of a session.
@@ -243,11 +284,14 @@ public final class HooksProvider: Provider {
         // events and not others, and a row that blanked its own detail every
         // other event would flicker in the list.
         if let cwd = event.cwd { session.cwd = cwd }
+        // Any event is proof of life, one that says nothing about the phase
+        // included; `since` stays the phase's stamp.
+        session.lastSeen = platform.now()
         // `claude --resume` in another terminal moves the session to a new
         // process. Following it matters: keeping the first pid would have the
         // next scan call a live session dead. The start time is re-read with
         // the pid, since it is the pid's fact and not the session's.
-        if let pid = event.pid, pid != session.pid {
+        if let pid, pid != session.pid {
             session.pid = pid
             session.startedAt = platform.processStartedAt(pid)
         }
@@ -278,14 +322,19 @@ public final class HooksProvider: Provider {
         // `kill -9` took never sends `SessionEnd` to clear it (v1's own known
         // bug — the row lived as long as the app did). Hiding it instead would
         // grow the dictionary for the lifetime of the process.
-        sessions = sessions.filter { isAlive($0.value) }
+        sessions = sessions.filter { isAlive($0.value, now: now) }
         return sessions.map { entity, session in
-            Signal(
+            let phase = session.shownPhase(now: now)
+            return Signal(
                 provider: Self.id,
                 entity: entity,
                 kind: .session,
-                phase: session.shownPhase(now: now),
-                label: session.label(entity: entity),
+                phase: phase,
+                // The fallback is the session's own id, not the namespaced
+                // key: a remote row without a `cwd` reads like a local one.
+                label: session.label(entity: machine.map {
+                    String(entity.dropFirst("remote:\($0.id):".count))
+                } ?? entity),
                 detail: session.cwd,
                 source: session.source,
                 fidelity: .official,
@@ -297,7 +346,10 @@ public final class HooksProvider: Provider {
                 // The stamp stays the phase's: the card's facts change at event
                 // rate and must not look like a fresher state.
                 updatedAt: session.since,
-                activity: session.activity
+                activity: session.activity,
+                machine: machine.map {
+                    Signal.Machine(name: $0.name, reachable: reachable(session, phase: phase, now: now))
+                }
             )
         }
         .sorted { $0.entity < $1.entity }  // deterministic; display order is the Registry's job
@@ -311,15 +363,29 @@ public final class HooksProvider: Provider {
     /// time its record *claims* instead — one comparison, two origins
     /// (`Platform.sameProcess`).
     ///
-    /// Without a pid there is nothing to compare, and every hook installed on
+    /// Without a pid there is nothing to compare. Every hook installed on
     /// this machine sends one (11 of 11 Claude, 8 of 8 Codex — measured in
-    /// `phase-2`). The row is kept rather than dropped, for the same reason the
-    /// helper trusts an unreadable start time: losing a live session over a
-    /// missing field is worse than the ghost it prevents. Such an event is
+    /// `phase-2`), but a remote machine's rows never do. Such a row is trusted
+    /// for as long as it keeps talking, for the same reason the helper trusts
+    /// an unreadable start time — losing a live session over a missing field
+    /// is worse than the ghost it prevents — and dropped after
+    /// `pidlessLifetime` of silence, so the ghost is bounded. Such an event is
     /// visible as `pid=-` under `--capture`.
-    private func isAlive(_ session: Session) -> Bool {
-        guard let pid = session.pid else { return true }
+    private func isAlive(_ session: Session, now: Date) -> Bool {
+        guard let pid = session.pid else {
+            return now.timeIntervalSince(session.lastSeen) < Self.pidlessLifetime
+        }
         return platform.sameProcess(pid: pid, startedAt: session.startedAt)
+    }
+
+    /// Can a remote row be taken as current? Derived at read time, three
+    /// conditions: the tunnel is up; the row has been heard from since it came
+    /// up — a session that ended while the tunnel was down sent its
+    /// `SessionEnd` to nobody; and it is not a `working` row gone quiet
+    /// (`workingSilence`).
+    private func reachable(_ session: Session, phase: Phase, now: Date) -> Bool {
+        guard let connectedSince, session.lastSeen >= connectedSince else { return false }
+        return phase != .working || now.timeIntervalSince(session.lastSeen) < Self.workingSilence
     }
 
     /// What this source knows about one session. Deliberately small: the
@@ -331,6 +397,10 @@ public final class HooksProvider: Provider {
         /// When the phase was assigned. Both the row's stamp and the decay read
         /// it, because they are the same fact.
         var since: Date
+        /// When any event last reached this row, a phaseless one included.
+        /// What pidless liveness and remote reachability read; the row's
+        /// stamp is still `since`.
+        var lastSeen: Date
         /// The event name that assigned the phase.
         var word: String
         /// Which agent the session runs in: the source of the event that
@@ -360,6 +430,7 @@ public final class HooksProvider: Provider {
              countIsPartial: Bool) {
             self.phase = phase
             self.since = since
+            self.lastSeen = since
             self.word = word
             self.source = source
             self.cwd = cwd
