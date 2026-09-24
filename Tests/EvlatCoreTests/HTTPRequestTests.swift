@@ -27,6 +27,17 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertNil(request.origin)
     }
 
+    /// A chat turn's permission hook sends its token in its own header; the
+    /// name is `PermissionHook`'s, the one the inline settings write.
+    func testReadsThePermissionToken() throws {
+        let request = try XCTUnwrap(HTTPRequest.parse(raw(
+            "POST /permission HTTP/1.1\r\nHost: 127.0.0.1\r\n\(PermissionHook.tokenHeader): T-1\r\n\r\n")))
+        XCTAssertEqual(request.permissionToken, "T-1")
+        XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /hook HTTP/1.1\r\nx-evlat-permission:\r\n\r\n")))
+            .permissionToken, "empty counts as absent")
+        XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /hook HTTP/1.1\r\n\r\n"))).permissionToken)
+    }
+
     /// A broken length leaves the request body-less. A **negative** one used to
     /// reverse the body slice and bring the process down: every local process
     /// could kill Evlat by sending one header.
@@ -96,7 +107,7 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertEqual(request.target, "/hook")
         XCTAssertEqual(request.body, raw("{}"))
         // The body is a slice too, and it is what gets decoded as JSON.
-        XCTAssertEqual(LocalAPI.handle(request).response.body, "{}")
+        XCTAssertEqual(LocalAPI.handle(request).response?.body, "{}")
         // The same slice one byte short is still "not yet", not "never".
         XCTAssertNil(HTTPRequest.parse(rest.dropLast()))
     }

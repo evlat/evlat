@@ -10,7 +10,14 @@ import EvlatCore
 ///
 /// **Main queue only**, like the provider it writes: actions arrive from the UI,
 /// the runner hops its output and exit here.
+///
+/// Permission requests (`phase-3`) arrive from the listener's held
+/// connections, are matched to a running turn by their token, and are
+/// answered through `permissions` when the user presses a card's button.
 final class ChatStore {
+    /// Where a turn's permission hook posts and how it is answered: the
+    /// hook listener, or a test's stand-in. Weak: the controller owns it.
+    weak var permissions: PermissionDesk?
     /// The index's file name under the root.
     static let indexName = "chats.json"
 
@@ -32,6 +39,10 @@ final class ChatStore {
     let provider = ChatsProvider()
     private var runners: [String: ClaudeRunner] = [:]
     private var streams: [String: ChatStream] = [:]
+    /// The running turns' permission tokens → their chat. A turn's token is
+    /// made when it starts and forgotten when it ends, so a request from a
+    /// turn that is over matches nothing.
+    private var tokens: [String: String] = [:]
     private var index = ChatIndex(entries: [])
     /// Why the index file could not be read. While set, it is never
     /// written: someone's history is not replaced with an empty list.
@@ -97,13 +108,77 @@ final class ChatStore {
         case .send(let id, let text, let attachments):
             send(id, text: text, attachments: attachments)
         case .stop(let id):
-            guard provider[id]?.requestStop() == true else { return }
+            guard let open = provider[id]?.requestStop(at: now()) else { return }
+            // Each open card is denied with `interrupt`, so Claude ends the
+            // turn too rather than trying something else.
+            for request in open {
+                requests[request] = nil
+                permissions?.answer(request, with: Self.response(.deny(interrupt: true)))
+            }
             runners[id]?.interrupt()
             onChange()
-        case .answer:
-            // Permission requests arrive with `phase-3`.
-            break
+        case .answer(let request, let decision):
+            answer(request, decision)
         }
+    }
+
+    // MARK: - Permission
+
+    /// A permission request held by the listener: a card on its turn's
+    /// chat, or a refusal — an unknown token, a turn not running.
+    func permissionAsked(_ request: PermissionHook.Request) {
+        guard let token = request.token, let id = tokens[token], var chat = provider[id] else {
+            permissions?.answer(request.id, with: LocalAPI.unknownToken)
+            return
+        }
+        guard chat.ask(request, at: now()) else {
+            // After Stop, a request that slipped in ends the turn too, like
+            // the cards Stop denied.
+            permissions?.answer(request.id, with: Self.response(.deny(interrupt: chat.stopRequested)))
+            return
+        }
+        requests[request.id] = id
+        provider[id] = chat
+        onChange()
+    }
+
+    /// The request's connection closed unanswered: the card goes.
+    func permissionAbandoned(_ requestID: String) {
+        guard let id = requests.removeValue(forKey: requestID), var chat = provider[id] else { return }
+        chat.expire(requestID, at: now())
+        provider[id] = chat
+        onChange()
+    }
+
+    /// Held requests → their chat: open, or answered but not known to have
+    /// reached Claude. An answer is written on the listener's queue; one
+    /// that finds the connection already closed is followed by
+    /// `permissionAbandoned`, which needs the chat to expire the card.
+    /// Forgotten when the turn ends.
+    private var requests: [String: String] = [:]
+
+    private func answer(_ requestID: String, _ decision: Action.Decision) {
+        guard let id = requests[requestID], var chat = provider[id],
+              let sent = chat.answer(requestID, decision, at: now()) else { return }
+        provider[id] = chat
+        permissions?.answer(requestID, with: Self.response(sent))
+        // What "always" granted is the chat's from now on: its later turns
+        // start with it (`--allowedTools`, `--add-dir`).
+        if case .allow(let rules, let directories) = sent, !rules.isEmpty || !directories.isEmpty,
+           let i = index.entries.firstIndex(where: { $0.id == id }) {
+            for rule in rules.map(\.text) where !index.entries[i].allowedRules.contains(rule) {
+                index.entries[i].allowedRules.append(rule)
+            }
+            for directory in directories where !index.entries[i].addedDirectories.contains(directory) {
+                index.entries[i].addedDirectories.append(directory)
+            }
+            save()
+        }
+        onChange()
+    }
+
+    static func response(_ decision: PermissionHook.Decision) -> LocalAPI.Response {
+        LocalAPI.Response(status: .ok, body: PermissionHook.body(decision))
     }
 
     /// Evlat is quitting: every turn gets SIGTERM. Its record stays in the
@@ -138,6 +213,15 @@ final class ChatStore {
             chat.fail(.noBinary, at: now())
             return finish(id, chat)
         }
+        // No bound listener, no turn: every request it made would be denied
+        // without a card — the silent failure when another Evlat holds the
+        // port.
+        guard let port = permissions?.boundPort else {
+            chat.fail(.noListener(permissions?.status.text ?? HookListener.Status.stopped.text), at: now())
+            return finish(id, chat)
+        }
+        let token = UUID().uuidString
+        let invocation = invocation.asking(PermissionHook.Endpoint(port: port, token: token))
         if chat.isWorkspace {
             try? FileManager.default.createDirectory(atPath: chat.folder, withIntermediateDirectories: true)
         }
@@ -152,6 +236,7 @@ final class ChatStore {
             return finish(id, chat)
         }
         runners[id] = runner
+        tokens[token] = id
         let pid = runner.processIdentifier
         record(chat, run: ChatIndex.Run(pid: pid, startedAt: platform.processStartedAt(pid)))
     }
@@ -175,6 +260,10 @@ final class ChatStore {
         }
         streams[id] = nil
         runners[id] = nil
+        tokens = tokens.filter { $0.value != id }
+        // Its held requests go unanswered: the listener's connections close
+        // with the process, and the cards are expired below.
+        requests = requests.filter { $0.value != id }
         chat.ended(status: status, stderr: stderr, at: now())
         finish(id, chat)
     }
@@ -254,3 +343,13 @@ final class ChatStore {
         }
     }
 }
+
+/// What a chat needs from the hook listener: is it bound, and a way to
+/// answer a held request. `HookListener` is the one in the app.
+protocol PermissionDesk: AnyObject {
+    var status: HookListener.Status { get }
+    var boundPort: UInt16? { get }
+    func answer(_ id: String, with response: LocalAPI.Response)
+}
+
+extension HookListener: PermissionDesk {}

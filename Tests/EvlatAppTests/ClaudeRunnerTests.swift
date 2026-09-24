@@ -9,6 +9,8 @@ final class ClaudeRunnerTests: XCTestCase {
     private var directory: URL!
     private var store: ChatStore?
     private var extraProcesses: [Process] = []
+    /// The turns' permission hooks post here, as in the app.
+    private var listener: HookListener?
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
@@ -20,6 +22,8 @@ final class ClaudeRunnerTests: XCTestCase {
         // Every process started here ends here, even when an assertion failed.
         store?.stopAll()
         store = nil
+        listener?.stop()
+        listener = nil
         extraProcesses.filter(\.isRunning).forEach { $0.terminate() }
         try? FileManager.default.removeItem(at: directory)
     }
@@ -41,22 +45,36 @@ final class ClaudeRunnerTests: XCTestCase {
     /// this process: `setenv` did not reliably reach a later
     /// `ProcessInfo.processInfo.environment`, and a fake that read an earlier
     /// test's scenario hung the next one.
-    private func fakeEnvironment(_ scenario: String = "ok") -> [String: String] {
+    private func fakeEnvironment(_ scenario: String = "ok", extra: [String: String] = [:]) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["FAKE_CLAUDE_SCENARIO"] = scenario
         environment["FAKE_CLAUDE_LOG"] = log.path
-        return environment
+        return environment.merging(extra) { _, new in new }
     }
 
+    /// A store whose turns ask through a real listener on a free port — the
+    /// app's wiring: held requests to the store, abandoned ones too.
     private func make(scenario: String = "ok", claude: String? = nil, root: URL? = nil,
-                      registry: Registry? = nil,
+                      registry: Registry? = nil, environment extra: [String: String] = [:],
+                      listening: Bool = true,
                       platform: Platform = AppController.darwinPlatform) throws -> ChatStore {
         let path = try claude ?? fakeClaude()
         let made = ChatStore(root: root, platform: platform,
                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": path]),
-                             environment: fakeEnvironment(scenario))
+                             environment: fakeEnvironment(scenario, extra: extra))
         registry?.register(made.provider)
         store = made
+        if listening {
+            let listener = HookListener(port: 0, onAbandoned: { [weak made] in made?.permissionAbandoned($0) }) {
+                [weak made] delivery in
+                if case .permission(let request) = delivery { made?.permissionAsked(request) }
+            }
+            listener.start()
+            listener.awaitSettled(timeout: 5)
+            XCTAssertNotNil(listener.boundPort)
+            made.permissions = listener
+            self.listener = listener
+        }
         return made
     }
 
@@ -119,7 +137,7 @@ final class ClaudeRunnerTests: XCTestCase {
         store.perform(.send(chat: id, text: "list", attachments: []))
         waitUntil("the turn ends") { store.chat(id)?.isRunning == false }
         XCTAssertEqual(store.chat(id)?.messages.dropFirst().map { $0 }, [
-            .tool(id: "toolu_1", name: "Bash", subject: "ls -la", failed: false),
+            .tool(id: "toolu_1", name: "Bash", subject: "ls -la", failed: false, output: "a b"),
             .reply("Done."),
         ])
         XCTAssertEqual(store.chat(id)?.phase, .review)
@@ -155,6 +173,136 @@ final class ClaudeRunnerTests: XCTestCase {
         XCTAssertEqual(store.chat(id)?.phase, .review)
         XCTAssertNil(store.chat(id)?.failure)
         XCTAssertFalse(AppController.isProcessAlive(pid), "the process is gone")
+    }
+
+    // MARK: - Permission
+
+    private func openCard(_ store: ChatStore, _ id: String) -> ChatSession.PermissionCard? {
+        for case .permission(let card) in store.chat(id)?.messages ?? [] where card.isOpen { return card }
+        return nil
+    }
+
+    /// The fake posts to its `--settings` hook as the real one does: a card,
+    /// the row and the mascot's phase `waiting`; "always" lets the turn go
+    /// on, answers Claude with the rule for the session and keeps it for the
+    /// chat's next turn.
+    func testAPermissionRequestIsACardAndAlwaysAllows() throws {
+        let registry = Registry()
+        let store = try make(scenario: "permission", root: directory, registry: registry)
+        let id = store.newChat(folder: directory.path)
+        store.perform(.send(chat: id, text: "write a note", attachments: []))
+        waitUntil("the card opens") { self.openCard(store, id) != nil }
+        let card = try XCTUnwrap(openCard(store, id))
+        XCTAssertEqual(card.tool, "Write")
+        XCTAssertEqual(card.rules, [.init(toolName: "Write")], "`setMode` is never offered")
+        let row = try XCTUnwrap(registry.snapshot().ordered.first)
+        XCTAssertEqual(row.phase, .waiting)
+        XCTAssertEqual(row.activity?.waitKind, .approval)
+        XCTAssertEqual(row.activity?.blockingTool?.name, "Write")
+        XCTAssertEqual(registry.snapshot().aggregate, .waiting, "the mascot waits too")
+
+        store.perform(.answer(request: card.id, decision: .allowAlways))
+        XCTAssertEqual(store.chat(id)?.phase, .working)
+        waitUntil("the turn ends") { store.chat(id)?.isRunning == false }
+        XCTAssertEqual(store.chat(id)?.messages.last, .reply("Written."))
+        XCTAssertEqual(store.chat(id)?.phase, .review)
+
+        let run = try XCTUnwrap(runs().first)
+        let settings = try XCTUnwrap(run.firstIndex(of: "--settings").map { run[$0 + 1] })
+        XCTAssertTrue(run.contains("--permission-prompts") && run.contains("none"))
+        XCTAssertTrue(settings.contains("127.0.0.1:\(listener!.boundPort!)/permission"))
+        let answer = try XCTUnwrap(run.first { $0.hasPrefix("answer=") })
+        XCTAssertTrue(answer.contains(#""behavior":"allow""#), answer)
+        XCTAssertTrue(answer.contains(#""destination":"session""#), answer)
+        XCTAssertFalse(answer.contains("setMode"), answer)
+
+        let entry = try XCTUnwrap(ChatIndex.decode(Data(contentsOf: directory.appendingPathComponent(ChatStore.indexName)))
+            .entries.first { $0.id == id })
+        XCTAssertEqual(entry.allowedRules, ["Write"])
+        // The fake asks every turn; the real one would not ask again.
+        store.perform(.send(chat: id, text: "again", attachments: []))
+        waitUntil("the second turn asks") { self.runs().count == 2 && self.openCard(store, id) != nil }
+        XCTAssertTrue(runs()[1].contains("--allowedTools") && runs()[1].contains("Write"),
+                      "what was always allowed rides the next turn")
+        store.perform(.answer(request: openCard(store, id)!.id, decision: .allow))
+        waitUntil("the second turn ends") { store.chat(id)?.isRunning == false }
+    }
+
+    func testADenialDenies() throws {
+        let store = try make(scenario: "permission")
+        let id = store.newChat(folder: directory.path)
+        store.perform(.send(chat: id, text: "write a note", attachments: []))
+        waitUntil("the card opens") { self.openCard(store, id) != nil }
+        store.perform(.answer(request: openCard(store, id)!.id, decision: .deny))
+        waitUntil("the turn ends") { store.chat(id)?.isRunning == false }
+        XCTAssertEqual(store.chat(id)?.messages.last, .reply("Not allowed."))
+        XCTAssertTrue(runs().first?.contains { $0.hasPrefix("answer=") && $0.contains(#""behavior":"deny""#) } ?? false)
+    }
+
+    /// Claude gave up waiting (here: its `curl -m 1`): the card goes, the
+    /// turn goes on without the tool.
+    func testAClosedRequestTakesTheCardAway() throws {
+        let store = try make(scenario: "permission", environment: ["FAKE_CLAUDE_PERMISSION_WAIT": "1"])
+        let id = store.newChat(folder: directory.path)
+        store.perform(.send(chat: id, text: "write a note", attachments: []))
+        waitUntil("the card opens") { self.openCard(store, id) != nil }
+        waitUntil("the card goes") { self.openCard(store, id) == nil }
+        guard case .permission(let card)? = store.chat(id)?.messages.first(where: {
+            if case .permission = $0 { return true } else { return false }
+        }) else { return XCTFail("no card") }
+        XCTAssertEqual(card.outcome, .expired)
+        waitUntil("the turn ends") { store.chat(id)?.isRunning == false }
+        XCTAssertEqual(store.chat(id)?.messages.last, .reply("Not allowed."))
+    }
+
+    /// Stop while a card is open: the request is denied (ending Claude's
+    /// turn) and the process is interrupted.
+    func testStopDeniesTheOpenRequest() throws {
+        let store = try make(scenario: "permission")
+        let id = store.newChat(folder: directory.path)
+        store.perform(.send(chat: id, text: "write a note", attachments: []))
+        waitUntil("the card opens") { self.openCard(store, id) != nil }
+        store.perform(.stop(chat: id))
+        XCTAssertNil(openCard(store, id))
+        waitUntil("the turn ends") { store.chat(id)?.isRunning == false }
+        XCTAssertEqual(store.chat(id)?.phase, .review)
+    }
+
+    /// A token no turn holds is refused, and puts no card anywhere.
+    func testAnUnknownTokenIsForbidden() throws {
+        let store = try make()
+        let id = store.newChat(folder: directory.path)
+        let port = try XCTUnwrap(listener?.boundPort)
+        let curl = Process()
+        let out = Pipe()
+        curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        curl.arguments = ["-s", "-o", "/dev/null", "-w", "%{http_code}", "-m", "5", "-X", "POST",
+                          "-H", "\(PermissionHook.tokenHeader): nobody",
+                          "--data-binary", #"{"hook_event_name":"PermissionRequest","tool_name":"Bash"}"#,
+                          "http://127.0.0.1:\(port)\(PermissionHook.path)"]
+        curl.standardOutput = out
+        try curl.run()
+        var code = ""
+        waitUntil("curl answers") {
+            guard !curl.isRunning else { return false }
+            code = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            return true
+        }
+        XCTAssertEqual(code, "403")
+        XCTAssertTrue(store.chat(id)?.messages.isEmpty ?? false)
+    }
+
+    /// No bound listener: the turn is not started — its requests would all
+    /// be denied without a card.
+    func testWithoutAListenerNothingStarts() throws {
+        let store = try make(listening: false)
+        let id = store.newChat(folder: directory.path)
+        store.perform(.send(chat: id, text: "hi", attachments: []))
+        waitUntil("the turn is refused") { store.chat(id)?.isRunning == false }
+        guard case .noListener? = store.chat(id)?.failure else {
+            return XCTFail("expected noListener, got \(String(describing: store.chat(id)?.failure))")
+        }
+        XCTAssertTrue(runs().isEmpty)
     }
 
     /// No binary: the chat carries the failure and no process starts.

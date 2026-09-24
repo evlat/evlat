@@ -5,7 +5,12 @@
 # run from a test.
 #
 #   FAKE_CLAUDE_LOG       file its arguments, EVLAT_TASK and stdin line go to
-#   FAKE_CLAUDE_SCENARIO  ok (default) | tool | error | slow | crash
+#   FAKE_CLAUDE_SCENARIO  ok (default) | tool | error | slow | crash | permission
+#   FAKE_CLAUDE_PERMISSION_WAIT  seconds the permission hook waits (default 30)
+#
+# `permission` does what a real turn's hook does (`011/phase-3`): it reads the
+# URL and token out of its `--settings`, posts a `PermissionRequest` there and
+# acts on the answer — the tool runs when allowed, is denied otherwise.
 #
 # Like the real one it reads one user line, answers, and after the `result`
 # waits for stdin to close before it exits — so a runner that never closes
@@ -20,9 +25,13 @@ log="${FAKE_CLAUDE_LOG:-/dev/null}"
 } >> "$log"
 
 sid=""
+settings=""
 prev=""
 for a in "$@"; do
-  case "$prev" in --session-id|--resume) sid="$a" ;; esac
+  case "$prev" in
+    --session-id|--resume) sid="$a" ;;
+    --settings) settings="$a" ;;
+  esac
   prev="$a"
 done
 
@@ -63,6 +72,27 @@ slow)
   sleep 30 &
   child=$!
   wait "$child"
+  ;;
+permission)
+  url=$(printf '%s' "$settings" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+  token=$(printf '%s' "$settings" | sed -n 's/.*"X-Evlat-Permission":"\([^"]*\)".*/\1/p')
+  emit '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_w","name":"Write","input":{"file_path":"'"$PWD"'/note.txt","content":"hi"}}]},"session_id":"'"$sid"'"}'
+  body='{"session_id":"'"$sid"'","hook_event_name":"PermissionRequest","cwd":"'"$PWD"'","tool_name":"Write","tool_input":{"file_path":"'"$PWD"'/note.txt","content":"hi"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Write"}],"behavior":"allow","destination":"session"},{"type":"setMode","mode":"acceptEdits","destination":"session"}]}'
+  answer=$(curl -s -m "${FAKE_CLAUDE_PERMISSION_WAIT:-30}" -X POST -H 'Content-Type: application/json' \
+    -H "X-Evlat-Permission: $token" --data-binary "$body" "$url")
+  printf 'answer=%s\n' "$answer" >> "$log"
+  case "$answer" in
+  *'"behavior":"allow"'*)
+    emit '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_w","type":"tool_result","content":"File created"}]},"session_id":"'"$sid"'"}'
+    text Written.
+    result success false Written.
+    ;;
+  *)
+    emit '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_w","type":"tool_result","content":"Permission denied","is_error":true}]},"session_id":"'"$sid"'"}'
+    text 'Not allowed.'
+    result success false 'Not allowed.'
+    ;;
+  esac
   ;;
 crash)
   echo 'warning: something' >&2

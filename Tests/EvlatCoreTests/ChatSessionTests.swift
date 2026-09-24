@@ -75,13 +75,13 @@ final class ChatSessionTests: XCTestCase {
         _ = chat.begin(prompt: "hi", attachments: [], at: t0)
         chat.apply(.textDelta("Look"), at: t0)
         chat.apply(.assistant(text: "Looking.", tools: [.init(id: "t1", name: "Bash", subject: "ls")]), at: t0)
-        chat.apply(.toolResult(id: "t1", isError: true), at: t0)
+        chat.apply(.toolResult(id: "t1", isError: true, output: "no such file"), at: t0)
         chat.apply(.textDelta("Done"), at: t0)
         chat.apply(.assistant(text: "Done.", tools: []), at: t0)
         XCTAssertEqual(chat.messages, [
             .user(text: "hi", attachments: []),
             .reply("Looking."),
-            .tool(id: "t1", name: "Bash", subject: "ls", failed: true),
+            .tool(id: "t1", name: "Bash", subject: "ls", failed: true, output: "no such file"),
             .reply("Done."),
         ])
         XCTAssertEqual(chat.signal()?.activity?.lastTool, Signal.Activity.Tool(name: "Bash", subject: "ls"))
@@ -111,12 +111,12 @@ final class ChatSessionTests: XCTestCase {
     func testAStoppedTurnEndsInReview() {
         var chat = chat()
         _ = chat.begin(prompt: "hi", attachments: [], at: t0)
-        XCTAssertTrue(chat.requestStop())
+        XCTAssertEqual(chat.requestStop(at: t0), [])
         chat.ended(status: 130, stderr: "", at: t0)
         XCTAssertEqual(chat.phase, .review)
         XCTAssertNil(chat.failure)
         XCTAssertEqual(chat.signal()?.rawStatus, ChatSession.stoppedWord)
-        XCTAssertFalse(chat.requestStop(), "nothing is running to stop")
+        XCTAssertNil(chat.requestStop(at: t0), "nothing is running to stop")
     }
 
     func testANewTurnClearsTheLastOnesFacts() {
@@ -150,3 +150,117 @@ final class ChatSessionTests: XCTestCase {
         XCTAssertLessThanOrEqual(chat.signal()?.activity?.lastReply?.count ?? .max, HookEvent.replyLimit + 1)
     }
 }
+
+/// Permission cards (`phase-3`): `waiting` while one is open, `working`
+/// again once the last is answered.
+final class ChatSessionPermissionTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func running() -> ChatSession {
+        var chat = ChatSession(id: "C1", sessionID: "S1", folder: "/tmp/project", isWorkspace: false)
+        _ = chat.begin(prompt: "write it", attachments: [], at: t0)
+        return chat
+    }
+
+    private func request(_ id: String, tool: String = "Write", rules: [PermissionHook.Rule] = [],
+                         directories: [String] = []) -> PermissionHook.Request {
+        PermissionHook.Request(id: id, token: "T", tool: tool, subject: "/tmp/project/a.txt",
+                               rules: rules, directories: directories)
+    }
+
+    func testAnOpenCardMakesTheChatWaitAndAnAnswerResumesIt() throws {
+        var chat = running()
+        XCTAssertTrue(chat.ask(request("R1", rules: [.init(toolName: "Write")]), at: t0))
+        XCTAssertEqual(chat.phase, .waiting)
+        let row = try XCTUnwrap(chat.signal())
+        XCTAssertEqual(row.phase, .waiting)
+        XCTAssertEqual(row.activity?.waitKind, .approval)
+        XCTAssertEqual(row.activity?.blockingTool, Signal.Activity.Tool(name: "Write", subject: "/tmp/project/a.txt"))
+        XCTAssertEqual(chat.openRequests, ["R1"])
+
+        XCTAssertEqual(chat.answer("R1", .allowAlways, at: t0),
+                       .allow(rules: [.init(toolName: "Write")], directories: []))
+        XCTAssertEqual(chat.phase, .working)
+        XCTAssertNil(chat.signal()?.activity?.waitKind)
+        XCTAssertNil(chat.signal()?.activity?.blockingTool)
+        guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
+        XCTAssertEqual(card.outcome, .allowedAlways)
+        XCTAssertNil(chat.answer("R1", .deny, at: t0), "an answered card is not answered twice")
+    }
+
+    func testTwoRequestsAreTwoCards() {
+        var chat = running()
+        chat.ask(request("R1"), at: t0)
+        chat.ask(request("R2", tool: "Bash"), at: t0)
+        XCTAssertEqual(chat.openRequests, ["R1", "R2"])
+        XCTAssertEqual(chat.answer("R2", .deny, at: t0), .deny(interrupt: false))
+        XCTAssertEqual(chat.phase, .waiting, "one card is still open")
+        XCTAssertEqual(chat.signal()?.activity?.blockingTool?.name, "Write")
+        XCTAssertEqual(chat.answer("R1", .allow, at: t0), .allow(rules: [], directories: []))
+        XCTAssertEqual(chat.phase, .working)
+    }
+
+    func testAnAbandonedCardGoesAndTheTurnGoesOn() {
+        var chat = running()
+        chat.ask(request("R1"), at: t0)
+        chat.expire("R1", at: t0)
+        XCTAssertEqual(chat.phase, .working)
+        XCTAssertTrue(chat.openRequests.isEmpty)
+        XCTAssertNil(chat.answer("R1", .allow, at: t0))
+    }
+
+    func testStopDeniesEveryOpenCard() {
+        var chat = running()
+        chat.ask(request("R1"), at: t0)
+        chat.ask(request("R2"), at: t0)
+        XCTAssertEqual(chat.requestStop(at: t0), ["R1", "R2"])
+        XCTAssertTrue(chat.openRequests.isEmpty)
+        XCTAssertNotEqual(chat.phase, .waiting)
+        XCTAssertFalse(chat.ask(request("R3"), at: t0), "a stopping turn asks nothing more")
+        chat.ended(status: 130, stderr: "", at: t0)
+        XCTAssertEqual(chat.phase, .review)
+    }
+
+    func testTheEndOfTheTurnExpiresWhatIsLeft() {
+        var chat = running()
+        chat.ask(request("R1"), at: t0)
+        chat.ended(status: 1, stderr: "gone", at: t0)
+        XCTAssertTrue(chat.openRequests.isEmpty)
+        XCTAssertEqual(chat.phase, .failed)
+    }
+
+    func testNoTurnNoCard() {
+        var chat = ChatSession(id: "C1", sessionID: "S1", folder: "/tmp/project", isWorkspace: false)
+        XCTAssertFalse(chat.ask(request("R1"), at: t0))
+        XCTAssertTrue(chat.messages.isEmpty)
+    }
+
+    func testAFolderOutsideIsOfferedAsAccess() {
+        var chat = running()
+        chat.ask(request("R1", directories: ["/elsewhere"]), at: t0)
+        guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
+        XCTAssertTrue(card.offersAlways)
+        XCTAssertEqual(chat.answer("R1", .allowAlways, at: t0), .allow(rules: [], directories: ["/elsewhere"]))
+    }
+
+    /// A second card keeps the wait's start: the bar counts how long the
+    /// chat has been blocked.
+    func testASecondCardKeepsTheWaitsStart() {
+        var chat = running()
+        chat.ask(request("R1"), at: t0)
+        chat.ask(request("R2"), at: t0.addingTimeInterval(180))
+        XCTAssertEqual(chat.since, t0)
+    }
+
+    /// An answer that never reached Claude (its connection closed first)
+    /// shows as expired, not as allowed.
+    func testAnAnsweredCardThatWasAbandonedExpires() {
+        var chat = running()
+        chat.ask(request("R1"), at: t0)
+        _ = chat.answer("R1", .allow, at: t0)
+        chat.expire("R1", at: t0)
+        guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
+        XCTAssertEqual(card.outcome, .expired)
+    }
+}
+

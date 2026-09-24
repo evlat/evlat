@@ -18,12 +18,27 @@ enum ChatPalette {
     static let placeholder = Color(.sRGB, red: 138 / 255, green: 141 / 255, blue: 147 / 255)
     static let faint = Color(.sRGB, red: 109 / 255, green: 112 / 255, blue: 118 / 255)
     static let failure = Color(.sRGB, red: 240 / 255, green: 113 / 255, blue: 103 / 255)
+    static let done = Color(.sRGB, red: 120 / 255, green: 190 / 255, blue: 140 / 255)
+    static let button = Color(.sRGB, red: 58 / 255, green: 60 / 255, blue: 64 / 255)
+    static let buttonText = Color(.sRGB, red: 221 / 255, green: 221 / 255, blue: 221 / 255)
+
+    // The permission card: the bar's own "waiting" amber (`#f5a524`), on a
+    // ground dark enough that the amber reads as the one loud thing.
+    static let amber = Color(.sRGB, red: 245 / 255, green: 165 / 255, blue: 36 / 255)
+    static let amberInk = Color(.sRGB, red: 27 / 255, green: 20 / 255, blue: 6 / 255)
+    static let cardGround = Color(.sRGB, red: 33 / 255, green: 26 / 255, blue: 12 / 255)
+    static let cardEdge = Color(.sRGB, red: 107 / 255, green: 79 / 255, blue: 22 / 255)
+    static let cardTitle = Color(.sRGB, red: 245 / 255, green: 196 / 255, blue: 105 / 255)
+    static let cardText = Color(.sRGB, red: 217 / 255, green: 201 / 255, blue: 166 / 255)
+    static let cardCode = Color(.sRGB, red: 243 / 255, green: 227 / 255, blue: 192 / 255)
 }
 
 /// The balloon (`011`, Karar 7): out of the mascot, its tail on the bar.
 /// First a single line, three suggestions and a hint; once something is
-/// sent, the exchange above the line. Tool calls are one dim line each here;
-/// `phase-3` makes them open, and adds the stop and the permission card.
+/// sent, the exchange above the line: short messages, the reply as it
+/// streams, a tool call as one dim line that opens on a click, a permission
+/// request as an amber card with its buttons, and a stop button in the line
+/// while a turn runs (`phase-3`).
 struct ChatView: View {
     @ObservedObject var model: ChatModel
     @FocusState private var focused: Bool
@@ -95,9 +110,13 @@ struct ChatView: View {
                 // focus and nothing would give it back until the balloon
                 // reopened. `submit` refuses a second turn instead.
                 .onSubmit { model.submit(model.draft) }
-            Text(model.isRunning ? "…" : "↩")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(ChatPalette.faint)
+            if model.isRunning {
+                StopButton { model.stop() }
+            } else {
+                Text("↩")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ChatPalette.faint)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -144,9 +163,9 @@ struct ChatView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(model.messages.enumerated()), id: \.offset) { index, message in
-                        MessageLine(message: message).id(index)
+                        MessageLine(message: message, answer: model.answer).id(index)
                     }
-                    if model.isRunning, !Self.isReplying(model.messages) {
+                    if model.isRunning, !Self.isReplying(model.messages), !Self.isAsking(model.messages) {
                         Text(L10n.t("chat.working"))
                             .font(.system(size: 12))
                             .foregroundStyle(ChatPalette.faint)
@@ -158,7 +177,7 @@ struct ChatView: View {
             .frame(maxHeight: Self.transcriptMaxHeight)
             .fixedSize(horizontal: false, vertical: true)
             .onChange(of: model.messages) {
-                reader.scrollTo(model.isRunning && !Self.isReplying(model.messages)
+                reader.scrollTo(model.isRunning && !Self.isReplying(model.messages) && !Self.isAsking(model.messages)
                                 ? AnyHashable(Self.workingID) : AnyHashable(model.messages.count - 1),
                                 anchor: .bottom)
             }
@@ -171,11 +190,17 @@ struct ChatView: View {
         if case .reply? = messages.last { return true }
         return false
     }
+
+    /// An open card says what is happening; "Working…" under it would not.
+    private static func isAsking(_ messages: [ChatSession.Message]) -> Bool {
+        messages.contains { if case .permission(let card) = $0 { return card.isOpen } else { return false } }
+    }
 }
 
 /// One line of the exchange.
 private struct MessageLine: View {
     let message: ChatSession.Message
+    let answer: (String, Action.Decision) -> Void
 
     var body: some View {
         switch message {
@@ -200,16 +225,210 @@ private struct MessageLine: View {
                 .foregroundStyle(ChatPalette.reply)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-        case .tool(_, let name, let subject, let failed):
+        case .tool(_, let name, let subject, let failed, let output):
+            ToolLine(name: name, subject: subject, failed: failed, output: output)
+        case .permission(let card):
+            if card.isOpen {
+                PermissionCardView(card: card, answer: answer)
+            } else {
+                AnsweredLine(card: card)
+            }
+        }
+    }
+}
+
+/// A tool call: one dim line; a click opens it to the whole subject and
+/// how it ended.
+private struct ToolLine: View {
+    let name: String
+    let subject: String?
+    let failed: Bool?
+    let output: String?
+    @State private var open = false
+    @State private var hovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button { open.toggle() } label: {
+                HStack(spacing: 6) {
+                    Text("▸")
+                        .foregroundStyle(ChatPalette.faint.opacity(0.7))
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                    Text(name).foregroundStyle(failed == true ? ChatPalette.failure
+                                               : hovered ? ChatPalette.chipText : ChatPalette.placeholder)
+                    if let subject, !open {
+                        Text(subject).foregroundStyle(ChatPalette.faint).lineLimit(1).truncationMode(.middle)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovered = $0 }
+            if open {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let subject {
+                        Text(subject)
+                            .foregroundStyle(ChatPalette.chipText)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(L10n.t(failed == nil ? "chat.tool.running"
+                                    : failed == true ? "chat.tool.failed" : "chat.tool.done"))
+                            .foregroundStyle(failed == true ? ChatPalette.failure
+                                             : failed == false ? ChatPalette.done : ChatPalette.faint)
+                        if let output {
+                            Text(output).foregroundStyle(ChatPalette.faint).lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(.leading, 14)
+                .transition(.opacity)
+            }
+        }
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .animation(.easeOut(duration: 0.12), value: open)
+    }
+}
+
+/// A permission request waiting for the user (reference screen 4): what
+/// it is, what it will do in one line, and the buttons. The third button
+/// is there only when there is something to keep: a folder to reach
+/// ("Give access") or a rule for this chat ("Always in this folder").
+private struct PermissionCardView: View {
+    let card: ChatSession.PermissionCard
+    let answer: (String, Action.Decision) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text("▸").foregroundStyle(ChatPalette.faint.opacity(0.7))
-                Text(name).foregroundStyle(failed == true ? ChatPalette.failure : ChatPalette.placeholder)
-                if let subject {
-                    Text(subject).foregroundStyle(ChatPalette.faint).lineLimit(1).truncationMode(.middle)
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(L10n.t("chat.permission.title"))
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(ChatPalette.cardTitle)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.t("chat.permission.tool", ["tool": card.tool]))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(ChatPalette.cardText)
+                if let subject = card.subject {
+                    Text(subject)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(ChatPalette.cardCode)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // Every folder and rule the third button would keep for the
+                // chat's later turns is on the card: a grant is not made
+                // from lines the user never saw.
+                ForEach(card.directories, id: \.self) { folder in
+                    Text(L10n.t("chat.permission.folder", ["folder": (folder as NSString).abbreviatingWithTildeInPath]))
+                        .font(.system(size: 11))
+                        .foregroundStyle(ChatPalette.cardText.opacity(0.8))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if !card.rules.isEmpty {
+                    Text(card.rules.map(\.text).joined(separator: "  "))
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(ChatPalette.cardText.opacity(0.8))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            FlowLayout(spacing: 6) {
+                CardButton(title: L10n.t("chat.permission.allow"), primary: true) { answer(card.id, .allow) }
+                CardButton(title: L10n.t("chat.permission.deny")) { answer(card.id, .deny) }
+                if card.offersAlways {
+                    CardButton(title: L10n.t(card.directories.isEmpty ? "chat.permission.always"
+                                             : "chat.permission.access")) { answer(card.id, .allowAlways) }
+                }
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ChatPalette.cardGround))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ChatPalette.cardEdge, lineWidth: 1))
+        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+    }
+}
+
+/// An answered card, folded to one quiet line: what was asked, what came of it.
+private struct AnsweredLine: View {
+    let card: ChatSession.PermissionCard
+
+    var body: some View {
+        let allowed = card.outcome == .allowed || card.outcome == .allowedAlways
+        HStack(spacing: 6) {
+            Image(systemName: allowed ? "checkmark.shield" : "xmark.shield")
+                .foregroundStyle(allowed ? ChatPalette.amber.opacity(0.8) : ChatPalette.faint)
+            Text(card.outcome.map { L10n.t(ChatModel.outcomeKey($0)) } ?? "")
+                .foregroundStyle(allowed ? ChatPalette.placeholder : ChatPalette.faint)
+            Text(card.tool).foregroundStyle(ChatPalette.faint)
+            if let subject = card.subject {
+                Text(subject).foregroundStyle(ChatPalette.faint.opacity(0.8)).lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
+    }
+}
+
+/// A card's button: amber and filled when it is the one to press, quiet
+/// otherwise; both answer the pointer.
+private struct CardButton: View {
+    let title: String
+    var primary = false
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5, weight: primary ? .semibold : .regular))
+                .foregroundStyle(primary ? ChatPalette.amberInk : ChatPalette.buttonText)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(primary ? ChatPalette.amber.opacity(hovered ? 0.88 : 1)
+                          : hovered ? ChatPalette.chipHover : .clear))
+                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(primary ? ChatPalette.amber : ChatPalette.button, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+}
+
+/// Ends the running turn: a small square in the line's corner.
+private struct StopButton: View {
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(hovered ? ChatPalette.text : ChatPalette.chipText)
+                .frame(width: 7, height: 7)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(hovered ? ChatPalette.button : ChatPalette.chipHover))
+                .overlay(Circle().stroke(ChatPalette.chipEdge, lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.t("chat.stop"))
+        .accessibilityLabel(L10n.t("chat.stop"))
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: hovered)
     }
 }
 

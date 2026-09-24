@@ -7,8 +7,9 @@ import Foundation
 /// another port never hears the turn's hooks, it always hears its stdout.
 /// `working` from the prompt to the `result`; `review` when the turn
 /// finished (or the user stopped it); `failed` when it ended in an error,
-/// died without a result or never started. `waiting` is `phase-3`'s. No
-/// `Phase` value is added.
+/// died without a result or never started; `waiting` while a permission
+/// card is open (`phase-3`), back to `working` when the last one is
+/// answered. No `Phase` value is added.
 ///
 /// Pure and a value: time is handed in, the process is the shell's.
 public struct ChatSession: Equatable {
@@ -56,8 +57,40 @@ public struct ChatSession: Equatable {
     public enum Message: Equatable {
         case user(text: String, attachments: [String])
         case reply(String)
-        /// One tool call on one line; `failed` is `nil` until its result.
-        case tool(id: String, name: String, subject: String?, failed: Bool?)
+        /// One tool call on one line; `failed` is `nil` until its result,
+        /// `output` the first line of what it said.
+        case tool(id: String, name: String, subject: String?, failed: Bool?, output: String?)
+        /// A permission request, open until answered.
+        case permission(PermissionCard)
+    }
+
+    /// One permission request on the balloon (`R6`).
+    public struct PermissionCard: Equatable {
+        /// The request's id: the held connection's key.
+        public let id: String
+        public let tool: String
+        public let subject: String?
+        /// What "always" would grant: the suggested rules…
+        public let rules: [PermissionHook.Rule]
+        /// …and folders outside the chat's. With a folder the card offers
+        /// access to it rather than a rule.
+        public let directories: [String]
+        /// `nil` while the card waits for the user.
+        public var outcome: Outcome?
+
+        public enum Outcome: Equatable {
+            case allowed
+            /// Allowed, with the rules or folders kept for the chat.
+            case allowedAlways
+            case denied
+            /// The request went away unanswered: Claude's time ran out, the
+            /// turn ended or was stopped.
+            case expired
+        }
+
+        public var isOpen: Bool { outcome == nil }
+        /// Is there anything "always" would grant?
+        public var offersAlways: Bool { !rules.isEmpty || !directories.isEmpty }
     }
 
     /// Why a chat failed. Reasons, not text: the balloon words them from the
@@ -73,6 +106,10 @@ public struct ChatSession: Equatable {
         case result(subtype: String, text: String?)
         /// The turn was running when Evlat went away (found at launch).
         case interrupted
+        /// Evlat's loopback listener is not bound, so no permission request
+        /// could reach it: the turn is not started rather than having every
+        /// request silently denied (another Evlat holding the port).
+        case noListener(String)
     }
 
     /// `hasStarted` is the index's word for a chat read back at launch.
@@ -130,16 +167,17 @@ public struct ChatSession: Equatable {
             // next block's, after a tool or in a later message.
             replyOpen = false
             for tool in tools {
-                messages.append(.tool(id: tool.id, name: tool.name, subject: tool.subject, failed: nil))
+                messages.append(.tool(id: tool.id, name: tool.name, subject: tool.subject, failed: nil,
+                                      output: nil))
                 lastTool = Signal.Activity.Tool(name: tool.name, subject: tool.subject)
                 toolCount += 1
             }
-        case .toolResult(let id, let isError):
+        case .toolResult(let id, let isError, let output):
             if let index = messages.lastIndex(where: {
-                if case .tool(id, _, _, _) = $0 { return true }
+                if case .tool(id, _, _, _, _) = $0 { return true }
                 return false
-            }), case .tool(_, let name, let subject, _) = messages[index] {
-                messages[index] = .tool(id: id, name: name, subject: subject, failed: isError)
+            }), case .tool(_, let name, let subject, _, _) = messages[index] {
+                messages[index] = .tool(id: id, name: name, subject: subject, failed: isError, output: output)
             }
         case .result(let result):
             resultSeen = true
@@ -158,12 +196,96 @@ public struct ChatSession: Equatable {
         }
     }
 
+    // MARK: - Permission
+
+    /// The requests still waiting for the user, oldest first.
+    public var openRequests: [String] {
+        messages.compactMap { if case .permission(let card) = $0, card.isOpen { return card.id } else { return nil } }
+    }
+
+    /// A permission request of the running turn: a card, and the chat
+    /// `waiting`. `false` when no turn runs — the caller denies it.
+    @discardableResult
+    public mutating func ask(_ request: PermissionHook.Request, at now: Date) -> Bool {
+        guard isRunning, !stopRequested, card(request.id) == nil else { return false }
+        replyOpen = false
+        messages.append(.permission(PermissionCard(id: request.id, tool: request.tool, subject: request.subject,
+                                                   rules: request.rules, directories: request.directories)))
+        // A second card while one is open keeps the wait's start: the bar
+        // counts how long the chat has been waiting, not since the last card.
+        if phase != .waiting { set(.waiting, word: "permission", at: now) }
+        return true
+    }
+
+    /// The user's answer to one card: the decision to send, or `nil` when
+    /// that card is not open (answered, expired, never seen). `always` grants
+    /// the card's rules and folders for this session; the caller keeps them
+    /// for the chat's later turns.
+    public mutating func answer(_ id: String, _ decision: Action.Decision, at now: Date) -> PermissionHook.Decision? {
+        guard let index = cardIndex(id), case .permission(var card) = messages[index], card.isOpen else { return nil }
+        let sent: PermissionHook.Decision
+        switch decision {
+        case .allow:
+            card.outcome = .allowed
+            sent = .allow(rules: [], directories: [])
+        case .allowAlways:
+            card.outcome = .allowedAlways
+            sent = .allow(rules: card.rules, directories: card.directories)
+        case .deny:
+            card.outcome = .denied
+            sent = .deny(interrupt: false)
+        }
+        messages[index] = .permission(card)
+        resume(at: now)
+        return sent
+    }
+
+    /// The request went away unanswered (the connection closed). A card
+    /// already answered expires too: the listener reports only a request it
+    /// never wrote an answer to, so an answer given as the connection closed
+    /// never reached Claude and the card must not say it did.
+    public mutating func expire(_ id: String, at now: Date) {
+        guard let index = cardIndex(id), case .permission(var card) = messages[index],
+              card.outcome != .expired else { return }
+        card.outcome = .expired
+        messages[index] = .permission(card)
+        resume(at: now)
+    }
+
+    /// Back to `working` once no card is open — while the turn still runs.
+    private mutating func resume(at now: Date) {
+        guard phase == .waiting, openRequests.isEmpty, isRunning else { return }
+        set(.working, word: "answer", at: now)
+    }
+
+    private func card(_ id: String) -> PermissionCard? {
+        guard let index = cardIndex(id), case .permission(let card) = messages[index] else { return nil }
+        return card
+    }
+
+    private func cardIndex(_ id: String) -> Int? {
+        messages.lastIndex { if case .permission(let card) = $0 { return card.id == id } else { return false } }
+    }
+
+    /// Every open card marked `expired`, with no phase of its own: the turn's
+    /// end sets that.
+    private mutating func expireAll() {
+        for index in messages.indices {
+            if case .permission(var card) = messages[index], card.isOpen {
+                card.outcome = .expired
+                messages[index] = .permission(card)
+            }
+        }
+    }
+
     /// The process ended. After a result this changes nothing; without one
     /// the turn crashed — unless the user asked it to stop.
     public mutating func ended(status: Int32, stderr: String, at now: Date) {
         guard isRunning else { return }
         isRunning = false
         replyOpen = false
+        // No one is left to ask: the process that held them is gone.
+        expireAll()
         guard !resultSeen else { return }
         if stopRequested {
             set(.review, word: Self.stoppedWord, at: now)
@@ -175,12 +297,24 @@ public struct ChatSession: Equatable {
         set(.failed, word: "exit/\(status)", at: now)
     }
 
-    /// The user asked the running turn to end. `false` when nothing runs.
+    /// The user asked the running turn to end. Returns the open requests,
+    /// each now denied — the caller answers them so (with `interrupt`) —
+    /// or `nil` when nothing runs.
     @discardableResult
-    public mutating func requestStop() -> Bool {
-        guard isRunning else { return false }
+    public mutating func requestStop(at now: Date) -> [String]? {
+        guard isRunning else { return nil }
         stopRequested = true
-        return true
+        let open = openRequests
+        for index in messages.indices {
+            if case .permission(var card) = messages[index], card.isOpen {
+                card.outcome = .denied
+                messages[index] = .permission(card)
+            }
+        }
+        // Still running until the process says so; no longer waiting on
+        // the user.
+        if phase == .waiting { set(.working, word: Self.stoppedWord, at: now) }
+        return open
     }
 
     /// A failure with no process behind it: no binary, a launch that did not
@@ -188,6 +322,7 @@ public struct ChatSession: Equatable {
     public mutating func fail(_ reason: Failure, at now: Date) {
         isRunning = false
         replyOpen = false
+        expireAll()
         failure = reason
         set(.failed, word: "evlat/\(reason.word)", at: now)
     }
@@ -204,8 +339,18 @@ public struct ChatSession: Equatable {
         return Signal(provider: Self.provider, entity: "evlat:\(id)", kind: .job, phase: phase,
                       label: label, detail: folder, source: nil, fidelity: .official,
                       rawStatus: word, updatedAt: since,
-                      activity: Signal.Activity(lastTool: lastTool, lastReply: lastReply,
-                                                toolCount: toolCount))
+                      activity: Signal.Activity(lastTool: lastTool, blockingTool: blocking,
+                                                waitKind: blocking == nil ? nil : .approval,
+                                                lastReply: lastReply, toolCount: toolCount))
+    }
+
+    /// The oldest open card's tool, while the chat waits on it.
+    private var blocking: Signal.Activity.Tool? {
+        guard phase == .waiting else { return nil }
+        for case .permission(let card) in messages where card.isOpen {
+            return Signal.Activity.Tool(name: card.tool, subject: card.subject)
+        }
+        return nil
     }
 
     /// The title, else the first prompt's first line, capped; else the folder.
@@ -233,6 +378,7 @@ extension ChatSession.Failure {
         case .exited: return "exited"
         case .result: return "result"
         case .interrupted: return "interrupted"
+        case .noListener: return "no-listener"
         }
     }
 }

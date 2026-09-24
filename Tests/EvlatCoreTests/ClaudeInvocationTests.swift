@@ -36,6 +36,20 @@ final class ClaudeInvocationTests: XCTestCase {
         ])
     }
 
+    /// A started turn asks through its own hook: nothing prompts, the
+    /// inline hook decides (`phase-3`).
+    func testAStartedTurnAsksThroughItsHook() {
+        let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: false,
+                                         prompt: "hi", attachments: [], directory: "/tmp/p")
+        let endpoint = PermissionHook.Endpoint(port: 48999, token: "T")
+        let asking = call.asking(endpoint)
+        XCTAssertEqual(asking.arguments, call.arguments + ["--permission-prompts", "none",
+                                                          "--settings", endpoint.settings])
+        XCTAssertEqual(asking.input, call.input)
+        XCTAssertEqual(asking.environment, call.environment, "the token is not in the environment")
+        XCTAssertEqual(asking.directory, call.directory)
+    }
+
     /// The documented user line, one line, newline-terminated.
     func testTheInputIsOneUserLine() throws {
         let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: false,

@@ -45,6 +45,17 @@ public struct ClaudeInvocation: Equatable {
                                 directory: directory)
     }
 
+    /// The turn, asking its permissions through `endpoint` (`phase-3`):
+    /// `--permission-prompts none`, so what would prompt is denied unless
+    /// the inline hook allows it, and `--settings` carrying that hook. The
+    /// user's own settings still load; hooks merge across them (measured,
+    /// `phase-1`). Added when the turn starts, because only then is the
+    /// listener's port known to be bound.
+    public func asking(_ endpoint: PermissionHook.Endpoint) -> ClaudeInvocation {
+        ClaudeInvocation(arguments: arguments + ["--permission-prompts", "none", "--settings", endpoint.settings],
+                         input: input, environment: environment, directory: directory)
+    }
+
     /// `{"type":"user","message":{"role":"user","content":…}}`. Attached
     /// files are named by path under the prompt; how they are labelled and
     /// suggested is `phase-4`'s.

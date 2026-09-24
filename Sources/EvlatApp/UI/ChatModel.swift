@@ -23,6 +23,10 @@ final class ChatModel: ObservableObject {
 
     /// The prompt, trimmed. The controller turns it into `Action.send`.
     var onSend: ((String) -> Void)?
+    /// A card's button: `Action.answer`.
+    var onAnswer: ((String, Action.Decision) -> Void)?
+    /// The stop button: `Action.stop`.
+    var onStop: (() -> Void)?
 
     /// Three prompts a bare `claude -p` can answer from its own folder,
     /// asking for no folder the system guards (Downloads, Desktop) and no
@@ -31,7 +35,24 @@ final class ChatModel: ObservableObject {
     static let suggestionKeys = ["chat.suggestion.capabilities", "chat.suggestion.memory",
                                  "chat.suggestion.disk"]
     /// Every key the balloon asks for, but the failures'.
-    static let keys = ["chat.placeholder", "chat.hint", "chat.missing", "chat.working"] + suggestionKeys
+    static let keys = ["chat.placeholder", "chat.hint", "chat.missing", "chat.working", "chat.stop",
+                       "chat.permission.title", "chat.permission.tool", "chat.permission.folder",
+                       "chat.permission.allow", "chat.permission.deny", "chat.permission.always",
+                       "chat.permission.access", "chat.tool.running", "chat.tool.done", "chat.tool.failed"]
+        + suggestionKeys + outcomeKeys
+
+    static let outcomeKeys = ["chat.permission.allowed", "chat.permission.allowedAlways",
+                              "chat.permission.denied", "chat.permission.expired"]
+
+    /// An answered card's one line. A switch, like the failures.
+    nonisolated static func outcomeKey(_ outcome: ChatSession.PermissionCard.Outcome) -> String {
+        switch outcome {
+        case .allowed: return "chat.permission.allowed"
+        case .allowedAlways: return "chat.permission.allowedAlways"
+        case .denied: return "chat.permission.denied"
+        case .expired: return "chat.permission.expired"
+        }
+    }
 
     /// A failure's line. A switch, so a new reason does not compile without one.
     nonisolated static func failureKey(_ failure: ChatSession.Failure) -> String {
@@ -41,6 +62,7 @@ final class ChatModel: ObservableObject {
         case .exited: return "chat.failure.exited"
         case .result: return "chat.failure.result"
         case .interrupted: return "chat.failure.interrupted"
+        case .noListener: return "chat.failure.noListener"
         }
     }
 
@@ -50,6 +72,7 @@ final class ChatModel: ObservableObject {
         case .launch(let detail): return detail
         case .exited(_, let detail): return detail
         case .result(_, let text): return text
+        case .noListener(let status): return status
         case .noBinary, .interrupted: return nil
         }
     }
@@ -74,6 +97,15 @@ final class ChatModel: ObservableObject {
         draft = ""
         onSend(prompt)
         return true
+    }
+
+    func answer(_ id: String, _ decision: Action.Decision) {
+        onAnswer?(id, decision)
+    }
+
+    func stop() {
+        guard isRunning else { return }
+        onStop?()
     }
 
     func opened() {

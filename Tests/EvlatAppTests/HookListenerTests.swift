@@ -257,6 +257,89 @@ final class HookListenerTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // MARK: - A held permission request
+
+    private let permissionBody = #"{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}"#
+
+    private func permissionRequest(port: UInt16, timeout: TimeInterval = 5) -> URLRequest {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(PermissionHook.path)")!)
+        request.httpMethod = "POST"
+        request.httpBody = Data(permissionBody.utf8)
+        request.setValue("T-1", forHTTPHeaderField: PermissionHook.tokenHeader)
+        request.timeoutInterval = timeout
+        return request
+    }
+
+    /// The answer is the user's: the connection stays open until `answer`,
+    /// and what is written then is what the client reads.
+    func testAPermissionRequestIsHeldUntilAnswered() throws {
+        var asked: PermissionHook.Request?
+        let arrived = expectation(description: "request on the main queue")
+        let listener = HookListener(port: Self.anyPort, onAbandoned: { _ in }) { delivery in
+            if case .permission(let request) = delivery { asked = request }
+            arrived.fulfill()
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+
+        var answer: Answer?
+        let returned = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            answer = self.send(self.permissionRequest(port: port))
+            returned.signal()
+        }
+        wait(for: [arrived], timeout: 5)
+        let request = try XCTUnwrap(asked)
+        XCTAssertEqual(request.token, "T-1")
+        XCTAssertEqual(returned.wait(timeout: .now() + 0.5), .timedOut, "nothing is written before the user answers")
+
+        listener.answer(request.id, with: LocalAPI.Response(status: .ok, body: #"{"x":1}"#))
+        XCTAssertEqual(returned.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(answer?.status, 200)
+        XCTAssertEqual(answer?.body, #"{"x":1}"#)
+        // Answered once: a second answer finds nothing to write to.
+        listener.answer(request.id, with: LocalAPI.Response(status: .ok, body: "{}"))
+    }
+
+    /// Claude's time runs out, or its turn ends: the far side closes and the
+    /// card must go.
+    func testAHeldRequestThatClosesIsAbandoned() throws {
+        var asked: PermissionHook.Request?
+        var abandoned: String?
+        let gone = expectation(description: "abandoned on the main queue")
+        let listener = HookListener(port: Self.anyPort, onAbandoned: { id in
+            XCTAssertTrue(Thread.isMainThread)
+            abandoned = id
+            gone.fulfill()
+        }) { delivery in
+            if case .permission(let request) = delivery { asked = request }
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+
+        let curl = Process()
+        curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        curl.arguments = ["-s", "-m", "1", "-X", "POST", "-H", "\(PermissionHook.tokenHeader): T-1",
+                          "--data-binary", permissionBody, "http://127.0.0.1:\(port)\(PermissionHook.path)"]
+        curl.standardOutput = FileHandle.nullDevice
+        try curl.run()
+        wait(for: [gone], timeout: 5)
+        XCTAssertEqual(abandoned, asked?.id)
+        curl.waitUntilExit()
+    }
+
+    /// A listener nobody answers permissions through (a tunnel's, the
+    /// capture's) refuses at once rather than holding for ever.
+    func testWithoutAnAnswererAPermissionRequestIsRefused() throws {
+        let listener = HookListener(port: Self.anyPort) { _ in }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+        XCTAssertEqual(send(permissionRequest(port: port)).status, 404)
+    }
+
     private struct Answer {
         let status: Int
         let body: String

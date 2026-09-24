@@ -766,6 +766,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // Not recorded with the hooks: a status line runs on every
                 // assistant message and would crowd them out of the bucket.
                 print(usageCaptureLine(report))
+            case .permission(let request):
+                // No chat runs in a capture; the listener has already
+                // refused it (nobody here answers).
+                print("permission request refused: \(request.tool)")
             }
         }
         listener.start()
@@ -1083,6 +1087,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let balloon = ChatPanel(content: ChatView(model: chatModel))
         balloon.onClose = { [weak self] in self?.closeChat() }
         chatModel.onSend = { [weak self] text in self?.send(text) }
+        chatModel.onAnswer = { [weak self] request, decision in
+            self?.chats?.perform(.answer(request: request, decision: decision))
+            self?.syncChat()
+        }
+        chatModel.onStop = { [weak self] in
+            guard let self, let id = self.currentChat else { return }
+            self.chats?.perform(.stop(chat: id))
+            self.syncChat()
+        }
         chatPanel = balloon
         return balloon
     }
@@ -1157,11 +1170,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             onStatus: { status in
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
             },
+            // A chat turn's held permission request that went away unanswered.
+            onAbandoned: { [weak self] id in
+                MainActor.assumeIsolated { self?.chats?.permissionAbandoned(id) }
+            },
             onDelivery: { [weak self] delivery in
                 MainActor.assumeIsolated { self?.handleDelivery(delivery) }
             })
         listener.start()
         hookListener = listener
+        chats?.permissions = listener
     }
 
     // MARK: - Remote machines
@@ -1315,6 +1333,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // the status line's body belongs in it.
             claudeUsage.handle(report)
             scheduleRefresh()
+        case .permission(let request):
+            // The store matches it to a turn, or refuses it.
+            if let chats { chats.permissionAsked(request) } else {
+                hookListener?.answer(request.id, with: LocalAPI.unknownToken)
+            }
         }
     }
 

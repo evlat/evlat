@@ -287,6 +287,11 @@ final class ChatPanelTests: XCTestCase {
         controller.chats = ChatStore(root: directory, platform: .unknown,
                                      locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": fake]),
                                      environment: ["PATH": "/usr/bin:/bin"])
+        let listener = HookListener(port: 0) { _ in }
+        listener.start()
+        listener.awaitSettled(timeout: 5)
+        defer { listener.stop() }
+        controller.chats?.permissions = listener
         controller.openChat()
         XCTAssertFalse(controller.chatModel.submit("   "), "an empty line sends nothing")
         XCTAssertNil(controller.currentChat)
@@ -347,7 +352,7 @@ final class ChatPanelTests: XCTestCase {
     func testEveryBalloonKeyIsInBothTables() {
         var keys = ChatModel.keys
         keys += [ChatSession.Failure.noBinary, .launch("x"), .exited(status: 1, detail: nil),
-                 .result(subtype: "error", text: nil), .interrupted].map(ChatModel.failureKey)
+                 .result(subtype: "error", text: nil), .interrupted, .noListener("x")].map(ChatModel.failureKey)
         for lang in ["en", "tr"] {
             for key in keys {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")

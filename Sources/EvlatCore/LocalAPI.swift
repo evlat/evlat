@@ -26,14 +26,16 @@ public enum LocalAPI {
         case hook(AgentSource)
         /// A status line relaying its rate limits (`AgentSource.usagePath`).
         case usage(AgentSource)
+        /// A chat turn's permission hook (`PermissionHook`, `011`).
+        case permission
         case health
     }
 
-    /// The table is five rows and it is this `switch`.
+    /// The table is six rows and it is this `switch`.
     ///
     /// v1's generic route table (`Route.required`, `read`/`action`/`mac` kinds,
     /// a semaphore answering on the main queue) is **not** ported: every
-    /// endpoint that needed it is out of scope for v2, and five rows do not
+    /// endpoint that needed it is out of scope for v2, and six rows do not
     /// earn the generality.
     ///
     /// `curl` and the installed hook command never send `Origin`; a browser
@@ -62,6 +64,7 @@ public enum LocalAPI {
         case ("POST", AgentSource.claude.hookPath), ("POST", "/hook/claude"): return .hook(.claude)
         case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
         case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
+        case ("POST", PermissionHook.path): return .permission
         case ("GET", "/health"): return .health
         default: return .notFound
         }
@@ -124,6 +127,10 @@ public enum LocalAPI {
     public enum Delivery {
         case hook(HookEvent)
         case usage(UsageReport)
+        /// A permission request whose answer is **held**: the outcome has no
+        /// response, and the listener keeps the connection open under the
+        /// request's id until the user answers (`HookListener.answer`).
+        case permission(PermissionHook.Request)
     }
 
     /// The answer, plus what the app should hand to the main queue. The
@@ -131,8 +138,11 @@ public enum LocalAPI {
     /// runs with `-m 2` and must not wait for the main queue, so the listener
     /// writes the response from the server queue and passes this **parsed**
     /// value across (a raw body reaches 8 KB).
+    ///
+    /// `response == nil` means the answer is not known yet: only a
+    /// permission request, whose answer is the user's (`Delivery.permission`).
     public struct Outcome {
-        public let response: Response
+        public let response: Response?
         public let delivery: Delivery?
     }
 
@@ -158,9 +168,21 @@ public enum LocalAPI {
                                               body: error("forbidden", "browser requests are not accepted")),
                            delivery: nil)
         case .notFound:
-            return Outcome(response: Response(status: .notFound,
-                                              body: error("notFound", "no such endpoint")),
-                           delivery: nil)
+            return notFound
+        case .permission:
+            // Only this Mac's own turns ask: a remote machine must not be
+            // able to put a permission card in front of this user.
+            guard origin == .local else { return notFound }
+            guard let json = jsonObject(request.body) else { return badRequest }
+            // A missing token is refused here; a wrong one needs the running
+            // turns to know, and is refused on the main queue (`ChatStore`).
+            guard let token = request.permissionToken else {
+                return Outcome(response: Response(status: .forbidden,
+                                                  body: error("forbidden", "a permission token is expected")),
+                               delivery: nil)
+            }
+            guard let asked = PermissionHook.Request(json: json, token: token) else { return badRequest }
+            return Outcome(response: nil, delivery: .permission(asked))
         case .health:
             // v1 answered the single word `ok` under `Content-Type:
             // application/json`, which is not JSON. Nothing reads this body
@@ -199,6 +221,18 @@ public enum LocalAPI {
             return Outcome(response: Response(status: .ok, body: "{}"),
                            delivery: .hook(HookEvent(json: source.canonical(json), source: source)))
         }
+    }
+
+    /// A permission request whose token names no running turn.
+    public static let unknownToken = Response(status: .forbidden,
+                                              body: error("forbidden", "no turn holds this permission token"))
+
+    /// No route by that name — also what a listener that answers no
+    /// permissions says to one (`HookListener`).
+    public static let noSuchEndpoint = Response(status: .notFound, body: error("notFound", "no such endpoint"))
+
+    private static var notFound: Outcome {
+        Outcome(response: noSuchEndpoint, delivery: nil)
     }
 
     /// A body that is not a JSON object delivers nothing: half a reading would

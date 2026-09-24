@@ -52,6 +52,12 @@ public final class HookListener {
     private let origin: LocalAPI.Origin
     private let onDelivery: (LocalAPI.Delivery) -> Void
     private let onStatus: ((Status) -> Void)?
+    /// A held request went away before it was answered: Claude's time ran
+    /// out or its turn ended (`011/phase-3`). Main queue.
+    private let onAbandoned: ((String) -> Void)?
+    /// Permission requests waiting for the user, by request id. Touched on
+    /// `queue` only.
+    private var held: [String: NWConnection] = [:]
     private let queue = DispatchQueue(label: "dev.kalaomer.evlat.hooks")
     private var listener: NWListener?
 
@@ -77,13 +83,19 @@ public final class HookListener {
     /// changes. It is taken here rather than left as a settable property
     /// because it is read from the listener's queue: a caller assigning it
     /// after `start()` would be racing the first state report.
+    ///
+    /// A permission request (`LocalAPI.Delivery.permission`) is delivered
+    /// with its connection **held** open; `answer(_:with:)` writes the
+    /// user's decision to it, and `onAbandoned` reports one that closed first.
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
                 onStatus: ((Status) -> Void)? = nil,
+                onAbandoned: ((String) -> Void)? = nil,
                 onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
         self.requestedPort = port
         self.origin = origin
         self.onStatus = onStatus
+        self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
     }
 
@@ -172,9 +184,36 @@ public final class HookListener {
         listener.start(queue: queue)
     }
 
+    /// Held requests are dropped with it: Claude then has no decision, which
+    /// under `--permission-prompts none` is a denial.
+    /// Each is reported abandoned, so its card does not wait on a
+    /// connection that is gone.
     public func stop() {
         listener?.cancel()
         listener = nil
+        queue.async { [self] in
+            let dropped = held
+            held.removeAll()
+            dropped.values.forEach { $0.cancel() }
+            guard let abandoned = onAbandoned, !dropped.isEmpty else { return }
+            DispatchQueue.main.async { dropped.keys.forEach(abandoned) }
+        }
+    }
+
+    /// The port a turn's permission hook should post to, while bound.
+    public var boundPort: UInt16? {
+        if case .listening(let port) = status { return port }
+        return nil
+    }
+
+    /// Writes the answer to a held request and closes it. An id no longer
+    /// held (abandoned, answered) is ignored. Any queue.
+    public func answer(_ id: String, with response: LocalAPI.Response) {
+        queue.async { [self] in
+            guard let connection = held.removeValue(forKey: id) else { return }
+            connection.send(content: Data(response.httpText.utf8),
+                            completion: .contentProcessed { _ in connection.cancel() })
+        }
     }
 
     /// Blocks until the endpoint is either bound or known to be unusable.
@@ -249,10 +288,45 @@ public final class HookListener {
     /// semaphore for that and used it only on its read endpoints, never here.
     private func respond(_ connection: NWConnection, to request: HTTPRequest) {
         let outcome = LocalAPI.handle(request, origin: origin)
-        connection.send(content: Data(outcome.response.httpText.utf8),
-                        completion: .contentProcessed { _ in connection.cancel() })
+        if let response = outcome.response {
+            connection.send(content: Data(response.httpText.utf8),
+                            completion: .contentProcessed { _ in connection.cancel() })
+        } else if case .permission(let asked)? = outcome.delivery, onAbandoned != nil {
+            hold(connection, id: asked.id)
+        } else {
+            // Nobody here answers permissions (a capture): refused at once
+            // rather than held for ever, and still delivered so a capture
+            // can say it saw one. A tunnel never gets here: `LocalAPI`
+            // already answered it `404`.
+            connection.send(content: Data(LocalAPI.noSuchEndpoint.httpText.utf8),
+                            completion: .contentProcessed { _ in connection.cancel() })
+        }
         guard let delivery = outcome.delivery else { return }
         let deliver = onDelivery
         DispatchQueue.main.async { deliver(delivery) }
+    }
+
+    /// Keeps the connection until `answer`, and watches it: a far side that
+    /// closes (end of stream, an error) abandons the request. The client
+    /// sends nothing more after its request, so any read that completes
+    /// is the close.
+    private func hold(_ connection: NWConnection, id: String) {
+        held[id] = connection
+        let abandoned = onAbandoned
+        func watch() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] data, _, isComplete, error in
+                // Nobody left to answer it: closed, like `serve` does.
+                guard let self else { connection.cancel(); return }
+                guard self.held[id] === connection else { return }
+                if isComplete || error != nil {
+                    self.held[id] = nil
+                    connection.cancel()
+                    if let abandoned { DispatchQueue.main.async { abandoned(id) } }
+                    return
+                }
+                watch()
+            }
+        }
+        watch()
     }
 }

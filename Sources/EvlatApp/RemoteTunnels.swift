@@ -146,6 +146,9 @@ final class RemoteTunnels {
                 switch delivery {
                 case .hook(let event): link.hooks.handle(event)
                 case .usage(let report): link.usage.handle(report)
+                // A tunnel answers `/permission` with `404` (`LocalAPI`):
+                // a remote machine never puts a card in front of this user.
+                case .permission: break
                 }
                 onChange()
             })

@@ -6,9 +6,11 @@ import Foundation
 /// whole contract be tested without opening one. The transport that feeds this
 /// is `phase-3`'s and lives in `EvlatApp`.
 ///
-/// Only four headers are read, and each has a job: `X-Evlat-Task` and
+/// Only five headers are read, and each has a job: `X-Evlat-Task` and
 /// `X-Evlat-Pid` are what the installed hook command sends, `Origin` and `Host`
-/// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`).
+/// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`), and
+/// `X-Evlat-Permission` is the token a chat's own permission hook carries
+/// (`PermissionHook`, `011`).
 public struct HTTPRequest: Equatable {
     public let method: String
     /// The request line's target: path **and** query, exactly as written.
@@ -25,10 +27,14 @@ public struct HTTPRequest: Equatable {
     /// `Host`: in a DNS rebinding attempt this still carries the page's own
     /// name, even though `Origin` is absent.
     public let host: String?
+    /// `X-Evlat-Permission`: which chat turn a permission request belongs
+    /// to. Matched against the running turns on the main queue (`ChatStore`),
+    /// never here — a token is state, this type is not.
+    public let permissionToken: String?
 
     public init(method: String, target: String, body: Data = Data(),
                 taskID: String? = nil, pid: String? = nil,
-                origin: String? = nil, host: String? = nil) {
+                origin: String? = nil, host: String? = nil, permissionToken: String? = nil) {
         self.method = method
         self.target = target
         self.body = body
@@ -36,6 +42,7 @@ public struct HTTPRequest: Equatable {
         self.pid = pid
         self.origin = origin
         self.host = host
+        self.permissionToken = permissionToken
     }
 
     /// `nil` means "not yet": either the header block has not arrived or the
@@ -67,6 +74,7 @@ public struct HTTPRequest: Equatable {
         var pid: String?
         var origin: String?
         var host: String?
+        var permissionToken: String?
         for line in lines.dropFirst() {
             // Empty pieces are kept: a valueless `Origin:` line is a browser's
             // mark too, and dropping it let the defence be walked past.
@@ -84,6 +92,7 @@ public struct HTTPRequest: Equatable {
             case "x-evlat-pid": pid = value.isEmpty ? nil : value
             case "origin": origin = value
             case "host": host = value
+            case "x-evlat-permission": permissionToken = value.isEmpty ? nil : value
             default: continue
             }
         }
@@ -94,6 +103,7 @@ public struct HTTPRequest: Equatable {
                            // Exactly the announced length: whatever follows
                            // belongs to the next request on the connection.
                            body: data.subdata(in: bodyStart..<(bodyStart + contentLength)),
-                           taskID: taskID, pid: pid, origin: origin, host: host)
+                           taskID: taskID, pid: pid, origin: origin, host: host,
+                           permissionToken: permissionToken)
     }
 }

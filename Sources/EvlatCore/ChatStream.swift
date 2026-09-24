@@ -24,7 +24,9 @@ public struct ChatStream {
         /// A finished assistant message: its text (blocks joined) and the
         /// tools it calls, each reduced to one line.
         case assistant(text: String?, tools: [ToolCall])
-        case toolResult(id: String, isError: Bool)
+        /// A tool's result: whether it failed, and the first line of what it
+        /// said, capped — the one line a tool call's row opens to.
+        case toolResult(id: String, isError: Bool, output: String?)
         case result(Result)
         /// `system/permission_denied`: a tool call nobody approved.
         case permissionDenied(tool: String?)
@@ -71,6 +73,8 @@ public struct ChatStream {
     /// not pass; it is listed so a measurement run reads the same.
     private static let quietSystem: Set<String> = [
         "status", "hook_started", "hook_progress", "hook_response", "compact_boundary",
+        // A thinking model's token count, seen in a real turn (`phase-3`).
+        "thinking_tokens",
     ]
 
     public init() {}
@@ -143,7 +147,8 @@ public struct ChatStream {
             // One message holds one result in practice; the first is read.
             guard let block = Self.content(of: json).first(where: { $0["type"] as? String == "tool_result" }),
                   let id = block["tool_use_id"] as? String else { return nil }
-            return .toolResult(id: id, isError: block["is_error"] as? Bool ?? false)
+            return .toolResult(id: id, isError: block["is_error"] as? Bool ?? false,
+                               output: Self.firstLine(of: block["content"]))
         case "result":
             return .result(Result(subtype: json["subtype"] as? String ?? "",
                                   isError: json["is_error"] as? Bool ?? false,
@@ -154,6 +159,36 @@ public struct ChatStream {
             unrecognized[type, default: 0] += 1
             return nil
         }
+    }
+
+    /// The longest line kept from a tool's output.
+    static let outputLimit = 160
+
+    /// A result's `content` is a string or a list of blocks; the first
+    /// non-blank line of its text, capped. Nothing else is kept: the output
+    /// can be a whole file.
+    static func firstLine(of content: Any?) -> String? {
+        let text: String
+        if let string = content as? String {
+            text = string
+        } else if let blocks = content as? [[String: Any]] {
+            text = blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }
+                .joined(separator: "\n")
+        } else {
+            return nil
+        }
+        // The scan stops at the first non-blank line rather than splitting
+        // and trimming a whole file to keep one line of it.
+        var rest = text[...]
+        while !rest.isEmpty {
+            let end = rest.firstIndex(where: \.isNewline) ?? rest.endIndex
+            let line = rest[..<end].trimmingCharacters(in: .whitespaces)
+            if !line.isEmpty {
+                return line.count > outputLimit ? String(line.prefix(outputLimit)) + "…" : line
+            }
+            rest = end == rest.endIndex ? "" : rest[rest.index(after: end)...]
+        }
+        return nil
     }
 
     private static func content(of json: [String: Any]) -> [[String: Any]] {

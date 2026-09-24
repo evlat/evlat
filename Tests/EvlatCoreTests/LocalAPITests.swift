@@ -20,16 +20,18 @@ final class LocalAPITests: XCTestCase {
 
     // MARK: - The table
 
-    /// Five routes, and the reason each one is there. `/hook` is the path
+    /// Six routes, and the reason each one is there. `/hook` is the path
     /// inside the command already installed in the user's settings file;
     /// `/hook/claude` is the synonym v1 accepted, and dropping it would change
     /// the contract silently. `/usage/claude` is the status line's relay.
-    func testTheTableIsFiveRoutes() {
+    func testTheTableIsSixRoutes() {
         XCTAssertEqual(dispatch("POST", "/hook"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/claude"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/codex"), .hook(.codex))
         XCTAssertEqual(dispatch("POST", "/usage/claude"), .usage(.claude))
         XCTAssertEqual(dispatch("GET", "/health"), .health)
+        XCTAssertEqual(dispatch("POST", "/permission"), .permission)
+        XCTAssertEqual(dispatch("GET", "/permission"), .notFound)
         // v1's action, read and `/mac/` endpoints are out of scope for v2 and
         // were not ported: they answer nothing at all.
         for target in ["/status", "/ask?q=hi", "/panel/toggle", "/mac/screenshot", "/motions", "/hook/nope"] {
@@ -131,8 +133,8 @@ final class LocalAPITests: XCTestCase {
     /// (`proje.md` → tuzaklar).
     func testAHookAnswersExactlyAnEmptyObject() {
         let outcome = post("/hook", body: #"{"hook_event_name":"Stop","session_id":"s-1"}"#)
-        XCTAssertEqual(outcome.response.status, .ok)
-        XCTAssertEqual(outcome.response.body, "{}")
+        XCTAssertEqual(outcome.response?.status, .ok)
+        XCTAssertEqual(outcome.response?.body, "{}")
         XCTAssertEqual(outcome.event?.name, "Stop")
         XCTAssertEqual(outcome.event?.sessionID, "s-1")
         XCTAssertEqual(outcome.event?.source, .claude)
@@ -145,8 +147,8 @@ final class LocalAPITests: XCTestCase {
         let body = #"{"session_id":"s-1","cost":{"total_cost_usd":3},"rate_limits":"#
             + #"{"five_hour":{"used_percentage":25,"resets_at":1790206798},"spend_limit":{"used_percentage":2}}}"#
         let outcome = post("/usage/claude", body: body)
-        XCTAssertEqual(outcome.response.status, .ok)
-        XCTAssertEqual(outcome.response.body, "{}")
+        XCTAssertEqual(outcome.response?.status, .ok)
+        XCTAssertEqual(outcome.response?.body, "{}")
         guard case .usage(let report)? = outcome.delivery else {
             return XCTFail("expected a usage delivery")
         }
@@ -158,18 +160,18 @@ final class LocalAPITests: XCTestCase {
     func testABrokenUsageBodyIsABadRequest() {
         for body in ["", "not json", "[]", "\"text\"", "{", "null"] {
             let outcome = post("/usage/claude", body: body)
-            XCTAssertEqual(outcome.response.status, .badRequest, body)
+            XCTAssertEqual(outcome.response?.status, .badRequest, body)
             XCTAssertNil(outcome.delivery, body)
         }
         let refused = LocalAPI.handle(HTTPRequest(method: "POST", target: "/usage/claude", body: Data("{}".utf8),
                                                   origin: "null", host: "127.0.0.1"))
-        XCTAssertEqual(refused.response.status, .forbidden)
+        XCTAssertEqual(refused.response?.status, .forbidden)
         XCTAssertNil(refused.delivery)
     }
 
     func testTheCodexRouteStampsTheEventWithItsSource() {
         let outcome = post("/hook/codex", body: #"{"hook_event_name":"Interrupt","session_id":"c-1"}"#)
-        XCTAssertEqual(outcome.response.body, "{}")
+        XCTAssertEqual(outcome.response?.body, "{}")
         XCTAssertEqual(outcome.event?.source, .codex)
         XCTAssertEqual(outcome.event?.name, "Stop", "the adapter runs before the typed view")
     }
@@ -179,28 +181,28 @@ final class LocalAPITests: XCTestCase {
     func testABrokenBodyIsABadRequest() {
         for body in ["", "not json", "[]", "\"text\"", "{", "null"] {
             let outcome = post("/hook", body: body)
-            XCTAssertEqual(outcome.response.status, .badRequest, body)
+            XCTAssertEqual(outcome.response?.status, .badRequest, body)
             XCTAssertNil(outcome.event, body)
-            XCTAssertTrue(outcome.response.body.hasPrefix("{\"error\""), body)
+            XCTAssertTrue(outcome.response?.body.hasPrefix("{\"error\"") == true, body)
         }
     }
 
     func testTheRefusedAndTheUnknownCarryTheirCodes() {
         let browser = LocalAPI.handle(HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
                                                   origin: "https://example.com", host: "127.0.0.1"))
-        XCTAssertEqual(browser.response.status, .forbidden)
+        XCTAssertEqual(browser.response?.status, .forbidden)
         XCTAssertNil(browser.event, "a refused request never reaches the state machine")
-        XCTAssertTrue(browser.response.body.contains("\"forbidden\""))
+        XCTAssertTrue(browser.response?.body.contains("\"forbidden\"") == true)
 
         let unknown = post("/hooks", body: "{}")
-        XCTAssertEqual(unknown.response.status, .notFound)
-        XCTAssertTrue(unknown.response.body.contains("\"notFound\""))
+        XCTAssertEqual(unknown.response?.status, .notFound)
+        XCTAssertTrue(unknown.response?.body.contains("\"notFound\"") == true)
     }
 
     func testHealthAnswersWithoutTouchingAnything() {
         let outcome = LocalAPI.handle(HTTPRequest(method: "GET", target: "/health", host: "127.0.0.1:48151"))
-        XCTAssertEqual(outcome.response.status, .ok)
-        XCTAssertEqual(outcome.response.body, "{\"ok\":true}")
+        XCTAssertEqual(outcome.response?.status, .ok)
+        XCTAssertEqual(outcome.response?.body, "{\"ok\":true}")
         XCTAssertNil(outcome.event)
     }
 
@@ -247,10 +249,10 @@ final class LocalAPITests: XCTestCase {
     func testATunneledRequestIsDefendedLikeALocalOne() {
         let browser = HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
                                   origin: "https://example.com", host: "127.0.0.1:48151")
-        XCTAssertEqual(LocalAPI.handle(browser, origin: .tunneled).response.status, .forbidden)
+        XCTAssertEqual(LocalAPI.handle(browser, origin: .tunneled).response?.status, .forbidden)
         let unknown = HTTPRequest(method: "POST", target: "/nope", body: Data("{}".utf8),
                                   host: "127.0.0.1:48151")
-        XCTAssertEqual(LocalAPI.handle(unknown, origin: .tunneled).response.status, .notFound)
+        XCTAssertEqual(LocalAPI.handle(unknown, origin: .tunneled).response?.status, .notFound)
     }
 
     /// The bytes on the wire. `Content-Length` counts UTF-8 bytes, not
@@ -317,6 +319,57 @@ final class LocalAPITests: XCTestCase {
             "POST /hook HTTP/1.1\r\nX-Evlat-Task: t\r\nX-Evlat-Pid: 7747\r\n\r\n".utf8)))
         XCTAssertEqual(request.taskID, "t")
         XCTAssertEqual(request.pid, "7747")
+    }
+
+    // MARK: - Permission
+
+    private let permissionBody = #"{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}"#
+
+    private func permission(_ body: String, token: String? = "T-1",
+                            origin: LocalAPI.Origin = .local) -> LocalAPI.Outcome {
+        LocalAPI.handle(HTTPRequest(method: "POST", target: "/permission", body: Data(body.utf8),
+                                    host: "127.0.0.1:48151", permissionToken: token), origin: origin)
+    }
+
+    /// A chat's own request: no answer yet — it is the user's — and the
+    /// request goes to the app with its token.
+    func testAPermissionRequestIsHeldForTheUser() {
+        let outcome = permission(permissionBody)
+        XCTAssertNil(outcome.response, "the answer waits for the card")
+        guard case .permission(let request)? = outcome.delivery else { return XCTFail("no request") }
+        XCTAssertEqual(request.token, "T-1")
+        XCTAssertEqual(request.tool, "Bash")
+        XCTAssertFalse(request.id.isEmpty)
+    }
+
+    /// A remote machine never opens a card here; the route does not exist
+    /// through a tunnel.
+    func testATunneledPermissionRequestIsNotFound() {
+        let outcome = permission(permissionBody, origin: .tunneled)
+        XCTAssertEqual(outcome.response?.status, .notFound)
+        XCTAssertNil(outcome.delivery)
+    }
+
+    func testAPermissionRequestWithoutATokenIsForbidden() {
+        let outcome = permission(permissionBody, token: nil)
+        XCTAssertEqual(outcome.response?.status, .forbidden)
+        XCTAssertNil(outcome.delivery)
+        XCTAssertEqual(LocalAPI.unknownToken.status, .forbidden)
+    }
+
+    func testABadPermissionBodyIsABadRequest() {
+        for body in ["", "[]", #"{"hook_event_name":"PermissionRequest"}"#, #"{"hook_event_name":"Stop","tool_name":"Bash"}"#] {
+            let outcome = permission(body)
+            XCTAssertEqual(outcome.response?.status, .badRequest, body)
+            XCTAssertNil(outcome.delivery, body)
+        }
+    }
+
+    /// A browser is turned away before the route is looked at, as everywhere.
+    func testABrowserCannotAskForPermission() {
+        let request = HTTPRequest(method: "POST", target: "/permission", body: Data(permissionBody.utf8),
+                                  origin: "https://example.com", host: "127.0.0.1:48151", permissionToken: "T-1")
+        XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
     }
 }
 

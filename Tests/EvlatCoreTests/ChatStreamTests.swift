@@ -32,6 +32,7 @@ final class ChatStreamTests: XCTestCase {
             #"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{"}}}"#,
             #"{"type":"system","subtype":"status","status":"requesting","session_id":"S1"}"#,
             #"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}"#,
+            #"{"type":"system","subtype":"thinking_tokens","session_id":"S1"}"#,
         ])
         XCTAssertEqual(events, [])
         XCTAssertEqual(stream.unrecognized, [:])
@@ -50,7 +51,8 @@ final class ChatStreamTests: XCTestCase {
             #"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"x","is_error":true}]}}"#,
             #"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"t2","type":"tool_result","content":"y"}]}}"#,
         ])
-        XCTAssertEqual(events, [.toolResult(id: "t1", isError: true), .toolResult(id: "t2", isError: false)])
+        XCTAssertEqual(events, [.toolResult(id: "t1", isError: true, output: "x"),
+                                .toolResult(id: "t2", isError: false, output: "y")])
     }
 
     func testTheResult() {
