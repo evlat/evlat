@@ -1,4 +1,4 @@
-.PHONY: derle test hepsi paket calistir temizle
+.PHONY: derle test hepsi paket calistir kur temizle
 
 derle:
 	swift build
@@ -30,14 +30,38 @@ paket:
 # `open` racing a live process for the -600 this target exists to avoid.
 EVLAT_PROC = $(CURDIR)/build/Evlat[.]app/Contents/MacOS/Evlat
 
-calistir: paket
-	-pkill -f '$(EVLAT_PROC)' 2>/dev/null
-	@i=0; while pgrep -f '$(EVLAT_PROC)' >/dev/null; do \
+# The installed copy. `kur` puts the bundle here so the login item and the
+# `~/.local/bin/evlat` link point at a path that `make paket` and
+# `make temizle` never delete. Both targets stop BOTH copies first: two Evlats
+# race for port 48151 and the second one's hooks go nowhere.
+APP_DIR = /Applications
+APP_PROC = $(APP_DIR)/Evlat[.]app/Contents/MacOS/Evlat
+
+# Stops the copy whose path matches $(1), forcing it after five seconds.
+define stop_evlat
+	@pkill -f '$(1)' 2>/dev/null || true
+	@i=0; while pgrep -f '$(1)' >/dev/null; do \
 		i=$$((i+1)); \
-		if [ $$i -gt 50 ]; then echo "Evlat did not quit; forcing"; pkill -9 -f '$(EVLAT_PROC)'; sleep 0.5; break; fi; \
+		if [ $$i -gt 50 ]; then echo "Evlat did not quit; forcing"; pkill -9 -f '$(1)'; sleep 0.5; break; fi; \
 		sleep 0.1; \
 	done
+endef
+
+calistir: paket
+	$(call stop_evlat,$(APP_PROC))
+	$(call stop_evlat,$(EVLAT_PROC))
 	open build/Evlat.app || { sleep 1; open build/Evlat.app; }
+
+# `ditto` keeps the ad-hoc seal intact; the old bundle is removed first so a
+# file dropped from the new build does not linger inside the installed one.
+kur: paket
+	$(call stop_evlat,$(EVLAT_PROC))
+	$(call stop_evlat,$(APP_PROC))
+	rm -rf '$(APP_DIR)/Evlat.app'
+	ditto build/Evlat.app '$(APP_DIR)/Evlat.app'
+	codesign --verify '$(APP_DIR)/Evlat.app'
+	open '$(APP_DIR)/Evlat.app' || { sleep 1; open '$(APP_DIR)/Evlat.app'; }
+	@echo "Installed: $(APP_DIR)/Evlat.app"
 
 temizle:
 	rm -rf .build build
