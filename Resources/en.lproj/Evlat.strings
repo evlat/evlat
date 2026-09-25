@@ -225,6 +225,20 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
 "remote.command.manual.key" = "~/.config/evlat/signal.token — this machine's key, readable by you alone:";
 "remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
+"remote.items.title" = "Set up on {name}";
+"remote.items.body" = "The tunnel only opens the way. For Claude on the server to tell this bar, these are written into the server's own files: Evlat connects over ssh and writes them, or you run the block on the server yourself.";
+"remote.item.hooks" = "Hooks";
+"remote.item.usage" = "Usage line";
+"remote.item.command" = "evlat command";
+"remote.reading" = "Reading the server…";
+"remote.reading.failed" = "Could not read the server; its rows are unknown.";
+"remote.combined" = "Copy everything as one block";
+"remote.combined.hint" = "For a server you set up by hand: one copy, one paste.";
+"remote.combined.title" = "Run once on {name}";
+"remote.combined.body" = "The rows' blocks in one: hooks, usage line and the evlat command are set up together, in your own shell on the server. Evlat writes nothing over ssh.";
+"remote.combined.whole" = "This block carries the server's whole ~/.claude/settings.json and ~/.codex/hooks.json as Evlat just read them, with Evlat's lines added, and this machine's key. A file changed since the read is left alone.";
+"remote.combined.check" = "I ran it, check";
+"remote.combined.checkNote" = "The check only reads, over ssh. To remove, each row's own instructions apply.";
 
 /* The chat balloon (011) */
 "chat.placeholder" = "What should I do?";

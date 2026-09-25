@@ -84,6 +84,23 @@ final class RemoteMachinesModel: ObservableObject {
 
     enum SetupMode: Hashable { case automatic, manual }
 
+    /// A machine's settings files and command as last read over `ssh`
+    /// (`RemoteInstaller.read`). None until the row is opened or checked.
+    enum Reading: Equatable {
+        case reading
+        case read(RemoteSettings.Reading)
+        case unreachable
+    }
+
+    /// The three rows under an open machine, in the local rows' values.
+    struct Items: Equatable {
+        let hooks: SetupStatus
+        let usage: SetupStatus
+        let command: SetupStatus
+
+        static let unknown = Items(hooks: .unknown, usage: .unknown, command: .unknown)
+    }
+
     /// One block to paste, with the sentence above it. `shown` is what the
     /// window draws — the key's block hides the key — and `text` what Copy
     /// puts on the pasteboard.
@@ -123,6 +140,7 @@ final class RemoteMachinesModel: ObservableObject {
     @Published var mode: SetupMode = .automatic
     /// The block whose button says "Copied", for a moment.
     @Published private(set) var copied: String?
+    @Published private(set) var readings: [String: Reading] = [:]
 
     private let host: Host
     private let installer: RemoteInstaller
@@ -167,6 +185,8 @@ final class RemoteMachinesModel: ObservableObject {
         if let pending = confirmingRemoval, !fresh.contains(where: { $0.id == pending }) {
             confirmingRemoval = nil
         }
+        let gone = readings.keys.filter { id in !fresh.contains { $0.id == id } }
+        for id in gone { readings[id] = nil }
     }
 
     // MARK: - Adding
@@ -220,6 +240,7 @@ final class RemoteMachinesModel: ObservableObject {
         confirmingRemoval = nil
         host.remove(id)
         outcomes[id] = nil
+        readings[id] = nil
         reload()
     }
 
@@ -239,6 +260,8 @@ final class RemoteMachinesModel: ObservableObject {
             guard let self else { return }
             self.busy.remove(id)
             self.outcomes[id] = Self.outcome(results, job.action, in: self.lang)
+            // What was read is stale now; a block made from it would be refused.
+            self.readings[id] = nil
         }
         guard started else { return }
         busy.insert(id)
@@ -278,6 +301,77 @@ final class RemoteMachinesModel: ObservableObject {
         return Outcome(line: line, trouble: trouble, hints: hints)
     }
 
+    // MARK: - Reading the server
+
+    /// The row was opened: the machine is read once, in one `ssh` call.
+    func open(_ id: String) { read(id) }
+
+    /// "I ran it, check": the same read again. It writes nothing.
+    func check(_ id: String) { read(id) }
+
+    /// Under the machine's lock: while a job runs there the read is skipped,
+    /// not waited for — the job's own line says what it did.
+    private func read(_ id: String) {
+        guard let row = rows.first(where: { $0.id == id }) else { return }
+        let started = installer.read(machine: id, target: row.target) { [weak self] result in
+            guard let self, self.readings[id] == .reading else { return }
+            switch result {
+            case .success(let reading): self.readings[id] = .read(reading)
+            case .failure: self.readings[id] = .unreachable
+            }
+        }
+        if started { readings[id] = .reading }
+    }
+
+    /// The rows' states; unknown until a read answered.
+    func items(for id: String) -> Items {
+        guard case .read(let reading)? = readings[id] else { return .unknown }
+        return Self.items(reading)
+    }
+
+    /// Hooks are one row for both agents: a folder that is missing is an
+    /// agent not on the server; one old command, or one agent with and one
+    /// without, makes the row old — one install brings both
+    /// (`HookSettings.state`'s rule, across the agents).
+    static func items(_ reading: RemoteSettings.Reading) -> Items {
+        let found = AgentSource.allCases.map { reading.hooks($0) }
+        let states = found.compactMap { found -> HookSettings.State? in
+            if case .state(let state) = found { return state }
+            return nil
+        }
+        let hooks: SetupStatus
+        if found.contains(.unreadable) { hooks = .unknown }
+        else if states.contains(.outdated) { hooks = .outdated }
+        else if !states.contains(.current) { hooks = .missing }
+        else { hooks = states.contains(.missing) ? .outdated : .installed }
+
+        let usage: SetupStatus
+        switch reading.statusLine {
+        case .noDirectory, .state(.missing): usage = .missing
+        case .unreadable: usage = .unknown
+        case .state(.current): usage = .installed
+        case .state(.modified): usage = .foreign
+        }
+
+        let command: SetupStatus
+        switch reading.command {
+        case .missing: command = .missing
+        case .foreign: command = .foreign
+        case .installed: command = reading.command.isCurrent ? .installed : .outdated
+        }
+        return Items(hooks: hooks, usage: usage, command: command)
+    }
+
+    /// Every row's block in one, from the machine's last reading
+    /// (`RemoteSettings.combinedScript`); none without a reading, a key, or
+    /// anything to write. It carries the key: drawn masked, copied concealed.
+    func combinedBlock(for id: String) -> Block? {
+        guard case .read(let reading)? = readings[id], let key = host.signalKey(id),
+              let text = RemoteSettings.combinedScript(reading, key: key) else { return nil }
+        return Block(id: "combined", captionKey: "remote.combined.whole", text: text,
+                     shown: text.replacingOccurrences(of: key, with: Self.mask))
+    }
+
     // MARK: - The command line
 
     /// Installs or removes the server's `evlat` on the selected machine,
@@ -290,6 +384,7 @@ final class RemoteMachinesModel: ObservableObject {
             guard let self else { return }
             self.busy.remove(id)
             self.outcomes[id] = Self.commandOutcome(result, action, in: self.lang)
+            self.readings[id] = nil
         }
         guard started else { return }
         busy.insert(id)
@@ -330,7 +425,7 @@ final class RemoteMachinesModel: ObservableObject {
     func commandBlocks(for id: String) -> [Block] {
         guard let key = host.signalKey(id) else { return [] }
         let manual = RemoteCommand.manual(key: key)
-        let mask = String(repeating: "•", count: 16)
+        let mask = Self.mask
         return [
             Block(id: "command.script", captionKey: "remote.command.manual.script", text: manual.script),
             Block(id: "command.key", captionKey: "remote.command.manual.key", text: manual.key,
@@ -338,6 +433,9 @@ final class RemoteMachinesModel: ObservableObject {
             Block(id: "command.remove", captionKey: "remote.command.manual.remove", text: manual.remove),
         ]
     }
+
+    /// How a key is drawn.
+    static let mask = String(repeating: "•", count: 16)
 
     static func changeKey(_ change: RemoteSettings.Change) -> String {
         switch change {
@@ -463,7 +561,12 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.remove", "remote.remove.confirm", "remote.remove.cancel", "remote.remove.do",
                     "remote.command", "remote.command.auto.body", "remote.command.install", "remote.command.remove",
                     "remote.command.noCurl", "remote.command.try", "remote.command.manual.body",
-                    "remote.command.manual.script", "remote.command.manual.key", "remote.command.manual.remove"]
+                    "remote.command.manual.script", "remote.command.manual.key", "remote.command.manual.remove",
+                    "remote.items.title", "remote.items.body",
+                    "remote.item.hooks", "remote.item.usage", "remote.item.command",
+                    "remote.reading", "remote.reading.failed",
+                    "remote.combined", "remote.combined.hint", "remote.combined.title", "remote.combined.body",
+                    "remote.combined.whole", "remote.combined.check", "remote.combined.checkNote"]
         keys += [RemoteMachine.TargetProblem.empty, .option, .invalidCharacter].map(problemKey)
         keys += Job.allCases.map(\.titleKey)
         keys += blocks.map(\.captionKey)

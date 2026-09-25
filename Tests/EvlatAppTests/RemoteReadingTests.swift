@@ -1,0 +1,552 @@
+import XCTest
+import AppKit
+@testable import EvlatCore
+@testable import EvlatApp
+
+/// A machine's state read over `ssh` (`014/phase-1b`): one script, one call,
+/// the two settings files and the `evlat` command, reading only — and the
+/// one block that sets all three up by hand from that reading.
+///
+/// Every `ssh` here is a **fake** that runs the script it is handed with
+/// `HOME` at a temporary "server" home, under `/bin/sh`, `/bin/dash` and
+/// `/bin/bash`. The real `ssh` is never run and no real home is read or
+/// written; the pasteboard is a named one of the test's own.
+@MainActor
+final class RemoteReadingTests: XCTestCase {
+    private let key = String(repeating: "5a", count: 32)
+    private var root: URL!
+    private var pasteboard: NSPasteboard!
+
+    private let shells = ["/bin/sh", "/bin/dash", "/bin/bash"].filter { FileManager.default.isExecutableFile(atPath: $0) }
+
+    override func setUpWithError() throws {
+        let temporary = realpath(FileManager.default.temporaryDirectory.path, nil).map { pointer in
+            defer { free(pointer) }
+            return URL(fileURLWithPath: String(cString: pointer), isDirectory: true)
+        } ?? FileManager.default.temporaryDirectory
+        root = temporary.appendingPathComponent("evlat-remote-reading-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        pasteboard = NSPasteboard(name: NSPasteboard.Name("evlat.tests.\(UUID().uuidString)"))
+        XCTAssertEqual(shells.count, 3, "sh, dash and bash are all here")
+    }
+
+    override func tearDownWithError() throws {
+        pasteboard.releaseGlobally()
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    // MARK: - Helpers
+
+    private enum Mode {
+        case run
+        /// A login script that prints before the command runs.
+        case banner
+        /// How `ssh` fails to connect.
+        case unreachable
+    }
+
+    /// A server: its `$HOME` and a fake `ssh` that runs scripts there.
+    private struct Server {
+        let home: URL
+        let ssh: String
+        let runs: URL
+
+        var sshRuns: Int {
+            ((try? String(contentsOf: runs, encoding: .utf8)) ?? "").split(separator: "\n").count
+        }
+        var claude: URL { AgentSource.claude.settingsFile(home: home) }
+        var codex: URL { AgentSource.codex.settingsFile(home: home) }
+        var command: URL { home.appendingPathComponent(RemoteCommand.commandPath) }
+        var key: URL { home.appendingPathComponent(RemoteCommand.keyPath) }
+    }
+
+    private func server(_ shell: String, _ mode: Mode = .run) throws -> Server {
+        let run = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let home = run.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let fake = run.appendingPathComponent("fake-ssh")
+        let runs = run.appendingPathComponent("runs")
+        let exec = "umask 022\nHOME='\(home.path)' exec \(shell) -s"
+        let body: String
+        switch mode {
+        case .run: body = exec
+        case .banner: body = "echo 'Welcome to devbox'\nprintf 'x command 1 ours 1\\nx end claude 0\\n'\n\(exec)"
+        case .unreachable: body = "echo 'ssh: connect to host fake port 22: Connection refused' >&2\nexit 255"
+        }
+        try """
+            #!/bin/sh
+            \(FreshExecutable.warmLine)
+            echo run >> '\(runs.path)'
+            \(body)
+
+            """.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        FreshExecutable.warm(fake.path)
+        return Server(home: home, ssh: fake.path, runs: runs)
+    }
+
+    private func folder(_ source: AgentSource, in server: Server) throws {
+        try FileManager.default.createDirectory(at: source.configDirectory(home: server.home),
+                                                withIntermediateDirectories: true)
+    }
+
+    private func seed(_ source: AgentSource, _ text: String?, in server: Server) throws {
+        try folder(source, in: server)
+        guard let text else { return }
+        try Data(text.utf8).write(to: source.settingsFile(home: server.home))
+    }
+
+    private func read(_ server: Server) -> Result<RemoteSettings.Reading, RemoteSettings.Failure> {
+        RemoteInstaller.applyRead(target: "fake", ssh: server.ssh)
+    }
+
+    private func reading(_ server: Server, file: StaticString = #filePath, line: UInt = #line) throws -> RemoteSettings.Reading {
+        switch read(server) {
+        case .success(let reading): return reading
+        case .failure(let failure):
+            XCTFail("read failed: \(failure)", file: file, line: line)
+            throw failure
+        }
+    }
+
+    /// Everything the automatic buttons would write, one call each.
+    private func installAutomatically(_ server: Server) {
+        for change in [RemoteSettings.Change.hooks(.claude), .hooks(.codex), .statusLine] {
+            _ = RemoteInstaller.apply(change, .install, target: "fake", ssh: server.ssh)
+        }
+        _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+    }
+
+    /// `text` on `shell`'s stdin with `HOME` at `home`: what a user pasting
+    /// the block into their shell on the server runs.
+    @discardableResult
+    private func paste(_ shell: String, _ text: String, home: URL) throws -> (status: Int32, errors: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "umask 022; exec \"$0\" -s", shell]
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = home.path
+        process.environment = environment
+        let input = Pipe(), errors = Pipe()
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errors
+        try process.run()
+        input.fileHandleForWriting.write(Data(text.utf8))
+        try input.fileHandleForWriting.close()
+        let err = errors.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(decoding: err, as: UTF8.self))
+    }
+
+    private func bytes(_ url: URL) -> Data? { FileManager.default.contents(atPath: url.path) }
+
+    private func mode(_ url: URL) throws -> Int {
+        try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int)
+    }
+
+    /// Every entry under `home`: path, type, mode, size, date, bytes or link.
+    private func tree(_ home: URL) throws -> [String] {
+        let paths = try FileManager.default.subpathsOfDirectory(atPath: home.path).sorted()
+        return try paths.map { path in
+            let full = home.appendingPathComponent(path).path
+            let attributes = try FileManager.default.attributesOfItem(atPath: full)
+            let type = attributes[.type] as? FileAttributeType
+            var line = "\(path) \(type?.rawValue ?? "?") \(attributes[.posixPermissions] ?? "?") "
+                + "\(attributes[.size] ?? "?") \(attributes[.modificationDate] ?? "?")"
+            if type == .typeSymbolicLink {
+                line += " -> " + (try FileManager.default.destinationOfSymbolicLink(atPath: full))
+            } else if type == .typeRegular {
+                line += " " + (FileManager.default.contents(atPath: full)?.base64EncodedString() ?? "unreadable")
+            }
+            return line
+        }
+    }
+
+    private let existing = #"""
+        {
+          "model" : "opus",
+          "hooks" : { "PreToolUse" : [ { "matcher" : "*", "hooks" : [ { "type" : "command", "command" : "/usr/local/bin/other notify" } ] } ] },
+          "statusLine" : { "type" : "command", "command" : "bash ~/.claude/it's.sh", "padding" : 0 }
+        }
+        """#
+
+    private let oldHook = #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"curl -s 127.0.0.1:48151/hook/old"}]}]}}"#
+
+    // MARK: - One read
+
+    func testOneCallReadsTheThreeItems() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            try seed(.claude, existing, in: server)
+            try folder(.codex, in: server)
+            installAutomatically(server)
+            let before = server.sshRuns
+            let reading = try self.reading(server)
+            XCTAssertEqual(server.sshRuns - before, 1, "\(shell): one ssh call per machine")
+            XCTAssertEqual(reading.hooks(.claude), .state(.current), shell)
+            XCTAssertEqual(reading.hooks(.codex), .state(.current), shell)
+            XCTAssertEqual(reading.statusLine, .state(.current), shell)
+            XCTAssertEqual(reading.command, .installed(version: RemoteCommand.version, key: true), shell)
+            XCTAssertTrue(reading.command.isCurrent, shell)
+        }
+    }
+
+    func testAnEmptyServerReadsAsNothingThere() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            let reading = try self.reading(server)
+            XCTAssertEqual(reading.hooks(.claude), .noDirectory, shell)
+            XCTAssertEqual(reading.hooks(.codex), .noDirectory, shell)
+            XCTAssertEqual(reading.statusLine, .noDirectory, shell)
+            XCTAssertEqual(reading.command, .missing, shell)
+            try folder(.claude, in: server)
+            XCTAssertEqual(try self.reading(server).hooks(.claude), .state(.missing), "\(shell): a folder, no file")
+        }
+    }
+
+    func testEachStateIsReadAsTheLocalReadersReadIt() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            try seed(.claude, oldHook, in: server)
+            let modified = StatusLineRelay.command(wrapping: "bash s.sh") + " # mine"
+            try seed(.codex, String(decoding: try SettingsFile.encode(["statusLine": ["command": modified]]), as: UTF8.self),
+                     in: server)
+            var reading = try self.reading(server)
+            XCTAssertEqual(reading.hooks(.claude), .state(.outdated), shell)
+            XCTAssertEqual(reading.hooks(.codex), .state(.missing), shell)
+            XCTAssertEqual(reading.statusLine, .state(.missing), shell)
+
+            try seed(.claude, String(decoding: try SettingsFile.encode(["statusLine": ["type": "command", "command": modified]]),
+                                     as: UTF8.self), in: server)
+            XCTAssertEqual(try self.reading(server).statusLine, .state(.modified), "\(shell): a wrapper changed by hand")
+
+            try seed(.claude, "{ not json", in: server)
+            reading = try self.reading(server)
+            XCTAssertEqual(reading.hooks(.claude), .unreadable, "\(shell): broken JSON")
+            XCTAssertEqual(reading.statusLine, .unreadable, shell)
+
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: server.claude.path)
+            XCTAssertEqual(try self.reading(server).hooks(.claude), .unreadable, "\(shell): no read permission")
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: server.claude.path)
+
+            try FileManager.default.removeItem(at: server.claude)
+            try FileManager.default.createSymbolicLink(at: server.claude, withDestinationURL: server.home.appendingPathComponent("gone"))
+            XCTAssertEqual(try self.reading(server).hooks(.claude), .unreadable, "\(shell): a link to nothing")
+        }
+    }
+
+    func testALinkedSettingsFileIsReadAtItsEnd() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            try folder(.claude, in: server)
+            let real = server.home.appendingPathComponent("dotfiles-settings.json")
+            try Data(oldHook.utf8).write(to: real)
+            try FileManager.default.createSymbolicLink(atPath: server.claude.path, withDestinationPath: "../dotfiles-settings.json")
+            let reading = try self.reading(server)
+            XCTAssertEqual(reading.hooks(.claude), .state(.outdated), shell)
+            guard case .success(let snapshot)? = reading.files[.claude] else { return XCTFail(shell) }
+            XCTAssertEqual(snapshot.bytes, Data(oldHook.utf8), shell)
+        }
+    }
+
+    func testTheCommandsStates() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+
+            try FileManager.default.removeItem(at: server.key)
+            var reading = try self.reading(server)
+            XCTAssertEqual(reading.command, .installed(version: RemoteCommand.version, key: false), shell)
+            XCTAssertFalse(reading.command.isCurrent, "\(shell): no key, nothing is heard")
+
+            let older = RemoteCommand.script.replacingOccurrences(of: "# version \(RemoteCommand.version)\n",
+                                                                  with: "# version 0\n")
+            XCTAssertNotEqual(older, RemoteCommand.script)
+            try Data(older.utf8).write(to: server.command)
+            reading = try self.reading(server)
+            XCTAssertEqual(reading.command, .installed(version: 0, key: false), shell)
+
+            try Data("#!/bin/sh\n# somebody else's evlat\n".utf8).write(to: server.command)
+            XCTAssertEqual(try self.reading(server).command, .foreign, shell)
+
+            try FileManager.default.removeItem(at: server.command)
+            try FileManager.default.createSymbolicLink(atPath: server.command.path, withDestinationPath: "/bin/echo")
+            XCTAssertEqual(try self.reading(server).command, .foreign, "\(shell): a link is somebody else's")
+        }
+    }
+
+    func testTheScriptPrintsTheSameUnderEveryShell() throws {
+        var outputs: [String: Data] = [:]
+        let first = try server("/bin/sh")
+        try seed(.claude, existing, in: first)
+        try seed(.codex, "{}", in: first)
+        installAutomatically(first)
+        let script = RemoteSettings.readingScript(nonce: "N0NCE")
+        for shell in shells {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: shell)
+            process.arguments = ["-s"]
+            var environment = ProcessInfo.processInfo.environment
+            environment["HOME"] = first.home.path
+            process.environment = environment
+            let input = Pipe(), output = Pipe()
+            process.standardInput = input
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            input.fileHandleForWriting.write(Data(script.utf8))
+            try input.fileHandleForWriting.close()
+            outputs[shell] = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0, shell)
+        }
+        XCTAssertEqual(Set(outputs.values).count, 1, "the same bytes under \(shells)")
+        let reading = try RemoteSettings.reading(exitCode: 0, output: try XCTUnwrap(outputs["/bin/dash"]), nonce: "N0NCE")
+        XCTAssertEqual(reading.hooks(.claude), .state(.current))
+    }
+
+    func testAReadWritesNothing() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            try seed(.claude, existing, in: server)
+            try folder(.codex, in: server)
+            installAutomatically(server)
+            try FileManager.default.createSymbolicLink(at: server.home.appendingPathComponent("link"),
+                                                       withDestinationURL: server.claude)
+            let before = try tree(server.home)
+            _ = try reading(server)
+            XCTAssertEqual(try tree(server.home), before, "\(shell): nothing written, nothing left behind")
+        }
+    }
+
+    func testALoginBannerIsNotTheAnswer() throws {
+        for shell in shells {
+            let server = try self.server(shell, .banner)
+            let reading = try self.reading(server)
+            XCTAssertEqual(reading.command, .missing, shell)
+            XCTAssertEqual(reading.hooks(.claude), .noDirectory, shell)
+        }
+    }
+
+    func testSSHsOwnFailureIsUnreachable() throws {
+        let server = try self.server("/bin/sh", .unreachable)
+        XCTAssertEqual(read(server).failure, .unreachable)
+        XCTAssertThrowsError(try RemoteSettings.reading(exitCode: 0, output: Data("hello\n".utf8), nonce: "N"),
+                             "no answer line is no answer")
+    }
+
+    // MARK: - The one block
+
+    func testTheBlockWritesWhatTheAutomaticInstallWrites() throws {
+        for shell in shells {
+            for text in [nil, existing] {
+                let automatic = try server(shell), hand = try server(shell)
+                for server in [automatic, hand] {
+                    try seed(.claude, text, in: server)
+                    try folder(.codex, in: server)
+                }
+                installAutomatically(automatic)
+                let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(hand), key: key), shell)
+                XCTAssertEqual(try paste(shell, block, home: hand.home).status, 0, shell)
+
+                let label = "\(shell): \(text == nil ? "no file" : "a file")"
+                for (a, b) in [(automatic.claude, hand.claude), (automatic.codex, hand.codex),
+                               (automatic.command, hand.command), (automatic.key, hand.key)] {
+                    XCTAssertEqual(bytes(b), bytes(a), "\(label): \(b.lastPathComponent)")
+                    XCTAssertEqual(try mode(b), try mode(a), "\(label): \(b.lastPathComponent)'s mode")
+                }
+                let statusBackup = StatusLineRelay.backupExtension
+                XCTAssertEqual(bytes(hand.claude.appendingPathExtension(statusBackup)),
+                               bytes(automatic.claude.appendingPathExtension(statusBackup)), "\(label): \(statusBackup)")
+                // The first backup is the user's file as it was. With no file
+                // there is none: the automatic path's two calls back up Evlat's
+                // own hooks-only file before the usage line; one write does not.
+                XCTAssertEqual(bytes(hand.claude.appendingPathExtension("evlat.bak")),
+                               text.map { Data($0.utf8) }, "\(label): evlat.bak")
+                if text != nil {
+                    XCTAssertEqual(bytes(hand.claude.appendingPathExtension("evlat.bak")),
+                                   bytes(automatic.claude.appendingPathExtension("evlat.bak")), label)
+                }
+                XCTAssertEqual(bytes(hand.codex.appendingPathExtension("evlat.bak")),
+                               bytes(automatic.codex.appendingPathExtension("evlat.bak")), label)
+                XCTAssertEqual(try mode(hand.key.deletingLastPathComponent()), 0o700, label)
+
+                XCTAssertNil(RemoteSettings.combinedScript(try reading(hand), key: key),
+                             "\(label): nothing left to write, no block")
+            }
+        }
+    }
+
+    func testAFileChangedAfterTheReadIsRefusedAndTheRestIsWritten() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            try seed(.claude, existing, in: server)
+            try folder(.codex, in: server)
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            let theirs = Data(#"{"model":"sonnet"}"#.utf8)
+            try theirs.write(to: server.claude)
+
+            let pasted = try paste(shell, block, home: server.home)
+            XCTAssertEqual(bytes(server.claude), theirs, "\(shell): theirs is kept")
+            XCTAssertTrue(pasted.errors.contains(AgentSource.claude.settingsPath), "\(shell): \(pasted.errors)")
+            XCTAssertEqual(try HookSettings.state(at: server.codex, for: .codex), .current, "\(shell): Codex is written")
+            XCTAssertEqual(bytes(server.command), Data(RemoteCommand.script.utf8), "\(shell): the command is written")
+            let leftovers = try FileManager.default.contentsOfDirectory(
+                atPath: AgentSource.claude.configDirectory(home: server.home).path).filter { $0.hasSuffix(".tmp") }
+            XCTAssertEqual(leftovers, [], shell)
+        }
+    }
+
+    func testTheBlockLeavesWhatIsNotEvlatsAlone() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            let modified = StatusLineRelay.command(wrapping: "bash s.sh") + " # mine"
+            try seed(.claude, String(decoding: try SettingsFile.encode(["statusLine": ["type": "command", "command": modified]]),
+                                     as: UTF8.self), in: server)
+            try FileManager.default.createDirectory(at: server.command.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let foreign = Data("#!/bin/sh\n# somebody else's evlat\necho mine\n".utf8)
+            try foreign.write(to: server.command)
+
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            XCTAssertFalse(block.contains(AgentSource.codex.settingsPath), "\(shell): no Codex on the server, no Codex part")
+            XCTAssertFalse(block.contains(RemoteCommand.marker), "\(shell): somebody else's evlat, no command part")
+            XCTAssertEqual(try paste(shell, block, home: server.home).status, 0, shell)
+
+            let settings = try JSONSerialization.jsonObject(with: try XCTUnwrap(bytes(server.claude))) as? [String: Any]
+            XCTAssertEqual(HookSettings.state(of: try XCTUnwrap(settings), for: .claude), .current, "\(shell): hooks in")
+            XCTAssertEqual((settings?["statusLine"] as? [String: Any])?["command"] as? String, modified,
+                           "\(shell): the wrapper changed by hand is not touched")
+            XCTAssertEqual(bytes(server.command), foreign, shell)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.codex.configDirectory(home: server.home).path),
+                           "\(shell): no folder is made")
+        }
+    }
+
+    func testTheBlocksDelimiterIsNoLineOfIt() throws {
+        let server = try self.server("/bin/sh")
+        try seed(.claude, existing, in: server)
+        try folder(.codex, in: server)
+        let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+        let lines = block.split(separator: "\n", omittingEmptySubsequences: false)
+        XCTAssertEqual(lines.filter { $0 == RemoteSettings.combinedDelimiter[...] }.count, 3,
+                       "three parts, each closed once")
+        XCTAssertTrue(block.contains("<<'\(RemoteSettings.combinedDelimiter)'"), "a quoted delimiter: no expansion")
+    }
+
+    // MARK: - The model
+
+    private func model(_ server: Server, machine: RemoteMachine) -> RemoteMachinesModel {
+        let host = RemoteMachinesModel.Host(
+            machines: { [machine] }, state: { _ in nil }, sessionCounts: { [:] },
+            add: { _ in .failure(.empty) }, remove: { _ in }, isStored: { true },
+            signalKey: { [key] _ in key })
+        return RemoteMachinesModel(host: host, installer: RemoteInstaller(sshPath: server.ssh),
+                                   pasteboard: pasteboard, lang: "en")
+    }
+
+    private func waitUntil(_ description: String, _ condition: @escaping () -> Bool) {
+        let done = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
+        done.expectationDescription = description
+        wait(for: [done], timeout: 20)
+    }
+
+    func testOpeningAMachineReadsItOnceUnderItsLock() throws {
+        let server = try self.server("/bin/sh")
+        try seed(.claude, existing, in: server)
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        XCTAssertEqual(server.sshRuns, 0, "building the model reads nothing")
+        XCTAssertEqual(model.items(for: "m"), .init(hooks: .unknown, usage: .unknown, command: .unknown))
+        XCTAssertNil(model.combinedBlock(for: "m"), "no reading, no block")
+
+        model.open("m")
+        XCTAssertEqual(model.readings["m"], .reading)
+        XCTAssertFalse(model.canRun("m"), "a read holds the machine's lock")
+        waitUntil("read") { model.readings["m"] != .reading }
+        XCTAssertEqual(server.sshRuns, 1)
+        XCTAssertEqual(model.items(for: "m"), .init(hooks: .missing, usage: .missing, command: .missing))
+        XCTAssertTrue(model.canRun("m"))
+
+        let block = try XCTUnwrap(model.combinedBlock(for: "m"))
+        XCTAssertTrue(block.text.contains(key))
+        XCTAssertFalse(block.shown.contains(key), "the key is not drawn")
+        XCTAssertTrue(block.isSecret, "and its copy is concealed")
+        XCTAssertTrue(RemoteMachinesModel.keys.contains(block.captionKey))
+    }
+
+    func testACheckWhileAJobRunsIsSkippedAndTheJobDropsTheReading() throws {
+        let server = try self.server("/bin/sh")
+        try seed(.claude, nil, in: server)
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        XCTAssertEqual(model.items(for: "m").hooks, .missing)
+
+        model.run(.installHooks)
+        let runs = server.sshRuns
+        model.check("m")
+        model.open("m")
+        XCTAssertNotEqual(model.readings["m"], .reading, "a machine running a job is not read, nor waited for")
+        waitUntil("job") { model.outcomes["m"] != nil }
+        XCTAssertLessThanOrEqual(server.sshRuns - runs, 3, "the job's own calls only")
+        XCTAssertNil(model.readings["m"], "a write makes the reading stale: it is dropped")
+        XCTAssertEqual(model.items(for: "m").hooks, .unknown)
+
+        model.check("m")
+        waitUntil("read again") { model.readings["m"] != .reading }
+        XCTAssertEqual(model.items(for: "m").hooks, .installed)
+    }
+
+    func testAMachineThatCannotBeReachedReadsAsUnknown() throws {
+        let server = try self.server("/bin/sh", .unreachable)
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.open("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        XCTAssertEqual(model.readings["m"], .unreachable)
+        XCTAssertEqual(model.items(for: "m"), .init(hooks: .unknown, usage: .unknown, command: .unknown))
+        XCTAssertNil(model.combinedBlock(for: "m"))
+    }
+
+    func testTheItemsFollowTheReading() throws {
+        let server = try self.server("/bin/sh")
+        try seed(.claude, oldHook, in: server)
+        try folder(.codex, in: server)
+        _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+        try FileManager.default.removeItem(at: server.key)
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        XCTAssertEqual(model.items(for: "m"), .init(hooks: .outdated, usage: .missing, command: .outdated))
+    }
+}
+
+extension RemoteReadingTests {
+    func testTheHooksRowIsBothAgents() throws {
+        let installed = try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude))
+        let codex = try SettingsFile.encode(HookSettings.installing(into: [:], for: .codex))
+        func file(_ bytes: Data?) -> Result<RemoteSettings.Snapshot, SettingsFile.Failure> {
+            .success(RemoteSettings.Snapshot(bytes: bytes, checksum: bytes == nil ? RemoteSettings.absent : "1 1"))
+        }
+        func hooks(_ claude: Result<RemoteSettings.Snapshot, SettingsFile.Failure>,
+                   _ codex: Result<RemoteSettings.Snapshot, SettingsFile.Failure>) -> SetupStatus {
+            RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex], command: .missing)).hooks
+        }
+        XCTAssertEqual(hooks(file(installed), .failure(.noDirectory)), .installed, "Codex is not on the server")
+        XCTAssertEqual(hooks(file(installed), file(codex)), .installed)
+        XCTAssertEqual(hooks(file(installed), file(nil)), .outdated, "one agent without: one install brings it")
+        XCTAssertEqual(hooks(file(nil), file(nil)), .missing)
+        XCTAssertEqual(hooks(.failure(.noDirectory), .failure(.noDirectory)), .missing)
+        XCTAssertEqual(hooks(file(Data("{".utf8)), file(codex)), .unknown)
+    }
+}
+
+private extension Result {
+    var failure: Failure? {
+        if case .failure(let failure) = self { return failure }
+        return nil
+    }
+}

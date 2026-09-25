@@ -235,6 +235,161 @@ public enum RemoteSettings {
         return script
     }
 
+    // MARK: - Reading a machine
+
+    /// What one item on a server reads as: its state, or why there is none.
+    public enum Found<State: Equatable>: Equatable {
+        /// The agent's folder is not on the server: it is not installed there.
+        case noDirectory
+        /// A file that could not be read or is not JSON.
+        case unreadable
+        case state(State)
+    }
+
+    /// A machine as one call found it (`readingScript`): both settings
+    /// files' bytes with their `cksum`, and the `evlat` command.
+    public struct Reading: Equatable {
+        public let files: [AgentSource: Result<Snapshot, SettingsFile.Failure>]
+        public let command: RemoteCommand.Status
+
+        /// The local reader's state, from the bytes read.
+        public func hooks(_ source: AgentSource) -> Found<HookSettings.State> {
+            found(source) { HookSettings.state(of: $0, for: source) }
+        }
+
+        public var statusLine: Found<StatusLineRelay.State> {
+            found(.claude, StatusLineRelay.state(of:))
+        }
+
+        private func found<State>(_ source: AgentSource, _ state: ([String: Any]) -> State) -> Found<State> {
+            switch files[source] {
+            case .success(let snapshot)?:
+                guard let settings = try? SettingsFile.parse(snapshot.bytes) else { return .unreadable }
+                return .state(state(settings))
+            case .failure(.noDirectory)?: return .noDirectory
+            default: return .unreadable
+            }
+        }
+    }
+
+    /// One script for the whole machine, so one `ssh` call: per settings
+    /// file, `<nonce> begin <source> <cksum>`, the bytes, and
+    /// `\n<nonce> end <source> <code>`; then the command's line. Each file
+    /// runs in its own subshell, so a missing folder ends its part and not
+    /// the read. It reads only: nothing is written, not even a temporary
+    /// file, and a file that changes while it is read reads as unreadable.
+    public static func readingScript(nonce: String) -> String {
+        let unreadable = code(.unreadable)
+        var script = ""
+        for source in AgentSource.allCases {
+            script += """
+            (
+            n=\(quoted(nonce))
+            \(prelude(path: source.settingsPath))
+            s=$(sum) || exit \(unreadable)
+            printf '%s begin \(source.rawValue) %s\\n' "$n" "$s"
+            if [ -e "$t" ]; then cat "$t" || exit \(unreadable); fi
+            [ "$(sum)" = "$s" ] || exit \(code(.changedUnderneath))
+            exit 0
+            )
+            printf '\\n%s end \(source.rawValue) %s\\n' \(quoted(nonce)) "$?"
+
+            """
+        }
+        return script + RemoteCommand.statusProbe(nonce: nonce) + "\nexit 0\n"
+    }
+
+    /// The script's answer; `unreachable` when `ssh` failed or no line of
+    /// the answer is the script's.
+    public static func reading(exitCode: Int32, output: Data, nonce: String) throws -> Reading {
+        guard exitCode == 0, let command = RemoteCommand.status(output: output, nonce: nonce) else {
+            throw Failure.unreachable
+        }
+        var files: [AgentSource: Result<Snapshot, SettingsFile.Failure>] = [:]
+        for source in AgentSource.allCases {
+            let end = Data("\n\(nonce) end \(source.rawValue) ".utf8)
+            guard let ending = output.range(of: end),
+                  let newline = output[ending.upperBound...].firstIndex(of: 0x0A),
+                  let code = Int32(String(decoding: output[ending.upperBound..<newline], as: UTF8.self))
+            else { throw Failure.unreachable }
+            guard code == 0 else {
+                files[source] = .failure(exitCodes[code] ?? .unreadable)
+                continue
+            }
+            let begin = Data("\(nonce) begin \(source.rawValue) ".utf8)
+            guard let beginning = output.range(of: begin, in: output.startIndex..<ending.lowerBound),
+                  beginning.lowerBound == output.startIndex || output[output.index(before: beginning.lowerBound)] == 0x0A,
+                  let lineEnd = output[beginning.upperBound..<ending.lowerBound].firstIndex(of: 0x0A)
+            else { throw Failure.unreachable }
+            let checksum = String(decoding: output[beginning.upperBound..<lineEnd], as: UTF8.self)
+            let bytes = Data(output[output.index(after: lineEnd)..<ending.lowerBound])
+            files[source] = .success(Snapshot(bytes: checksum == absent ? nil : bytes, checksum: checksum))
+        }
+        return Reading(files: files, command: command)
+    }
+
+    // MARK: - The one block
+
+    /// The heredoc delimiter of the block's parts: no line of a part is it
+    /// (the settings travel as encoded JSON, whose lines are never bare).
+    public static let combinedDelimiter = "EVLAT_SETUP"
+
+    /// Everything the automatic buttons would install, as one block a user
+    /// runs in their own shell on the server — made from `reading`, so the
+    /// same bytes: a settings file's part is its `writeScript` against the
+    /// `cksum` read, and refuses a file that changed since; the command's
+    /// part is `RemoteCommand.manual`'s blocks.
+    ///
+    /// It carries each settings file whole, as read. A part is left out
+    /// when there is nothing to write, the agent's folder is missing, the
+    /// file could not be read, or the command is somebody else's; a
+    /// wrapper changed by hand keeps the file's hooks part and loses only
+    /// the usage line. `nil`: nothing to write at all.
+    ///
+    /// Each part is a `sh` of its own on a quoted heredoc: `exit` and the
+    /// traps stay inside it, nothing is expanded by the user's shell, and a
+    /// part that fails says which file on stderr. No line starts with `#`
+    /// outside a part: an interactive zsh reads a comment as a command.
+    public static func combinedScript(_ reading: Reading, key: String) -> String? {
+        var parts: [String] = []
+        for source in AgentSource.allCases {
+            guard case .success(let snapshot)? = reading.files[source] else { continue }
+            var write: Write?
+            do {
+                write = try plan(.hooks(source), .install, original: snapshot.bytes)
+            } catch {
+                continue
+            }
+            if source == .claude,
+               let usage = (try? plan(.statusLine, .install, original: write?.contents ?? snapshot.bytes)) ?? nil {
+                write = usage
+            }
+            guard let write else { continue }
+            parts.append(part(file: "~/" + source.settingsPath,
+                              writeScript(path: source.settingsPath, expected: snapshot.checksum, write: write)))
+        }
+        if reading.command != .foreign, !reading.command.isCurrent {
+            let manual = RemoteCommand.manual(key: key)
+            let marker = quoted(RemoteCommand.marker)
+            parts.append(part(file: "~/" + RemoteCommand.commandPath, """
+                e="$HOME"/\(quoted(RemoteCommand.commandPath))
+                if [ -h "$e" ]; then exit 10; fi
+                if [ -e "$e" ] && [ "$(sed -n 2p "$e" 2>/dev/null)" != \(marker) ]; then exit 10; fi
+                \(manual.script)\(manual.key)\
+                [ "$(sed -n 2p "$e" 2>/dev/null)" = \(marker) ] && [ -s "$HOME"/\(quoted(RemoteCommand.keyPath)) ] || exit 13
+                exit 0
+
+                """))
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined()
+    }
+
+    private static func part(file: String, _ script: String) -> String {
+        "sh <<'\(combinedDelimiter)' || echo \"evlat: \(file) was not written (exit $?)\" >&2\n"
+            + "# \(file)\n" + script + combinedDelimiter + "\n"
+    }
+
     // MARK: - Script parts
 
     static let absent = "absent"

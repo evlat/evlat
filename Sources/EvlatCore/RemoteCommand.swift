@@ -568,6 +568,66 @@ extension RemoteCommand {
         }
     }
 
+    // MARK: - Reading
+
+    /// The command on a server as a read found it (`RemoteSettings.readingScript`).
+    public enum Status: Equatable {
+        case missing
+        /// A link, or a file without the marker on line 2: never written over.
+        case foreign
+        /// Evlat's: line 3's version (`nil` when it is not one), and whether
+        /// the key file is there — without it the command sends nothing.
+        case installed(version: Int?, key: Bool)
+
+        /// What an install would leave: today's version, with a key.
+        public var isCurrent: Bool { self == .installed(version: RemoteCommand.version, key: true) }
+    }
+
+    /// Prints `<nonce> command <key 1|0> missing|foreign|ours <version|->`.
+    /// Reads only: `sed` on the command's lines 2 and 3, a test on the key's
+    /// file — whose contents never leave the server.
+    static func statusProbe(nonce: String) -> String {
+        """
+        (
+        n=\(RemoteSettings.quoted(nonce))
+        \(paths)
+        v=-
+        if [ -h "$e" ]; then c=foreign
+        elif [ ! -e "$e" ]; then c=missing
+        elif [ -f "$e" ] && [ "$(sed -n 2p "$e" 2>/dev/null)" = \(RemoteSettings.quoted(marker)) ]; then
+          c=ours
+          l=$(sed -n 3p "$e" 2>/dev/null)
+          case $l in
+            '# version '*) v=${l#'# version '} ;;
+          esac
+          case $v in
+            ''|*[!0123456789]*) v=- ;;
+          esac
+        else c=foreign
+        fi
+        if [ -f "$t" ] && [ -r "$t" ] && [ -s "$t" ]; then k=1; else k=0; fi
+        printf '%s command %s %s %s\\n' "$n" "$k" "$c" "$v"
+        )
+        """
+    }
+
+    /// The probe's line, found behind whatever a login script printed.
+    static func status(output: Data, nonce: String) -> Status? {
+        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        for line in lines.reversed() {
+            let words = line.split(separator: " ", omittingEmptySubsequences: false)
+            guard words.count == 5, words[0] == nonce[...], words[1] == "command",
+                  let key = flag(words[2]) else { continue }
+            switch words[3] {
+            case "missing": return .missing
+            case "foreign": return .foreign
+            case "ours": return .installed(version: Int(words[4]), key: key)
+            default: continue
+            }
+        }
+        return nil
+    }
+
     /// `b`/`e`: the command's folder and file; `d`/`t`: the key's.
     private static var paths: String {
         let folder = (commandPath as NSString).deletingLastPathComponent

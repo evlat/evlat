@@ -162,6 +162,20 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
 "remote.command.manual.key" = "~/.config/evlat/signal.token — bu makinenin anahtarı, yalnız senin okuyabileceğin biçimde:";
 "remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
+"remote.items.title" = "{name} sunucusuna kurulanlar";
+"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki Claude'un bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır: Evlat ssh ile bağlanıp yazar, ya da bloğu sen sunucuda çalıştırırsın.";
+"remote.item.hooks" = "Hook'lar";
+"remote.item.usage" = "Kullanım satırı";
+"remote.item.command" = "evlat komutu";
+"remote.reading" = "Sunucu okunuyor…";
+"remote.reading.failed" = "Sunucu okunamadı; satırların durumu bilinmiyor.";
+"remote.combined" = "Hepsini tek blok olarak kopyala";
+"remote.combined.hint" = "Sunucuya elle kuranlar için: bir kopyala, bir yapıştır.";
+"remote.combined.title" = "{name} üzerinde bir kez çalıştır";
+"remote.combined.body" = "Satırların elle bloklarının birleşimi: hook'lar, kullanım satırı ve evlat komutu sunucuda, kendi kabuğunda birlikte kurulur. Hiçbir şeyi ssh ile Evlat yazmaz.";
+"remote.combined.whole" = "Bu blok sunucunun ~/.claude/settings.json ve ~/.codex/hooks.json dosyalarını Evlat'ın az önce okuduğu hâliyle, Evlat'ın satırları eklenmiş olarak bütünüyle ve bu makinenin anahtarını taşır. Okumadan sonra değişen dosyaya dokunulmaz.";
+"remote.combined.check" = "Çalıştırdım, kontrol et";
+"remote.combined.checkNote" = "Kontrol ssh ile yalnız okur. Kaldırmak için her satırın kendi talimatı geçerli.";
 
 /* Sohbet balonu (011) */
 "chat.placeholder" = "Ne yapayım?";

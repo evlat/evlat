@@ -2,7 +2,8 @@ import Foundation
 import EvlatCore
 
 /// Runs `RemoteSettings`' scripts over `ssh` — per change, read → plan →
-/// write — and `RemoteCommand`'s, one call each.
+/// write — and `RemoteCommand`'s, one call each; and the machine's one
+/// read-only call (`RemoteSettings.readingScript`).
 ///
 /// The work runs on its own queue, never the main one: `ssh` can take
 /// `ConnectTimeout` to fail. The result is delivered on the main queue, and
@@ -64,6 +65,32 @@ final class RemoteInstaller {
         let sshPath = self.sshPath
         return start(machine: machine, completion: completion) {
             Self.applyCommand(action, key: key, target: target, ssh: sshPath)
+        }
+    }
+
+    /// Reads the machine's settings files and command in one call, under the
+    /// same lock: `false`, and no `completion`, while a job runs there — a
+    /// read is skipped, never queued behind a write.
+    @discardableResult
+    func read(machine: String, target: String,
+              completion: @escaping (Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure>) -> Void) -> Bool {
+        let sshPath = self.sshPath
+        return start(machine: machine, completion: completion) {
+            Self.applyRead(target: target, ssh: sshPath)
+        }
+    }
+
+    /// The read's one call, synchronously.
+    static func applyRead(target: String, ssh: String) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
+        let nonce = UUID().uuidString
+        guard let answer = try? run(ssh, RemoteSettings.arguments(target: target),
+                                    script: RemoteSettings.readingScript(nonce: nonce)) else {
+            return .failure(.unreachable)
+        }
+        do {
+            return .success(try RemoteSettings.reading(exitCode: answer.status, output: answer.output, nonce: nonce))
+        } catch {
+            return .failure(.unreachable)
         }
     }
 
