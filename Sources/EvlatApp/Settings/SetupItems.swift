@@ -254,7 +254,11 @@ final class SetupModel: ObservableObject {
         attention += host.unreachableMachines().map(SetupAttention.machineUnreachable)
         self.rows = rows
         self.attention = attention
-        if let manualOpen, !rows.contains(where: { $0.item == manualOpen }) { self.manualOpen = nil }
+        // A block closes when its row goes, or once what it adds is there
+        // ("I added it, check" found it): nothing is left to wait for.
+        if let manualOpen, !rows.contains(where: { $0.item == manualOpen && $0.status != .installed }) {
+            self.manualOpen = nil
+        }
     }
 
     /// The machines' part of the attention list moves with their tunnels:
@@ -326,17 +330,20 @@ final class SetupModel: ObservableObject {
     }
 
     /// The queued items one press would install: each row still missing or
-    /// old, not being set up by hand.
-    var queuedWrites: [SetupItem] {
-        rows.filter { queued.contains($0.item) && $0.item != manualOpen }
+    /// old, not being set up by hand. `only` is one step's share of the
+    /// queue: the setup's "Install" and "Finish" each write their own.
+    func queuedWrites(only items: Set<SetupItem> = Set(SetupItem.allCases)) -> [SetupItem] {
+        rows.filter { queued.contains($0.item) && items.contains($0.item) && $0.item != manualOpen }
             .filter { $0.action == .install || $0.action == .update }
             .map(\.item)
     }
 
     /// The queue's consent: the queued items' files and nothing else. Two
     /// items in one file are one line ("hooks and the usage line").
-    var queueConsent: [String] {
-        let writes = queuedWrites
+    var queueConsent: [String] { queueConsent() }
+
+    func queueConsent(only items: Set<SetupItem> = Set(SetupItem.allCases)) -> [String] {
+        let writes = queuedWrites(only: items)
         var lines: [String] = []
         var claude: [String] = []
         for item in writes {
@@ -368,9 +375,10 @@ final class SetupModel: ObservableObject {
         reload()
     }
 
-    /// The setup's one press: every queued write, then a fresh read.
-    func applyQueue() {
-        for item in queuedWrites { write(item, .install) }
+    /// The setup's one press: every queued write (of `items`), then a fresh
+    /// read.
+    func applyQueue(only items: Set<SetupItem> = Set(SetupItem.allCases)) {
+        for item in queuedWrites(only: items) { write(item, .install) }
         reload()
     }
 
@@ -471,6 +479,9 @@ struct SetupRowView: View {
     var showsButton = true
     /// The detail is a path (monospace), not a sentence.
     var monospaced = true
+    /// The setup's switch: whether its one press writes this row. Drawn
+    /// while there is something to write and the row is not set up by hand.
+    var queued: Binding<Bool>?
     @State private var copied = false
 
     private var lang: String { model.lang }
@@ -480,7 +491,7 @@ struct SetupRowView: View {
             HStack(alignment: .center, spacing: 10) {
                 RowTitle(name: row.name, detail: row.detail, monospaced: monospaced,
                          code: row.item == .commandLink)
-                StatusText(status: row.status, text: L10n.t(row.status.key, in: lang))
+                trailing
             }
             .opacity(row.status == .foreign ? 0.55 : 1)
             if let note = row.note {
@@ -498,6 +509,26 @@ struct SetupRowView: View {
                 }
             }
             manualPart
+        }
+    }
+
+    /// The status, or in the setup the switch: a missing row says nothing
+    /// there but its switch, one set up by hand that it is waiting.
+    @ViewBuilder private var trailing: some View {
+        if queued != nil, model.manualOpen == row.item {
+            Text(L10n.t("setup.flow.manual.waiting", in: lang))
+                .font(.system(size: 12)).foregroundStyle(SettingsPalette.wait).fixedSize()
+        } else if let queued, row.action?.installs == true {
+            if row.status != .missing {
+                StatusText(status: row.status, text: L10n.t(row.status.key, in: lang))
+            }
+            Toggle("", isOn: queued)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+                .accessibilityLabel(row.name)
+        } else {
+            StatusText(status: row.status, text: L10n.t(row.status.key, in: lang))
         }
     }
 

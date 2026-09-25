@@ -121,6 +121,15 @@ private struct GeneralSection: View {
                 LoginRow(row: row, setup: setup)
             }
         }
+        SettingsGroup(title: model.t("settings.general.setup")) {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.general.setup"), detail: model.t("settings.general.setup.detail"))
+                    Button(model.t("settings.general.setup.open")) { model.openSetup() }
+                        .buttonStyle(SmallButtonStyle())
+                }
+            }
+        }
     }
 }
 
@@ -253,7 +262,7 @@ private struct ChatSection: View {
 }
 
 /// The shortcut as a key cap; blue and pulsing while recording.
-private struct KeyCap: View {
+struct KeyCap: View {
     let text: String
     let recording: Bool
     let off: Bool

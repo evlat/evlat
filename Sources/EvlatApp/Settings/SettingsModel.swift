@@ -30,6 +30,8 @@ final class SettingsModel: ObservableObject {
         var memoryCount: () -> Int?
         var showMemory: () -> Void
         var clearMemory: () -> Void
+        /// General's "Open Setup…".
+        var openSetup: () -> Void = {}
     }
 
     /// Where `claude` is, once looked for.
@@ -126,6 +128,8 @@ final class SettingsModel: ObservableObject {
     }
 
     func showMemory() { host.showMemory() }
+
+    func openSetup() { host.openSetup() }
 
     func askToClear() {
         guard (memoryCount ?? 0) > 0 else { return }

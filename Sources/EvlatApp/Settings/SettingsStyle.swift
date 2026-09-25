@@ -45,6 +45,12 @@ enum SettingsPalette {
     static let selected = dynamic(0x16181C, 0xE8EBF0)
     static let selectedInk = dynamic(0xFFFFFF, 0x16181C)
     static let radio = dynamic(0xB9BCC3, 0x5A616D)
+    // The setup's (`tasarim.html` → `.dots`, `.edge`, `.mini`, `.btn.ghost`).
+    static let dotOff = dynamic(0xD3D5DA, 0x3A404B)
+    static let edgeLine = dynamic(0xDCDEE3, 0x3A404B)
+    static let screenTop = dynamic(0xDFE4EA, 0x2A3440)
+    static let screenBottom = dynamic(0xC8D0D9, 0x1A2029)
+    static let ghost = dynamic(0x6B7079, 0x9AA3B1)
 }
 
 /// A group: its small uppercase heading, the rows' box, and an optional

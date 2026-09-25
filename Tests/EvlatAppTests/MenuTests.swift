@@ -100,7 +100,7 @@ final class MenuTests: XCTestCase {
         let controller = controller()
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Settings…", "Quit Evlat"])
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"])
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Right", "Left"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.on, .off])
         XCTAssertFalse(titles(menu).contains { $0.localizedCaseInsensitiveContains("hook") },
@@ -112,7 +112,7 @@ final class MenuTests: XCTestCase {
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: true, in: "en")
         XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Remote Machines…", "—",
-                                      "Settings…", "Quit Evlat"])
+                                      "Settings…", "Setup…", "Quit Evlat"])
         let forced = try XCTUnwrap(menu.items[2].submenu)
         XCTAssertEqual(titles(forced),
                        ["Follow sessions", "—", "Idle", "Working", "Waiting", "Done", "Error"],
@@ -124,7 +124,7 @@ final class MenuTests: XCTestCase {
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: true, in: "tr")
         XCTAssertEqual(titles(menu), ["Kenar", "Kısayol: ⇧⌘Space", "Durumu zorla", "—", "Uzak makineler…", "—",
-                                      "Ayarlar…", "Evlat'tan Çık"])
+                                      "Ayarlar…", "Kurulum…", "Evlat'tan Çık"])
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Sağ", "Sol"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.off, .on])
         let forced = try XCTUnwrap(menu.items[2].submenu)
@@ -152,7 +152,7 @@ final class MenuTests: XCTestCase {
         controller.dock(.left)
         controller.menuNeedsUpdate(menu)
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.off, .on])
-        XCTAssertEqual(menu.items.count, 8, "rebuilt, not appended to")
+        XCTAssertEqual(menu.items.count, 9, "rebuilt, not appended to")
     }
 
     // MARK: - Hook entries
@@ -179,7 +179,7 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
-                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Settings…", "Quit Evlat"],
+                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"],
                        "neither agent: no entry")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path), [],
                        "reading the menu creates no directory")
@@ -187,12 +187,12 @@ final class MenuTests: XCTestCase {
         try agentDirectory(.claude)
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
                        ["Edge", "Shortcut: ⇧⌘Space", "—", "Install Claude Code hooks", "Install the usage line", "—",
-                        "Remote Machines…", "—", "Settings…", "Quit Evlat"])
+                        "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"])
         try agentDirectory(.codex)
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
                        ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Install Claude Code hooks",
                         "Install the usage line",
-                        "Install Codex hooks", "—", "Remote Machines…", "—", "Settings…", "Quit Evlat"])
+                        "Install Codex hooks", "—", "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
                        "opening the menu writes nothing")
     }
@@ -520,7 +520,7 @@ final class MenuTests: XCTestCase {
             defer { panel.close() }
             let middle = AppController.mascotTopInset + AppController.mascotSize / 2
             let menu = try rightClick(panel, fromEdge: AppController.barWidth / 2, fromTop: middle)
-            XCTAssertEqual(menu.map(titles)?.count, 7, "\(edge): the mascot menu, without Force state")
+            XCTAssertEqual(menu.map(titles)?.count, 8, "\(edge): the mascot menu, without Force state")
             XCTAssertNotNil(try rightClick(panel, fromEdge: AppController.barWidth / 2, fromTop: middle,
                                            control: true), "\(edge): ctrl-click too")
             XCTAssertNil(try rightClick(panel, fromEdge: AppController.barWidth / 2,
@@ -576,10 +576,10 @@ final class MenuTests: XCTestCase {
         let middle = AppController.mascotTopInset + AppController.mascotSize / 2
         let right = try asks(.rightMouseDown, [], fromTop: middle)
         XCTAssertFalse(right.isEmpty, "a right click on the mascot")
-        XCTAssertEqual(right.map { titles($0).count }, right.map { _ in 7 })
+        XCTAssertEqual(right.map { titles($0).count }, right.map { _ in 8 })
         let control = try asks(.leftMouseDown, .control, fromTop: middle)
         XCTAssertFalse(control.isEmpty, "a ctrl-click on the mascot")
-        XCTAssertEqual(control.map { titles($0).count }, control.map { _ in 7 })
+        XCTAssertEqual(control.map { titles($0).count }, control.map { _ in 8 })
         XCTAssertEqual(try asks(.rightMouseDown, [], fromTop: AppController.slotTop(0) + 5), [],
                        "a ring opens nothing")
         XCTAssertFalse(NSRunningApplication.current.isActive)

@@ -132,6 +132,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The settings window (`014`, R6), once opened, and its model.
     private(set) var settingsWindow: AppWindow?
     private(set) var settings: SettingsModel?
+    /// The setup window (`014`, R8), once opened, and its model.
+    private(set) var setupWindow: AppWindow?
+    private(set) var setupFlow: SetupFlowModel?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
@@ -1080,6 +1083,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case nil: break
         }
         if let section = Self.forcedSettings() { openSettings(section: section) }
+        openSetupAtLaunch()
         poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) {
             [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }  // Timer callback is nonisolated
@@ -1905,7 +1909,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 guard let folder = self?.chats?.memoryDirectory else { return }
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
             },
-            clearMemory: { [weak self] in self?.chats?.clearMemory() })
+            clearMemory: { [weak self] in self?.chats?.clearMemory() },
+            openSetup: { [weak self] in self?.openSetup() })
     }
 
     /// The window's focus call on open; a test holds it still so the runner
@@ -1971,6 +1976,78 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
               !raw.isEmpty else { return nil }
         return SettingsModel.Section(rawValue: raw)
             ?? SettingsModel.Section.allCases.first { "\($0)".lowercased() == raw }
+    }
+
+    // MARK: - Setup
+
+    /// The window's focus call on open; a test holds it still.
+    var setupActivation: () -> Void = { NSApp.activate() }
+
+    /// The setup at `step` (the first unless one is named), built on first
+    /// use. Opened again it starts over, every row read fresh: what was set
+    /// up shows a ✓ (R8).
+    func openSetup(step: SetupFlowModel.Step = .hello) {
+        hover.closeNow()
+        if barState.isOpen { closeBar() }
+        let window = setupWindow ?? makeSetupWindow()
+        if window.isVisible { setupFlow?.start(at: step) }
+        window.onOpen = { [weak self] in self?.setupFlow?.start(at: step) }
+        window.show()
+    }
+
+    private func makeSetupWindow() -> AppWindow {
+        let flow = SetupFlowModel(settings: settingsHost, setup: SetupModel(host: setupHost),
+                                  recorder: hotKeyRecorder,
+                                  close: { [weak self] in self?.closeSetupToTheBar() })
+        let window = AppWindow(make: { SetupWindow.make(model: flow, screen: NSScreen.main) },
+                               activate: { [weak self] in self?.setupActivation() })
+        window.onCancel = { false }
+        window.keyInterceptor = { [weak flow] event in flow?.handleKey(event) ?? false }
+        window.onResignKey = { [weak flow] in flow?.windowClosed() }
+        window.onClose = { [weak flow] in flow?.windowClosed() }
+        setupFlow = flow
+        setupWindow = window
+        return window
+    }
+
+    /// "Close" on the last step: the window flies into the bar's mascot.
+    private func closeSetupToTheBar() {
+        guard let window = setupWindow?.window else { return }
+        let target = panel.map { panel -> NSRect in
+            NSRect(origin: Self.gazeAnchor(frame: panel.frame, edge: panel.edge), size: .zero)
+        }
+        SetupWindow.fly(window, to: target) { [weak self] in self?.setupWindow?.close() }
+    }
+
+    /// The menus' "Setup…".
+    @objc func openSetupFromMenu(_ sender: Any?) { openSetup() }
+
+    /// At launch: `EVLAT_SETUP` opens the setup at its step for looking,
+    /// writing nothing; otherwise it opens once, by itself, for someone who
+    /// has set nothing up (`SetupTrigger`) — and is marked shown as it
+    /// opens: closing it is having seen it.
+    func openSetupAtLaunch(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        if let step = Self.forcedSetup(environment) {
+            openSetup(step: step)
+            return
+        }
+        guard shouldOpenSetup(environment: environment) else { return }
+        openSetup()
+        markSetupSeen(environment: environment)
+    }
+
+    /// `EVLAT_SETUP=<step>` (`hello`, `edge`, `sessions`, `chat`,
+    /// `optional`, `done`, or its number from 1) — `EVLAT_SETTINGS`'
+    /// pattern. An unknown value opens nothing.
+    nonisolated static func forcedSetup(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SetupFlowModel.Step? {
+        guard let raw = environment["EVLAT_SETUP"]?.trimmingCharacters(in: .whitespaces).lowercased(),
+              !raw.isEmpty else { return nil }
+        if let number = Int(raw), SetupFlowModel.Step.allCases.indices.contains(number - 1) {
+            return SetupFlowModel.Step.allCases[number - 1]
+        }
+        return SetupFlowModel.Step(rawValue: raw)
     }
 
     /// Adds a machine by its `ssh` target, stores it and opens its tunnel.
@@ -2427,7 +2504,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                            "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
                            "menu.hooks.error.unwritable",
                            "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint",
-                           "menu.remote", "menu.remote.failure", "menu.settings",
+                           "menu.remote", "menu.remote.failure", "menu.settings", "menu.setup",
                            "menu.memory", "menu.memory.show", "menu.memory.clear", "menu.memory.empty",
                            "menu.memory.confirm", "menu.memory.confirm.detail", "menu.memory.cancel",
                            "menu.memory.do"]
@@ -2508,6 +2585,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let settings = menu.addItem(withTitle: L10n.t("menu.settings", in: lang),
                                     action: #selector(openSettingsFromMenu(_:)), keyEquivalent: ",")
         settings.target = self
+        let setup = menu.addItem(withTitle: L10n.t("menu.setup", in: lang),
+                                 action: #selector(openSetupFromMenu(_:)), keyEquivalent: "")
+        setup.target = self
         let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
