@@ -16,7 +16,7 @@ let package = Package(
     targets: [
         .target(name: "EvlatCore", path: "Sources/EvlatCore"),
         .target(name: "EvlatApp", dependencies: ["EvlatCore"], path: "Sources/EvlatApp"),
-        .executableTarget(name: "Evlat", dependencies: ["EvlatApp"], path: "Sources/Evlat"),
+        .executableTarget(name: "Evlat", dependencies: ["EvlatApp", "EvlatCore"], path: "Sources/Evlat"),
         .testTarget(name: "EvlatCoreTests", dependencies: ["EvlatCore"], path: "Tests/EvlatCoreTests"),
         .testTarget(name: "EvlatAppTests", dependencies: ["EvlatApp"], path: "Tests/EvlatAppTests"),
     ],

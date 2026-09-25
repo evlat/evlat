@@ -177,6 +177,27 @@ final class RemoteCommandInstallTests: XCTestCase {
         }
     }
 
+    /// A link at the key's path (a dotfiles tool's, say) is replaced, never
+    /// followed: `mv` onto a link to a folder would put the key inside it and
+    /// `chmod 600` would lock that folder (`013` gate).
+    func testALinkAtTheKeysPathIsReplacedNotFollowed() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            let elsewhere = remote.appendingPathComponent("elsewhere", isDirectory: true)
+            try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o755])
+            try FileManager.default.createDirectory(at: keyFolder(remote), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: keyFile(remote), withDestinationURL: elsewhere)
+            XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
+            XCTAssertEqual(bytes(keyFile(remote)), Data("\(key)\n".utf8), shell)
+            XCTAssertEqual(try mode(keyFile(remote)), 0o600, shell)
+            XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: keyFile(remote).path),
+                         "\(shell): the key is a file, not a link")
+            XCTAssertEqual(try mode(elsewhere), 0o755, "\(shell): the linked folder is untouched")
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path), [], shell)
+        }
+    }
+
     func testASecondInstallLeavesTheCommandAndWritesTheKey() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)

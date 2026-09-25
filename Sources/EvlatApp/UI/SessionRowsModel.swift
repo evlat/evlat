@@ -22,7 +22,9 @@ struct RowTraits: Equatable {
         func text(machine: String?, sender: String?, inCard: Bool = false) -> String? {
             switch self {
             case .machine: return machine
-            case .evlat: return SessionRow.jobTag
+            // The card has the mascot's face for "Evlat" and no machine to
+            // add (`011`): the row's tag only.
+            case .evlat: return inCard ? machine : SessionRow.jobTag
             case .sender:
                 guard inCard, let machine, let sender else { return machine ?? sender }
                 return "\(sender) · \(machine)"

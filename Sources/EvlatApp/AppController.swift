@@ -603,7 +603,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// arguments say (`012`'s panel finding — `Evlat signal x -- cmd --capture 5`
     /// must not print a capture).
     nonisolated public static func isDiagnostics(_ arguments: [String]) -> Bool {
-        arguments.count > 1 && ["--list", "--capture"].contains(arguments[1])
+        LaunchMode.of(arguments) == .diagnostics
     }
 
     /// `--capture [SECONDS]`, or `nil` when the flag is absent.

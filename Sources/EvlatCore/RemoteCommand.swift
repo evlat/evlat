@@ -498,7 +498,8 @@ extension RemoteCommand {
         fi
         chmod 755 "$e" || exit \(unwritableExit)
         chmod 700 "$d" || exit \(unwritableExit)
-        if [ -d "$t" ] && [ ! -h "$t" ]; then exit \(unwritableExit); fi
+        if [ -h "$t" ]; then rm -f "$t" || exit \(unwritableExit); fi
+        if [ -d "$t" ]; then exit \(unwritableExit); fi
         ktmp=$d/.signal.token.$$.tmp
         printf '%s\\n' "$k" > "$ktmp" || exit \(unwritableExit)
         chmod 600 "$ktmp" || exit \(unwritableExit)

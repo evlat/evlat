@@ -166,6 +166,26 @@ final class RemoteCommandScriptTests: XCTestCase {
                    elapsed: endedAt.timeIntervalSince(started))
     }
 
+    /// Waits until `pid` has a child called `name` — the watched command
+    /// itself, which the wrapper starts only after its traps are set. The
+    /// first `working` row goes out *before* the traps (`dash`'s pitfall), so
+    /// a signal sent on its arrival alone could beat them (`013` gate).
+    private func awaitCommand(_ name: String, of pid: Int32) {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let pgrep = Process()
+            pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+            pgrep.arguments = ["-P", String(pid), "-x", name]
+            pgrep.standardOutput = FileHandle.nullDevice
+            pgrep.standardError = FileHandle.nullDevice
+            guard (try? pgrep.run()) != nil else { break }
+            pgrep.waitUntilExit()
+            if pgrep.terminationStatus == 0 { return }
+            usleep(20_000)
+        }
+        XCTFail("\(name) never ran under \(pid)")
+    }
+
     private func eachShell(_ body: (String) throws -> Void) rethrows {
         XCTAssertFalse(Self.shells.isEmpty)
         for shell in Self.shells {
@@ -353,6 +373,7 @@ final class RemoteCommandScriptTests: XCTestCase {
         let port = try startTunnel()
         try eachShell { shell in
             let run = try run(shell, ["watch", "sleep", "30"], port: port, rows: 2, ownGroup: true) { pid in
+                self.awaitCommand("sleep", of: pid)
                 kill(-pid, SIGINT)
             }
             XCTAssertLessThan(run.elapsed, 10, "the command's 30 s sleep did not run out")
@@ -371,6 +392,7 @@ final class RemoteCommandScriptTests: XCTestCase {
         let port = try startTunnel()
         try eachShell { shell in
             let run = try run(shell, ["watch", "sleep", "2"], port: port, rows: 2, ownGroup: true) { pid in
+                self.awaitCommand("sleep", of: pid)
                 kill(pid, SIGTERM)
             }
             XCTAssertGreaterThan(run.elapsed, 1.5, "the command ran to its end")
@@ -404,7 +426,10 @@ final class RemoteCommandScriptTests: XCTestCase {
         let path = bin.path + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")
         try eachShell { shell in
             var listing = ""
-            let run = try run(shell, ["watch", "sleep", "1"], port: port, rows: 2, path: path) { _ in
+            // Long enough that `ps` runs while it does, however late the
+            // first row arrives; `ps` waits for it to be running.
+            let run = try run(shell, ["watch", "sleep", "3"], port: port, rows: 2, path: path) { pid in
+                self.awaitCommand("sleep", of: pid)
                 let ps = Process()
                 ps.executableURL = URL(fileURLWithPath: "/bin/ps")
                 ps.arguments = ["-A", "-o", "args="]
@@ -415,7 +440,7 @@ final class RemoteCommandScriptTests: XCTestCase {
                 ps.waitUntilExit()
             }
             XCTAssertEqual(run.status, 0)
-            XCTAssertTrue(listing.contains("sleep 1"), "ps saw the watch")
+            XCTAssertTrue(listing.contains("sleep 3"), "ps saw the watch")
             XCTAssertFalse(listing.contains(key))
         }
         let calls = try FileManager.default.contentsOfDirectory(atPath: log.path)

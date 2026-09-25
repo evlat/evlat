@@ -410,6 +410,11 @@ final class RemoteMachinesTests: XCTestCase {
 
         model.copy(blocks[1])
         XCTAssertEqual(pasteboard.string(forType: .string), manual.key, "the real key is copied")
+        XCTAssertNotNil(pasteboard.data(forType: RemoteMachinesModel.concealedType),
+                        "marked concealed: clipboard managers keep no history of the key")
+        model.copy(blocks[0])
+        XCTAssertNil(pasteboard.data(forType: RemoteMachinesModel.concealedType), "the script is no secret")
+        model.copy(blocks[1])
         XCTAssertEqual(model.copied, "command.key")
     }
 

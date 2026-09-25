@@ -99,7 +99,15 @@ final class RemoteMachinesModel: ObservableObject {
             self.text = text
             self.shown = shown ?? text
         }
+
+        /// Drawn masked (the machine's key): its copy is marked concealed.
+        var isSecret: Bool { shown != text }
     }
+
+    /// nspasteboard.org's markers: clipboard managers keep no history of a
+    /// copy that carries them (Universal Clipboard is not asked).
+    static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
 
     @Published private(set) var rows: [Row] = []
     @Published var selection: String?
@@ -422,6 +430,12 @@ final class RemoteMachinesModel: ObservableObject {
     func copy(_ block: Block) {
         pasteboard.clearContents()
         pasteboard.setString(block.text, forType: .string)
+        // The key block is a secret: marked so clipboard managers that honour
+        // nspasteboard.org's convention skip it and keep no history of it.
+        if block.isSecret {
+            pasteboard.setData(Data(), forType: Self.concealedType)
+            pasteboard.setData(Data(), forType: Self.transientType)
+        }
         copied = block.id
         copyToken += 1
         let token = copyToken

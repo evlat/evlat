@@ -494,6 +494,8 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(RowTraits.Tag.sender.text(machine: "devbox", sender: nil, inCard: true), "devbox")
         XCTAssertEqual(RowTraits.Tag.machine.text(machine: "devbox", sender: "x", inCard: true), "devbox")
         XCTAssertEqual(RowTraits.Tag.evlat.text(machine: nil, sender: nil), SessionRow.jobTag)
+        // A chat job's card has the mascot's face and no tag (`011`, as before `013`).
+        XCTAssertNil(RowTraits.Tag.evlat.text(machine: nil, sender: nil, inCard: true))
     }
 
     /// The number follows the drawn tag: on one machine two senders' "build"

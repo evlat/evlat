@@ -44,7 +44,7 @@ Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetle
 `en`/`tr`). `012`'nin (dış işler) dört phase'i kodlandı ve kapıdan geçti, teslim bekliyor:
 anahtarlı `POST /signal` her programa barda bir `kind: .custom` satırı verir,
 birincil kullanımı `Evlat watch <komut…>` (komutu şeffaf sarar), alt düzeyi
-`Evlat signal <id>`. `013`'ün (uzak sinyal) beş phase'i kodlandı, kapı ve teslim
+`Evlat signal <id>`. `013`'ün (uzak sinyal) beş phase'i kodlandı ve kapıdan geçti, teslim
 bekliyor: sunucudaki `evlat watch`/`signal` (POSIX `sh` betiği, "Uzak
 makineler…"den otomatik ya da elle kurulur) tünelden makinenin kendi
 anahtarıyla barda makine etiketli bir satır açar. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
@@ -157,9 +157,13 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   koşturur.** Tuzaklardan sonra başlatılan nabız `kill`'de ölmek yerine
   ebeveynin "TERM yakalandı" tuzağını koştu ve `watch` asıldı
   (`013/phase-3`). Arka plan işleri tuzaklar kurulmadan **önce** başlatılır.
-- **Evlat ikilisi tanımadığı argümanla uygulamanın kendisini açar.**
+- **Evlat ikilisi tanımadığı argümanla uygulamanın kendisini açıyordu.**
   `Evlat --help` yardım basmadı; ortamsız (yalıtımsız) ikinci bir Evlat
-  açıldı, kullanıcının makinelerine tünel denedi (`013/phase-5`). Alt
-  komutlar yalnız `watch`, `signal`, `--list`, `--capture`; ikiliyi başka
-  argümanla koşturmak ölçüm ortamı (`EVLAT_PORT`, `EVLAT_HOME`) olmadan
-  yapılmaz.
+  açıldı, kullanıcının makinelerine tünel denedi (`013/phase-5`). `013` kapısından beri
+  `argv`'yi `LaunchMode.of` sınıflar (`LaunchModeTests`): uygulama yalnız
+  argümansız ya da sistemin eklediğiyle (`-psn_…`, `-NS…`/`-Apple…` çifti)
+  açılır; `--help`/`-h`/`help` yardım + `0`, bilinmeyen her kelime kullanım +
+  `2`. Yeni bir alt komut `LaunchMode`'a eklenmeden uygulamaya düşer diye
+  sanılmasın — düşmez, `2` döner. İkiliyi elle koşturmak yine ölçüm ortamıyla
+  (`EVLAT_HOME` geçici, `EVLAT_PORT`, `EVLAT_MACHINES`, sahte `EVLAT_SSH`)
+  yapılır: sınıflandırmanın bir hatası kullanıcının sunucularına gider.
