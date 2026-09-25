@@ -149,6 +149,9 @@ final class ClaudeLocator {
     private let loginPath: () -> String?
     private var found: Location?
     private var waiting: [(Location) -> Void] = []
+    /// The login shell's `PATH` from the last lookup that read one — the
+    /// command link's row says when `~/.local/bin` is not on it (`014`).
+    private(set) var lastLoginPath: String?
 
     /// The markers around the `PATH` in the login shell's output: a profile
     /// may print a banner, and only what is between them is read.
@@ -179,6 +182,7 @@ final class ClaudeLocator {
                                     path: path)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                if let path { self.lastLoginPath = path }
                 // A miss is not kept: `claude` may be installed, or a slow
                 // shell may answer, by the next send. Nor a hit on the
                 // inherited `PATH` alone: turns would run with Finder's

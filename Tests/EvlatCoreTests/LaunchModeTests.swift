@@ -12,6 +12,17 @@ final class LaunchModeTests: XCTestCase {
         XCTAssertEqual(LaunchMode.of(["Evlat", "-NSDocumentRevisionsDebugMode", "YES", "-psn_0_1"]), .app)
     }
 
+    /// `~/.local/bin/evlat` (`014`): a bare `evlat` prints the usage and
+    /// exits 2; the bundle's `Evlat` still opens the bar.
+    func testTheCommandLinksNameAloneIsAUsageError() {
+        XCTAssertEqual(LaunchMode.of(["/x/evlat"]), .usageError("a command is needed"))
+        XCTAssertEqual(LaunchMode.of(["evlat"]), .usageError("a command is needed"))
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat"]), .app)
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat.app/Contents/MacOS/Evlat"]), .app)
+        XCTAssertEqual(LaunchMode.of(["/x/evlat", "watch", "ls"]), .command)
+        XCTAssertEqual(LaunchMode.of(["/x/evlat", "--help"]), .help)
+    }
+
     func testHelpNeverOpensTheApp() {
         for word in ["--help", "-h", "help"] {
             XCTAssertEqual(LaunchMode.of(["Evlat", word]), .help, word)

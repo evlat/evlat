@@ -25,9 +25,20 @@ public enum LaunchMode: Equatable {
     public static let diagnosticsWords: Set<String> = ["--list", "--capture"]
     static let helpWords: Set<String> = ["--help", "-h", "help"]
 
+    /// The name the command link gives the binary (`~/.local/bin/evlat`,
+    /// `014`). Called by it with nothing after, the binary prints its usage:
+    /// a bare `evlat` in a terminal must not open a second, unisolated bar
+    /// that inherits the terminal's Claude markers (`AGENTS.md` → Tuzaklar).
+    public static let linkName = "evlat"
+
     public static func of(_ argv: [String]) -> LaunchMode {
         let arguments = Array(argv.dropFirst())
-        guard let first = arguments.first else { return .app }
+        guard let first = arguments.first else {
+            // Exactly the link's name: the bundle's `Evlat` and `open` keep
+            // opening the app.
+            let name = argv.first.map { ($0 as NSString).lastPathComponent }
+            return name == linkName ? .usageError("a command is needed") : .app
+        }
         if SignalCommand.subcommand(argv) != nil { return .command }
         if diagnosticsWords.contains(first) { return .diagnostics }
         if helpWords.contains(first) { return .help }
@@ -68,6 +79,6 @@ public enum LaunchMode: Equatable {
                 prints the signals and the hook endpoint, then exits.
         Evlat --capture [SECONDS]
                 holds the hook port for SECONDS (default 30) and prints what arrives.
-        Evlat   with no arguments opens the bar.
+        Evlat   with no arguments opens the bar; `evlat` (the command link) prints this.
         """
 }

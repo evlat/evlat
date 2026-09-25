@@ -30,7 +30,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
     /// The same for the status line relay's entry.
     private var usageFailure: SettingsFile.Failure?
+    /// The same for `~/.local/bin/evlat` (`014`).
+    private(set) var commandLinkFailure: CommandLinkWriter.Failure?
+    /// A refused login item change (`SMAppService`'s error is not kept: the
+    /// row says it did not happen, System Settings says why).
+    private(set) var loginItemFailed = false
+    /// "Open at login". Handed in like `defaults`: only `launch()` gives the
+    /// real service, and an isolated launch an in-memory one
+    /// (`LoginItem.service(environment:)`). `nil` — every test that does not
+    /// hand one — has no row and never calls it.
+    let loginItem: LoginItem?
+    /// This process's binary, what `~/.local/bin/evlat` points at. A test
+    /// points it at a bundle of its own.
+    var executable: URL? = Bundle.main.executableURL
     public let registry = Registry()
+    /// Finds `claude` for the chats; its login `PATH` is also the command
+    /// link row's (`014`). Nothing runs until a chat or the row asks.
+    let claudeLocator = ClaudeLocator()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
     /// mascot in `refresh()`, observed by its own column.
@@ -569,10 +585,45 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// prefix keeps the two apart.
     nonisolated static let edgeKey = "bar.edge"
 
+    /// The setup was shown (`014`, R9): set the first time it opens, so it
+    /// opens by itself once. Written only by a process that is not isolated.
+    nonisolated static let setupSeenKey = "setup.seen"
+
+    /// Whether the setup opens by itself at this launch (`SetupTrigger`):
+    /// storage and a home, never shown, no edge ever stored, no agent's
+    /// hooks installed (or old), not isolated. Reads, writes nothing.
+    func shouldOpenSetup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        let states = home.map { home in
+            Self.presentSources(home: home).map { source in
+                (try? HookSettings.state(at: source.settingsFile(home: home), for: source)) ?? .missing
+            }
+        } ?? []
+        return SetupTrigger.shouldOpen(hasStorage: defaults != nil && home != nil,
+                                       seen: defaults?.bool(forKey: Self.setupSeenKey) ?? false,
+                                       hasStoredEdge: defaults?.object(forKey: Self.edgeKey) != nil,
+                                       hookStates: states, environment: environment)
+    }
+
+    /// Marks the setup shown; an isolated process keeps nothing.
+    func markSetupSeen(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        guard !Isolation.isIsolated(environment) else { return }
+        defaults?.set(true, forKey: Self.setupSeenKey)
+    }
+
+    /// The agents whose directory exists under `home`: an agent that is not
+    /// there has no entry and no row (`008`).
+    nonisolated static func presentSources(home: URL) -> [AgentSource] {
+        AgentSource.allCases.filter { source in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: source.configDirectory(home: home).path,
+                                                  isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+    }
+
     /// The edge the user chose, `right` or `left`; anything else — nothing
     /// stored, `top`, a number — is `nil`, and the caller falls back to the
     /// right. Reading writes nothing: an unknown value stays as it is, and
-    /// the menu is the only writer (`chooseEdge`).
+    /// `setEdge` is the only writer.
     nonisolated static func storedEdge(_ defaults: UserDefaults?) -> BarPanel.Edge? {
         switch defaults?.string(forKey: edgeKey) {
         case "left": return .left
@@ -943,9 +994,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return lock.withLock { answer } ?? "no answer within \(timeout + 2) s"
     }
 
-    public init(defaults: UserDefaults? = nil, home: URL? = nil) {
+    public convenience init(defaults: UserDefaults? = nil, home: URL? = nil) {
+        self.init(defaults: defaults, home: home, loginItem: nil)
+    }
+
+    init(defaults: UserDefaults?, home: URL?, loginItem: LoginItem?) {
         self.defaults = defaults
         self.home = home
+        self.loginItem = loginItem
         super.init()
     }
 
@@ -956,7 +1012,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Before the record provider: a chat's `claude -p` turn writes a
         // session record, and the chat's sessions are left out of it.
         let chats = ChatStore(root: Self.chatRoot(home: home), platform: Self.darwinPlatform,
-                              locator: ClaudeLocator(),
+                              locator: claudeLocator,
                               now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
                               trash: ChatStore.trash(environment: ProcessInfo.processInfo.environment),
                               defaultMode: { [unowned self] in MainActor.assumeIsolated { self.defaultMode } },
@@ -988,7 +1044,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyHotKey()
 
         // The environment over the stored choice, the right over nothing.
-        // Read here, never written back: only the menu writes.
+        // Read here, never written back: only `setEdge` writes.
         let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right)
         panel.show()
         hover.onChange = { [weak self] open in
@@ -1571,6 +1627,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         } else {
             chosenMode = mode
         }
+        setDefaultMode(mode)
+    }
+
+    /// The next chats' mode, and nothing else (`014`, R1): the open chat —
+    /// and a mode picked in the balloon for a chat not made yet — keeps
+    /// its own. Stored under `modeDefaults`' isolation.
+    func setDefaultMode(_ mode: PermissionMode) {
         if let modeDefaults { modeDefaults.set(mode.rawValue, forKey: Self.permissionModeKey) } else { modeUnstored = mode }
         refreshMode()
     }
@@ -1603,7 +1666,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// here: still applied, like the edge, only not remembered.
     private var hotKeyUnstored = true
     private var hotKeyCombinationUnstored = HotKeyCombination.standard
-    private var isHotKeyOn: Bool { defaults.map(Self.hotKeyEnabled) ?? hotKeyUnstored }
+    var isHotKeyOn: Bool { defaults.map(Self.hotKeyEnabled) ?? hotKeyUnstored }
     var hotKeyCombination: HotKeyCombination {
         defaults.map(Self.storedHotKey) ?? hotKeyCombinationUnstored
     }
@@ -1627,10 +1690,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The shortcut's "Turn Off" / "Turn On": stored, then applied.
     /// Activates nothing.
     @objc func toggleHotKey(_ sender: Any?) {
+        setHotKey(on: !isHotKeyOn)
+    }
+
+    /// The shortcut's switch, stored, then applied (`014`, R1).
+    func setHotKey(on: Bool) {
         if let defaults {
-            defaults.set(!isHotKeyOn, forKey: Self.hotKeyKey)
+            defaults.set(on, forKey: Self.hotKeyKey)
         } else {
-            hotKeyUnstored.toggle()
+            hotKeyUnstored = on
         }
         applyHotKey()
     }
@@ -1653,14 +1721,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let recorder = HotKeyRecorder(systemHotKeys: { [weak self] in self?.systemHotKeys() ?? .current() })
         recorder.onFinish = { [weak self] combination in
             guard let self else { return }
-            if let combination { self.storeHotKey(combination) }
-            self.applyHotKey()
+            if let combination { self.storeHotKey(combination) } else { self.applyHotKey() }
         }
         hotKeyRecorder = recorder
         return recorder
     }
 
-    private func storeHotKey(_ combination: HotKeyCombination) {
+    /// A recorded combination: stored, the switch turned on, applied.
+    func storeHotKey(_ combination: HotKeyCombination) {
         if let defaults {
             defaults.set(combination.stored, forKey: Self.hotKeyCombinationKey)
             defaults.set(true, forKey: Self.hotKeyKey)
@@ -1668,6 +1736,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             hotKeyCombinationUnstored = combination
             hotKeyUnstored = true
         }
+        applyHotKey()
     }
 
     /// Binds the hook port. Every event that arrives goes to
@@ -1783,6 +1852,32 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             signalKey: { [weak self] id in self?.remote?.signalKey(of: id) })
     }
 
+    /// The setup rows' way to the app (`014`): each closure is one of the
+    /// writers above or the state they keep.
+    var setupHost: SetupModel.Host {
+        SetupModel.Host(
+            home: { [weak self] in self?.home },
+            binary: { [weak self] in self?.executable },
+            loginStatus: { [weak self] in self?.loginItem?.status },
+            loginPath: { [weak self] in self?.claudeLocator.lastLoginPath },
+            hotKeyRefused: { [weak self] in self?.hotKeyStatus.map { $0 != noErr } ?? false },
+            unreachableMachines: { [weak self] in
+                guard let remote = self?.remote else { return [] }
+                return remote.machines.compactMap { machine in
+                    guard case .waiting? = remote.state(of: machine.id) else { return nil }
+                    return machine.name
+                }
+            },
+            setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
+            setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0) },
+            setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
+            setLoginItem: { [weak self] in self?.setLoginItem(on: $0) },
+            hookFailure: { [weak self] in self?.hookFailure($0) },
+            usageFailure: { [weak self] in self?.usageRelayFailure },
+            commandLinkFailure: { [weak self] in self?.commandLinkFailure },
+            loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
+    }
+
     /// The window's focus call on open; a test holds it still so the runner
     /// is never activated.
     var remoteWindowActivation: () -> Void = { NSApp.activate() }
@@ -1860,7 +1955,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         MainActor.assumeIsolated {
             let app = NSApplication.shared
             // The one place the user's domain and home are handed in.
-            let controller = AppController(defaults: .standard, home: resolvedHome())
+            let environment = ProcessInfo.processInfo.environment
+            let controller = AppController(
+                defaults: .standard, home: resolvedHome(),
+                loginItem: LoginItem(service: LoginItem.service(environment: environment)))
             app.delegate = controller
             app.run()
         }
@@ -2367,11 +2465,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// create it.
     private func addHookEntries(to menu: NSMenu, in lang: String) {
         guard let home else { return }
-        let sources = AgentSource.allCases.filter { source in
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: source.configDirectory(home: home).path,
-                                                  isDirectory: &isDirectory) && isDirectory.boolValue
-        }
+        let sources = Self.presentSources(home: home)
         guard !sources.isEmpty else { return }
         menu.addItem(.separator())
         for source in sources {
@@ -2508,37 +2602,94 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// no dialog, no success message; the title changing is the answer.
     /// Like the edge, the open list closes and nothing is activated.
     @objc func changeHooks(_ sender: NSMenuItem) {
-        guard let home, let entry = sender.representedObject as? HookEntry else { return }
-        let file = entry.source.settingsFile(home: home)
-        do {
-            if entry.remove {
-                try HookSettings.remove(at: file, for: entry.source)
-            } else {
-                try HookSettings.install(at: file, for: entry.source)
-            }
-            hookFailures[entry.source] = nil
-        } catch {
-            hookFailures[entry.source] = error as? HookSettings.Failure ?? .unwritable
-        }
-        hover.closeNow()
-        // The intent may already have believed the bar closed.
-        if barState.isOpen { closeBar() }
+        guard let entry = sender.representedObject as? HookEntry else { return }
+        setHooks(entry.source, installed: !entry.remove)
     }
 
     /// The status line relay's entry, as `changeHooks` does it.
     @objc func changeUsageRelay(_ sender: NSMenuItem) {
-        guard let home, let entry = sender.representedObject as? UsageEntry else { return }
+        guard let entry = sender.representedObject as? UsageEntry else { return }
+        setUsageRelay(installed: !entry.remove)
+    }
+
+    // MARK: - The writers (`014`, R1)
+    //
+    // The one place each setting is written. The menus, the settings window
+    // and the setup only call these; the failure each leaves is kept here
+    // and read by all three. Without a home (every test) none writes.
+
+    /// A source's hooks installed or removed; the outcome is kept for the
+    /// next reader — no dialog, no success message; the state changing is
+    /// the answer. Like the edge, the open list closes and nothing is
+    /// activated.
+    func setHooks(_ source: AgentSource, installed: Bool) {
+        guard let home else { return }
+        let file = source.settingsFile(home: home)
+        do {
+            if installed {
+                try HookSettings.install(at: file, for: source)
+            } else {
+                try HookSettings.remove(at: file, for: source)
+            }
+            hookFailures[source] = nil
+        } catch {
+            hookFailures[source] = error as? HookSettings.Failure ?? .unwritable
+        }
+        closeListAfterWrite()
+    }
+
+    /// The status line relay, as `setHooks` does it.
+    func setUsageRelay(installed: Bool) {
+        guard let home else { return }
         let file = AgentSource.claude.settingsFile(home: home)
         do {
-            if entry.remove {
-                try StatusLineRelay.remove(at: file)
-            } else {
+            if installed {
                 try StatusLineRelay.install(at: file)
+            } else {
+                try StatusLineRelay.remove(at: file)
             }
             usageFailure = nil
         } catch {
             usageFailure = error as? SettingsFile.Failure ?? .unwritable
         }
+        closeListAfterWrite()
+    }
+
+    /// `~/.local/bin/evlat` to this binary, or taken away. `replacing` is
+    /// the consent line's word for another copy's or a broken link.
+    func setCommandLink(installed: Bool, replacing: Bool = false) {
+        guard let home, let binary = executable else { return }
+        let link = CommandLink.link(home: home)
+        do {
+            if installed {
+                try CommandLinkWriter.install(at: link, binary: binary, replacing: replacing)
+            } else {
+                try CommandLinkWriter.remove(at: link, binary: binary)
+            }
+            commandLinkFailure = nil
+        } catch {
+            commandLinkFailure = error as? CommandLinkWriter.Failure ?? .unwritable
+        }
+    }
+
+    /// "Open at login" on or off. Without a login item (every test that
+    /// hands none) nothing is called.
+    func setLoginItem(on: Bool) {
+        guard let loginItem else { return }
+        do {
+            try loginItem.set(on)
+            loginItemFailed = false
+        } catch {
+            NSLog("Evlat: the login item was not changed: %@", "\(error)")
+            loginItemFailed = true
+        }
+    }
+
+    func hookFailure(_ source: AgentSource) -> SettingsFile.Failure? { hookFailures[source] }
+    var usageRelayFailure: SettingsFile.Failure? { usageFailure }
+
+    /// The intent may already have believed the bar closed.
+    private func closeListAfterWrite() {
         hover.closeNow()
         if barState.isOpen { closeBar() }
     }
@@ -2569,7 +2720,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `EVLAT_EDGE`, which only overrides the launch. Activates nothing.
     @objc private func chooseEdge(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String else { return }
-        let edge: BarPanel.Edge = raw == "left" ? .left : .right
+        setEdge(raw == "left" ? .left : .right)
+    }
+
+    /// The edge (`014`, R1), for every surface.
+    func setEdge(_ edge: BarPanel.Edge) {
         defaults?.set(Self.storedValue(edge), forKey: Self.edgeKey)
         dock(edge)
     }

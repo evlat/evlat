@@ -378,6 +378,25 @@ final class ChatPanelTests: XCTestCase {
         }), .user(text: L10n.t("chat.notDone.prompt", ["command": line.subject ?? ""]), attachments: []))
         settle("the retry ends")
         XCTAssertFalse(controller.chatModel.canRetry, "a chat that asks has nothing to retry into")
+
+        // The settings' default (`014`): the next chats', never the open one's.
+        controller.setDefaultMode(.acceptEdits)
+        XCTAssertEqual(controller.defaultMode, .acceptEdits)
+        XCTAssertEqual(controller.chats?.chat(id)?.mode, .ask, "the open chat keeps its mode")
+        XCTAssertEqual(controller.chatModel.mode, .ask)
+    }
+
+    /// The settings' default (`014`) leaves a mode picked in the balloon for
+    /// a chat not made yet as it is.
+    func testTheDefaultModeLeavesTheBalloonsPick() {
+        let controller = controller()
+        defer { close(controller) }
+        controller.openChat()
+        controller.choose(.acceptEdits)
+        controller.setDefaultMode(.ask)
+        XCTAssertEqual(controller.defaultMode, .ask)
+        XCTAssertEqual(controller.chatModel.mode, .acceptEdits, "the balloon's pick stays")
+        XCTAssertNil(controller.currentChat)
     }
 
     /// A suggestion is sent as it is.
