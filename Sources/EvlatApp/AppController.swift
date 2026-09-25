@@ -592,6 +592,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// How long `--capture` listens when no number follows it.
     nonisolated public static var defaultCaptureWindow: TimeInterval { 30 }
 
+    /// Whether `argv[1]` asks for the diagnostics (`--list` or `--capture`).
+    /// Only the first argument: anything later belongs to whatever else the
+    /// arguments say (`012`'s panel finding — `Evlat signal x -- cmd --capture 5`
+    /// must not print a capture).
+    nonisolated public static func isDiagnostics(_ arguments: [String]) -> Bool {
+        arguments.count > 1 && ["--list", "--capture"].contains(arguments[1])
+    }
+
     /// `--capture [SECONDS]`, or `nil` when the flag is absent.
     ///
     /// `--list` is a separate process from the running app and cannot read its
@@ -867,34 +875,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case failed(String)
     }
 
-    /// `POST /signal` with the key, as `probeHookEndpoint` does `/health`.
+    /// `POST /signal` with the key, as `probeHookEndpoint` does `/health`:
+    /// the command's own client (`SignalClient`), so the probe and the
+    /// command cannot disagree about what a post looks like.
     nonisolated static func probeSignalEndpoint(port: UInt16, key: String,
                                                 timeout: TimeInterval = 1) -> SignalProbe {
-        guard let url = URL(string: "http://127.0.0.1:\(port)\(SignalReport.path)") else { return .failed("unreadable address") }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(key, forHTTPHeaderField: SignalReport.keyHeader)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(#"{"id":"_probe","ttl":0}"#.utf8)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = timeout
-        let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var answer: SignalProbe?
-        URLSession(configuration: configuration).dataTask(with: request) { _, response, error in
-            let result: SignalProbe
-            if let error = error as? URLError, error.code == .cannotConnectToHost {
-                result = .notRunning
-            } else if let error {
-                result = .failed(error.localizedDescription)
-            } else {
-                result = .status((response as? HTTPURLResponse)?.statusCode ?? -1)
-            }
-            lock.withLock { answer = result }
-            semaphore.signal()
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + timeout + 2)
-        return lock.withLock { answer } ?? .failed("no answer within \(timeout + 2) s")
+        let probe = SignalCommand.Post(id: "_probe", word: nil, ttl: 0)
+        switch SignalClient.send(probe.body, port: port, key: key, timeout: timeout) {
+        case .status(let code, _): return .status(code)
+        case .notRunning: return .notRunning
+        case .failed(let reason): return .failed(reason)
+        }
     }
 
     /// Is anything answering there, and which Evlat is it?

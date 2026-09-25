@@ -174,6 +174,17 @@ final class HookListenerTests: XCTestCase {
                        AppController.defaultCaptureWindow)
     }
 
+    /// Diagnostics are asked for by `argv[1]` alone (`012/phase-4`): a later
+    /// `--list` or `--capture` is another command's argument.
+    func testDiagnosticsAreAskedForByTheFirstArgumentOnly() {
+        XCTAssertTrue(AppController.isDiagnostics(["Evlat", "--list"]))
+        XCTAssertTrue(AppController.isDiagnostics(["Evlat", "--capture", "5"]))
+        XCTAssertTrue(AppController.isDiagnostics(["Evlat", "--list", "--capture", "90"]))
+        XCTAssertFalse(AppController.isDiagnostics(["Evlat"]))
+        XCTAssertFalse(AppController.isDiagnostics(["Evlat", "signal", "x", "--", "cmd", "--capture", "5"]))
+        XCTAssertFalse(AppController.isDiagnostics(["Evlat", "watch", "ls", "--list"]))
+    }
+
     /// `Int(window)` and `addingTimeInterval` both come apart on a value that
     /// parses as a `Double` but is not a usable number of seconds: `inf` used
     /// to **trap** the process, which is a poor answer to a typo.

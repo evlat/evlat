@@ -41,7 +41,10 @@ cevaplanır, dosya maskota bırakılır; kapatılan iş barda maskot yüzlü bir
 `kind: .job` satırı olarak sürer ([Sohbete dön]), görülünce Geçmiş'e çekilir,
 Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetleri tek bir kalıcı hafızayı
 (`<kök>/memory/`) paylaşır. Metinler katalogda (`L10n`,
-`en`/`tr`). Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
+`en`/`tr`). `012`'nin (dış işler) dört phase'i kodlandı, kapı ve teslim bekliyor:
+anahtarlı `POST /signal` her programa barda bir `kind: .custom` satırı verir,
+birincil kullanımı `Evlat watch <komut…>` (komutu şeffaf sarar), alt düzeyi
+`Evlat signal <id>`. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
 setler için `ROADMAP.md` → Fazlar.
 
 ## Tuzaklar
@@ -116,3 +119,11 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   62 MB'a varan bir kopyada tamamını okumak yerine son 256 KB okundu (9–10 ms,
   `009/phase-2`). `codex-usage` `.derived`'dır: biçim bozulursa susar, son iyi
   okuma kalır, daha eski bir dosyaya düşülmez (eski gözlem yeni gibi okunurdu).
+- **Terminalin Ctrl-C'si `si_pid`'den ayırt edilmez.** `watch` terminalden
+  gelen SIGINT'i çocuğa ikinci kez iletmesin diye `SA_SIGINFO`'nun `si_pid`'ine
+  bakıldı: pty'ye yazılan `^C`'de `si_pid` 0 değil, **yazan sürecin** pid'iydi
+  (`script`), yani `kill -INT`'ten farkı yok (`012/phase-4`, ölçüldü). Ayrım
+  sarmalayıcının terminalin ön plan grubunda olup olmadığıyla yapılır
+  (`Watch.shouldForward`). Elle denemede `script -q /dev/null …` stdin'i
+  soket olan ajan kabuğunda düşer (`tcgetattr … not supported on socket`);
+  stdin'e boru verilir: `(sleep 2; printf '\003') | script -q /dev/null …`.
