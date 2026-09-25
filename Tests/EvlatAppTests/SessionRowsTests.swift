@@ -474,6 +474,42 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.duplicate), [0, 0])
     }
 
+    private func remoteOutside(_ id: String, machine: String, label: String = "build",
+                               sender: String? = "npm") -> Signal {
+        Signal(provider: "signal", entity: "signal:\(machine):\(id)", kind: .custom, phase: .working,
+               label: label, fidelity: .manual, rawStatus: "working",
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+               machine: Signal.Machine(name: machine), sender: sender)
+    }
+
+    /// A remote outside row answers "where" first (`013`): its tag is the
+    /// machine, and the card says both — the sender, then the machine.
+    func testARemoteOutsideRowIsTaggedWithItsMachine() {
+        let row = SessionRow(remoteOutside("a", machine: "devbox"))
+        XCTAssertEqual(row.tag, "devbox")
+        XCTAssertEqual(SessionRow(remoteOutside("a", machine: "devbox", sender: nil)).tag, "devbox")
+        XCTAssertEqual(SessionRow(outside("a")).tag, "blender", "a local outside row keeps its sender")
+        XCTAssertEqual(RowTraits.Tag.sender.text(machine: "devbox", sender: "npm", inCard: true), "npm · devbox")
+        XCTAssertEqual(RowTraits.Tag.sender.text(machine: nil, sender: "npm", inCard: true), "npm")
+        XCTAssertEqual(RowTraits.Tag.sender.text(machine: "devbox", sender: nil, inCard: true), "devbox")
+        XCTAssertEqual(RowTraits.Tag.machine.text(machine: "devbox", sender: "x", inCard: true), "devbox")
+        XCTAssertEqual(RowTraits.Tag.evlat.text(machine: nil, sender: nil), SessionRow.jobTag)
+    }
+
+    /// The number follows the drawn tag: on one machine two senders' "build"
+    /// both read "DEVBOX build" and need one; on two machines they do not.
+    func testRemoteOutsideRowsAreNumberedByTheDrawnTag() {
+        let model = SessionRowsModel()
+        model.update(from: [remoteOutside("a", machine: "devbox"),
+                            remoteOutside("b", machine: "devbox", sender: "make")])
+        XCTAssertEqual(Set(model.rows.map(\.duplicate)), [0, 2], "same machine: numbered")
+        model.update(from: [remoteOutside("a", machine: "devbox"), remoteOutside("b", machine: "other")])
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0], "two machines: no number")
+        model.update(from: [outside("a", label: "build", sender: "npm"),
+                            outside("b", label: "build", sender: "make")])
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0], "local rows still told apart by sender")
+    }
+
     /// An outside row's stamp is the moment its phase began (the provider
     /// keeps it while the phase holds): its time is known on first sight.
     func testAnOutsideRowsTimeIsKnownOnFirstSight() {

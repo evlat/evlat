@@ -106,6 +106,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The machines came from `EVLAT_MACHINES` (or none, because of
     /// `EVLAT_PORT`): then adding or removing one is not written back.
     private var remoteFromEnvironment = true
+    /// Each machine's `/signal` key (`013`), by machine id. Written back to
+    /// `RemoteMachine.signalKeysStorageKey` under the list's own rule: only
+    /// a stored list's, never the environment's.
+    private var remoteSignalKeys: [String: String] = [:]
     /// The `ssh` the tunnels run, which the window's installer runs too.
     private var remoteSSHPath = AppController.sshPath()
     /// The remote machines window, once opened.
@@ -1732,12 +1736,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
         }
         remoteFromEnvironment = configuration.fromEnvironment
+        // A machine kept from before `013` has no key yet: it gets one now,
+        // and a key whose machine is gone goes. The environment's machines'
+        // keys are made fresh and live in memory only.
+        let storedKeys = configuration.fromEnvironment
+            ? nil : defaults?.dictionary(forKey: RemoteMachine.signalKeysStorageKey)
+        remoteSignalKeys = RemoteMachine.signalKeys(for: configuration.machines, stored: storedKeys,
+                                                    generate: SignalKey.generate)
+        if NSDictionary(dictionary: storedKeys ?? [:]) != NSDictionary(dictionary: remoteSignalKeys) {
+            storeSignalKeys()
+        }
         let tunnels = RemoteTunnels(
             registry: registry, sshPath: sshPath, platform: Self.darwinPlatform,
             now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
             confirmAfter: confirmAfter,
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
-        configuration.machines.forEach(tunnels.add)
+        for machine in configuration.machines {
+            tunnels.add(machine, key: remoteSignalKeys[machine.id] ?? SignalKey.generate())
+        }
         remote = tunnels
         remoteSSHPath = sshPath
     }
@@ -1793,8 +1809,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let remote else { return .failure(.empty) }
         if let existing = remote.machines.first(where: { $0.target == target }) { return .success(existing) }
         guard let machine = RemoteMachine(id: UUID().uuidString, target: target) else { return .failure(.empty) }
-        remote.add(machine)
+        let key = SignalKey.generate()
+        remoteSignalKeys[machine.id] = key
+        remote.add(machine, key: key)
         storeMachines()
+        storeSignalKeys()
         return .success(machine)
     }
 
@@ -1802,6 +1821,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func removeMachine(id: String) {
         remote?.remove(id: id)
         storeMachines()
+        // The server's copy answers nothing from here on: no listener has
+        // it, and a machine added again gets a new one.
+        remoteSignalKeys.removeValue(forKey: id)
+        storeSignalKeys()
     }
 
     /// Only a stored list is written back; one from the environment is read,
@@ -1810,6 +1833,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard !remoteFromEnvironment, let remote,
               let data = RemoteMachine.encode(remote.machines) else { return }
         defaults?.set(data, forKey: RemoteMachine.storageKey)
+    }
+
+    /// The keys, under the same rule as the list they belong to.
+    private func storeSignalKeys() {
+        guard !remoteFromEnvironment else { return }
+        defaults?.set(remoteSignalKeys, forKey: RemoteMachine.signalKeysStorageKey)
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
@@ -1863,8 +1892,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    nonisolated static func droppedSignalLine(id: String, limit: Int) -> String {
-        "Evlat: signal \(id) dropped: \(limit) rows\n"
+    /// `machine` names a remote machine's row (`RemoteTunnels`); its cap
+    /// is its own.
+    nonisolated static func droppedSignalLine(id: String, limit: Int, machine: String? = nil) -> String {
+        "Evlat: signal \(id)\(machine.map { " from \($0)" } ?? "") dropped: \(limit) rows\n"
     }
 
     /// What a local listener is given to make its `/signal` key once bound:

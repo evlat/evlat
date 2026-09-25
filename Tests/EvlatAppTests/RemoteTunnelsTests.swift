@@ -60,6 +60,7 @@ final class RemoteTunnelsTests: XCTestCase {
     }
 
     private let machine = RemoteMachine(id: "fake", target: "fake")!
+    private let key = String(repeating: "a", count: 64)
 
     private func make(ssh path: String, registry: Registry = Registry(),
                       workspace: NotificationCenter = NotificationCenter(),
@@ -86,7 +87,7 @@ final class RemoteTunnelsTests: XCTestCase {
     func testAMachineConnectsThroughTheFakeSSH() throws {
         let fake = try fakeSSH(.connect)
         let tunnels = make(ssh: fake.path)
-        tunnels.add(machine)
+        tunnels.add(machine, key: key)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
 
         let run = try XCTUnwrap(runs(in: fake.log).first)
@@ -110,7 +111,7 @@ final class RemoteTunnelsTests: XCTestCase {
             }
             return {}
         })
-        tunnels.add(machine)
+        tunnels.add(machine, key: key)
         waitUntil("waiting") {
             if case .waiting(_, .portBusy)? = tunnels.state(of: "fake") { return true }
             return false
@@ -141,7 +142,7 @@ final class RemoteTunnelsTests: XCTestCase {
         let fake = try fakeSSH(.connect)
         let workspace = NotificationCenter()
         let tunnels = make(ssh: fake.path, workspace: workspace)
-        tunnels.add(machine)
+        tunnels.add(machine, key: key)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
 
         workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
@@ -164,7 +165,7 @@ final class RemoteTunnelsTests: XCTestCase {
         let registry = Registry()
         // Long enough that only the request can mark the link up.
         let tunnels = make(ssh: fake.path, registry: registry, confirmAfter: 60)
-        tunnels.add(machine)
+        tunnels.add(machine, key: key)
         waitUntil("launched") { self.runs(in: fake.log).count == 1 }
         guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
             return XCTFail("the machine's listener is not up")
@@ -189,7 +190,7 @@ final class RemoteTunnelsTests: XCTestCase {
         let fake = try fakeSSH(.connect)
         let registry = Registry()
         let tunnels = make(ssh: fake.path, registry: registry)
-        tunnels.add(machine)
+        tunnels.add(machine, key: key)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
         guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
             return XCTFail("the machine's listener is not up")
@@ -205,6 +206,59 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertEqual(registry.snapshot().ordered, [])
         XCTAssertNil(tunnels.state(of: "fake"))
         waitUntil("process gone") { kill(pid, 0) != 0 }
+    }
+
+    /// `013`: with its machine's key a tunnel's `/signal` becomes that
+    /// machine's outside row — namespaced, named after the machine, live while
+    /// the tunnel is up, dimmed when it goes, gone with the machine. Without
+    /// the key, with a wrong one or with another machine's, `403` and no row.
+    func testAKeyedSignalThroughTheTunnelIsTheMachinesRow() throws {
+        let fake = try fakeSSH(.connect)
+        let registry = Registry()
+        let tunnels = make(ssh: fake.path, registry: registry)
+        let other = try XCTUnwrap(RemoteMachine(id: "other", target: "other"))
+        let otherKey = String(repeating: "b", count: 64)
+        tunnels.add(machine, key: key)
+        tunnels.add(other, key: otherKey)
+        XCTAssertEqual(tunnels.signalKey(of: "fake"), key)
+        waitUntil("connected") {
+            tunnels.state(of: "fake")?.isConnected == true && tunnels.state(of: "other")?.isConnected == true
+        }
+        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
+            return XCTFail("the machine's listener is not up")
+        }
+        let body = #"{"id":"x","ttl":60,"phase":"working","label":"build","sender":"npm"}"#
+        func post(_ key: String?) -> Int {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(SignalReport.path)")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let key { request.setValue(key, forHTTPHeaderField: SignalReport.keyHeader) }
+            request.httpBody = Data(body.utf8)
+            return send(request)
+        }
+        XCTAssertEqual(post(nil), 403)
+        XCTAssertEqual(post(String(repeating: "c", count: 64)), 403)
+        XCTAssertEqual(post(otherKey), 403, "another machine's key does not open this one")
+        XCTAssertEqual(registry.snapshot().ordered, [], "a refused request leaves no row")
+
+        XCTAssertEqual(post(key), 200)
+        waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "signal:fake:x" } }
+        let row = try XCTUnwrap(registry.snapshot().ordered.first { $0.entity == "signal:fake:x" })
+        XCTAssertEqual(row.kind, .custom)
+        XCTAssertEqual(row.fidelity, .manual)
+        XCTAssertEqual(row.machine?.name, "fake")
+        XCTAssertEqual(row.sender, "npm")
+        XCTAssertTrue(row.isLive)
+
+        // The tunnel goes: the row stays, dimmed.
+        tunnels.sleep()
+        let dimmed = try XCTUnwrap(registry.snapshot().ordered.first { $0.entity == "signal:fake:x" })
+        XCTAssertEqual(dimmed.machine?.dim?.reason, .disconnected)
+        XCTAssertFalse(dimmed.isLive)
+
+        tunnels.remove(id: "fake")
+        XCTAssertFalse(registry.snapshot().ordered.contains { $0.entity.hasPrefix("signal:fake:") })
+        XCTAssertNil(tunnels.signalKey(of: "fake"))
     }
 
     // MARK: - Which machines

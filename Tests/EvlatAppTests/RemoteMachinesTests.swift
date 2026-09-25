@@ -217,6 +217,59 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: RemoteMachine.storageKey))
     }
 
+    // MARK: - Signal keys (`013`)
+
+    private func storedKeys() -> [String: String]? {
+        defaults.dictionary(forKey: RemoteMachine.signalKeysStorageKey) as? [String: String]
+    }
+
+    func testAnAddedMachineGetsAKeyAndRemovingItDropsTheKey() throws {
+        let ssh = try fakeSSH(.connect)
+        let controller = controller(ssh: ssh)
+        let model = model(controller, ssh: ssh)
+        model.draft = "devbox"
+        model.add()
+        let id = try XCTUnwrap(model.selection)
+        let key = try XCTUnwrap(storedKeys()?[id])
+        XCTAssertTrue(RemoteMachine.isSignalKey(key), "64 hex digits")
+        XCTAssertEqual(controller.remote?.signalKey(of: id), key, "the listener has the stored key")
+
+        model.draft = "devbox"
+        model.add()
+        XCTAssertEqual(storedKeys()?[id], key, "the same target again makes no new key")
+
+        model.askToRemove()
+        model.confirmRemoval()
+        XCTAssertEqual(storedKeys(), [:])
+    }
+
+    func testAStoredMachineWithoutAKeyGetsOneAtLaunchAndAKeptKeyStays() throws {
+        let ssh = try fakeSSH(.connect)
+        let old = try XCTUnwrap(RemoteMachine(id: "old", target: "old"))
+        let keyed = try XCTUnwrap(RemoteMachine(id: "keyed", target: "keyed"))
+        let kept = String(repeating: "d", count: 64)
+        defaults.set(["keyed": kept, "gone": kept], forKey: RemoteMachine.signalKeysStorageKey)
+        let controller = controller(ssh: ssh, machines: [old, keyed])
+        let keys = try XCTUnwrap(storedKeys())
+        XCTAssertEqual(Set(keys.keys), ["old", "keyed"], "made for the old machine, dropped for the gone one")
+        XCTAssertEqual(keys["keyed"], kept)
+        XCTAssertTrue(RemoteMachine.isSignalKey(try XCTUnwrap(keys["old"])))
+        XCTAssertEqual(controller.remote?.signalKey(of: "old"), keys["old"])
+    }
+
+    func testTheEnvironmentsMachineKeysStayInMemory() throws {
+        let ssh = try fakeSSH(.connect)
+        let machine = try XCTUnwrap(RemoteMachine(id: "fake", target: "fake"))
+        let controller = controller(ssh: ssh, stored: false, machines: [machine])
+        XCTAssertTrue(RemoteMachine.isSignalKey(try XCTUnwrap(controller.remote?.signalKey(of: "fake"))))
+        let model = model(controller, ssh: ssh)
+        model.draft = "devbox"
+        model.add()
+        let id = try XCTUnwrap(model.selection)
+        XCTAssertNotNil(controller.remote?.signalKey(of: id))
+        XCTAssertNil(defaults.object(forKey: RemoteMachine.signalKeysStorageKey), "never written")
+    }
+
     // MARK: - The setup buttons
 
     func testWhileAJobRunsItsMachinesButtonsAreOff() throws {
@@ -477,7 +530,8 @@ final class RemoteMachinesTests: XCTestCase {
         final class Rows: Provider {
             let id = "rows"
             func currentSignals() -> [Signal] {
-                ["remote:a:s1", "remote:a:b:s2", "remote:a:b:s3"].map {
+                // An outside row of a machine (`013`) is not a session.
+                ["remote:a:s1", "remote:a:b:s2", "remote:a:b:s3", "signal:a:x"].map {
                     Signal(provider: "rows", entity: $0, phase: .idle, label: "x",
                            fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
                 }

@@ -164,5 +164,7 @@ final class SignalKeyTests: XCTestCase {
 
     func testADroppedRowIsOneStderrLine() {
         XCTAssertEqual(AppController.droppedSignalLine(id: "x", limit: 32), "Evlat: signal x dropped: 32 rows\n")
+        XCTAssertEqual(AppController.droppedSignalLine(id: "x", limit: 32, machine: "devbox"),
+                       "Evlat: signal x from devbox dropped: 32 rows\n")
     }
 }

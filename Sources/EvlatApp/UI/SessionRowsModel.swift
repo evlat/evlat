@@ -9,7 +9,26 @@ struct RowTraits: Equatable {
     /// What sits inside the ring.
     enum Mark: Equatable { case tool, face, none }
     /// Whose name the small caps beside the row's say.
-    enum Tag: Equatable { case machine, evlat, sender }
+    enum Tag: Equatable {
+        case machine, evlat, sender
+
+        /// The small caps as drawn — **the one rule**: the row's tag, the
+        /// card's header and the duplicate numbers' groups all read it.
+        ///
+        /// An outside job's tag answers "where" first (`013`): a remote one
+        /// is tagged with its machine, since what it is already reads in its
+        /// label; the card, with room for both, says the sender and then the
+        /// machine. A name, never catalogue text.
+        func text(machine: String?, sender: String?, inCard: Bool = false) -> String? {
+            switch self {
+            case .machine: return machine
+            case .evlat: return SessionRow.jobTag
+            case .sender:
+                guard inCard, let machine, let sender else { return machine ?? sender }
+                return "\(sender) · \(machine)"
+            }
+        }
+    }
     /// The card's one button.
     enum Button: Equatable { case goToSession, backToChat, none }
     /// What `Signal.detail` is to the card: a chat's folder (the footer), an
@@ -102,15 +121,9 @@ public struct SessionRow: Equatable, Identifiable {
     var traits: RowTraits { .of(kind) }
 
     /// The small caps beside the name: the machine's for a remote row,
-    /// "EVLAT" for a chat, the sender's for an outside job — a name, not
-    /// catalogue text.
-    public var tag: String? {
-        switch traits.tag {
-        case .machine: return machine
-        case .evlat: return Self.jobTag
-        case .sender: return sender
-        }
-    }
+    /// "EVLAT" for a chat, the sender's for an outside job on this Mac and
+    /// the machine's for one elsewhere (`RowTraits.Tag.text`).
+    public var tag: String? { traits.tag.text(machine: machine, sender: sender) }
     public static let jobTag = "Evlat"
 
     /// Only a session on this Mac has a terminal to look up and go to.
@@ -268,22 +281,23 @@ public final class SessionRowsModel: ObservableObject {
         return (shown, all.count - shown.count)
     }
 
-    /// Numbers for rows that share a name, a tool, a machine **and** a
-    /// sender — two Codex sessions in one folder are both called after it.
-    /// The same name in two tools needs none: the mark in the ring tells them
-    /// apart; nor on two computers, nor from two senders: the tag beside it
-    /// does. Counted over every live row, not the visible ones, and in entity
-    /// order, so a number does not change when the rows reorder or scroll
-    /// into the count.
+    /// Numbers for rows that share a name, a tool **and** the drawn tag —
+    /// two Codex sessions in one folder are both called after it. The same
+    /// name in two tools needs none: the mark in the ring tells them apart;
+    /// nor on two computers, nor from two senders on this Mac: the tag beside
+    /// it does. Two senders on one machine share its tag and are numbered
+    /// (`013`). Counted over every live row, not the visible ones, and in
+    /// entity order, so a number does not change when the rows reorder or
+    /// scroll into the count.
     nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
         // A struct, not a joined string: a sender may hold any separator.
         struct Group: Hashable {
-            let machine: String?, source: AgentSource?, sender: String?, label: String
+            let tag: String?, source: AgentSource?, label: String
         }
         var groups: [Group: [String]] = [:]
         for signal in signals {
-            let key = Group(machine: signal.machine?.name, source: signal.source,
-                            sender: signal.sender, label: signal.label)
+            let tag = RowTraits.of(signal.kind).tag.text(machine: signal.machine?.name, sender: signal.sender)
+            let key = Group(tag: tag, source: signal.source, label: signal.label)
             groups[key, default: []].append(signal.entity)
         }
         var numbers: [String: Int] = [:]

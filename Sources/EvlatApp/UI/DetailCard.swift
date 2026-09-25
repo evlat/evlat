@@ -14,7 +14,7 @@ import EvlatCore
 /// dimmed one says why in its footer, as its status line does.
 ///
 /// An outside job's card (`012`) is read, not pressed: its sender in the
-/// header's small caps, the status title, the sender's own line (what it is
+/// header's small caps (sender · machine for one elsewhere, `013`), the status title, the sender's own line (what it is
 /// on, or how it ended), its progress as a percent over a thin bar, and the
 /// time in the phase. No mark, no terminal, no button.
 ///
@@ -272,10 +272,10 @@ struct DetailCard: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            if let machine = detail.traits.tag == .sender ? detail.sender : detail.machine {
-                // The column's tag — the machine, or an outside job's
-                // sender — in the usage heading's type.
-                Text(verbatim: UsageBlock.heading(machine))
+            if let tag = detail.traits.tag.text(machine: detail.machine, sender: detail.sender, inCard: true) {
+                // The column's tag — the machine, an outside job's sender,
+                // or both for one elsewhere — in the usage heading's type.
+                Text(verbatim: UsageBlock.heading(tag))
                     .font(Font(SessionColumn.machineFont))
                     .kerning(SessionColumn.machineKerning)
                     .foregroundStyle(UsageBlock.headerColor)

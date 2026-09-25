@@ -28,6 +28,10 @@ final class RemoteTunnels {
         let machine: RemoteMachine
         let hooks: HooksProvider
         let usage: ClaudeUsageProvider
+        /// The machine's outside rows (`013`), namespaced by its id.
+        let signals: SignalsProvider
+        /// What the machine's `/signal` asks for; fixed for the link's life.
+        let signalKey: String
         var listener: HookListener?
         var tunnel: RemoteTunnel?
         var process: SSHProcess?
@@ -35,10 +39,13 @@ final class RemoteTunnels {
         /// before, since the port is in its arguments.
         var port: UInt16?
 
-        init(machine: RemoteMachine, hooks: HooksProvider, usage: ClaudeUsageProvider) {
+        init(machine: RemoteMachine, hooks: HooksProvider, usage: ClaudeUsageProvider,
+             signals: SignalsProvider, signalKey: String) {
             self.machine = machine
             self.hooks = hooks
             self.usage = usage
+            self.signals = signals
+            self.signalKey = signalKey
         }
     }
 
@@ -97,13 +104,24 @@ final class RemoteTunnels {
 
     func processIdentifier(of id: String) -> Int32? { links[id]?.process?.processIdentifier }
 
+    /// The key the machine's `/signal` asks for; what its server's command
+    /// is installed with.
+    func signalKey(of id: String) -> String? { links[id]?.signalKey }
+
     /// Registers the machine's providers and opens its tunnel as soon as its
     /// listener is bound. A machine already present is left as it is.
-    func add(_ machine: RemoteMachine) {
+    ///
+    /// `key` is the machine's own (`RemoteMachine.signalKeys`): its listener
+    /// answers `/signal` with it and with no other — not this Mac's, not
+    /// another machine's. Required, so no machine's listener is left with a
+    /// `/signal` that silently answers `404`.
+    func add(_ machine: RemoteMachine, key: String) {
         guard links[machine.id] == nil else { return }
         let link = Link(machine: machine,
                         hooks: HooksProvider(platform: platform, machine: machine.identity),
-                        usage: ClaudeUsageProvider(now: now, machine: machine.identity))
+                        usage: ClaudeUsageProvider(now: now, machine: machine.identity),
+                        signals: SignalsProvider(now: now, machine: machine.identity),
+                        signalKey: key)
         let tunnel = RemoteTunnel(effects: RemoteTunnel.Effects(
             launch: { [weak self, weak link] generation in
                 guard let self, let link else { return }
@@ -116,6 +134,7 @@ final class RemoteTunnels {
         tunnel.onChange = { [weak link] state in
             guard let link else { return }
             link.hooks.setLink(connected: state.isConnected)
+            link.signals.setLink(connected: state.isConnected)
             // The tunnel's trace on stderr, like the rows' (`refresh`).
             NSLog("Evlat: tunnel %@ %@", link.machine.name, state.text)
             onChange()
@@ -124,6 +143,7 @@ final class RemoteTunnels {
         link.listener = HookListener(
             port: 0,
             origin: .tunneled,
+            signalKey: { _ in key },
             onStatus: { [weak link] status in
                 guard let link else { return }
                 switch status {
@@ -149,8 +169,14 @@ final class RemoteTunnels {
                 // A tunnel answers `/permission` with `404` (`LocalAPI`):
                 // a remote machine never puts a card in front of this user.
                 case .permission: break
-                // Likewise `/signal`: no remote rows on this bar (`012`).
-                case .signal: break
+                // The machine's own outside row (`013`): the listener has
+                // already checked the machine's key. A dropped row is said on
+                // stderr like a local one, with the machine's name.
+                case .signal(let report):
+                    if case .dropped(let limit) = link.signals.apply(report) {
+                        FileHandle.standardError.write(Data(AppController.droppedSignalLine(
+                            id: report.id, limit: limit, machine: link.machine.name).utf8))
+                    }
                 }
                 onChange()
             })
@@ -158,6 +184,7 @@ final class RemoteTunnels {
         order.append(machine.id)
         registry.register(link.hooks)
         registry.register(link.usage)
+        registry.register(link.signals)
         link.listener?.start()
     }
 
@@ -168,6 +195,7 @@ final class RemoteTunnels {
         close(link)
         registry.unregister(link.hooks)
         registry.unregister(link.usage)
+        registry.unregister(link.signals)
         onChange()
     }
 

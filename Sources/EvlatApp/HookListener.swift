@@ -51,8 +51,9 @@ public final class HookListener {
     /// means; the listener only knows which one it is.
     private let origin: LocalAPI.Origin
     /// Makes the listener's `/signal` key once the port is bound (`012`):
-    /// given the bound port, it writes the key file and answers the key, or
-    /// `nil`. Called at most once, on `queue`, so a listener that never binds
+    /// given the bound port, the local one writes the key file and answers
+    /// the key, or `nil`; a tunnel's answers its machine's kept key (`013`,
+    /// `RemoteTunnels.add`). Called at most once, on `queue`, so a listener that never binds
     /// never calls it — and never overwrites the key of the Evlat that holds
     /// the port.
     private let makeSignalKey: (UInt16) -> String?
