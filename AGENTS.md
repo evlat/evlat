@@ -44,7 +44,10 @@ Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetle
 `en`/`tr`). `012`'nin (dış işler) dört phase'i kodlandı ve kapıdan geçti, teslim bekliyor:
 anahtarlı `POST /signal` her programa barda bir `kind: .custom` satırı verir,
 birincil kullanımı `Evlat watch <komut…>` (komutu şeffaf sarar), alt düzeyi
-`Evlat signal <id>`. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
+`Evlat signal <id>`. `013`'ün (uzak sinyal) beş phase'i kodlandı, kapı ve teslim
+bekliyor: sunucudaki `evlat watch`/`signal` (POSIX `sh` betiği, "Uzak
+makineler…"den otomatik ya da elle kurulur) tünelden makinenin kendi
+anahtarıyla barda makine etiketli bir satır açar. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
 setler için `ROADMAP.md` → Fazlar.
 
 ## Tuzaklar
@@ -139,3 +142,24 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   (`Watch.shouldForward`). Elle denemede `script -q /dev/null …` stdin'i
   soket olan ajan kabuğunda düşer (`tcgetattr … not supported on socket`);
   stdin'e boru verilir: `(sleep 2; printf '\003') | script -q /dev/null …`.
+- **POSIX `sh`'ta arka plan çocuğu `SIGINT`'i yok sayar ve bu geri
+  alınamaz.** İş denetimi kapalı kabukta `cmd &`'e giden `INT` çocuğu
+  öldürmedi — `/bin/sh` (bash 3.2), `dash` ve `bash`'te; `trap - INT` ve
+  `<&0` de çare değil (`013`, ölçüldü). Ctrl-C'yi duyması gereken komut ön
+  planda koşar; bedeli, sarmalayıcıya atılan `TERM`'ün komut bitene dek
+  ertelenmesidir.
+- **Arka plandaki nabız döngüsünün yetim `sleep`'i çağıranın borusunu
+  tutar.** `$(evlat watch true)` 3,0 sn bekledi; döngü ve `curl`
+  `</dev/null >/dev/null 2>&1` ile koşunca 0,35 sn (`013`, `sh` ve `dash`'te
+  ölçüldü). Sarmalayıcının arka plan işleri kullanıcının akışlarını hiç
+  devralmaz.
+- **`dash` alt kabukta, kendi `trap`'ini kurana dek ebeveynin tuzağını
+  koşturur.** Tuzaklardan sonra başlatılan nabız `kill`'de ölmek yerine
+  ebeveynin "TERM yakalandı" tuzağını koştu ve `watch` asıldı
+  (`013/phase-3`). Arka plan işleri tuzaklar kurulmadan **önce** başlatılır.
+- **Evlat ikilisi tanımadığı argümanla uygulamanın kendisini açar.**
+  `Evlat --help` yardım basmadı; ortamsız (yalıtımsız) ikinci bir Evlat
+  açıldı, kullanıcının makinelerine tünel denedi (`013/phase-5`). Alt
+  komutlar yalnız `watch`, `signal`, `--list`, `--capture`; ikiliyi başka
+  argümanla koşturmak ölçüm ortamı (`EVLAT_PORT`, `EVLAT_HOME`) olmadan
+  yapılmaz.
