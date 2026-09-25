@@ -76,50 +76,27 @@
 "menu.force" = "Force state";
 "menu.force.follow" = "Follow sessions";
 
-/* The hook entries, one per agent whose folder exists. {source} is the
-   agent's name (source.claude, source.codex). The title says what a click
-   does: the hooks are not there, differ from today's, or are current. */
-"menu.hooks.install" = "Install {source} hooks";
-"menu.hooks.update" = "Update {source} hooks";
-"menu.hooks.remove" = "Remove {source} hooks";
-/* An entry's tooltip: what the agent needs after the write. */
+/* After a hook write (the settings window, a remote machine): what the
+   agent needs to load the change. */
 "menu.hooks.hint.claude" = "In open Claude Code sessions, open /hooks once to load the change.";
 "menu.hooks.hint.codex" = "Codex asks you to trust the new hooks.";
 "menu.hooks.hint.remove" = "Codex may ask again to trust your other hooks.";
-/* A refused write: one dim line under the entry, until a write succeeds.
-   The file is left as it was in every case. */
+/* A refused write, on its settings row until a write succeeds. The file is
+   left as it was in every case. */
 "menu.hooks.error.unreadable" = "The settings file could not be read";
 "menu.hooks.error.malformed" = "The settings file is not in a form Evlat can edit; left as is";
 "menu.hooks.error.noDirectory" = "The agent's folder is gone";
 "menu.hooks.error.changedUnderneath" = "The file changed while writing; try again";
 "menu.hooks.error.unwritable" = "The settings file could not be written";
 
-/* The usage line entry, under Claude Code's hook entry: it wraps the user's
-   status line command so its JSON also reaches Evlat. A wrapper changed by
-   hand is a dim line with no action. A refused write shows the hooks' lines. */
-"menu.usage.install" = "Install the usage line";
-"menu.usage.remove" = "Remove the usage line";
+/* The usage line wraps the user's status line command so its JSON also
+   reaches Evlat. A wrapper changed by hand is left alone: an attention line
+   in the menu, a dim row in the settings. */
 "menu.usage.modified" = "Usage line edited by hand";
 "menu.usage.hint" = "Wraps your Claude Code status line; open sessions relay usage from their next message.";
 
 /* The remote machines: servers reached over ssh whose sessions show on the
-   bar. The menu's entry opens the window; under it, one dim line per machine
-   whose connection failed: "{machine}: {failure}" (remote.failure.*). */
-"menu.remote" = "Remote Machines…";
-"menu.remote.failure" = "{machine}: {failure}";
-
-/* Evlat's memory: the one folder where chats run in Evlat's own workspace
-   keep what Claude remembers (autoMemoryDirectory). A chat in a folder of
-   yours keeps that folder's memory, not this one. Clearing asks first. */
-"menu.memory" = "Evlat's Memory";
-"menu.memory.show" = "Show in Finder";
-"menu.memory.clear" = "Clear…";
-"menu.memory.empty" = "Nothing remembered yet";
-"menu.memory.confirm" = "Clear Evlat's memory?";
-"menu.memory.confirm.detail" = "What Claude remembered in Evlat's chats is deleted for good. Chats in a folder of yours keep that folder's memory.";
-"menu.memory.cancel" = "Cancel";
-"menu.memory.do" = "Clear";
-
+   bar, set up in Settings → Remote Machines. */
 /* The window. With no machine it shows an invitation and the field. */
 "remote.empty.title" = "No remote machines yet";
 "remote.empty.body" = "Sessions you run on a server over ssh can show up on the bar like local ones. Add the server by the name you give ssh — an alias from ~/.ssh/config such as devbox, or me@server.";
@@ -282,7 +259,6 @@
 "menu.hotkey.change" = "Change…";
 "menu.hotkey.off" = "Turn Off";
 "menu.hotkey.on" = "Turn On";
-"menu.hotkey.failure" = "Could not register the shortcut ({status})";
 "hotkey.recorder.hint" = "Hold ⌃, ⌥ or ⌘ with a key · Esc cancels";
 "hotkey.recorder.needsModifier" = "Add ⌃, ⌥ or ⌘ to the key · Esc cancels";
 "hotkey.recorder.appShortcut" = "{shortcut} belongs to apps. With ⌘ alone use Space or an F key, or add ⌃ or ⌥";

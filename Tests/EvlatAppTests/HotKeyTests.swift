@@ -185,32 +185,31 @@ final class HotKeyTests: XCTestCase {
         XCTAssertFalse(NSApp.isActive)
     }
 
-    /// A refused registration: one dim line under the entry, the number
-    /// Carbon gave, until a registration succeeds. It does not guess who
-    /// holds the key — Carbon does not say (measured, `phase-2`).
-    func testARefusedRegistrationLeavesOneDimLine() throws {
+    /// A refused registration: one attention line (`014`), dim but live —
+    /// it opens the settings at the chat section — until a registration
+    /// succeeds or the shortcut is turned off.
+    func testARefusedRegistrationLeavesOneAttentionLine() throws {
         let fake = FakeHotKey()
         fake.status = OSStatus(eventHotKeyExistsErr)
         let controller = controller(fake)
         defer { controller.panel?.close() }
-        let menu = controller.makeMenu(diagnostics: false, in: "en")
-        let index = menu.index(of: try entry(menu))
-        let line = menu.items[index + 1]
-        XCTAssertFalse(line.isEnabled)
-        XCTAssertEqual(line.title, "Could not register the shortcut (\(eventHotKeyExistsErr))")
-        XCTAssertEqual(line.indentationLevel, 1)
+        func lines() -> [NSMenuItem] {
+            controller.makeMenu(diagnostics: false, in: "en").items.filter { $0.representedObject is SetupAttention }
+        }
+        let line = try XCTUnwrap(lines().first)
+        XCTAssertEqual(line.title, "The shortcut is not registered")
+        XCTAssertTrue(line.isEnabled)
+        XCTAssertEqual(line.action, #selector(AppController.openAttention(_:)))
+        XCTAssertEqual((line.representedObject as? SetupAttention)?.section, .chat)
 
         fake.status = noErr
         controller.applyHotKey()
-        let fixed = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertFalse(fixed.items[fixed.index(of: try entry(fixed)) + 1].title.hasPrefix("Could not"))
+        XCTAssertEqual(lines(), [])
 
         fake.status = OSStatus(eventHotKeyExistsErr)
         defaults.set(false, forKey: AppController.hotKeyKey)
         controller.applyHotKey()
-        let off = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertFalse(off.items[off.index(of: try entry(off)) + 1].title.hasPrefix("Could not"),
-                       "turned off, there is no failure to show")
+        XCTAssertEqual(lines(), [], "turned off, there is no failure to show")
     }
 
     /// The press reaches the balloon: open, then closed.

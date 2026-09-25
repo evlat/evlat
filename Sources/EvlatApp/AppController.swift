@@ -1959,12 +1959,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The menus' "Settings…".
     @objc func openSettingsFromMenu(_ sender: Any?) { openSettings() }
 
-    /// The menus' "Remote Machines…" (until `phase-4` takes it out): the
-    /// settings at their remote section.
-    @objc func openRemoteMachines(_ sender: Any?) {
-        openSettings(section: .remote)
-    }
-
     /// `EVLAT_SETTINGS=<section>` opens the settings at launch at that
     /// section (`general`, `sessions`, `chat`, `command`, `remote`) — for
     /// looking at one, the same pattern as `EVLAT_SELECT`. It only reads:
@@ -2493,21 +2487,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// Every title the menus ask the catalogue for; the phases' are
-    /// `StatusLine`'s.
+    /// `StatusLine`'s and the attention lines' `SetupModel`'s.
     static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
                            "menu.hotkey", "menu.hotkey.change", "menu.hotkey.off", "menu.hotkey.on",
-                           "menu.hotkey.failure",
-                           "menu.quit", "menu.force", "menu.force.follow",
-                           "menu.hooks.install", "menu.hooks.update", "menu.hooks.remove",
-                           "menu.hooks.hint.claude", "menu.hooks.hint.codex", "menu.hooks.hint.remove",
-                           "menu.hooks.error.unreadable", "menu.hooks.error.malformed",
-                           "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
-                           "menu.hooks.error.unwritable",
-                           "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint",
-                           "menu.remote", "menu.remote.failure", "menu.settings", "menu.setup",
-                           "menu.memory", "menu.memory.show", "menu.memory.clear", "menu.memory.empty",
-                           "menu.memory.confirm", "menu.memory.confirm.detail", "menu.memory.cancel",
-                           "menu.memory.do"]
+                           "menu.quit", "menu.force", "menu.force.follow", "menu.settings", "menu.setup"]
 
     /// A refused write's line. A switch, not a string built from the case,
     /// so a new failure does not compile until it has a line.
@@ -2521,21 +2504,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    /// What a hook entry does, fixed when the menu is built: the click does
-    /// what its title said, even if the file changed while the menu was open.
-    struct HookEntry {
-        let source: AgentSource
-        let remove: Bool
-    }
-
-    /// The same for the status line relay's entry.
-    struct UsageEntry {
-        let remove: Bool
-    }
-
-    /// The one menu: *Edge ▸ Right / Left*, the current one marked, one
-    /// entry per agent that is there, and *Quit*. The tray's (`diagnostics`)
-    /// adds *Force state ▸*.
+    /// The one menu (`014`, R10): the quick things — *Edge ▸*, *Shortcut ▸*
+    /// —, a dim line for each thing that wants attention, *Settings… ⌘,*,
+    /// *Setup…* and *Quit*. Setting things up is the settings window's. The
+    /// tray's (`diagnostics`) adds *Force state ▸*.
     func makeMenu(diagnostics: Bool, in lang: String = L10n.language) -> NSMenu {
         let menu = NSMenu()
         fill(menu, diagnostics: diagnostics, in: lang)
@@ -2577,9 +2549,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             forcedItem.submenu = forced
         }
 
-        addHookEntries(to: menu, in: lang)
-        addRemoteEntry(to: menu, in: lang)
-        addMemoryEntry(to: menu, in: lang)
+        addAttentionLines(to: menu, in: lang)
 
         menu.addItem(.separator())
         let settings = menu.addItem(withTitle: L10n.t("menu.settings", in: lang),
@@ -2594,10 +2564,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     }
 
-    /// "Shortcut: ⇧⌘Space ▸ Change… / Turn Off", marked while on; under it
-    /// a refused registration's dim line (`008`'s pattern) with Carbon's
-    /// number. The line does not name another app: Carbon does not say who
-    /// holds a key (measured).
+    /// "Shortcut: ⇧⌘Space ▸ Change… / Turn Off", marked while on. A refused
+    /// registration is an attention line (`addAttentionLines`).
     private func addHotKeyEntry(to menu: NSMenu, in lang: String) {
         let actions = NSMenu()
         let change = actions.addItem(withTitle: L10n.t("menu.hotkey.change", in: lang),
@@ -2610,173 +2578,40 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                  action: nil, keyEquivalent: "")
         entry.submenu = actions
         entry.state = isHotKeyOn ? .on : .off
-        if let status = hotKeyStatus, status != noErr {
-            let line = menu.addItem(withTitle: L10n.t("menu.hotkey.failure", ["status": "\(status)"], in: lang),
-                                    action: nil, keyEquivalent: "")
-            line.isEnabled = false
-            line.indentationLevel = 1
-        }
     }
 
-    /// One entry per agent whose directory exists, titled by what the file
-    /// holds now: install, update or remove. The file is read each time a
-    /// menu is built, never cached and never written here. A directory that
-    /// is not there means the agent is not installed; no entry offers to
-    /// create it.
-    private func addHookEntries(to menu: NSMenu, in lang: String) {
-        guard let home else { return }
-        let sources = Self.presentSources(home: home)
-        guard !sources.isEmpty else { return }
+    /// One dim line per thing that wants attention — the list the settings'
+    /// side list draws its dots from (`SetupModel.attention`), read fresh
+    /// each time a menu is built and never written here. Dim but live: a
+    /// click opens the settings at the line's section.
+    private func addAttentionLines(to menu: NSMenu, in lang: String) {
+        let model = SetupModel(host: setupHost, lang: lang)
+        guard !model.attention.isEmpty else { return }
         menu.addItem(.separator())
-        for source in sources {
-            // A file that cannot be read offers the install: the click then
-            // says why it cannot happen, in the line below.
-            let state = (try? HookSettings.state(at: source.settingsFile(home: home), for: source)) ?? .missing
-            let key: String
-            switch state {
-            case .missing: key = "menu.hooks.install"
-            case .outdated: key = "menu.hooks.update"
-            case .current: key = "menu.hooks.remove"
-            }
-            let name = L10n.t("source.\(source.rawValue)", in: lang)
-            let entry = menu.addItem(withTitle: L10n.t(key, ["source": name], in: lang),
-                                     action: #selector(changeHooks(_:)), keyEquivalent: "")
-            entry.representedObject = HookEntry(source: source, remove: state == .current)
-            entry.target = self
-            // What the agent needs after the write. Removing only matters to
-            // Codex, whose trust is keyed by a group's index.
-            switch (state, source) {
-            case (.current, .claude): break
-            case (.current, .codex): entry.toolTip = L10n.t("menu.hooks.hint.remove", in: lang)
-            case (_, .claude): entry.toolTip = L10n.t("menu.hooks.hint.claude", in: lang)
-            case (_, .codex): entry.toolTip = L10n.t("menu.hooks.hint.codex", in: lang)
-            }
-            if let failure = hookFailures[source] { addFailureLine(failure, to: menu, in: lang) }
-            if source == .claude { addUsageEntry(to: menu, in: lang, home: home) }
+        for attention in model.attention {
+            let text = model.text(attention)
+            let line = menu.addItem(withTitle: text, action: #selector(openAttention(_:)), keyEquivalent: "")
+            line.attributedTitle = NSAttributedString(string: text, attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.menuFont(ofSize: 0),
+            ])
+            line.representedObject = attention
+            line.target = self
         }
     }
 
-    /// "Remote Machines…", and under it one dim line per machine whose
-    /// tunnel failed — `008`'s failure line, with the machine's name. The
-    /// line does nothing: the window says what to do about it.
-    private func addRemoteEntry(to menu: NSMenu, in lang: String) {
-        menu.addItem(.separator())
-        let entry = menu.addItem(withTitle: L10n.t("menu.remote", in: lang),
-                                 action: #selector(openRemoteMachines(_:)), keyEquivalent: "")
-        entry.target = self
-        for machine in remote?.machines ?? [] {
-            guard case .waiting(_, let failure)? = remote?.state(of: machine.id) else { continue }
-            let text = L10n.t("menu.remote.failure",
-                              ["machine": machine.name,
-                               "failure": L10n.t(RemoteMachinesModel.failureKey(failure), in: lang)], in: lang)
-            let line = menu.addItem(withTitle: text, action: nil, keyEquivalent: "")
-            line.isEnabled = false
-            line.indentationLevel = 1
-        }
-    }
-
-    /// "Evlat's Memory ▸ Show in Finder / Clear…": the folder workspace
-    /// chats remember in (`ChatStore.memoryDirectory`). Read each time the
-    /// menu is built; with nothing in it both entries are dim under an
-    /// "empty" line.
-    private func addMemoryEntry(to menu: NSMenu, in lang: String) {
-        guard let chats else { return }
-        let hasNotes = !(chats.memoryContents() ?? []).isEmpty
-        let actions = NSMenu()
-        actions.autoenablesItems = false
-        if !hasNotes {
-            let line = actions.addItem(withTitle: L10n.t("menu.memory.empty", in: lang), action: nil,
-                                       keyEquivalent: "")
-            line.isEnabled = false
-        }
-        let show = actions.addItem(withTitle: L10n.t("menu.memory.show", in: lang),
-                                   action: #selector(showMemory(_:)), keyEquivalent: "")
-        show.target = self
-        show.isEnabled = hasNotes
-        let clear = actions.addItem(withTitle: L10n.t("menu.memory.clear", in: lang),
-                                    action: #selector(clearMemory(_:)), keyEquivalent: "")
-        clear.target = self
-        clear.isEnabled = hasNotes
-        let entry = menu.addItem(withTitle: L10n.t("menu.memory", in: lang), action: nil, keyEquivalent: "")
-        entry.submenu = actions
-    }
-
-    @objc private func showMemory(_ sender: NSMenuItem) {
-        guard let folder = chats?.memoryDirectory else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([folder])
-    }
-
-    /// Asks first — the notes cannot be brought back — then empties the
-    /// folder. The alert needs Evlat in front, like the save panel, and
-    /// hands the front back after. Cancel is the default button.
-    @objc private func clearMemory(_ sender: NSMenuItem) {
-        guard chats != nil else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = L10n.t("menu.memory.confirm")
-        alert.informativeText = L10n.t("menu.memory.confirm.detail")
-        alert.addButton(withTitle: L10n.t("menu.memory.cancel"))
-        let clear = alert.addButton(withTitle: L10n.t("menu.memory.do"))
-        clear.hasDestructiveAction = true
-        let previous = NSWorkspace.shared.frontmostApplication
-        choosingInPanel = true
-        chatPanel?.orderOut(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        let response = alert.runModal()
-        if response == .alertSecondButtonReturn { chats?.clearMemory() }
-        handBack(to: previous)
-    }
-
-    private func addFailureLine(_ failure: SettingsFile.Failure, to menu: NSMenu, in lang: String) {
-        let line = menu.addItem(withTitle: L10n.t(Self.failureKey(failure), in: lang),
-                                action: nil, keyEquivalent: "")
-        line.isEnabled = false
-        line.indentationLevel = 1
-    }
-
-    /// Under Claude's hook entry: the status line relay (`StatusLineRelay`),
-    /// titled by what the file holds now. A wrapper edited by hand is a dim
-    /// line with no action — it is neither installed over nor taken apart.
-    private func addUsageEntry(to menu: NSMenu, in lang: String, home: URL) {
-        let state = (try? StatusLineRelay.state(at: AgentSource.claude.settingsFile(home: home))) ?? .missing
-        let key: String
-        switch state {
-        case .missing: key = "menu.usage.install"
-        case .current: key = "menu.usage.remove"
-        case .modified: key = "menu.usage.modified"
-        }
-        let entry = menu.addItem(withTitle: L10n.t(key, in: lang),
-                                 action: state == .modified ? nil : #selector(changeUsageRelay(_:)),
-                                 keyEquivalent: "")
-        if state == .modified {
-            entry.isEnabled = false
-        } else {
-            entry.representedObject = UsageEntry(remove: state == .current)
-            entry.target = self
-            entry.toolTip = L10n.t("menu.usage.hint", in: lang)
-        }
-        if let usageFailure { addFailureLine(usageFailure, to: menu, in: lang) }
-    }
-
-    /// A hook entry: the writer, then the outcome kept for the next menu —
-    /// no dialog, no success message; the title changing is the answer.
-    /// Like the edge, the open list closes and nothing is activated.
-    @objc func changeHooks(_ sender: NSMenuItem) {
-        guard let entry = sender.representedObject as? HookEntry else { return }
-        setHooks(entry.source, installed: !entry.remove)
-    }
-
-    /// The status line relay's entry, as `changeHooks` does it.
-    @objc func changeUsageRelay(_ sender: NSMenuItem) {
-        guard let entry = sender.representedObject as? UsageEntry else { return }
-        setUsageRelay(installed: !entry.remove)
+    /// An attention line: the settings, at its section.
+    @objc func openAttention(_ sender: NSMenuItem) {
+        guard let attention = sender.representedObject as? SetupAttention else { return }
+        openSettings(section: attention.section)
     }
 
     // MARK: - The writers (`014`, R1)
     //
-    // The one place each setting is written. The menus, the settings window
-    // and the setup only call these; the failure each leaves is kept here
-    // and read by all three. Without a home (every test) none writes.
+    // The one place each setting is written. The settings window, the setup
+    // and — for the edge and the shortcut — the menus only call these; the
+    // failure each leaves is kept here, read by the windows and the menus'
+    // attention lines. Without a home (every test) none writes.
 
     /// A source's hooks installed or removed; the outcome is kept for the
     /// next reader — no dialog, no success message; the state changing is

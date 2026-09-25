@@ -13,8 +13,8 @@ import EvlatCore
 final class MenuTests: XCTestCase {
     private var suiteName = ""
     private var defaults: UserDefaults!
-    /// A temporary home for the hook entries: the user's `~/.claude` and
-    /// `~/.codex` are never read or written here.
+    /// A temporary home for the attention lines and the writers: the user's
+    /// `~/.claude` and `~/.codex` are never read or written here.
     private var home: URL!
 
     override func setUp() {
@@ -100,18 +100,16 @@ final class MenuTests: XCTestCase {
         let controller = controller()
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"])
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Settings…", "Setup…", "Quit Evlat"])
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Right", "Left"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.on, .off])
-        XCTAssertFalse(titles(menu).contains { $0.localizedCaseInsensitiveContains("hook") },
-                       "no home, no hook entry")
     }
 
     func testTheTrayMenuAddsForceState() throws {
         let controller = controller()
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: true, in: "en")
-        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Remote Machines…", "—",
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—",
                                       "Settings…", "Setup…", "Quit Evlat"])
         let forced = try XCTUnwrap(menu.items[2].submenu)
         XCTAssertEqual(titles(forced),
@@ -123,7 +121,7 @@ final class MenuTests: XCTestCase {
         let controller = controller(edge: .left)
         defer { controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: true, in: "tr")
-        XCTAssertEqual(titles(menu), ["Kenar", "Kısayol: ⇧⌘Space", "Durumu zorla", "—", "Uzak makineler…", "—",
+        XCTAssertEqual(titles(menu), ["Kenar", "Kısayol: ⇧⌘Space", "Durumu zorla", "—",
                                       "Ayarlar…", "Kurulum…", "Evlat'tan Çık"])
         XCTAssertEqual(titles(try edgeMenu(menu)), ["Sağ", "Sol"])
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.off, .on])
@@ -152,10 +150,10 @@ final class MenuTests: XCTestCase {
         controller.dock(.left)
         controller.menuNeedsUpdate(menu)
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.off, .on])
-        XCTAssertEqual(menu.items.count, 9, "rebuilt, not appended to")
+        XCTAssertEqual(menu.items.count, 7, "rebuilt, not appended to")
     }
 
-    // MARK: - Hook entries
+    // MARK: - Attention lines
 
     private func agentDirectory(_ source: AgentSource) throws {
         try FileManager.default.createDirectory(at: source.configDirectory(home: home),
@@ -167,79 +165,116 @@ final class MenuTests: XCTestCase {
         return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    /// The index of a source's entry, found by what it does rather than by
-    /// its title, which is what is being checked.
-    private func hookEntry(_ menu: NSMenu, _ source: AgentSource) throws -> Int {
-        try XCTUnwrap(menu.items.firstIndex {
-            ($0.representedObject as? AppController.HookEntry)?.source == source
-        }, "no entry for \(source)")
+    /// The attention lines, found by what they carry rather than by their
+    /// titles, which are what is being checked.
+    private func attentionLines(_ menu: NSMenu) -> [NSMenuItem] {
+        menu.items.filter { $0.representedObject is SetupAttention }
     }
 
-    func testThereIsAnEntryForEachAgentThatIsThere() throws {
-        let controller = controller(home: home)
-        defer { controller.panel?.close() }
-        XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
-                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"],
-                       "neither agent: no entry")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path), [],
-                       "reading the menu creates no directory")
-
-        try agentDirectory(.claude)
-        XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
-                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Install Claude Code hooks", "Install the usage line", "—",
-                        "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"])
-        try agentDirectory(.codex)
-        XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
-                       ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Install Claude Code hooks",
-                        "Install the usage line",
-                        "Install Codex hooks", "—", "Remote Machines…", "—", "Settings…", "Setup…", "Quit Evlat"])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
-                       "opening the menu writes nothing")
-    }
-
-    func testTheTitleFollowsTheState() throws {
-        try agentDirectory(.claude)
-        let file = AgentSource.claude.settingsFile(home: home)
-        let controller = controller(home: home)
-        defer { controller.panel?.close() }
-        func title(_ lang: String) throws -> String {
-            let menu = controller.makeMenu(diagnostics: false, in: lang)
-            return menu.items[try hookEntry(menu, .claude)].title
-        }
-        XCTAssertEqual(try title("en"), "Install Claude Code hooks", "missing")
-        XCTAssertEqual(try title("tr"), "Claude Code hook'larını kur")
-
+    /// Today's command with another timeout: a hook Evlat wrote once but
+    /// would not write today.
+    private func writeOutdatedHooks() throws {
         let current = HookSettings.installing(into: [:], for: .claude)
-        try JSONSerialization.data(withJSONObject: current).write(to: file)
-        XCTAssertEqual(try title("en"), "Remove Claude Code hooks", "current")
-        XCTAssertEqual(try title("tr"), "Claude Code hook'larını kaldır")
-
         let old = String(decoding: try JSONSerialization.data(withJSONObject: current), as: UTF8.self)
             .replacingOccurrences(of: "-m 2", with: "-m 1")
-        try Data(old.utf8).write(to: file)
-        XCTAssertEqual(try title("en"), "Update Claude Code hooks", "outdated")
-        XCTAssertEqual(try title("tr"), "Claude Code hook'larını güncelle")
+        try Data(old.utf8).write(to: AgentSource.claude.settingsFile(home: home))
     }
 
-    func testTheEntriesCarryTheirHints() throws {
+    /// Setting up is the settings window's: with both agents there and
+    /// nothing installed the menu offers nothing, and reading it writes
+    /// nothing.
+    func testNothingIsSetUpFromTheMenu() throws {
         try agentDirectory(.claude)
         try agentDirectory(.codex)
         let controller = controller(home: home)
         defer { controller.panel?.close() }
-        var menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(menu.items[try hookEntry(menu, .claude)].toolTip,
-                       L10n.t("menu.hooks.hint.claude", in: "en"))
-        XCTAssertEqual(menu.items[try hookEntry(menu, .codex)].toolTip,
-                       L10n.t("menu.hooks.hint.codex", in: "en"))
-        menu.performActionForItem(at: try hookEntry(menu, .claude))
-        menu.performActionForItem(at: try hookEntry(menu, .codex))
-        menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertNil(menu.items[try hookEntry(menu, .claude)].toolTip, "Claude's removal needs no hint")
-        XCTAssertEqual(menu.items[try hookEntry(menu, .codex)].toolTip,
-                       L10n.t("menu.hooks.hint.remove", in: "en"))
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
+                       ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Settings…", "Setup…", "Quit Evlat"],
+                       "missing hooks want no attention: no line")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
+                       "opening the menu writes nothing")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path).sorted(),
+                       [".claude", ".codex"], "and creates nothing")
     }
 
-    func testTheEntryInstallsThenRemoves() throws {
+    /// An old hook is a dim line above *Settings…* — dim, but it can be
+    /// clicked, and the click opens the settings at its section.
+    func testAnOutdatedHookIsADimLineThatOpensItsSection() throws {
+        try agentDirectory(.claude)
+        try writeOutdatedHooks()
+        let before = try Data(contentsOf: AgentSource.claude.settingsFile(home: home))
+        let controller = controller(home: home)
+        controller.settingsActivation = { }
+        defer {
+            controller.settingsWindow?.close()
+            controller.panel?.close()
+        }
+        let menu = controller.makeMenu(diagnostics: false, in: "en")
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Claude Code hooks are old", "—",
+                                      "Settings…", "Setup…", "Quit Evlat"])
+        let line = try XCTUnwrap(attentionLines(menu).first)
+        XCTAssertTrue(line.isEnabled, "dim, not disabled: it can be clicked")
+        XCTAssertTrue(line.target === controller)
+        XCTAssertEqual(line.action, #selector(AppController.openAttention(_:)))
+        let color = line.attributedTitle?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(color, .secondaryLabelColor, "drawn dim")
+        XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "tr")).map(\.title),
+                       ["Claude Code hook'ları eski"])
+
+        menu.performActionForItem(at: menu.index(of: line))
+        XCTAssertEqual(controller.settingsWindow?.isVisible, true)
+        XCTAssertEqual(controller.settings?.section, .sessions)
+        XCTAssertEqual(try Data(contentsOf: AgentSource.claude.settingsFile(home: home)), before,
+                       "the click only opens: nothing is written")
+    }
+
+    /// A refused write is a line until a write succeeds.
+    func testARefusedWriteLeavesOneLineUntilItSucceeds() throws {
+        try agentDirectory(.claude)
+        let file = AgentSource.claude.settingsFile(home: home)
+        let broken = Data("{ not json".utf8)
+        try broken.write(to: file)
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+
+        controller.setHooks(.claude, installed: true)
+        XCTAssertEqual(try Data(contentsOf: file), broken, "the file is left as it was")
+        XCTAssertEqual(controller.hookFailure(.claude), .malformed)
+        let lines = attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
+        XCTAssertEqual(lines.map { $0.representedObject as? SetupAttention }, [.refused(.claudeHooks)])
+        XCTAssertEqual(lines.first?.title, "Claude Code: the last change was refused")
+
+        try Data("{}".utf8).write(to: file)
+        controller.setHooks(.claude, installed: true)
+        XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")), [],
+                       "the line goes with the success")
+        XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
+    }
+
+    func testEveryFailureHasALine() {
+        let failures: [HookSettings.Failure] = [.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
+        let keys = Set(failures.map(AppController.failureKey))
+        XCTAssertEqual(keys.count, failures.count, "one line per failure")
+        XCTAssertTrue(keys.isSubset(of: Set(SetupModel.keys)), "the settings rows ask for them")
+    }
+
+    func testAHandEditedWrapperIsALine() throws {
+        try agentDirectory(.claude)
+        let file = AgentSource.claude.settingsFile(home: home)
+        let edited = StatusLineRelay.command(wrapping: "cat").replacingOccurrences(of: "-m 2", with: "-m 9")
+        let bytes = try JSONSerialization.data(withJSONObject: ["statusLine": ["command": edited]])
+        try bytes.write(to: file)
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+        let lines = attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
+        XCTAssertEqual(lines.map(\.title), ["Usage line edited by hand"])
+        XCTAssertEqual((lines.first?.representedObject as? SetupAttention)?.section, .sessions)
+        XCTAssertEqual(try Data(contentsOf: file), bytes)
+    }
+
+    // MARK: - The writers the menu no longer calls
+
+    func testTheHookWriterInstallsThenRemoves() throws {
         try agentDirectory(.claude)
         let file = AgentSource.claude.settingsFile(home: home)
         try Data(#"{"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}"#.utf8)
@@ -247,8 +282,7 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
 
-        var menu = controller.makeMenu(diagnostics: false, in: "en")
-        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        controller.setHooks(.claude, installed: true)
         let golden = LocalAPI.installedHookCommand(for: .claude)
         let hooks = try XCTUnwrap(try settings(.claude)["hooks"] as? [String: Any])
         XCTAssertEqual(Set(hooks.keys), Set(AgentSource.claude.hookEvents))
@@ -259,55 +293,18 @@ final class MenuTests: XCTestCase {
             XCTAssertTrue(commands.contains(golden), "\(event) carries the golden command")
         }
         XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
-        menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(menu.items[try hookEntry(menu, .claude)].title, "Remove Claude Code hooks")
 
-        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        controller.setHooks(.claude, installed: false)
         let after = try settings(.claude)
         XCTAssertEqual(after["model"] as? String, "opus")
         let left = try XCTUnwrap(after["hooks"] as? [String: Any])
         XCTAssertEqual(Array(left.keys), ["Stop"], "only Evlat's groups went")
         XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .missing)
-        menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(menu.items[try hookEntry(menu, .claude)].title, "Install Claude Code hooks")
-    }
-
-    func testARefusedWriteLeavesOneDimLineUntilItSucceeds() throws {
-        try agentDirectory(.claude)
-        let file = AgentSource.claude.settingsFile(home: home)
-        let broken = Data("{ not json".utf8)
-        try broken.write(to: file)
-        let controller = controller(home: home)
-        defer { controller.panel?.close() }
-
-        var menu = controller.makeMenu(diagnostics: false, in: "tr")
-        let before = menu.items.count
-        menu.performActionForItem(at: try hookEntry(menu, .claude))
-        XCTAssertEqual(try Data(contentsOf: file), broken, "the file is left as it was")
-        menu = controller.makeMenu(diagnostics: false, in: "tr")
-        let entry = try hookEntry(menu, .claude)
-        let line = menu.items[entry + 1]
-        XCTAssertEqual(line.title, L10n.t("menu.hooks.error.malformed", in: "tr"))
-        XCTAssertFalse(line.isEnabled, "dim")
-        XCTAssertEqual(menu.items.count, before + 1, "one line")
-
-        try Data("{}".utf8).write(to: file)
-        menu.performActionForItem(at: entry)
-        menu = controller.makeMenu(diagnostics: false, in: "tr")
-        XCTAssertEqual(menu.items.count, before, "the line goes with the success")
-        XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
-    }
-
-    func testEveryFailureHasALine() {
-        let failures: [HookSettings.Failure] = [.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
-        let keys = Set(failures.map(AppController.failureKey))
-        XCTAssertEqual(keys.count, failures.count, "one line per failure")
-        XCTAssertTrue(keys.isSubset(of: Set(AppController.menuKeys)))
     }
 
     /// Like the edge: the file is written, the open list closes, and Evlat
     /// is not activated.
-    func testTheHookEntryTakesNoFocus() throws {
+    func testTheHookWriterTakesNoFocus() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         try agentDirectory(.claude)
         let controller = controller(rows: 4, home: home)
@@ -320,40 +317,16 @@ final class MenuTests: XCTestCase {
         }
         controller.hover.openNow()
 
-        let menu = controller.makeMenu(diagnostics: false, in: "en")
-        menu.performActionForItem(at: try hookEntry(menu, .claude))
+        controller.setHooks(.claude, installed: true)
         XCTAssertEqual(try HookSettings.state(at: AgentSource.claude.settingsFile(home: home), for: .claude),
                        .current)
         XCTAssertFalse(controller.barState.isOpen, "the open list closes")
         XCTAssertFalse(controller.hover.isOpen)
-        XCTAssertFalse(isFrontmost(), "a hook entry must not activate Evlat")
+        XCTAssertFalse(isFrontmost(), "a hook write must not activate Evlat")
         XCTAssertFalse(panel.isKeyWindow)
     }
 
-    // MARK: - The usage line entry
-
-    private func usageEntry(_ menu: NSMenu) -> Int? {
-        menu.items.firstIndex { $0.representedObject is AppController.UsageEntry }
-    }
-
-    func testTheUsageEntryIsOnlyForClaude() throws {
-        try agentDirectory(.codex)
-        let controller = controller(home: home)
-        defer { controller.panel?.close() }
-        XCTAssertNil(usageEntry(controller.makeMenu(diagnostics: false, in: "en")), "no ~/.claude, no entry")
-        let homeless = self.controller()
-        defer { homeless.panel?.close() }
-        try agentDirectory(.claude)
-        XCTAssertNil(usageEntry(homeless.makeMenu(diagnostics: false, in: "en")), "no home, no entry")
-        let menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(try XCTUnwrap(usageEntry(menu)), try hookEntry(menu, .claude) + 1,
-                       "right under Claude's hook entry")
-        XCTAssertEqual(menu.items[try XCTUnwrap(usageEntry(menu))].toolTip, L10n.t("menu.usage.hint", in: "en"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
-                       "opening the menu writes nothing")
-    }
-
-    func testTheUsageEntryInstallsThenRemoves() throws {
+    func testTheUsageWriterInstallsThenRemoves() throws {
         try agentDirectory(.claude)
         let file = AgentSource.claude.settingsFile(home: home)
         let original = #"{"model": "opus", "statusLine": {"type": "command", "command": "bash ~/s.sh", "padding": 0}}"#
@@ -361,53 +334,28 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
 
-        var menu = controller.makeMenu(diagnostics: false, in: "tr")
-        XCTAssertEqual(menu.items[try XCTUnwrap(usageEntry(menu))].title, "Kullanım satırını kur")
-        menu.performActionForItem(at: try XCTUnwrap(usageEntry(menu)))
+        controller.setUsageRelay(installed: true)
         let line = try XCTUnwrap(try settings(.claude)["statusLine"] as? [String: Any])
         XCTAssertEqual(line["command"] as? String, StatusLineRelay.command(wrapping: "bash ~/s.sh"))
         XCTAssertEqual(line["padding"] as? Int, 0)
         XCTAssertEqual(try StatusLineRelay.state(at: file), .current)
 
-        menu = controller.makeMenu(diagnostics: false, in: "tr")
-        XCTAssertEqual(menu.items[try XCTUnwrap(usageEntry(menu))].title, "Kullanım satırını kaldır")
-        menu.performActionForItem(at: try XCTUnwrap(usageEntry(menu)))
+        controller.setUsageRelay(installed: false)
         let back = try JSONSerialization.jsonObject(with: Data(original.utf8)) as? [String: Any]
         XCTAssertTrue(NSDictionary(dictionary: try settings(.claude)).isEqual(to: try XCTUnwrap(back)))
-        XCTAssertEqual(menu.items.count, controller.makeMenu(diagnostics: false, in: "tr").items.count,
-                       "no failure line")
+        XCTAssertNil(controller.usageRelayFailure)
+        XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")), [], "no failure line")
     }
 
-    func testAHandEditedWrapperIsADimLine() throws {
+    func testARefusedUsageWriteIsALine() throws {
         try agentDirectory(.claude)
-        let file = AgentSource.claude.settingsFile(home: home)
-        let edited = StatusLineRelay.command(wrapping: "cat").replacingOccurrences(of: "-m 2", with: "-m 9")
-        let bytes = try JSONSerialization.data(withJSONObject: ["statusLine": ["command": edited]])
-        try bytes.write(to: file)
+        try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: AgentSource.claude.settingsFile(home: home))
         let controller = controller(home: home)
         defer { controller.panel?.close() }
-        let menu = controller.makeMenu(diagnostics: false, in: "en")
-        let index = try hookEntry(menu, .claude) + 1
-        XCTAssertEqual(menu.items[index].title, "Usage line edited by hand")
-        XCTAssertFalse(menu.items[index].isEnabled)
-        XCTAssertNil(menu.items[index].action)
-        XCTAssertEqual(try Data(contentsOf: file), bytes)
-    }
-
-    func testARefusedUsageWriteLeavesOneDimLine() throws {
-        try agentDirectory(.claude)
-        let file = AgentSource.claude.settingsFile(home: home)
-        try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: file)
-        let controller = controller(home: home)
-        defer { controller.panel?.close() }
-        var menu = controller.makeMenu(diagnostics: false, in: "en")
-        let before = menu.items.count
-        menu.performActionForItem(at: try XCTUnwrap(usageEntry(menu)))
-        menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(menu.items.count, before + 1)
-        let line = menu.items[try XCTUnwrap(usageEntry(menu)) + 1]
-        XCTAssertEqual(line.title, L10n.t("menu.hooks.error.malformed", in: "en"))
-        XCTAssertFalse(line.isEnabled)
+        controller.setUsageRelay(installed: true)
+        XCTAssertEqual(controller.usageRelayFailure, .malformed)
+        XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
+                        .map { $0.representedObject as? SetupAttention }, [.refused(.usageRelay)])
     }
 
     // MARK: - The home
@@ -520,7 +468,7 @@ final class MenuTests: XCTestCase {
             defer { panel.close() }
             let middle = AppController.mascotTopInset + AppController.mascotSize / 2
             let menu = try rightClick(panel, fromEdge: AppController.barWidth / 2, fromTop: middle)
-            XCTAssertEqual(menu.map(titles)?.count, 8, "\(edge): the mascot menu, without Force state")
+            XCTAssertEqual(menu.map(titles)?.count, 6, "\(edge): the mascot menu, without Force state")
             XCTAssertNotNil(try rightClick(panel, fromEdge: AppController.barWidth / 2, fromTop: middle,
                                            control: true), "\(edge): ctrl-click too")
             XCTAssertNil(try rightClick(panel, fromEdge: AppController.barWidth / 2,
@@ -576,10 +524,10 @@ final class MenuTests: XCTestCase {
         let middle = AppController.mascotTopInset + AppController.mascotSize / 2
         let right = try asks(.rightMouseDown, [], fromTop: middle)
         XCTAssertFalse(right.isEmpty, "a right click on the mascot")
-        XCTAssertEqual(right.map { titles($0).count }, right.map { _ in 8 })
+        XCTAssertEqual(right.map { titles($0).count }, right.map { _ in 6 })
         let control = try asks(.leftMouseDown, .control, fromTop: middle)
         XCTAssertFalse(control.isEmpty, "a ctrl-click on the mascot")
-        XCTAssertEqual(control.map { titles($0).count }, control.map { _ in 8 })
+        XCTAssertEqual(control.map { titles($0).count }, control.map { _ in 6 })
         XCTAssertEqual(try asks(.rightMouseDown, [], fromTop: AppController.slotTop(0) + 5), [],
                        "a ring opens nothing")
         XCTAssertFalse(NSRunningApplication.current.isActive)

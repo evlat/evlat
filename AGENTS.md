@@ -45,9 +45,16 @@ Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetle
 anahtarlı `POST /signal` her programa barda bir `kind: .custom` satırı verir,
 birincil kullanımı `Evlat watch <komut…>` (komutu şeffaf sarar), alt düzeyi
 `Evlat signal <id>`. `013`'ün (uzak sinyal) beş phase'i kodlandı ve kapıdan geçti, teslim
-bekliyor: sunucudaki `evlat watch`/`signal` (POSIX `sh` betiği, "Uzak
-makineler…"den otomatik ya da elle kurulur) tünelden makinenin kendi
-anahtarıyla barda makine etiketli bir satır açar. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
+bekliyor: sunucudaki `evlat watch`/`signal` (POSIX `sh` betiği, Ayarlar →
+Uzak makineler'den otomatik ya da elle kurulur) tünelden makinenin kendi
+anahtarıyla barda makine etiketli bir satır açar. `014`'ün (kurulum ve ayarlar) beş phase'i
+kodlandı, set kapısı ve teslim bekliyor: ilk açılışta bir kez altı adımlık
+kurulum, sonra Ayarlar penceresi (Genel, Oturumlar, Sohbet, Komut satırı, Uzak
+makineler); ikisi aynı satırları ve `AppController`'ın iç yazıcılarını
+(`setHooks`, `setUsageRelay`, `setCommandLink`, `setLoginItem`…) kullanır,
+`~/.local/bin/evlat` ve "Oturum açınca başlat" oradan kurulur. Menü kısaldı:
+*Kenar ▸*, *Kısayol ▸*, dikkat isteyen soluk satırlar (tıklanınca Ayarlar o
+bölümde açılır), *Ayarlar… ⌘,*, *Kurulum…*, *Çık*. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
 setler için `ROADMAP.md` → Fazlar.
 
 ## Tuzaklar
@@ -167,3 +174,9 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   sanılmasın — düşmez, `2` döner. İkiliyi elle koşturmak yine ölçüm ortamıyla
   (`EVLAT_HOME` geçici, `EVLAT_PORT`, `EVLAT_MACHINES`, sahte `EVLAT_SSH`)
   yapılır: sınıflandırmanın bir hatası kullanıcının sunucularına gider.
+- **`ScrollView`'un içinden dışarı gönderilen preference bir kez, boş
+  gelir.** Kurulum penceresinin kayan kenarı (`SetupView`) içeriğin konumunu
+  preference ile dışarı taşıdı: değer bir kez boş geldi, kaydırınca bir daha
+  gelmedi, solma hiç çizilmedi (`014/phase-3`, gözle). Konum içeride
+  `GeometryReader` + `onChange(of: frame(in: .named…), initial: true)` ile
+  okunur.

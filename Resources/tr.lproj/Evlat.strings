@@ -46,9 +46,6 @@
 "menu.force" = "Durumu zorla";
 "menu.force.follow" = "Oturumları izle";
 
-"menu.hooks.install" = "{source} hook'larını kur";
-"menu.hooks.update" = "{source} hook'larını güncelle";
-"menu.hooks.remove" = "{source} hook'larını kaldır";
 "menu.hooks.hint.claude" = "Açık Claude Code oturumlarında değişikliği yüklemek için /hooks'u bir kez aç.";
 "menu.hooks.hint.codex" = "Codex yeni hook'lara güvenip güvenmediğini soracak.";
 "menu.hooks.hint.remove" = "Codex diğer hook'larına yeniden güvenmeni isteyebilir.";
@@ -58,22 +55,8 @@
 "menu.hooks.error.changedUnderneath" = "Dosya yazılırken değişti; yeniden dene";
 "menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";
 
-"menu.usage.install" = "Kullanım satırını kur";
-"menu.usage.remove" = "Kullanım satırını kaldır";
 "menu.usage.modified" = "Kullanım satırı elle değiştirilmiş";
 "menu.usage.hint" = "Claude Code durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";
-
-"menu.remote" = "Uzak makineler…";
-"menu.remote.failure" = "{machine}: {failure}";
-
-"menu.memory" = "Evlat'ın hafızası";
-"menu.memory.show" = "Finder'da göster";
-"menu.memory.clear" = "Temizle…";
-"menu.memory.empty" = "Henüz hatırlanan bir şey yok";
-"menu.memory.confirm" = "Evlat'ın hafızası temizlensin mi?";
-"menu.memory.confirm.detail" = "Claude'un Evlat sohbetlerinde hatırladıkları kalıcı olarak silinir. Senin bir klasöründe çalışan sohbetler o klasörün hafızasını korur.";
-"menu.memory.cancel" = "Vazgeç";
-"menu.memory.do" = "Temizle";
 
 "remote.empty.title" = "Henüz uzak makine yok";
 "remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";
@@ -219,7 +202,6 @@
 "menu.hotkey.change" = "Değiştir…";
 "menu.hotkey.off" = "Kapat";
 "menu.hotkey.on" = "Aç";
-"menu.hotkey.failure" = "Kısayol kaydedilemedi ({status})";
 "hotkey.recorder.hint" = "Bir tuşla ⌃, ⌥ ya da ⌘ · Esc vazgeçer";
 "hotkey.recorder.needsModifier" = "Tuşa ⌃, ⌥ ya da ⌘ ekle · Esc vazgeçer";
 "hotkey.recorder.appShortcut" = "{shortcut} uygulamaların kısayolu. Yalnız ⌘ ile Space ya da bir F tuşu seç, ya da ⌃ veya ⌥ ekle";

@@ -590,9 +590,10 @@ final class RemoteMachinesModel: ObservableObject {
     // MARK: - Catalogue
 
     /// Every key this window asks for, besides the ones it borrows
-    /// (`source.*`, `summary.sessions*`, `time.*`, the local hints).
+    /// (`source.*`, `summary.sessions*`, `time.*`).
     static var keys: [String] {
-        var keys = ["remote.empty.title", "remote.empty.body", "remote.empty.requirement",
+        var keys = ["menu.hooks.hint.claude", "menu.hooks.hint.codex", "menu.hooks.hint.remove", "menu.usage.hint",
+                    "remote.empty.title", "remote.empty.body", "remote.empty.requirement",
                     "remote.add.placeholder", "remote.add", "remote.add.duplicate",
                     "remote.environment",
                     "remote.state.stopped", "remote.state.connecting", "remote.state.connected",

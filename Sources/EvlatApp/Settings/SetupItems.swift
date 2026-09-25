@@ -465,6 +465,8 @@ final class SetupModel: ObservableObject {
            "setup.manual.remove.hooks", "setup.manual.remove.usage", "setup.manual.remove.command",
            "setup.attention.hooksOutdated", "setup.attention.refused", "setup.attention.hotKey",
            "setup.attention.machine", "setup.attention.commandLink", "menu.usage.modified"]
+        + [HookSettings.Failure.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
+            .map(AppController.failureKey)
 }
 
 /// One row as both windows draw it (`tasarim.html`'s `.row`): name and

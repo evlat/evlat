@@ -512,37 +512,26 @@ final class RemoteMachinesTests: XCTestCase {
         menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
     }
 
-    func testBothMenusOpenTheWindow() throws {
-        let controller = AppController(defaults: defaults)
-        controllers.append(controller)
-        controller.installPanel()
-        for diagnostics in [false, true] {
-            let menu = controller.makeMenu(diagnostics: diagnostics, in: "en")
-            let index = try XCTUnwrap(menu.items.firstIndex { $0.title == "Remote Machines…" })
-            let entry = menu.items[index]
-            XCTAssertEqual(entry.action, #selector(AppController.openRemoteMachines(_:)))
-            XCTAssertTrue(entry.target === controller)
-            XCTAssertTrue(menu.items[index + 1].isSeparatorItem, "no machine, no line under it")
-        }
-        XCTAssertTrue(titles(controller.makeMenu(diagnostics: false, in: "tr")).contains("Uzak makineler…"))
-    }
-
-    func testAFailingMachineIsADimLineUnderTheEntry() throws {
+    /// The window has no menu entry of its own (`014`); a failing machine
+    /// is an attention line that opens the settings at the remote section.
+    func testAFailingMachineIsAnAttentionLine() throws {
         let ssh = try fakeSSH(.fail("me@devbox: Permission denied (publickey)."))
         let machine = try XCTUnwrap(RemoteMachine(id: "m1", target: "me@devbox"))
         let controller = controller(ssh: ssh, machines: [machine])
         controller.installPanel()
+        controller.settingsActivation = { }
+        XCTAssertFalse(titles(controller.makeMenu(diagnostics: true, in: "tr")).contains("Uzak makineler…"))
         waitUntil("failed") {
             if case .waiting? = controller.remote?.state(of: "m1") { return true }
             return false
         }
         let menu = controller.makeMenu(diagnostics: false, in: "tr")
-        let index = try XCTUnwrap(menu.items.firstIndex { $0.title == "Uzak makineler…" })
-        let line = menu.items[index + 1]
-        XCTAssertEqual(line.title, "devbox: kimlik doğrulama başarısız")
-        XCTAssertFalse(line.isEnabled)
-        XCTAssertNil(line.action, "the line does nothing; the window does")
-        XCTAssertEqual(line.indentationLevel, 1)
+        let index = try XCTUnwrap(menu.items.firstIndex { $0.representedObject is SetupAttention })
+        let line = menu.items[index]
+        XCTAssertEqual(line.title, "devbox: sunucuya ulaşılamıyor")
+        XCTAssertTrue(line.isEnabled, "dim, but it can be clicked")
+        menu.performActionForItem(at: index)
+        XCTAssertEqual(controller.settings?.section, .remote)
     }
 
     func testOpeningTheWindowTwiceShowsTheSameOne() throws {
@@ -550,11 +539,11 @@ final class RemoteMachinesTests: XCTestCase {
         controllers.append(controller)
         controller.installPanel()
         controller.settingsActivation = { }
-        controller.openRemoteMachines(nil)
+        controller.openSettings(section: .remote)
         let first = try XCTUnwrap(controller.settingsWindow?.window)
         XCTAssertTrue(first.isVisible)
-        XCTAssertEqual(controller.settings?.section, .remote, "the old entry opens the settings at its section")
-        controller.openRemoteMachines(nil)
+        XCTAssertEqual(controller.settings?.section, .remote)
+        controller.openSettings(section: .remote)
         XCTAssertTrue(controller.settingsWindow?.window === first)
     }
 
