@@ -195,15 +195,36 @@
 "remote.manual.statusLine" = "The usage line — if settings.json has no “statusLine” yet, add this:";
 "remote.manual.wrapping" = "If it already has one, keep it and set its “command” to this, with your command in place of {placeholder} (a ' inside it is written '\\''):";
 "remote.manual.remove" = "To remove: delete every entry whose command contains {marker}, and put your statusLine command back. If the automatic setup changed a file, its first version is in the same folder with .evlat.bak added to the name.";
-"remote.manual.surface" = "What this opens: any process on the server can write to Evlat through the tunnel. If another user on the server holds port 48151 first, your events go to their Mac. With GatewayPorts yes in the server's sshd_config, the port opens to the server's network.";
+"remote.manual.surface" = "What this opens: any process on the server can write hook events to Evlat through the tunnel — hooks carry no key. Rows from the evlat command need this machine's key, which only its user can read. If another user on the server holds port 48151 first, your events and the command's key go to their Mac. If two Macs install the command on one server, the last one's key wins. With GatewayPorts yes in the server's sshd_config, the port opens to the server's network.";
 "remote.copy" = "Copy";
 "remote.copied" = "Copied";
 
 /* Removing a machine: asked in the window first. */
 "remote.remove" = "Remove Machine…";
-"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, use Remove hooks.";
+"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, use Remove hooks. The evlat command on the server stays silent until it is installed again: its key goes with the machine.";
 "remote.remove.cancel" = "Cancel";
 "remote.remove.do" = "Remove";
+
+/* The command line (013): `evlat watch …` and `evlat signal …` on the
+   server, ~/.local/bin/evlat and this machine's key. */
+"remote.command" = "Command line (evlat)";
+"remote.command.auto.body" = "Puts the evlat command in ~/.local/bin and this machine's key in ~/.config/evlat (readable by you alone), over ssh. Then evlat watch npm run build on the server shows on this bar. An evlat that is not Evlat's is left alone; an up-to-date command is not written again.";
+"remote.command.install" = "Install or update the command";
+"remote.command.remove" = "Remove the command";
+"remote.command.result.installed" = "Command installed: ~/.local/bin/evlat and this machine's key.";
+"remote.command.result.current" = "The command was already up to date; the key was written again.";
+"remote.command.result.removed" = "Command removed: ~/.local/bin/evlat and the key.";
+"remote.command.result.absent" = "There was no command to remove.";
+"remote.command.result.foreign" = "~/.local/bin/evlat is somebody else's; left as is and nothing was written.";
+"remote.command.result.foreign.remove" = "The key was removed; ~/.local/bin/evlat is somebody else's and was left as is.";
+"remote.command.result.unwritable" = "Could not write on the server: ~/.local/bin or ~/.config/evlat is not writable.";
+"remote.command.result.unreachable" = "Could not reach the server; nothing was changed.";
+"remote.command.noCurl" = "curl is not on the server: evlat sends with curl, so nothing reaches the bar until it is installed.";
+"remote.command.try" = "Try it in a new session on the server: evlat --list. If the shell does not find evlat, ~/.local/bin is not on your PATH — run ~/.local/bin/evlat, or add it to PATH.";
+"remote.command.manual.body" = "The same by hand: paste each block into the server's shell (sh, bash or zsh). The first writes the command, the second this machine's key — shown hidden here, Copy takes the real one — the third takes both away.";
+"remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
+"remote.command.manual.key" = "~/.config/evlat/signal.token — this machine's key, readable by you alone:";
+"remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
 
 /* The chat balloon (011) */
 "chat.placeholder" = "What should I do?";

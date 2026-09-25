@@ -1779,7 +1779,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             add: { [weak self] target in self?.addMachine(target: target) ?? .failure(.empty) },
             remove: { [weak self] id in self?.removeMachine(id: id) },
-            isStored: { [weak self] in self.map { !$0.remoteFromEnvironment } ?? false })
+            isStored: { [weak self] in self.map { !$0.remoteFromEnvironment } ?? false },
+            signalKey: { [weak self] id in self?.remote?.signalKey(of: id) })
     }
 
     /// The window's focus call on open; a test holds it still so the runner

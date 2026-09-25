@@ -418,3 +418,206 @@ public enum RemoteCommand {
 
         """#
 }
+
+// MARK: - Installing over ssh
+
+/// The install and removal as `RemoteSettings`' writers do theirs: pure
+/// scripts, run by the shell (`RemoteInstaller`, `ssh -- HOST sh -s`, the
+/// script on stdin) and read back here. One call each: two files that are
+/// Evlat's own need no read-then-write.
+///
+/// The command and the key travel as single-quoted words inside the script,
+/// never in an argv — `ps` on either machine shows argvs to every user.
+extension RemoteCommand {
+    /// What a finished install or removal found. A removal's `curl` is `true`.
+    public struct Report: Equatable {
+        /// Install: the command was written (`false`: it was current; the
+        /// key is written every time). Removal: something was removed.
+        public let wrote: Bool
+        /// `curl` is on the server's `PATH` (the command sends nothing without it).
+        public let curl: Bool
+
+        public init(wrote: Bool, curl: Bool) {
+            self.wrote = wrote
+            self.curl = curl
+        }
+    }
+
+    public enum Failure: Error, Equatable {
+        /// `~/.local/bin/evlat` is somebody else's (no marker on line 2, or a
+        /// link): left as it is. An install writes nothing; a removal still
+        /// takes the key, whose path is Evlat's.
+        case foreign
+        /// A folder or file could not be written on the server.
+        case unwritable
+        /// `ssh` could not run the script: its own 255, any exit the scripts
+        /// never use, or no answer line.
+        case unreachable
+    }
+
+    /// The scripts' own exit codes; 0 is success, nothing else is used.
+    static let foreignExit: Int32 = 10
+    static let unwritableExit: Int32 = 13
+
+    /// The manual block's heredoc delimiter: no line of `script` may be it.
+    public static let delimiter = "EVLAT"
+
+    /// Where the command goes, under `$HOME`.
+    public static let commandPath = ".local/bin/evlat"
+
+    /// Writes `~/.local/bin/evlat` unless it is current, then the key.
+    ///
+    /// `~/.local/bin` is made under the server's own umask (it is the user's
+    /// folder, and the manual block makes it the same way); everything after
+    /// runs under `umask 077`, and the key's file and folder still get an
+    /// explicit `chmod` — a folder or file that was there keeps its mode
+    /// through a redirection or `mv` onto it otherwise. Both files are
+    /// written next to their target and moved over it, so a half-written
+    /// file is never the command or the key.
+    public static func installScript(key: String, nonce: String) -> String {
+        """
+        n=\(RemoteSettings.quoted(nonce))
+        \(paths)
+        mkdir -p "$b" || exit \(unwritableExit)
+        umask 077
+        mkdir -p "$d" || exit \(unwritableExit)
+        \(foreignCheck)
+        s=\(RemoteSettings.quoted(script))
+        k=\(RemoteSettings.quoted(key))
+        tmp=
+        ktmp=
+        trap 'rm -f ${tmp:+"$tmp"} ${ktmp:+"$ktmp"}' EXIT
+        w=0
+        if [ ! -f "$e" ] || [ "$(cat "$e" && echo .)" != "$s." ]; then
+          tmp=$b/.evlat.$$.tmp
+          printf '%s' "$s" > "$tmp" || exit \(unwritableExit)
+          chmod 755 "$tmp" || exit \(unwritableExit)
+          mv -f "$tmp" "$e" || exit \(unwritableExit)
+          tmp=
+          w=1
+        fi
+        chmod 755 "$e" || exit \(unwritableExit)
+        chmod 700 "$d" || exit \(unwritableExit)
+        if [ -d "$t" ] && [ ! -h "$t" ]; then exit \(unwritableExit); fi
+        ktmp=$d/.signal.token.$$.tmp
+        printf '%s\\n' "$k" > "$ktmp" || exit \(unwritableExit)
+        chmod 600 "$ktmp" || exit \(unwritableExit)
+        mv -f "$ktmp" "$t" || exit \(unwritableExit)
+        ktmp=
+        chmod 600 "$t" || exit \(unwritableExit)
+        if command -v curl >/dev/null 2>&1; then u=1; else u=0; fi
+        printf '%s %s %s\\n' "$n" "$w" "$u"
+        exit 0
+
+        """
+    }
+
+    /// Takes the command if it is Evlat's, the key, and the key's folder if
+    /// that leaves it empty. `~/.local/bin` stays: it is not Evlat's.
+    public static func removeScript(nonce: String) -> String {
+        """
+        n=\(RemoteSettings.quoted(nonce))
+        \(paths)
+        r=0
+        f=0
+        if [ -e "$e" ] || [ -h "$e" ]; then
+          if [ ! -h "$e" ] && [ -f "$e" ] && [ "$(sed -n 2p "$e" 2>/dev/null)" = \(RemoteSettings.quoted(marker)) ]; then
+            rm -f "$e" || exit \(unwritableExit)
+            r=1
+          else
+            f=1
+          fi
+        fi
+        if [ -e "$t" ] || [ -h "$t" ]; then
+          rm -f "$t" || exit \(unwritableExit)
+          r=1
+        fi
+        if [ -d "$d" ] && [ ! -h "$d" ]; then rmdir "$d" 2>/dev/null; fi
+        [ "$f" = 0 ] || exit \(foreignExit)
+        printf '%s %s 1\\n' "$n" "$r"
+        exit 0
+
+        """
+    }
+
+    /// The script's answer: its exit code, then `<nonce> <wrote> <curl>` on
+    /// a line of its own, found behind whatever a login script printed first.
+    public static func result(exitCode: Int32, output: Data, nonce: String) -> Result<Report, Failure> {
+        switch exitCode {
+        case 0: break
+        case foreignExit: return .failure(.foreign)
+        case unwritableExit: return .failure(.unwritable)
+        default: return .failure(.unreachable)
+        }
+        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        for line in lines.reversed() {
+            let words = line.split(separator: " ", omittingEmptySubsequences: false)
+            guard words.count == 3, words[0] == nonce[...],
+                  let wrote = flag(words[1]), let curl = flag(words[2]) else { continue }
+            return .success(Report(wrote: wrote, curl: curl))
+        }
+        return .failure(.unreachable)
+    }
+
+    private static func flag(_ word: Substring) -> Bool? {
+        switch word {
+        case "1": return true
+        case "0": return false
+        default: return nil
+        }
+    }
+
+    /// `b`/`e`: the command's folder and file; `d`/`t`: the key's.
+    private static var paths: String {
+        let folder = (commandPath as NSString).deletingLastPathComponent
+        let keyFolder = (keyPath as NSString).deletingLastPathComponent
+        return """
+        b="$HOME"/\(RemoteSettings.quoted(folder))
+        e="$HOME"/\(RemoteSettings.quoted(commandPath))
+        d="$HOME"/\(RemoteSettings.quoted(keyFolder))
+        t="$HOME"/\(RemoteSettings.quoted(keyPath))
+        """
+    }
+
+    /// Somebody else's `evlat` stops the install before anything is written:
+    /// a link (even to this script) or a file without the marker on line 2.
+    private static var foreignCheck: String {
+        """
+        if [ -h "$e" ]; then exit \(foreignExit); fi
+        if [ -e "$e" ]; then
+          [ -f "$e" ] && [ "$(sed -n 2p "$e" 2>/dev/null)" = \(RemoteSettings.quoted(marker)) ] || exit \(foreignExit)
+        fi
+        """
+    }
+
+    // MARK: - By hand
+
+    /// What a user pastes into the server's shell instead: three blocks
+    /// that leave the automatic install's files — the command byte for byte,
+    /// the key the same line with the same modes — and the way back. The
+    /// sentences around them are the catalog's.
+    public struct Manual: Equatable {
+        /// `~/.local/bin/evlat`: the script in a quoted heredoc (nothing in
+        /// it is expanded), then `chmod 755`.
+        public let script: String
+        /// The key's line under `umask 077`, with the explicit `chmod`s a
+        /// redirection onto an existing file would not give.
+        public let key: String
+        /// The command if it carries the marker, the key, and the key's
+        /// folder when that leaves it empty.
+        public let remove: String
+    }
+
+    public static func manual(key: String) -> Manual {
+        let keyFolder = "~/" + (keyPath as NSString).deletingLastPathComponent
+        let bin = "~/" + (commandPath as NSString).deletingLastPathComponent
+        return Manual(
+            script: "mkdir -p \(bin) && cat > ~/\(commandPath) <<'\(delimiter)' && chmod 755 ~/\(commandPath)\n"
+                + script + delimiter + "\n",
+            key: "mkdir -p \(keyFolder) && chmod 700 \(keyFolder) && "
+                + "(umask 077 && printf '%s\\n' \(RemoteSettings.quoted(key)) > ~/\(keyPath)) "
+                + "&& chmod 600 ~/\(keyPath)\n",
+            remove: "grep -qx \(RemoteSettings.quoted(marker)) ~/\(commandPath) 2>/dev/null && rm -f ~/\(commandPath); "
+                + "rm -f ~/\(keyPath); rmdir \(keyFolder) 2>/dev/null; true\n")
+    }
+}

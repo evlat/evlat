@@ -1,7 +1,8 @@
 import Foundation
 import EvlatCore
 
-/// Runs `RemoteSettings`' scripts over `ssh`: per change, read → plan → write.
+/// Runs `RemoteSettings`' scripts over `ssh` — per change, read → plan →
+/// write — and `RemoteCommand`'s, one call each.
 ///
 /// The work runs on its own queue, never the main one: `ssh` can take
 /// `ConnectTimeout` to fail. The result is delivered on the main queue, and
@@ -11,6 +12,7 @@ import EvlatCore
 /// **Main queue only** for `run` and `isBusy`, like the window that calls it.
 final class RemoteInstaller {
     typealias Result = Swift.Result<SettingsFile.Outcome, RemoteSettings.Failure>
+    typealias CommandResult = Swift.Result<RemoteCommand.Report, RemoteCommand.Failure>
 
     private let sshPath: String
     private let queue: DispatchQueue
@@ -37,8 +39,8 @@ final class RemoteInstaller {
     func run(_ changes: [RemoteSettings.Change], _ action: RemoteSettings.Action,
              machine: String, target: String,
              completion: @escaping ([(RemoteSettings.Change, Result)]) -> Void) -> Bool {
-        guard busy.insert(machine).inserted else { return false }
-        queue.async { [sshPath, beforeWrite] in
+        let sshPath = self.sshPath, beforeWrite = self.beforeWrite
+        return start(machine: machine, completion: completion) {
             var results: [(RemoteSettings.Change, Result)] = []
             for change in changes {
                 if results.contains(where: { $0.1 == .failure(.unreachable) }) {
@@ -49,12 +51,48 @@ final class RemoteInstaller {
                                         beforeWrite: { beforeWrite(change) })
                 results.append((change, result))
             }
+            return results
+        }
+    }
+
+    /// Installs or removes the server's `evlat` and its key on `target`,
+    /// under the same one-job-per-machine lock as the settings: the buttons
+    /// of both go off together.
+    @discardableResult
+    func runCommand(_ action: RemoteSettings.Action, key: String, machine: String, target: String,
+                    completion: @escaping (CommandResult) -> Void) -> Bool {
+        let sshPath = self.sshPath
+        return start(machine: machine, completion: completion) {
+            Self.applyCommand(action, key: key, target: target, ssh: sshPath)
+        }
+    }
+
+    /// `work` on the work queue, its result on the main one; `false` while
+    /// the machine has a job running.
+    private func start<T>(machine: String, completion: @escaping (T) -> Void,
+                          work: @escaping () -> T) -> Bool {
+        guard busy.insert(machine).inserted else { return false }
+        queue.async {
+            let result = work()
             DispatchQueue.main.async { [weak self] in
                 self?.busy.remove(machine)
-                completion(results)
+                completion(result)
             }
         }
         return true
+    }
+
+    /// The command's one call, synchronously.
+    static func applyCommand(_ action: RemoteSettings.Action, key: String,
+                             target: String, ssh: String) -> CommandResult {
+        let nonce = UUID().uuidString
+        let script = action == .install
+            ? RemoteCommand.installScript(key: key, nonce: nonce)
+            : RemoteCommand.removeScript(nonce: nonce)
+        guard let answer = try? run(ssh, RemoteSettings.arguments(target: target), script: script) else {
+            return .failure(.unreachable)
+        }
+        return RemoteCommand.result(exitCode: answer.status, output: answer.output, nonce: nonce)
     }
 
     /// One change, synchronously: two `ssh` calls at most, one when nothing

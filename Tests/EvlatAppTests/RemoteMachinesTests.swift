@@ -90,6 +90,7 @@ final class RemoteMachinesTests: XCTestCase {
         var machines: [RemoteMachine] = []
         var states: [String: RemoteTunnel.State] = [:]
         var counts: [String: Int] = [:]
+        var keys: [String: String] = [:]
     }
 
     private func host(_ recorder: Recorder, stored: Bool = true) -> RemoteMachinesModel.Host {
@@ -107,7 +108,8 @@ final class RemoteMachinesTests: XCTestCase {
                 recorder.removed.append(id)
                 recorder.machines.removeAll { $0.id == id }
             },
-            isStored: { stored })
+            isStored: { stored },
+            signalKey: { recorder.keys[$0] })
     }
 
     private func stored() -> [RemoteMachine] {
@@ -324,6 +326,91 @@ final class RemoteMachinesTests: XCTestCase {
                                                 .install, in: "en")
         XCTAssertEqual(raced.line, "Usage line: the file changed while writing; try again")
         XCTAssertTrue(raced.trouble)
+    }
+
+    // MARK: - The command line
+
+    func testTheCommandButtonsShareTheMachinesLock() throws {
+        let unreachable = try fakeSSH(.fail("ssh: connect to host devbox port 22: Connection refused"))
+        let recorder = Recorder()
+        let model = RemoteMachinesModel(host: host(recorder), installer: RemoteInstaller(sshPath: unreachable),
+                                        pasteboard: pasteboard, lang: "en")
+        model.draft = "devbox"
+        model.add()
+        let id = try XCTUnwrap(model.selection)
+        model.runCommand(.install)
+        XCTAssertFalse(model.isBusy(id), "no key, no job")
+        recorder.keys[id] = String(repeating: "ab", count: 32)
+
+        model.run(.installHooks)
+        model.runCommand(.install)   // refused: the machine has a job
+        waitUntil("hooks done") { !model.isBusy(id) }
+        XCTAssertEqual(model.outcomes[id]?.line, L10n.t("remote.result.unreachable", in: "en"))
+
+        model.runCommand(.install)
+        XCTAssertFalse(model.canRun(id), "the command's job holds the same lock")
+        model.run(.installUsage)
+        waitUntil("command done") { !model.isBusy(id) }
+        XCTAssertEqual(model.outcomes[id]?.line, L10n.t("remote.command.result.unreachable", in: "en"))
+        XCTAssertEqual(model.outcomes[id]?.trouble, true)
+    }
+
+    func testEveryCommandResultHasItsOwnLine() {
+        let results: [RemoteInstaller.CommandResult] = [
+            .success(.init(wrote: true, curl: true)), .success(.init(wrote: false, curl: true)),
+            .failure(.foreign), .failure(.unwritable), .failure(.unreachable),
+        ]
+        for action in [RemoteSettings.Action.install, .remove] {
+            let keys = results.map { RemoteMachinesModel.commandResultKey($0, action) }
+            XCTAssertEqual(Set(keys).count, results.count, "one line per result")
+            XCTAssertTrue(Set(keys).isSubset(of: Set(RemoteMachinesModel.keys)))
+        }
+    }
+
+    func testTheCommandLineSaysWhatWasDoneAndHowToTryIt() {
+        let tryIt = L10n.t("remote.command.try", in: "en")
+        let installed = RemoteMachinesModel.commandOutcome(.success(.init(wrote: true, curl: true)), .install, in: "en")
+        XCTAssertEqual(installed.line, L10n.t("remote.command.result.installed", in: "en"))
+        XCTAssertEqual(installed.hints, [tryIt])
+        XCTAssertFalse(installed.trouble)
+
+        let noCurl = RemoteMachinesModel.commandOutcome(.success(.init(wrote: false, curl: false)), .install, in: "tr")
+        XCTAssertEqual(noCurl.line, L10n.t("remote.command.result.current", in: "tr"))
+        XCTAssertEqual(noCurl.hints, [L10n.t("remote.command.noCurl", in: "tr"), L10n.t("remote.command.try", in: "tr")])
+        XCTAssertTrue(noCurl.trouble, "installed, but nothing will be sent")
+
+        let foreign = RemoteMachinesModel.commandOutcome(.failure(.foreign), .install, in: "en")
+        XCTAssertTrue(foreign.trouble)
+        XCTAssertEqual(foreign.hints, [])
+
+        let removed = RemoteMachinesModel.commandOutcome(.success(.init(wrote: true, curl: true)), .remove, in: "en")
+        XCTAssertEqual(removed.line, L10n.t("remote.command.result.removed", in: "en"))
+        XCTAssertEqual(removed.hints, [])
+    }
+
+    func testTheKeyBlockIsMaskedAndCopiesTheRealKey() throws {
+        let recorder = Recorder()
+        let model = RemoteMachinesModel(host: host(recorder), installer: RemoteInstaller(sshPath: "/nonexistent"),
+                                        pasteboard: pasteboard, lang: "en")
+        model.draft = "devbox"
+        model.add()
+        let id = try XCTUnwrap(model.selection)
+        XCTAssertEqual(model.commandBlocks(for: id), [], "no key, nothing to paste")
+        let key = String(repeating: "5f", count: 32)
+        recorder.keys[id] = key
+
+        let blocks = model.commandBlocks(for: id)
+        let manual = RemoteCommand.manual(key: key)
+        XCTAssertEqual(blocks.map(\.id), ["command.script", "command.key", "command.remove"])
+        XCTAssertEqual(blocks.map(\.text), [manual.script, manual.key, manual.remove])
+        XCTAssertEqual(blocks[0].shown, blocks[0].text)
+        XCTAssertFalse(blocks[1].shown.contains(key), "the key is not drawn")
+        XCTAssertFalse(blocks[1].shown.contains(String(key.prefix(8))))
+        XCTAssertTrue(blocks[1].shown.contains(RemoteCommand.keyPath), "the rest of the line is")
+
+        model.copy(blocks[1])
+        XCTAssertEqual(pasteboard.string(forType: .string), manual.key, "the real key is copied")
+        XCTAssertEqual(model.copied, "command.key")
     }
 
     func testTheJobsAreTheFixedChanges() {

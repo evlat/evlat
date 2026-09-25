@@ -135,14 +135,33 @@
 "remote.manual.statusLine" = "Kullanım satırı — settings.json'da henüz “statusLine” yoksa bunu ekle:";
 "remote.manual.wrapping" = "Zaten varsa onu koru ve “command” değerini bununla değiştir; {placeholder} yerine kendi komutunu yaz (içindeki ' işareti '\\'' diye yazılır):";
 "remote.manual.remove" = "Kaldırmak için: komutunda {marker} geçen her girdiyi sil ve statusLine komutunu eski hâline getir. Otomatik kurulum bir dosyayı değiştirdiyse ilk hâli aynı klasörde, adına .evlat.bak eklenmiş olarak durur.";
-"remote.manual.surface" = "Bunun açtığı yüzey: sunucudaki her süreç tünelden Evlat'a yazabilir. Sunucudaki başka bir kullanıcı 48151 portunu önce tutarsa olayların onun Mac'ine gider. Sunucunun sshd_config'inde GatewayPorts yes varsa port sunucunun ağına açılır.";
+"remote.manual.surface" = "Bunun açtığı yüzey: sunucudaki her süreç tünelden Evlat'a hook olayı yazabilir — hook'lar anahtar taşımaz. evlat komutunun satırları bu makinenin anahtarını ister ve onu yalnız o kullanıcı okuyabilir. Sunucudaki başka bir kullanıcı 48151 portunu önce tutarsa olayların ve komutun anahtarı onun Mac'ine gider. Aynı sunucuya iki Mac komutu kurarsa sonuncunun anahtarı geçer. Sunucunun sshd_config'inde GatewayPorts yes varsa port sunucunun ağına açılır.";
 "remote.copy" = "Kopyala";
 "remote.copied" = "Kopyalandı";
 
 "remote.remove" = "Makineyi kaldır…";
-"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'ları kaldır'ı kullan.";
+"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'ları kaldır'ı kullan. Sunucudaki evlat komutu yeniden kurulana dek sessiz kalır: anahtarı makineyle birlikte gider.";
 "remote.remove.cancel" = "Vazgeç";
 "remote.remove.do" = "Kaldır";
+
+"remote.command" = "Komut satırı (evlat)";
+"remote.command.auto.body" = "ssh ile evlat komutunu ~/.local/bin'e, bu makinenin anahtarını ~/.config/evlat'a (yalnız senin okuyabileceğin biçimde) koyar. Sonra sunucuda evlat watch npm run build bu barda görünür. Evlat'ın olmayan bir evlat'a dokunulmaz; güncel komut yeniden yazılmaz.";
+"remote.command.install" = "Komutu kur ya da güncelle";
+"remote.command.remove" = "Komutu kaldır";
+"remote.command.result.installed" = "Komut kuruldu: ~/.local/bin/evlat ve bu makinenin anahtarı.";
+"remote.command.result.current" = "Komut zaten günceldi; anahtar yeniden yazıldı.";
+"remote.command.result.removed" = "Komut kaldırıldı: ~/.local/bin/evlat ve anahtar.";
+"remote.command.result.absent" = "Kaldırılacak bir komut yoktu.";
+"remote.command.result.foreign" = "~/.local/bin/evlat başka birinin; olduğu gibi bırakıldı ve hiçbir şey yazılmadı.";
+"remote.command.result.foreign.remove" = "Anahtar kaldırıldı; ~/.local/bin/evlat başka birinin ve olduğu gibi bırakıldı.";
+"remote.command.result.unwritable" = "Sunucuya yazılamadı: ~/.local/bin ya da ~/.config/evlat yazılabilir değil.";
+"remote.command.result.unreachable" = "Sunucuya ulaşılamadı; hiçbir şey değişmedi.";
+"remote.command.noCurl" = "Sunucuda curl yok: evlat curl ile gönderir, o kurulana dek bara hiçbir şey gelmez.";
+"remote.command.try" = "Sunucuda yeni bir oturumda dene: evlat --list. Kabuk evlat'ı bulamazsa ~/.local/bin PATH'inde değildir — ~/.local/bin/evlat diye çağır ya da PATH'e ekle.";
+"remote.command.manual.body" = "Aynısı elle: her bloğu sunucunun kabuğuna (sh, bash ya da zsh) yapıştır. İlki komutu, ikincisi bu makinenin anahtarını yazar — burada gizli gösterilir, Kopyala gerçeğini alır —, üçüncüsü ikisini de kaldırır.";
+"remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
+"remote.command.manual.key" = "~/.config/evlat/signal.token — bu makinenin anahtarı, yalnız senin okuyabileceğin biçimde:";
+"remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
 
 /* Sohbet balonu (011) */
 "chat.placeholder" = "Ne yapayım?";

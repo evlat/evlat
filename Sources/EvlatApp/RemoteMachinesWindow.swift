@@ -302,7 +302,7 @@ private struct RemoteDetail: View {
                     }
                     switch model.mode {
                     case .automatic: RemoteAutomatic(model: model, row: row)
-                    case .manual: RemoteManual(model: model)
+                    case .manual: RemoteManual(model: model, row: row)
                     }
                 }
                 Divider()
@@ -390,6 +390,16 @@ private struct RemoteAutomatic: View {
                     button(.installUsage)
                     button(.removeUsage)
                 }
+                // The command line: its own sentence, the same buttons' width.
+                GridRow {
+                    RemoteCommandHeading(model: model, bodyKey: "remote.command.auto.body")
+                        .padding(.top, 8)
+                        .gridCellColumns(2)
+                }
+                GridRow {
+                    commandButton(.install, "remote.command.install")
+                    commandButton(.remove, "remote.command.remove")
+                }
             }
             if model.isBusy(row.id) {
                 HStack(spacing: 8) {
@@ -414,6 +424,13 @@ private struct RemoteAutomatic: View {
         }
     }
 
+    private func commandButton(_ action: RemoteSettings.Action, _ titleKey: String) -> some View {
+        Button { model.runCommand(action) } label: {
+            Text(model.t(titleKey)).frame(maxWidth: .infinity)
+        }
+        .disabled(!model.canRun(row.id))
+    }
+
     private func button(_ job: RemoteMachinesModel.Job) -> some View {
         Button { model.run(job) } label: {
             Text(model.t(job.titleKey)).frame(maxWidth: .infinity)
@@ -424,6 +441,7 @@ private struct RemoteAutomatic: View {
 
 private struct RemoteManual: View {
     @ObservedObject var model: RemoteMachinesModel
+    let row: RemoteMachinesModel.Row
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -432,37 +450,74 @@ private struct RemoteManual: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             ForEach(RemoteMachinesModel.blocks) { block in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(model.t(block.captionKey, ["placeholder": RemoteSettings.Manual.placeholder]))
-                            .font(.callout)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 12)
-                        Button(model.copied == block.id ? model.t("remote.copied") : model.t("remote.copy")) {
-                            model.copy(block)
-                        }
-                        .controlSize(.small)
-                    }
-                    ScrollView([.vertical, .horizontal]) {
-                        Text(block.text)
-                            .font(.system(size: 11, design: .monospaced))
-                            .textSelection(.enabled)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: block.text.count > 400 ? 150 : nil)
-                    .fixedSize(horizontal: false, vertical: block.text.count <= 400)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.25)))
-                }
+                RemoteBlock(model: model, block: block)
             }
             Text(model.t("remote.manual.remove", ["marker": RemoteSettings.manual.marker]))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+
+            RemoteCommandHeading(model: model, bodyKey: "remote.command.manual.body")
+                .padding(.top, 8)
+            ForEach(model.commandBlocks(for: row.id)) { block in
+                RemoteBlock(model: model, block: block)
+            }
+            Text(model.t("remote.command.try"))
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
             Text(model.t("remote.manual.surface"))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The command line's title and what it is, in both setup paths.
+private struct RemoteCommandHeading: View {
+    @ObservedObject var model: RemoteMachinesModel
+    let bodyKey: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(model.t("remote.command"))
+                .font(.subheadline.weight(.semibold))
+            Text(model.t(bodyKey))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// One block to paste: its sentence, Copy, and the text as drawn (`shown`).
+private struct RemoteBlock: View {
+    @ObservedObject var model: RemoteMachinesModel
+    let block: RemoteMachinesModel.Block
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(model.t(block.captionKey, ["placeholder": RemoteSettings.Manual.placeholder]))
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Button(model.copied == block.id ? model.t("remote.copied") : model.t("remote.copy")) {
+                    model.copy(block)
+                }
+                .controlSize(.small)
+            }
+            ScrollView([.vertical, .horizontal]) {
+                Text(block.shown)
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: block.shown.count > 400 ? 150 : nil)
+            .fixedSize(horizontal: false, vertical: block.shown.count <= 400)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.25)))
         }
     }
 }

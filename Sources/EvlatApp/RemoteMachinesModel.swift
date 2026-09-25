@@ -27,6 +27,9 @@ final class RemoteMachinesModel: ObservableObject {
         /// `false` when the machines came from `EVLAT_MACHINES`: then nothing
         /// added or removed here outlives the process.
         var isStored: () -> Bool
+        /// The machine's signal key (`RemoteTunnels.signalKey(of:)`): what
+        /// the command's install writes on the server.
+        var signalKey: (String) -> String?
     }
 
     /// How a line reads at a glance. The window colours it; no icon.
@@ -81,11 +84,21 @@ final class RemoteMachinesModel: ObservableObject {
 
     enum SetupMode: Hashable { case automatic, manual }
 
-    /// One block to paste, with the sentence above it.
+    /// One block to paste, with the sentence above it. `shown` is what the
+    /// window draws — the key's block hides the key — and `text` what Copy
+    /// puts on the pasteboard.
     struct Block: Identifiable, Equatable {
         let id: String
         let captionKey: String
         let text: String
+        let shown: String
+
+        init(id: String, captionKey: String, text: String, shown: String? = nil) {
+            self.id = id
+            self.captionKey = captionKey
+            self.text = text
+            self.shown = shown ?? text
+        }
     }
 
     @Published private(set) var rows: [Row] = []
@@ -257,6 +270,67 @@ final class RemoteMachinesModel: ObservableObject {
         return Outcome(line: line, trouble: trouble, hints: hints)
     }
 
+    // MARK: - The command line
+
+    /// Installs or removes the server's `evlat` on the selected machine,
+    /// under the machine's one lock; the line it leaves is the same line.
+    func runCommand(_ action: RemoteSettings.Action) {
+        guard let row = selectedRow, canRun(row.id), let key = host.signalKey(row.id) else { return }
+        let id = row.id
+        let started = installer.runCommand(action, key: key, machine: id, target: row.target) {
+            [weak self] result in
+            guard let self else { return }
+            self.busy.remove(id)
+            self.outcomes[id] = Self.commandOutcome(result, action, in: self.lang)
+        }
+        guard started else { return }
+        busy.insert(id)
+        outcomes[id] = nil
+    }
+
+    /// What was done; after an install, `curl` missing (the command then
+    /// sends nothing) and how to try it. The PATH is not probed: `ssh … sh
+    /// -s` is not a login shell, and a login adds `~/.local/bin` on many
+    /// servers — the hint says what to do if a new session does not find it.
+    static func commandOutcome(_ result: RemoteInstaller.CommandResult, _ action: RemoteSettings.Action,
+                               in lang: String) -> Outcome {
+        let line = L10n.t(commandResultKey(result, action), in: lang)
+        guard case .success(let report) = result else { return Outcome(line: line, trouble: true, hints: []) }
+        guard action == .install else { return Outcome(line: line, trouble: false, hints: []) }
+        var hints: [String] = []
+        if !report.curl { hints.append(L10n.t("remote.command.noCurl", in: lang)) }
+        hints.append(L10n.t("remote.command.try", in: lang))
+        return Outcome(line: line, trouble: !report.curl, hints: hints)
+    }
+
+    static func commandResultKey(_ result: RemoteInstaller.CommandResult, _ action: RemoteSettings.Action) -> String {
+        switch (result, action) {
+        case (.success(let report), .install):
+            return report.wrote ? "remote.command.result.installed" : "remote.command.result.current"
+        case (.success(let report), .remove):
+            return report.wrote ? "remote.command.result.removed" : "remote.command.result.absent"
+        case (.failure(.foreign), .install): return "remote.command.result.foreign"
+        case (.failure(.foreign), .remove): return "remote.command.result.foreign.remove"
+        case (.failure(.unwritable), _): return "remote.command.result.unwritable"
+        case (.failure(.unreachable), _): return "remote.command.result.unreachable"
+        }
+    }
+
+    /// The three blocks for the machine's key; none without one. The key's
+    /// block draws the key as dots — a shared screen must not show it — and
+    /// copies the real line.
+    func commandBlocks(for id: String) -> [Block] {
+        guard let key = host.signalKey(id) else { return [] }
+        let manual = RemoteCommand.manual(key: key)
+        let mask = String(repeating: "•", count: 16)
+        return [
+            Block(id: "command.script", captionKey: "remote.command.manual.script", text: manual.script),
+            Block(id: "command.key", captionKey: "remote.command.manual.key", text: manual.key,
+                  shown: manual.key.replacingOccurrences(of: key, with: mask)),
+            Block(id: "command.remove", captionKey: "remote.command.manual.remove", text: manual.remove),
+        ]
+    }
+
     static func changeKey(_ change: RemoteSettings.Change) -> String {
         switch change {
         case .hooks(let source): return "source.\(source.rawValue)"
@@ -372,7 +446,10 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.auto.busy", "remote.change.usage", "remote.result.part",
                     "remote.manual.body", "remote.manual.remove", "remote.manual.surface",
                     "remote.copy", "remote.copied",
-                    "remote.remove", "remote.remove.confirm", "remote.remove.cancel", "remote.remove.do"]
+                    "remote.remove", "remote.remove.confirm", "remote.remove.cancel", "remote.remove.do",
+                    "remote.command", "remote.command.auto.body", "remote.command.install", "remote.command.remove",
+                    "remote.command.noCurl", "remote.command.try", "remote.command.manual.body",
+                    "remote.command.manual.script", "remote.command.manual.key", "remote.command.manual.remove"]
         keys += [RemoteMachine.TargetProblem.empty, .option, .invalidCharacter].map(problemKey)
         keys += Job.allCases.map(\.titleKey)
         keys += blocks.map(\.captionKey)
@@ -383,8 +460,13 @@ final class RemoteMachinesModel: ObservableObject {
             .failure(.file(.unreadable)), .failure(.file(.malformed)), .failure(.file(.noDirectory)),
             .failure(.file(.changedUnderneath)), .failure(.file(.unwritable)), .failure(.unreachable),
         ]
+        let commandResults: [RemoteInstaller.CommandResult] = [
+            .success(.init(wrote: true, curl: true)), .success(.init(wrote: false, curl: true)),
+            .failure(.foreign), .failure(.unwritable), .failure(.unreachable),
+        ]
         for action in [RemoteSettings.Action.install, .remove] {
             keys += results.map { resultKey($0, action) }
+            keys += commandResults.map { commandResultKey($0, action) }
         }
         return Array(Set(keys)).sorted()
     }
