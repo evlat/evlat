@@ -9,7 +9,9 @@ import Foundation
 /// memory of what it sent before.
 ///
 /// The identity is **not** read from the body. `provider`, `entity`,
-/// `fidelity` and `kind` are written by `signal(phaseStart:)` alone, so a
+/// `fidelity` and `kind` are written by `signal(phaseStart:machine:dim:)`
+/// alone — and the machine, for a report that came through a tunnel, is the
+/// listener's, never the sender's (`013`) — so a
 /// sender can neither take over a session's row nor claim an internal
 /// provider's name — by construction, not by a deny list.
 public struct SignalReport: Equatable {
@@ -125,13 +127,20 @@ public struct SignalReport: Equatable {
     /// else. `phaseStart` is the stamp: when this phase began, which the
     /// provider keeps across updates of the same phase (`SignalsProvider`).
     ///
+    /// `machine` is the remote computer the report came from (`013`): its
+    /// id namespaces the row — `signal:<machine>:<id>`, so the same id on two
+    /// machines and on this Mac is three rows — and its name, with `dim`, is
+    /// the row's `Signal.machine`. `nil` for this Mac's own port.
+    ///
     /// Only valid for a report that has a word; a removal has no row.
-    public func signal(phaseStart: Date) -> Signal? {
+    public func signal(phaseStart: Date, machine: Signal.Machine.Identity? = nil,
+                       dim: Signal.Machine.Dim? = nil) -> Signal? {
         guard let word else { return nil }
-        return Signal(provider: Self.provider, entity: "\(Self.provider):\(id)", kind: .custom,
+        let entity = machine.map { "\(Self.provider):\($0.id):\(id)" } ?? "\(Self.provider):\(id)"
+        return Signal(provider: Self.provider, entity: entity, kind: .custom,
                       phase: word.phase, progress: progress, label: label, detail: detail,
                       fidelity: .manual, rawStatus: word.rawValue, updatedAt: phaseStart,
-                      sender: sender)
+                      machine: machine.map { Signal.Machine(name: $0.name, dim: dim) }, sender: sender)
     }
 
     // MARK: - Reading

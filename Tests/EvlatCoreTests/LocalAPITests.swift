@@ -420,16 +420,46 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
     }
 
-    /// Through a tunnel the route does not exist, the right key or not.
-    func testATunneledSignalIsNotFound() {
+    /// Through a tunnel whose listener has no key the route does not exist,
+    /// whatever is sent: a machine without a key learns nothing about it.
+    func testATunneledSignalWithoutAListenerKeyIsNotFound() {
         for sent in [key, nil] as [String?] {
-            let outcome = signal(sent: sent, listenerKey: key, origin: .tunneled)
+            let outcome = signal(sent: sent, listenerKey: nil, origin: .tunneled)
             XCTAssertEqual(outcome.response?.status, .notFound, sent ?? "nil")
             XCTAssertNil(outcome.delivery)
         }
         let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   host: "127.0.0.1:48151", signalKey: key)
         XCTAssertEqual(LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .notFound)
+    }
+
+    /// A tunnel's listener with its machine's key (`013`) answers exactly as
+    /// the local one does: the key first, then the body.
+    func testATunneledSignalWithTheMachinesKeyIsTheLocalRoute() {
+        let delivered = signal(sent: key, listenerKey: key, origin: .tunneled)
+        XCTAssertEqual(delivered.response, LocalAPI.Response(status: .ok, body: "{}"))
+        guard case .signal(let report)? = delivered.delivery else { return XCTFail("no report") }
+        XCTAssertEqual(report.id, "build")
+        for sent in [nil, "wrong", String(key.dropLast()), key + "0"] as [String?] {
+            let outcome = signal(sent: sent, listenerKey: key, origin: .tunneled)
+            XCTAssertEqual(outcome.response?.status, .forbidden, sent ?? "nil")
+            XCTAssertNil(outcome.delivery, sent ?? "nil")
+        }
+        let broken = signal(#"{"id":"x","ttl":60,"phase":"idle"}"#, sent: key, listenerKey: key, origin: .tunneled)
+        XCTAssertEqual(broken.response?.status, .badRequest)
+        XCTAssertEqual(broken.response?.body.contains("\"code\":\"invalidPhase\""), true)
+        XCTAssertEqual(signal("[]", sent: nil, listenerKey: key, origin: .tunneled).response?.status, .forbidden,
+                       "the body is read only once the key has passed")
+    }
+
+    /// A key on the tunnel's listener opens `/signal` and nothing else:
+    /// `/permission` stays this Mac's own.
+    func testAKeyedTunnelStillHasNoPermissionRoute() {
+        let request = HTTPRequest(method: "POST", target: PermissionHook.path, body: Data(permissionBody.utf8),
+                                  host: "127.0.0.1:48151", permissionToken: "t", signalKey: key)
+        let outcome = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled, signalKey: key))
+        XCTAssertEqual(outcome.response?.status, .notFound)
+        XCTAssertNil(outcome.delivery)
     }
 
     /// A browser is refused before the key is looked at: the key never

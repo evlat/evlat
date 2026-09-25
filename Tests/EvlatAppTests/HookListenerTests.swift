@@ -411,11 +411,10 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(row.kind, .custom)
     }
 
-    /// A tunnel's listener has no key and no route: `404`, whatever is sent.
-    func testATunnelListenerAnswersSignalWithNotFound() throws {
-        let home = try temporaryHome()
-        let listener = HookListener(port: Self.anyPort, origin: .tunneled,
-                                    signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { _ in
+    /// A tunnel's listener without its machine's key has no route: `404`,
+    /// whatever is sent.
+    func testAKeylessTunnelListenerAnswersSignalWithNotFound() throws {
+        let listener = HookListener(port: Self.anyPort, origin: .tunneled) { _ in
             XCTFail("nothing is delivered")
         }
         listener.start()
@@ -424,6 +423,34 @@ final class HookListenerTests: XCTestCase {
         let body = #"{"id":"build","ttl":60,"phase":"working"}"#
         XCTAssertEqual(postSignal(port: port, key: nil, body: body).status, 404)
         XCTAssertEqual(postSignal(port: port, key: "anything", body: body).status, 404)
+    }
+
+    /// With its machine's key (`013`) a tunnel's listener answers `/signal`
+    /// as the local one does, over the wire: the key decides, and only the
+    /// keyed request is delivered.
+    func testAKeyedTunnelListenerAnswersSignalLikeTheLocalOne() throws {
+        let key = String(repeating: "ab", count: 32)
+        var deliveries = 0
+        let arrived = expectation(description: "signal delivered")
+        let listener = HookListener(port: Self.anyPort, origin: .tunneled, signalKey: { _ in key }) { delivery in
+            guard case .signal(let report) = delivery else { return XCTFail("not a signal") }
+            XCTAssertEqual(report.id, "build")
+            deliveries += 1
+            arrived.fulfill()
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+        let body = #"{"id":"build","ttl":60,"phase":"working"}"#
+        var answers: [String: Int] = [:]
+        DispatchQueue.global().sync {
+            answers["none"] = postSignal(port: port, key: nil, body: body).status
+            answers["wrong"] = postSignal(port: port, key: String(key.reversed().dropFirst()), body: body).status
+            answers["right"] = postSignal(port: port, key: key, body: body).status
+        }
+        XCTAssertEqual(answers, ["none": 403, "wrong": 403, "right": 200])
+        wait(for: [arrived], timeout: 5)
+        XCTAssertEqual(deliveries, 1)
     }
 
     /// The listener that cannot bind never writes: the running Evlat's key

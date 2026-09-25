@@ -10,13 +10,22 @@ import Foundation
 /// `Registry`'s rule ("no time-driven transitions") carried to the provider,
 /// the same shape as `ChatsProvider`'s clock.
 ///
+/// **One instance per origin** (`013`): this Mac's port has one, and each
+/// remote machine has its own, fed by its tunnel. A machine's rows are
+/// namespaced and carry the machine (`SignalReport.signal`), and are live only
+/// while the machine can be heard — the same `LinkClock` its `HooksProvider`
+/// reads, so a row dims with the tunnel and does not drive the mascot or
+/// `hasLive`. The cap is each instance's own.
+///
 /// Main queue, like every provider.
 public final class SignalsProvider: Provider {
     public static let id = SignalReport.provider
     public var id: String { Self.id }
 
-    /// At most this many live ids. A legitimate sender stays far below it; a
-    /// runaway loop minting ids gets a full bar rather than a bar without end.
+    /// At most this many live ids, per instance. A legitimate sender stays far
+    /// below it; a runaway loop minting ids gets a full bar rather than a bar
+    /// without end. A machine's instance has its own, so a busy Mac never
+    /// silences a server, nor one server another.
     public static let limit = 32
 
     /// What `apply` did with a report. `dropped` is not an error answer: the
@@ -33,13 +42,33 @@ public final class SignalsProvider: Provider {
         /// When the row's current phase began; the row's stamp.
         let phaseStart: Date
         let expiresAt: Date
+        /// When the row was last heard — the last `apply` — and lost.
+        var mark: LinkClock.Mark
     }
 
     private var rows: [String: Row] = [:]
     private let now: () -> Date
+    /// The remote computer this instance hears through its tunnel; `nil` for
+    /// this Mac's own port.
+    private let machine: Signal.Machine.Identity?
+    private var link = LinkClock()
 
-    public init(now: @escaping () -> Date = Date.init) {
+    /// `machine` makes this the provider for one remote computer. Without it
+    /// this is the local provider, unchanged.
+    public init(now: @escaping () -> Date = Date.init, machine: Signal.Machine.Identity? = nil) {
         self.now = now
+        self.machine = machine
+    }
+
+    /// The tunnel came up or went down (`HooksProvider.setLink`, the same
+    /// rule). Meaningless on the local instance, and harmless there — its
+    /// rows have no machine to be unreachable.
+    public func setLink(connected: Bool) {
+        let now = now()
+        if !connected {
+            for key in rows.keys { rows[key]?.mark.lose(at: now) }
+        }
+        link.setLink(connected: connected, at: now)
     }
 
     /// Rows held right now, expired ones included until the next read.
@@ -63,13 +92,17 @@ public final class SignalsProvider: Provider {
         var phaseStart = now
         if let previous, previous.report.word == word { phaseStart = previous.phaseStart }
         rows[report.id] = Row(report: report, phaseStart: phaseStart,
-                              expiresAt: now.addingTimeInterval(TimeInterval(report.ttl)))
+                              expiresAt: now.addingTimeInterval(TimeInterval(report.ttl)),
+                              mark: LinkClock.Mark(heardAt: now))
         return .stored
     }
 
     public func currentSignals() -> [Signal] {
         prune(at: now())
-        return rows.values.compactMap { $0.report.signal(phaseStart: $0.phaseStart) }
+        return rows.values.compactMap { row in
+            row.report.signal(phaseStart: row.phaseStart, machine: machine,
+                              dim: machine == nil ? nil : link.disconnected(row.mark))
+        }
             .sorted { $0.entity < $1.entity }
     }
 

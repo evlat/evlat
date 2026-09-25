@@ -172,10 +172,11 @@ public enum LocalAPI {
     /// other.
     ///
     /// **The key belongs to the listener, not to the request.** The process
-    /// that holds the port writes it (`012/phase-2`); a listener with no key —
-    /// the file could not be written, an isolated process, a tunnel — refuses
-    /// every `/signal`. Remote signals would give a tunnel's listener its
-    /// machine's key through this same field.
+    /// that holds the port writes it (`012/phase-2`); a tunnel's listener is
+    /// given its machine's key (`013`), so a key names the machine and the
+    /// body never does. A local listener with no key — the file could not be
+    /// written, an isolated process — refuses every `/signal`; a tunnel's
+    /// listener with none does not have the route.
     public struct Listener: Equatable {
         public let origin: Origin
         public let signalKey: String?
@@ -212,10 +213,11 @@ public enum LocalAPI {
             guard let asked = PermissionHook.Request(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
         case .signal:
-            // Not through a tunnel, whatever the key: a remote machine does
-            // not put rows on this bar in this set, and the route's existence
-            // is not shown to it (as `/permission`).
-            guard origin == .local else { return notFound }
+            // A tunnel without its machine's key does not have the route, and
+            // its existence is not shown to it (as `/permission`). With the
+            // key, a tunnel is the local route exactly: the machine is the
+            // listener's, which the delivery's receiver knows (`013`).
+            if origin == .tunneled, listener.signalKey == nil { return notFound }
             // The key before the body: a caller without it learns nothing
             // about what a valid body looks like.
             guard let expected = listener.signalKey, let sent = request.signalKey,

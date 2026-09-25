@@ -21,7 +21,9 @@ public struct Signal: Equatable {
     /// session's row; a prefix makes that a matter of construction rather
     /// than of a deny list. The prefix is written by Evlat, never by a
     /// sender: `/signal` builds `signal:<id>` itself and its `id` cannot hold
-    /// a `:` (`SignalReport`).
+    /// a `:` (`SignalReport`). A row that came through a machine's tunnel is
+    /// `signal:<machine id>:<id>` (`013`) — the machine is the listener's,
+    /// so a server can neither write this Mac's rows nor another server's.
     public let entity: String
     public let kind: Kind
     public let phase: Phase

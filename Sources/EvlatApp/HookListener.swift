@@ -100,8 +100,9 @@ public final class HookListener {
     /// user's decision to it, and `onAbandoned` reports one that closed first.
     ///
     /// `signalKey` is asked once, after the bind, for the key `/signal`
-    /// accepts (`SignalKey`); the default has none, and a tunnel's listener
-    /// keeps it — `LocalAPI` answers its `/signal` with `404` anyway.
+    /// accepts (`SignalKey`); the default has none. A tunnel's listener
+    /// without one has no `/signal` (`404`); with its machine's key it
+    /// answers as the local one does (`LocalAPI.handle`, `013`).
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
                 signalKey: @escaping (UInt16) -> String? = { _ in nil },
