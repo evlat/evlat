@@ -222,6 +222,10 @@
    themselves after a week; a pinned one stays. */
 "card.task" = "Evlat görevi";
 "card.return" = "Sohbete dön";
+
+/* An outside job's card (`012`): its header's kind, its progress row. */
+"card.outside" = "Dış iş";
+"card.progress" = "İlerleme";
 "chat.new" = "Yeni";
 "chat.history" = "Geçmiş";
 "chat.history.pin" = "Sabitle — bir haftadan sonra da kalır";

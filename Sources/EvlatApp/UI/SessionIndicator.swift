@@ -111,7 +111,7 @@ struct SessionColumn: View {
     static func namesWidth(_ rows: [SessionRow], in lang: String = L10n.language) -> CGFloat {
         let widest = rows.map { row -> CGFloat in
             let status = statusWidth(phase: row.phase, waitKind: row.waitKind,
-                                     dim: row.dim?.reason, in: lang)
+                                     dim: row.dim?.reason, progress: row.progress != nil, in: lang)
             var name = (row.label as NSString).size(withAttributes: [.font: nameFont]).width
             if row.duplicate > 0 {
                 name += numberGap
@@ -127,12 +127,12 @@ struct SessionColumn: View {
     /// minutes say — the body is fitted to this, so it does not move as time
     /// passes. It changes with the phase, which rewrites the rows anyway.
     /// A dimmed row is fitted to its reason's forms instead: that is what
-    /// its line says.
+    /// its line says; a row with a progress to its percent's too.
     static func statusWidth(phase: Phase, waitKind: Signal.Activity.WaitKind?,
-                            dim: Signal.Machine.Reason? = nil,
+                            dim: Signal.Machine.Reason? = nil, progress: Bool = false,
                             in lang: String = L10n.language) -> CGFloat {
         let forms = dim.map { StatusLine.widestForms(dim: $0, in: lang) }
-            ?? StatusLine.widestForms(phase: phase, waitKind: waitKind, in: lang)
+            ?? StatusLine.widestForms(phase: phase, waitKind: waitKind, progress: progress, in: lang)
         let widest = forms
             .map { ($0 as NSString).size(withAttributes: [.font: statusFont]).width }
             .max() ?? 0
@@ -240,7 +240,8 @@ struct SessionColumn: View {
             ForEach(showsNames ? model.rows : model.closedRows) { row in
                 // Centred in the collapsed bar's width, the same column the
                 // mascot sits in.
-                SessionIndicator(phase: row.phase, source: row.source, face: row.kind == .job,
+                SessionIndicator(phase: row.phase, source: row.source, mark: row.traits.mark,
+                                 progress: row.progress,
                                  // Only a beating row sees the counter move. A
                                  // still row's trigger never changes on the
                                  // beat, so it plays nothing and draws nothing.
@@ -320,7 +321,7 @@ struct SessionColumn: View {
                 TimelineView(.everyMinute) { context in
                     Text(verbatim: StatusLine.text(phase: row.phase, waitKind: row.waitKind,
                                                    enteredAt: row.enteredAt, dim: row.dim,
-                                                   now: context.date))
+                                                   progress: row.progress, now: context.date))
                         .font(Font(Self.statusFont))
                         // Waiting is the one that asks for the user: amber,
                         // the ring's colour. The rest is grey.
@@ -508,8 +509,12 @@ enum StatusLine {
     /// A dimmed row says why and for how long — "no connection · 5 min",
     /// "quiet · 40 min" — counted from when it was lost, which is always
     /// known.
+    ///
+    /// A row with a progress says how far in place of how long — "working ·
+    /// ~40%" — with `~`: the number is the sender's claim, not Evlat's
+    /// reading (`UsageBlockModel.isApproximate`, `.manual`).
     static func text(phase: Phase, waitKind: Signal.Activity.WaitKind?,
-                     enteredAt: Date?, dim: Signal.Machine.Dim? = nil, now: Date,
+                     enteredAt: Date?, dim: Signal.Machine.Dim? = nil, progress: Int? = nil, now: Date,
                      in lang: String = L10n.language) -> String {
         if let dim {
             return L10n.t(lineKey, ["status": L10n.t(dimKey(dim.reason), in: lang),
@@ -517,6 +522,9 @@ enum StatusLine {
                           in: lang)
         }
         let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        if let progress {
+            return L10n.t(lineKey, ["status": status, "time": percent(progress, in: lang)], in: lang)
+        }
         // Not seen entering the phase: how long is not known.
         guard let enteredAt else { return status }
         let time = duration(now.timeIntervalSince(enteredAt), in: lang)
@@ -526,8 +534,16 @@ enum StatusLine {
     /// Every form the line can take in this phase, with the widest counts —
     /// what the open body is fitted to.
     static func widestForms(phase: Phase, waitKind: Signal.Activity.WaitKind?,
-                            in lang: String) -> [String] {
-        forms(of: L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang), in: lang)
+                            progress: Bool = false, in lang: String) -> [String] {
+        let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        let percentForm = L10n.t(lineKey, ["status": status, "time": percent(100, in: lang)], in: lang)
+        return forms(of: status, in: lang) + (progress ? [percentForm] : [])
+    }
+
+    /// An outside job's progress as the line and the card say it: "~40%",
+    /// "~%40" — always approximate, the sender's number (`.manual`).
+    static func percent(_ value: Int, in lang: String) -> String {
+        UsageText.percent(value, approximate: UsageBlockModel.isApproximate(.manual), in: lang)
     }
 
     /// The same, for a dimmed row's reason.
@@ -648,10 +664,15 @@ extension StatusLine.Unit {
 struct SessionIndicator: View {
     let phase: Phase
     var source: AgentSource? = nil
-    /// Evlat's own chat (`kind == .job`): the mascot's small face inside
-    /// the ring where a session has its tool's mark. Still — the ring's
-    /// beat is the one gesture.
-    var face = false
+    /// What sits inside the ring, from the row's kind (`RowTraits`): the
+    /// tool's mark for a session, the mascot's small face for Evlat's own
+    /// chat — still, the ring's beat is the one gesture — nothing for an
+    /// outside job, whose ring speaks its phase alone.
+    var mark: RowTraits.Mark = .tool
+    /// An outside job's whole percent: a still arc filling the inside from
+    /// twelve o'clock, clockwise (`ProgressFill`). With one, `working` does
+    /// not turn — the fill is its movement.
+    var progress: Int? = nil
     let beat: Int
     var isLive = true
 
@@ -659,6 +680,9 @@ struct SessionIndicator: View {
 
     /// The phase whose gesture plays; `nil` plays none.
     private var gesture: Phase? { isLive ? phase : nil }
+    /// The turn is `working`'s "how far is not known": a ring whose progress
+    /// is known never turns, not even on arriving at `working`.
+    private var spinGesture: Phase? { progress == nil ? gesture : nil }
 
     var body: some View {
         ring
@@ -673,15 +697,15 @@ struct SessionIndicator: View {
             .keyframeAnimator(initialValue: IndicatorGesture(),
                               trigger: IndicatorTrigger(phase: phase, beat: beat)) { view, g in
                 view
-                    // The turn is the ring's alone: the mark inside stays
-                    // upright, which is what keeps it readable while it works.
+                    // The turn is the ring's alone: the mark and the fill
+                    // inside stay upright, which is what keeps them readable.
                     .rotationEffect(.degrees(g.spin))
-                    .overlay { mark }
+                    .overlay { inside }
                     .scaleEffect(g.pulse)
                     .shadow(color: glowColor.opacity(g.glow), radius: size * 0.35)
             } keyframes: { _ in
                 KeyframeTrack(\.spin) {
-                    for key in IndicatorGesture.spin(for: gesture) {
+                    for key in IndicatorGesture.spin(for: spinGesture) {
                         CubicKeyframe(key.value, duration: key.duration)
                     }
                 }
@@ -705,15 +729,24 @@ struct SessionIndicator: View {
     private var line: CGFloat { 1.6 }
 
     /// The tool's mark, in the phase's colour: the ring and the mark say the
-    /// same state, the mark alone says where the session runs.
-    @ViewBuilder private var mark: some View {
-        if face {
+    /// same state, the mark alone says where the session runs. An outside
+    /// job has no mark; its progress, if it gave one, fills the inside.
+    @ViewBuilder private var inside: some View {
+        switch mark {
+        case .face:
             MascotFaceMark(eye: markColor == BarPalette.textPrimary ? .black : markColor)
                 .frame(width: size * 0.5, height: size * 0.5)
-        } else if let source {
-            SourceGlyph(source: source)
-                .fill(markColor, style: FillStyle(eoFill: true))
-                .frame(width: size * 0.56, height: size * 0.56)
+        case .tool:
+            if let source {
+                SourceGlyph(source: source)
+                    .fill(markColor, style: FillStyle(eoFill: true))
+                    .frame(width: size * 0.56, height: size * 0.56)
+            }
+        case .none:
+            if let progress {
+                ProgressFill(fraction: Double(progress) / 100, color: markColor)
+                    .frame(width: size * 0.5, height: size * 0.5)
+            }
         }
     }
 
@@ -734,13 +767,19 @@ struct SessionIndicator: View {
         case .idle:
             Circle().stroke(Color.white.opacity(0.28), lineWidth: line)
         case .working:
-            ZStack {
-                Circle().stroke(Color.white.opacity(0.14), lineWidth: line)
-                // The thin arc. The beat turns the whole ring; the track is
-                // round, so only the arc is seen to move.
-                Circle()
-                    .trim(from: 0, to: 0.3)
-                    .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: line, lineCap: .round))
+            if progress != nil {
+                // Known progress: no turning arc — a still one would read as
+                // 30% — only the track, brighter, around the fill.
+                Circle().stroke(Color.white.opacity(0.4), lineWidth: line)
+            } else {
+                ZStack {
+                    Circle().stroke(Color.white.opacity(0.14), lineWidth: line)
+                    // The thin arc. The beat turns the whole ring; the track is
+                    // round, so only the arc is seen to move.
+                    Circle()
+                        .trim(from: 0, to: 0.3)
+                        .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                }
             }
         case .waiting:
             Circle()
@@ -767,6 +806,43 @@ struct SessionIndicator: View {
     static let amber = Color(red: 1.0, green: 0.72, blue: 0.18)
     static let green = Color(red: 0.30, green: 0.85, blue: 0.45)
     static let red = Color(red: 0.95, green: 0.30, blue: 0.28)
+}
+
+/// An outside job's progress inside its ring: a faint disc and, over it, a
+/// wedge from twelve o'clock clockwise in the phase's colour — the ring's
+/// language filled rather than turned. Still: it changes only when the whole
+/// percent does (`SessionRow.progress`), and nothing animates it.
+struct ProgressFill: View {
+    var fraction: Double
+    var color: Color
+
+    var body: some View {
+        ZStack {
+            Circle().fill(color.opacity(0.16))
+            ProgressWedge(fraction: fraction).fill(color)
+        }
+    }
+}
+
+/// The filled part: nothing at 0, the whole disc at 1.
+struct ProgressWedge: Shape {
+    var fraction: Double
+
+    func path(in rect: CGRect) -> Path {
+        let f = min(1, max(0, fraction))
+        let side = min(rect.width, rect.height)
+        let disc = CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side)
+        guard f > 0 else { return Path() }
+        guard f < 1 else { return Path(ellipseIn: disc) }
+        let center = CGPoint(x: disc.midX, y: disc.midY)
+        var path = Path()
+        path.move(to: center)
+        // In SwiftUI's flipped space `clockwise: false` runs clockwise on screen.
+        path.addArc(center: center, radius: side / 2, startAngle: .degrees(-90),
+                    endAngle: .degrees(-90 + 360 * f), clockwise: false)
+        path.closeSubpath()
+        return path
+    }
 }
 
 /// What fires a gesture: arriving at a phase, or a beat while in one.

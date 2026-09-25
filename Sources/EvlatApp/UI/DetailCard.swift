@@ -13,6 +13,11 @@ import EvlatCore
 /// the terminal nor the button: its terminal is on another computer, and a
 /// dimmed one says why in its footer, as its status line does.
 ///
+/// An outside job's card (`012`) is read, not pressed: its sender in the
+/// header's small caps, the status title, the sender's own line (what it is
+/// on, or how it ended), its progress as a percent over a thin bar, and the
+/// time in the phase. No mark, no terminal, no button.
+///
 /// It observes `DetailModel` alone, and it is in the tree only while a
 /// session is selected: so is its minute tick.
 struct DetailCard: View {
@@ -51,11 +56,19 @@ struct DetailCard: View {
     /// Evlat's own chat (`011/phase-5`): its header's kind and its button.
     static let taskKey = "card.task"
     static let returnKey = "card.return"
+    /// An outside job (`012`): its header's kind and its progress row's name.
+    static let outsideKey = "card.outside"
+    static let progressKey = "card.progress"
     static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
     static var keys: [String] {
-        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey]
+        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey,
+         outsideKey, progressKey]
             + AgentSource.allCases.map(sourceKey)
     }
+
+    /// The progress bar's height: a line, not a control.
+    static let progressBarHeight: CGFloat = 4
+    static let noteLines = 2
 
     var body: some View {
         if let detail = model.detail {
@@ -96,12 +109,22 @@ struct DetailCard: View {
             // The last thing a dimmed machine said, faded like its ring.
             .opacity(detail.dim == nil ? 1 : SessionColumn.dimOpacity + 0.2)
             bodyView(CardBody.pick(detail.activity))
+            if let note = detail.note, !note.isEmpty {
+                // The sender's words: data, like a reply.
+                Text(verbatim: note)
+                    .font(Self.replyFont)
+                    .foregroundStyle(BarPalette.textPrimary.opacity(0.85))
+                    .lineLimit(Self.noteLines)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let progress = detail.progress {
+                progressView(progress, phase: detail.phase)
+            }
             // Once a minute, and only while the card is up.
             TimelineView(.everyMinute) { context in
                 if let footer = Self.footer(enteredAt: detail.enteredAt, activity: detail.activity,
-                                            terminal: detail.kind == .job
-                                                ? detail.folder.map(Self.folderName)
-                                                : Self.terminal(detail.host),
+                                            terminal: Self.footerPlace(detail),
                                             dim: detail.dim, now: context.date) {
                     Text(verbatim: footer)
                         .font(Self.footerFont)
@@ -110,8 +133,47 @@ struct DetailCard: View {
                 }
             }
             if Self.showsButton(detail) {
-                button(detail.kind == .job ? Self.returnButton() : Self.button(for: detail.host))
+                button(detail.traits.button == .backToChat ? Self.returnButton() : Self.button(for: detail.host))
             }
+        }
+    }
+
+    /// "Progress        ~40%" over a thin bar in the phase's colour: the
+    /// percent is the number to read, the bar lets it be read at a glance.
+    private func progressView(_ progress: Int, phase: Phase) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(verbatim: L10n.t(Self.progressKey))
+                    .font(Self.labelFont)
+                    .foregroundStyle(BarPalette.textSecondary)
+                Spacer(minLength: 8)
+                Text(verbatim: Self.progressText(progress))
+                    .font(Self.footerFont)
+                    .foregroundStyle(BarPalette.textPrimary)
+            }
+            GeometryReader { box in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.10))
+                    Capsule().fill(Self.color(phase == .idle ? .working : phase))
+                        .frame(width: box.size.width * CGFloat(progress) / 100)
+                }
+            }
+            .frame(height: Self.progressBarHeight)
+        }
+    }
+
+    /// The card's percent: the status line's, `~` and all.
+    static func progressText(_ value: Int, in lang: String = L10n.language) -> String {
+        StatusLine.percent(value, in: lang)
+    }
+
+    /// The footer's last word: a chat's folder, a session's terminal, or
+    /// nothing for an outside job.
+    static func footerPlace(_ detail: SessionDetail) -> String? {
+        switch detail.traits.detail {
+        case .folder: return detail.folder.map(folderName)
+        case .note: return nil
+        case .none: return terminal(detail.host)
         }
     }
 
@@ -137,8 +199,15 @@ struct DetailCard: View {
 
     /// Only a session on this Mac has a terminal to go to. A remote card
     /// draws no button at all — not a dimmed "terminal not found" — so its
-    /// rectangle is never reported and no click lands on it.
-    static func showsButton(_ detail: SessionDetail) -> Bool { detail.machine == nil }
+    /// rectangle is never reported and no click lands on it. A chat always
+    /// has its way back; an outside job has nothing to press.
+    static func showsButton(_ detail: SessionDetail) -> Bool {
+        switch detail.traits.button {
+        case .goToSession: return detail.hasTerminal
+        case .backToChat: return true
+        case .none: return false
+        }
+    }
 
     /// A chat's button: back to it in the balloon, always there to press —
     /// it has no terminal to be missing (`011/phase-5`).
@@ -184,12 +253,17 @@ struct DetailCard: View {
 
     private func header(_ detail: SessionDetail) -> some View {
         HStack(spacing: 7) {
-            if detail.kind == .job {
+            switch detail.traits.mark {
+            case .face:
                 MascotFaceMark().frame(width: 13, height: 13)
-            } else if let source = detail.source {
-                SourceGlyph(source: source)
-                    .fill(BarPalette.textPrimary, style: FillStyle(eoFill: true))
-                    .frame(width: 14, height: 14)
+            case .tool:
+                if let source = detail.source {
+                    SourceGlyph(source: source)
+                        .fill(BarPalette.textPrimary, style: FillStyle(eoFill: true))
+                        .frame(width: 14, height: 14)
+                }
+            case .none:
+                EmptyView()
             }
             // The name is data: what the user called the session.
             Text(verbatim: detail.label)
@@ -198,22 +272,23 @@ struct DetailCard: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            if let machine = detail.machine {
-                // The column's machine label, in the usage heading's type.
+            if let machine = detail.traits.tag == .sender ? detail.sender : detail.machine {
+                // The column's tag — the machine, or an outside job's
+                // sender — in the usage heading's type.
                 Text(verbatim: UsageBlock.heading(machine))
                     .font(Font(SessionColumn.machineFont))
                     .kerning(SessionColumn.machineKerning)
                     .foregroundStyle(UsageBlock.headerColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if detail.source != nil {
+                if detail.source != nil || detail.traits.tag == .sender {
                     Text(verbatim: "·")
                         .font(Self.sourceFont)
                         .foregroundStyle(UsageBlock.headerColor)
                 }
             }
-            if detail.kind == .job {
-                Text(verbatim: L10n.t(Self.taskKey))
+            if let word = Self.kindWord(detail.traits) {
+                Text(verbatim: L10n.t(word))
                     .font(Self.sourceFont)
                     .foregroundStyle(BarPalette.textSecondary)
                     .lineLimit(1)
@@ -225,6 +300,16 @@ struct DetailCard: View {
                     .lineLimit(1)
                     .fixedSize()
             }
+        }
+    }
+
+    /// The header's last word when it is not a tool's name: what Evlat
+    /// calls the row itself.
+    static func kindWord(_ traits: RowTraits) -> String? {
+        switch traits.tag {
+        case .evlat: return taskKey
+        case .sender: return outsideKey
+        case .machine: return nil
         }
     }
 

@@ -714,7 +714,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let phase = signal.phase.rawValue.padding(toLength: 8, withPad: " ", startingAt: 0)
         let terminal = host.map { "  → \($0.diagnostic)" } ?? ""
         let machine = signal.machine.map { "  @ \($0.name)\($0.reachable ? "" : " (not reachable)")" } ?? ""
-        return "  \(phase) \(signal.label)\(raw)  ← \(signal.detail ?? "")\(terminal)\(machine)"
+        // An outside job's `detail` is its sender's free text, not a
+        // source's diagnostic: the line names who sent it instead.
+        let origin = RowTraits.of(signal.kind).tag == .sender
+            ? "signal \(signal.sender ?? "-")" : signal.detail ?? ""
+        return "  \(phase) \(signal.label)\(raw)  ← \(origin)\(terminal)\(machine)"
     }
 
     /// One `--list` usage row: group, window, percent, reset, observation and

@@ -407,6 +407,119 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertFalse(model.isBeating)
     }
 
+    // MARK: - Outside rows (`012`)
+
+    private func outside(_ id: String, _ phase: Phase = .working, progress: Double? = nil,
+                         label: String = "render", sender: String? = "blender",
+                         stamp: TimeInterval = 0) -> Signal {
+        Signal(provider: "signal", entity: "signal:\(id)", kind: .custom, phase: phase,
+               progress: progress, label: label, detail: "frame 12 of 30", fidelity: .manual,
+               rawStatus: phase.rawValue,
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + stamp), sender: sender)
+    }
+
+    /// The row carries whole percents: a sender stepping by a thousandth
+    /// writes nothing until the percent itself moves.
+    func testProgressIsWrittenOnlyWhenTheWholePercentMoves() {
+        let model = SessionRowsModel()
+        model.update(from: [outside("a", progress: 0.401)])
+        XCTAssertEqual(model.rows.first?.progress, 40)
+        var writes = 0
+        let token = model.objectWillChange.sink { _ in writes += 1 }
+        defer { token.cancel() }
+
+        for value in [0.402, 0.403, 0.404] {
+            model.update(from: [outside("a", progress: value)])
+        }
+        XCTAssertEqual(writes, 0, "the same percent: nothing drawn changed")
+        model.update(from: [outside("a", progress: 0.41)])
+        XCTAssertEqual(model.rows.first?.progress, 41)
+        XCTAssertGreaterThan(writes, 0)
+    }
+
+    /// A known progress is the movement: the row does not turn on the beat,
+    /// and a working outside row without one does.
+    func testAWorkingRowWithProgressDoesNotBeat() {
+        XCTAssertFalse(SessionRow(outside("a", progress: 0.4)).beats)
+        XCTAssertTrue(SessionRow(outside("a")).beats)
+        let model = SessionRowsModel()
+        model.update(from: [outside("a", progress: 0.4)])
+        XCTAssertFalse(model.isBeating, "nothing to turn")
+        model.update(from: [outside("a")])
+        XCTAssertTrue(model.isBeating)
+        model.update(from: [])
+    }
+
+    /// Only an outside row carries a progress: a session's is not drawn.
+    func testOnlyAnOutsideRowCarriesProgress() {
+        let session = Signal(provider: "stub", entity: "s", phase: .working, progress: 0.5,
+                             label: "s", fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
+        XCTAssertNil(SessionRow(session).progress)
+        XCTAssertEqual(SessionRow(outside("a", progress: 1)).progress, 100)
+        XCTAssertEqual(SessionRow(outside("a", progress: 0)).progress, 0)
+    }
+
+    /// The sender is the outside row's small caps; the same name from two
+    /// senders needs no number, from one sender it does.
+    func testAnOutsideRowIsTaggedWithItsSender() {
+        XCTAssertEqual(SessionRow(outside("a")).tag, "blender")
+        XCTAssertNil(SessionRow(outside("a", sender: nil)).tag)
+        let model = SessionRowsModel()
+        model.update(from: [outside("a"), outside("b", sender: "ffmpeg")])
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0], "two senders: no number")
+        model.update(from: [outside("a"), outside("b")])
+        XCTAssertEqual(Set(model.rows.map(\.duplicate)), [0, 2])
+        // A "/" in a sender cannot make two groups meet.
+        model.update(from: [outside("a", label: "b/c", sender: "a"), outside("b", label: "c", sender: "a/b")])
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0])
+    }
+
+    /// An outside row's stamp is the moment its phase began (the provider
+    /// keeps it while the phase holds): its time is known on first sight.
+    func testAnOutsideRowsTimeIsKnownOnFirstSight() {
+        let model = SessionRowsModel()
+        model.update(from: [outside("a", stamp: 5)])
+        XCTAssertEqual(model.rows.first?.enteredAt, Date(timeIntervalSince1970: 1_790_000_005))
+        model.update(from: [signal("s", .working, stamp: 5)])
+        XCTAssertNil(model.rows.first?.enteredAt, "a session's stamp moves on every tool event")
+    }
+
+    /// What each kind can do, as one table — the switch behind it is
+    /// exhaustive, so a new kind does not compile until it has a line here.
+    func testEveryKindHasItsTraits() {
+        XCTAssertEqual(RowTraits.of(.session), RowTraits(mark: .tool, tag: .machine, button: .goToSession, detail: .none,
+                                                         stampIsPhaseStart: false, showsProgress: false))
+        XCTAssertEqual(RowTraits.of(.job), RowTraits(mark: .face, tag: .evlat, button: .backToChat, detail: .folder,
+                                                     stampIsPhaseStart: true, showsProgress: false))
+        XCTAssertEqual(RowTraits.of(.custom), RowTraits(mark: .none, tag: .sender, button: .none, detail: .note,
+                                                        stampIsPhaseStart: true, showsProgress: true))
+        XCTAssertEqual(RowTraits.of(.usage).button, .none)
+        XCTAssertTrue(SessionRow(signal("l", .working)).hasTerminal)
+        XCTAssertFalse(SessionRow(remote("r")).hasTerminal, "a remote session's terminal is elsewhere")
+        XCTAssertFalse(SessionRow(outside("a")).hasTerminal)
+    }
+
+    /// With a progress the line says how far instead of how long, `~` for a
+    /// number Evlat did not measure; the body is fitted to that form too.
+    func testTheStatusLineSaysTheProgress() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        XCTAssertEqual(StatusLine.text(phase: .working, waitKind: nil, enteredAt: now.addingTimeInterval(-600),
+                                       progress: 40, now: now, in: "en"), "working · ~40%")
+        XCTAssertEqual(StatusLine.text(phase: .working, waitKind: nil, enteredAt: nil,
+                                       progress: 40, now: now, in: "tr"), "çalışıyor · ~%40")
+        XCTAssertEqual(StatusLine.text(phase: .review, waitKind: nil, enteredAt: now.addingTimeInterval(-600),
+                                       now: now, in: "en"), "done · 10 min")
+        let row = SessionRow(outside("a", label: "x", sender: nil, stamp: 0))
+        let withProgress = SessionRow(outside("a", progress: 1, label: "x", sender: nil))
+        for lang in ["en", "tr"] {
+            let percent = ceil(("\(StatusLine.text(phase: .working, waitKind: nil, enteredAt: nil, progress: 100, now: now, in: lang))" as NSString)
+                .size(withAttributes: [.font: SessionColumn.statusFont]).width)
+            XCTAssertGreaterThanOrEqual(SessionColumn.namesWidth([withProgress], in: lang), percent, lang)
+            XCTAssertGreaterThanOrEqual(SessionColumn.namesWidth([withProgress], in: lang),
+                                        SessionColumn.namesWidth([row], in: lang), lang)
+        }
+    }
+
     // MARK: - The gesture table
 
     /// Still phases play nothing, beating ones play a gesture shorter than the

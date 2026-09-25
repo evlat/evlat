@@ -283,6 +283,10 @@
    themselves after a week; a pinned one stays. */
 "card.task" = "Evlat task";
 "card.return" = "Back to chat";
+
+/* An outside job's card (`012`): its header's kind, its progress row. */
+"card.outside" = "Outside job";
+"card.progress" = "Progress";
 "chat.new" = "New";
 "chat.history" = "History";
 "chat.history.pin" = "Pin — kept past the week";

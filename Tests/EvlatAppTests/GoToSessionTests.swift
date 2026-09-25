@@ -199,6 +199,55 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertFalse(line.contains("4242"), line)
     }
 
+    // MARK: - An outside job (`012`)
+
+    private func outside(_ id: String) -> Signal {
+        Signal(provider: "signal", entity: "signal:\(id)", kind: .custom, phase: .working,
+               progress: 0.4, label: "render", detail: "frame 12 of 30", fidelity: .manual,
+               rawStatus: "working", updatedAt: Date(timeIntervalSince1970: 0), sender: "blender")
+    }
+
+    /// An outside job has no terminal and nothing to go back to: its card
+    /// looks nothing up and has no button; it carries the sender's words.
+    func testAnOutsideJobsCardHasNoButtonAndLooksNothingUp() throws {
+        let (controller, _) = controller([outside("r")]) { .app(self.term) }
+        defer { controller.panel?.close() }
+        controller.select("signal:r")
+        let detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertEqual(detail.kind, .custom)
+        XCTAssertEqual(detail.sender, "blender")
+        XCTAssertEqual(detail.note, "frame 12 of 30")
+        XCTAssertEqual(detail.progress, 40)
+        XCTAssertNil(detail.folder)
+        XCTAssertFalse(DetailCard.showsButton(detail))
+        XCTAssertEqual(resolved, [], "no process walk")
+        XCTAssertFalse(controller.detail.go())
+        controller.goToSession()
+        XCTAssertEqual(activated, [])
+        XCTAssertTrue(controller.barState.isOpen, "nothing happened elsewhere: the card stays")
+        XCTAssertEqual(DetailCard.progressText(40, in: "tr"), "~%40")
+        XCTAssertEqual(DetailCard.progressText(40, in: "en"), "~40%")
+    }
+
+    /// A local session's card keeps its button and its lookup.
+    func testASessionsCardIsUnchanged() throws {
+        let (controller, _) = controller([signal("a")]) { .app(self.term) }
+        defer { controller.panel?.close() }
+        controller.select("a")
+        let detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertTrue(DetailCard.showsButton(detail))
+        XCTAssertEqual(resolved, [900])
+        XCTAssertNil(detail.note)
+        XCTAssertNil(detail.progress)
+    }
+
+    /// `--list` names an outside row's sender, never its detail.
+    func testTheListLineNamesTheSender() {
+        let line = AppController.listLine(outside("r"))
+        XCTAssertTrue(line.contains("blender"), line)
+        XCTAssertFalse(line.contains("frame 12"), line)
+    }
+
     // MARK: - Evlat's own chat (`011/phase-5`)
 
     private let chatID = "6B1F3C52-7B8B-4F4B-9C1E-2B7C1D0E9A11"

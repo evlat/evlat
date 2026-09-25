@@ -1,6 +1,60 @@
 import Foundation
 import EvlatCore
 
+/// What a row of each kind can do, from one exhaustive `switch` on
+/// `Signal.Kind`: a new kind does not compile until it has a line here, and
+/// no view branches on the kind itself. Read from the kind, never from the
+/// provider's name (`011`'s rule).
+struct RowTraits: Equatable {
+    /// What sits inside the ring.
+    enum Mark: Equatable { case tool, face, none }
+    /// Whose name the small caps beside the row's say.
+    enum Tag: Equatable { case machine, evlat, sender }
+    /// The card's one button.
+    enum Button: Equatable { case goToSession, backToChat, none }
+    /// What `Signal.detail` is to the card: a chat's folder (the footer), an
+    /// outside job's own line (the body), or a source's diagnostic, not drawn.
+    enum Detail: Equatable { case folder, note, none }
+
+    let mark: Mark
+    let tag: Tag
+    /// `.goToSession` holds on this Mac only: a remote session's terminal is
+    /// on another computer (`SessionRow.hasTerminal`).
+    let button: Button
+    let detail: Detail
+    /// Whether the signal's stamp is the moment its phase began, so the
+    /// row's time is known even when first seen already in it. A session's
+    /// stamp moves on every tool event and is not.
+    let stampIsPhaseStart: Bool
+    /// Whether `Signal.progress` is drawn: the sender's own claim of how far
+    /// it is. A usage window's progress is its own block's.
+    let showsProgress: Bool
+
+    static func of(_ kind: Signal.Kind) -> RowTraits {
+        switch kind {
+        case .session:
+            return RowTraits(mark: .tool, tag: .machine, button: .goToSession, detail: .none,
+                             stampIsPhaseStart: false, showsProgress: false)
+        case .job:
+            // Evlat's own chat (`011`): the mascot's face, the "EVLAT" tag,
+            // `[Back to chat]`; its stamp is the chat's phase start.
+            return RowTraits(mark: .face, tag: .evlat, button: .backToChat, detail: .folder,
+                             stampIsPhaseStart: true, showsProgress: false)
+        case .custom:
+            // A program outside (`012`): no tool, no terminal, nothing to go
+            // back to — the ring speaks the phase alone and its sender's name
+            // is the tag. `SignalsProvider` keeps the stamp while the phase holds.
+            return RowTraits(mark: .none, tag: .sender, button: .none, detail: .note,
+                             stampIsPhaseStart: true, showsProgress: true)
+        case .usage:
+            // Never in the column (`Registry.Snapshot` splits it off); the
+            // line is here so the switch stays exhaustive.
+            return RowTraits(mark: .none, tag: .machine, button: .none, detail: .none,
+                             stampIsPhaseStart: false, showsProgress: false)
+        }
+    }
+}
+
 /// One indicator's worth of a session: what is drawn, and nothing else.
 ///
 /// There is no stamp here on purpose. A hook row's stamp moves on every
@@ -34,15 +88,33 @@ public struct SessionRow: Equatable, Identifiable {
     /// `nil` while it can, and always on this Mac. Its moment is frozen while
     /// the row is dimmed, so it passes the deadband without writing.
     public let dim: Signal.Machine.Dim?
-    /// A `.job` is Evlat's own chat (`011`): its ring holds the mascot's
-    /// face, its name the "EVLAT" tag, its card `[Back to chat]`. Read from
-    /// the signal's kind, never from the provider's name.
+    /// What the row is; what that lets it do is `traits`.
     public let kind: Signal.Kind
+    /// How far an outside job says it is, in whole percents (0…100); `nil`
+    /// when it says nothing or its kind draws none. Whole on purpose: this is
+    /// the deadband — a sender stepping by 0.001 would otherwise rewrite the
+    /// column at its own rate, and 1% of the ring is ~0.6 pt anyway.
+    public let progress: Int?
+    /// The outside program's own name for itself (`Signal.sender`): drawn as
+    /// the tag, never branched on.
+    public let sender: String?
+
+    var traits: RowTraits { .of(kind) }
 
     /// The small caps beside the name: the machine's for a remote row,
-    /// "EVLAT" for a chat — a name, not catalogue text.
-    public var tag: String? { kind == .job ? Self.jobTag : machine }
+    /// "EVLAT" for a chat, the sender's for an outside job — a name, not
+    /// catalogue text.
+    public var tag: String? {
+        switch traits.tag {
+        case .machine: return machine
+        case .evlat: return Self.jobTag
+        case .sender: return sender
+        }
+    }
     public static let jobTag = "Evlat"
+
+    /// Only a session on this Mac has a terminal to look up and go to.
+    public var hasTerminal: Bool { traits.button == .goToSession && machine == nil }
 
     /// `Signal.isLive`: false for a remote row nobody can currently hear.
     /// Such a row is listed but does not beat, and sorts under the live ones.
@@ -53,9 +125,12 @@ public struct SessionRow: Equatable, Identifiable {
     public init(entity: String, label: String, phase: Phase,
                 source: AgentSource? = nil, duplicate: Int = 0,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
-                machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session) {
+                machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session,
+                progress: Int? = nil, sender: String? = nil) {
         self.entity = entity
         self.kind = kind
+        self.progress = RowTraits.of(kind).showsProgress ? progress.map { min(100, max(0, $0)) } : nil
+        self.sender = sender
         self.label = label
         self.phase = phase
         self.source = source
@@ -73,18 +148,30 @@ public struct SessionRow: Equatable, Identifiable {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
-                  machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind)
+                  machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind,
+                  progress: signal.progress.flatMap(Self.percent), sender: signal.sender)
+    }
+
+    /// 0…1 to whole percents. `SignalReport` already holds the value to a
+    /// finite 0…1; anything else is dropped rather than trapped on.
+    static func percent(_ fraction: Double) -> Int? {
+        let value = (fraction * 100).rounded()
+        guard value.isFinite else { return nil }
+        return Int(min(100, max(0, value)))
     }
 
     /// Whether this row moves on the beat. `working` turns its arc, `waiting`
     /// pulses; the rest are still (`review`'s fade is a one-off on arrival).
+    /// A working row with a known progress does not turn: the filling arc is
+    /// its movement, and a turning ring says "how far is not known".
     /// A dimmed row never beats: its phase is the last thing a silent
     /// machine said, and a clock kept running for it would spend the idle
     /// budget on nobody.
     public var beats: Bool {
         guard isLive else { return false }
         switch phase {
-        case .working, .waiting: return true
+        case .working: return progress == nil
+        case .waiting: return true
         case .idle, .review, .failed: return false
         }
     }
@@ -181,18 +268,22 @@ public final class SessionRowsModel: ObservableObject {
         return (shown, all.count - shown.count)
     }
 
-    /// Numbers for rows that share a name, a tool **and** a machine — two
-    /// Codex sessions in one folder are both called after it. The same name
-    /// in two tools needs none: the mark in the ring tells them apart; nor on
-    /// two computers: the machine's name beside it does. Counted over every
-    /// live row, not the visible ones, and in entity order, so a number does
-    /// not change when the rows reorder or scroll into the count.
+    /// Numbers for rows that share a name, a tool, a machine **and** a
+    /// sender — two Codex sessions in one folder are both called after it.
+    /// The same name in two tools needs none: the mark in the ring tells them
+    /// apart; nor on two computers, nor from two senders: the tag beside it
+    /// does. Counted over every live row, not the visible ones, and in entity
+    /// order, so a number does not change when the rows reorder or scroll
+    /// into the count.
     nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
-        var groups: [String: [String]] = [:]
+        // A struct, not a joined string: a sender may hold any separator.
+        struct Group: Hashable {
+            let machine: String?, source: AgentSource?, sender: String?, label: String
+        }
+        var groups: [Group: [String]] = [:]
         for signal in signals {
-            // The machine and the tool come first and hold no "/" (a host
-            // name cannot), so no label can make two keys collide.
-            let key = "\(signal.machine?.name ?? "")/\(signal.source?.rawValue ?? "-")/\(signal.label)"
+            let key = Group(machine: signal.machine?.name, source: signal.source,
+                            sender: signal.sender, label: signal.label)
             groups[key, default: []].append(signal.entity)
         }
         var numbers: [String: Int] = [:]
@@ -246,11 +337,13 @@ public final class SessionRowsModel: ObservableObject {
         }
         let numbers = Self.duplicateNumbers(signals)
         let next = ordered.map {
-            // A chat's stamp is the moment its phase began (`ChatSession`),
-            // never moved by a tool event: its time is known even for a row
-            // first seen already in it — one read back at launch.
+            // A chat's or an outside job's stamp is the moment its phase
+            // began (`ChatSession`, `SignalsProvider`), never moved by a tool
+            // event: its time is known even for a row first seen already in
+            // it — one read back at launch.
             SessionRow($0, duplicate: numbers[$0.entity] ?? 0,
-                       enteredAt: enteredAt[$0.entity] ?? ($0.kind == .job ? $0.updatedAt : nil))
+                       enteredAt: enteredAt[$0.entity]
+                           ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil))
         }
         if rows != next { rows = next }
         setBeating(drawnRows.contains(where: \.beats))
