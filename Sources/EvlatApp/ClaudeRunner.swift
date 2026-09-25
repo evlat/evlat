@@ -31,7 +31,7 @@ final class ClaudeRunner {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = invocation.arguments
         process.currentDirectoryURL = URL(fileURLWithPath: invocation.directory, isDirectory: true)
-        var environment = environment.merging(invocation.environment) { _, new in new }
+        var environment = invocation.environment(inheriting: environment)
         if let path { environment["PATH"] = path }
         process.environment = environment
         process.standardInput = input

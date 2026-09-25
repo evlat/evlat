@@ -36,6 +36,7 @@ final class ClaudeRunnerTests: XCTestCase {
         let copy = directory.appendingPathComponent("fake-claude")
         try FileManager.default.copyItem(at: source, to: copy)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copy.path)
+        FreshExecutable.warm(copy.path)
         return copy.path
     }
 
@@ -96,7 +97,8 @@ final class ClaudeRunnerTests: XCTestCase {
 
     func testATurnIsAJobRowFromWorkingToReview() throws {
         let registry = Registry()
-        let store = try make(registry: registry)
+        // Evlat started from a Claude Code terminal inherits its markers.
+        let store = try make(registry: registry, environment: ["CLAUDECODE": "1"])
         let folder = directory.appendingPathComponent("project")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let id = store.newChat(folder: folder.path)
@@ -118,6 +120,7 @@ final class ClaudeRunnerTests: XCTestCase {
         XCTAssertEqual(Array(run[7...8]), ["--permission-mode", "auto"], "a new chat is in auto mode")
         XCTAssertEqual(Array(run[9...10]), ["--session-id", store.chat(id)!.sessionID])
         XCTAssertTrue(run.contains("EVLAT_TASK=\(id)"), "the errand's id reaches the user's hooks")
+        XCTAssertTrue(run.contains("CLAUDECODE="), "a parent Claude Code session's marker never reaches the turn")
         XCTAssertTrue(run.contains { $0.hasPrefix("PWD=") && $0.hasSuffix("/project") })
         XCTAssertTrue(run.contains { $0.hasPrefix("stdin=") && $0.contains(#""content":"say ok""#) })
     }
@@ -318,7 +321,13 @@ final class ClaudeRunnerTests: XCTestCase {
         let store = try make(scenario: "permission", environment: ["FAKE_CLAUDE_PERMISSION_WAIT": "1"])
         let id = store.newChat(folder: directory.path)
         store.perform(.send(chat: id, text: "write a note", attachments: []))
-        waitUntil("the card opens") { self.openCard(store, id) != nil }
+        // The card lives about the fake's one second, and the predicate is
+        // polled about once a second: waiting to *see* it open raced its
+        // closing under load (`012` kapı). The card stays in the chat once
+        // it came, so its arrival is what is waited for.
+        waitUntil("the card came") {
+            store.chat(id)?.messages.contains { if case .permission = $0 { return true } else { return false } } == true
+        }
         waitUntil("the card goes") { self.openCard(store, id) == nil }
         guard case .permission(let card)? = store.chat(id)?.messages.first(where: {
             if case .permission = $0 { return true } else { return false }

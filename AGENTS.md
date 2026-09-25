@@ -34,14 +34,14 @@ koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
 
 ## Şu an nerede
 
-`001`–`008` teslim edildi, `009`–`010` teslim bekliyor. `011`'in (sohbet balonu) beş phase'i kodlandı, kapı ve
-teslim bekliyor: maskota sol tık ya da kısayol (varsayılan ⇧⌘Space, menüden değişir) bir balon açar, iş kullanıcının
+`001`–`008` teslim edildi, `009`–`010` teslim bekliyor. `011`'in (sohbet balonu) beş phase'i kodlandı ve
+kapıdan geçti, teslim bekliyor: maskota sol tık ya da kısayol (varsayılan ⇧⌘Space, menüden değişir) bir balon açar, iş kullanıcının
 `claude -p` kurulumuyla koşar (`Action` → `ChatStore`), izin balonda kartla
 cevaplanır, dosya maskota bırakılır; kapatılan iş barda maskot yüzlü bir
 `kind: .job` satırı olarak sürer ([Sohbete dön]), görülünce Geçmiş'e çekilir,
 Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetleri tek bir kalıcı hafızayı
 (`<kök>/memory/`) paylaşır. Metinler katalogda (`L10n`,
-`en`/`tr`). `012`'nin (dış işler) dört phase'i kodlandı, kapı ve teslim bekliyor:
+`en`/`tr`). `012`'nin (dış işler) dört phase'i kodlandı ve kapıdan geçti, teslim bekliyor:
 anahtarlı `POST /signal` her programa barda bir `kind: .custom` satırı verir,
 birincil kullanımı `Evlat watch <komut…>` (komutu şeffaf sarar), alt düzeyi
 `Evlat signal <id>`. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
@@ -108,6 +108,18 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   `deactivate` + balonu hemen `makeKey`: ardından gelen istifa balonun
   klavyesini aldı, balon kapandı ve Evlat önde kaldı (`011/phase-4`, gözle).
   Önceki uygulama `activate` edilir, balon `didResignActive`'ten sonra döner.
+- **Yeni yazılmış çalıştırılabilir dosyanın ilk koşusu macOS'un
+  değerlendirmesini öder** (`syspolicyd`/`XprotectService`): sınamanın geçici
+  dizine yazdığı sahte `ssh`/`claude` ilk exec'te ~0,2 sn, ikincide ~0,03 sn;
+  `XprotectService` meşgulken bir kez ~50 sn. Tünelin 0,2 sn'lik onayını ve
+  5 sn'lik beklemeyi aştı, `RemoteMachinesTests` tam koşuda düştü, tek başına
+  geçti (`012` kapı). Zamanlı beklemeye giren sahte önce bir kez zamansız
+  koşturulur (`FreshExecutable.warm`, `--evlat-warm`).
+- **Evlat bir Claude Code terminalinden açılırsa o oturumun işaretlerini
+  miras alır** (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
+  `CLAUDE_CODE_SESSION_ID`, mesajlaşma soketi…); 2.1.281 bu ikisinden birini
+  görünce kendini alt oturum sayar. `claude -p`'ye giden ortam
+  `ClaudeInvocation.parentSessionVariables`'tan süzülür (`012` kapı).
 - **`proc_pidpath` kendini güncellemiş bir uygulamanın eski sürecinde boş
   döner** (`ENOENT`) — Orca'nın pty yardımcısı böyleydi ve 13 oturum
   "bulunamadı" okudu (`005/phase-5`). Başlatıldığı yol argüman alanında

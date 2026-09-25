@@ -263,6 +263,11 @@ public final class HooksProvider: Provider {
         // (measured, `011/phase-1`) — and its row is the stream's, not this
         // one. `LocalAPI` writes the task only on local delivery.
         guard event.taskID == nil else { return }
+        // The namespace rule's other half (`Signal.entity`, `012` kapı): a
+        // local id is bare, so one that holds a `:` would land in another
+        // producer's space — a `/hook` body saying `signal:x` would replace
+        // an outside program's row. Claude's and Codex's ids are UUIDs.
+        guard machine != nil || !sessionID.contains(":") else { return }
         let entity = machine.map { "remote:\($0.id):\(sessionID)" } ?? sessionID
         // A remote number means nothing on this Mac. `LocalAPI` already strips
         // it from a tunneled request; this is the second lock, so no remote

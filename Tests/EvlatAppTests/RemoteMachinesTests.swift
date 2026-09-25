@@ -59,8 +59,9 @@ final class RemoteMachinesTests: XCTestCase {
         case .connect: tail = "exec cat >/dev/null"
         case .fail(let line): tail = "echo '\(line)' >&2\nexit 255"
         }
-        try "#!/bin/sh\n\(tail)\n".write(to: script, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\n\(FreshExecutable.warmLine)\n\(tail)\n".write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        FreshExecutable.warm(script.path)
         return script.path
     }
 

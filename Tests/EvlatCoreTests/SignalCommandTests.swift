@@ -182,6 +182,9 @@ final class SignalCommandTests: XCTestCase {
         XCTAssertEqual(post(["--done", "build"])?.word, .done)
         let cleared = try self.report(XCTUnwrap(post(["build", "--clear"])))
         XCTAssertEqual(cleared.ttl, 0)
+        // An id may start with `-`, as the route allows: after `--`.
+        XCTAssertEqual(post(["--done", "--", "-nightly"])?.id, "-nightly")
+        refused(["signal", "--", "-nightly", "--done"])   // after -- nothing is a flag: two ids
     }
 
     func testSignalArgumentErrors() {

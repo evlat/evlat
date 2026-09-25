@@ -17,12 +17,16 @@
 # waits for stdin to close before it exits — so a runner that never closes
 # stdin hangs here as it would there.
 
+# `--evlat-warm`: exit before anything else (FreshExecutable, `012` kapı).
+[ "$1" = --evlat-warm ] && exit 0
+
 log="${FAKE_CLAUDE_LOG:-/dev/null}"
 {
   echo '--- run'
   for a in "$@"; do printf '%s\n' "$a"; done
   printf 'EVLAT_TASK=%s\n' "${EVLAT_TASK:-}"
   printf 'PWD=%s\n' "$PWD"
+  printf 'CLAUDECODE=%s\n' "${CLAUDECODE:-}"
 } >> "$log"
 
 sid=""

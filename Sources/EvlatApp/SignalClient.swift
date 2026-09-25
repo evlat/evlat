@@ -86,7 +86,10 @@ enum SignalClient {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let error = json["error"] as? [String: Any],
               let name = error["code"] as? String else { return "\(code)" }
-        return "\(code) \(name)" + ((error["message"] as? String).map { ": \($0)" } ?? "")
+        // Whatever holds the port wrote this, and it goes to a terminal:
+        // cleaned like a sender's text, so no escape sequence reaches it.
+        let line = "\(name)" + ((error["message"] as? String).map { ": \($0)" } ?? "")
+        return "\(code) " + SignalReport.clean(line, limit: SignalReport.detailLimit)
     }
 }
 

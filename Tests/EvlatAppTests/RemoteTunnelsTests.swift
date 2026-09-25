@@ -42,11 +42,13 @@ final class RemoteTunnelsTests: XCTestCase {
         }
         try """
             #!/bin/sh
+            \(FreshExecutable.warmLine)
             { echo '--- run'; for a in "$@"; do printf '%s\\n' "$a"; done; } >> '\(log.path)'
             \(tail)
 
             """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        FreshExecutable.warm(script.path)
         return (script.path, log)
     }
 

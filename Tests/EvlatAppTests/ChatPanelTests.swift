@@ -398,6 +398,7 @@ final class ChatPanelTests: XCTestCase {
         let copy = directory.appendingPathComponent("fake-claude")
         try FileManager.default.copyItem(at: source, to: copy)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copy.path)
+        FreshExecutable.warm(copy.path)
         return copy.path
     }
 

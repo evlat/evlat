@@ -32,6 +32,8 @@ public struct SignalReport: Equatable {
     public static let labelLimit = 80
     public static let detailLimit = 200
     public static let senderLimit = 24
+    /// Combining marks kept in a row (`clean`).
+    public static let markRun = 3
 
     /// The words a sender may use. `idle` is not among them: a row that says
     /// it is doing nothing has no place on the bar. No new `Phase` value is
@@ -192,17 +194,27 @@ public struct SignalReport: Equatable {
     /// its pieces (`U+200D` is `Cf`); the row stays readable.
     ///
     /// The limit counts characters as seen (`Character`, a grapheme), not
-    /// bytes and not scalars: a flag is one.
-    static func clean(_ text: String, limit: Int) -> String {
+    /// bytes and not scalars: a flag is one. So a run of combining marks
+    /// (`Mn`, `Me`) is cut to `markRun` first — hundreds on one letter are one
+    /// grapheme that passes any count and draws over the rows around it
+    /// (`012` kapı); a written script needs two or three, a keycap two.
+    public static func clean(_ text: String, limit: Int) -> String {
         var scalars = String.UnicodeScalarView()
+        var marks = 0
         for scalar in text.unicodeScalars {
             switch scalar.value {
             case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029:
+                marks = 0
                 scalars.append(" ")
             default:
                 switch scalar.properties.generalCategory {
                 case .control, .format: continue
-                default: scalars.append(scalar)
+                case .nonspacingMark, .enclosingMark:
+                    marks += 1
+                    if marks <= markRun { scalars.append(scalar) }
+                default:
+                    marks = 0
+                    scalars.append(scalar)
                 }
             }
         }

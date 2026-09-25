@@ -17,8 +17,11 @@ import EvlatCore
 /// and an Evlat that restarts has it back within one.
 enum Watch {
     /// The signals the wrapper takes over to pass on. `SIGQUIT` is here too:
-    /// its default would kill the wrapper before it could say `failed`.
-    static let forwarded: [Int32] = [SIGINT, SIGTERM, SIGHUP, SIGQUIT]
+    /// its default would kill the wrapper before it could say `failed`; so
+    /// are the ones a supervisor sends and whose default also kills
+    /// (`SIGUSR1`, `SIGUSR2`, `SIGALRM`, `012` kapı) — else the wrapper would
+    /// die, the child run on unwatched and its exit code be lost.
+    static let forwarded: [Int32] = [SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, SIGALRM]
 
     /// Signals whose default action dumps core. Raising one of those on the
     /// wrapper would file a crash report **for Evlat**; the exit code says it

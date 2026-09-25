@@ -151,6 +151,16 @@ final class SignalReportTests: XCTestCase {
                        String(repeating: "a", count: 79))
     }
 
+    /// Hundreds of combining marks on one letter are one grapheme: the count
+    /// alone would keep them all, and they would draw over the rows around.
+    func testARunOfCombiningMarksIsCut() {
+        let label = "a" + String(repeating: "\u{0301}", count: 400) + "b"
+        XCTAssertEqual(report(["id": "x", "ttl": 60, "phase": "working", "label": label])?.label,
+                       "a\u{0301}\u{0301}\u{0301}b")
+        XCTAssertEqual(SignalReport.clean("1\u{FE0F}\u{20E3} Tiếng Việt", limit: 80), "1\u{FE0F}\u{20E3} Tiếng Việt",
+                       "a keycap and a written script keep theirs")
+    }
+
     func testAnEmptyLabelFallsBackToTheID() {
         XCTAssertEqual(report(["id": "x", "ttl": 60, "phase": "working"])?.label, "x")
         XCTAssertEqual(report(["id": "x", "ttl": 60, "phase": "working", "label": " \u{202E}\n"])?.label, "x")

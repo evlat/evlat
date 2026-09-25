@@ -66,6 +66,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         MainActor.assumeIsolated { self.now() }
     })
     private var hookListener: HookListener?
+    /// The key file this process wrote, removed on quit (`012` kapı).
+    private let signalKeyWritten = SignalKey.Written()
     /// The chats (`011`) and their `claude -p` turns; `nil` until launch.
     /// Registered in `registry` as the `evlat` provider. Internal so a test
     /// hands its own store (a fake `claude`, a temporary root).
@@ -788,8 +790,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let diagnostics = HookDiagnostics()
         // The capture holds the port, so it is the one that writes the key:
         // an outside program's `/signal` is printed here like a hook.
+        let written = SignalKey.Written()
         let listener = HookListener(port: choice.port,
-                                    signalKey: signalKeyWriter(home: resolvedHome())) { delivery in
+                                    signalKey: signalKeyWriter(home: resolvedHome(), written: written)) { delivery in
             switch delivery {
             case .hook(let event):
                 // Streamed, not only summarised: under a `PostToolUse` burst a
@@ -826,6 +829,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         RunLoop.main.add(Timer(fire: deadline, interval: 0, repeats: false) { _ in }, forMode: .default)
         RunLoop.main.run(until: deadline)
         listener.stop()
+        written.remove()
         // Events cross on `DispatchQueue.main.async`, so the ones handed over
         // just before the deadline have not run yet. Without this drain they
         // are neither printed nor counted, and the totals a measurement is
@@ -910,7 +914,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // the same variable the session's callback thread is writing.
         let lock = NSLock()
         var answer: String?
-        URLSession(configuration: configuration).dataTask(with: url) { data, _, error in
+        // Invalidated when done: a session holds its delegate queue until then.
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+        session.dataTask(with: url) { data, _, error in
             let result: String
             if let error = error as? URLError, error.code == .cannotConnectToHost {
                 result = "free — nothing is listening"
@@ -1670,7 +1677,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             port: choice.port,
             // Written once bound, under this controller's home: a controller
             // built without one (every test) has no key and refuses `/signal`.
-            signalKey: Self.signalKeyWriter(home: home),
+            signalKey: Self.signalKeyWriter(home: home, written: signalKeyWritten),
             // Binding is asynchronous, so the outcome cannot be returned from
             // here. It is not swallowed either: `Evlat --list` reads the port
             // back over `/health` and says who holds it.
@@ -1808,6 +1815,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public func applicationWillTerminate(_ notification: Notification) {
         hotKey?.unregister()
         hookListener?.stop()
+        signalKeyWritten.remove()
         remote?.stopAll()
         chats?.stopAll()
         poller?.invalidate()
@@ -1862,11 +1870,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// What a local listener is given to make its `/signal` key once bound:
     /// the key file for the bound port under `home` (`SignalKey`). No home,
     /// or an isolated process, and it makes none.
+    ///
+    /// `written`, when given, keeps what was written so the process can take
+    /// it away when it ends (`SignalKey.remove`).
     nonisolated static func signalKeyWriter(
         home: URL?,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        written: SignalKey.Written? = nil
     ) -> (UInt16) -> String? {
-        { port in SignalKey.location(port: port, home: home, environment: environment).flatMap(SignalKey.write(to:)) }
+        { port in
+            guard let url = SignalKey.location(port: port, home: home, environment: environment),
+                  let key = SignalKey.write(to: url) else { return nil }
+            written?.set(url, key)
+            return key
+        }
     }
 
     /// One event, from the listener's callback. Internal so the coalescing has

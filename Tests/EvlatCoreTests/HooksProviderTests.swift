@@ -71,6 +71,13 @@ final class HooksProviderTests: XCTestCase {
                        "an event without a task id is the user's own session, as before")
     }
 
+    /// A local id never enters another producer's namespace (`012` kapı).
+    func testALocalIdWithAColonOpensNoRow() {
+        let provider = provider()
+        provider.handle(event("UserPromptSubmit", session: "signal:build"))
+        XCTAssertTrue(provider.currentSignals().isEmpty)
+    }
+
     // MARK: - Event → phase
 
     /// v1's `SessionStore.handle` core, written out cell by cell. All eleven

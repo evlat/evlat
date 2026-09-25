@@ -40,7 +40,7 @@ public enum SignalCommand {
 
     public static let usage = """
         usage: Evlat watch [--label TEXT] [--sender TEXT] [--] COMMAND [ARG…]
-               Evlat signal ID [--label TEXT] [--progress 0…1] [--detail TEXT]
+               Evlat signal [--] ID [--label TEXT] [--progress 0…1] [--detail TEXT]
                                [--sender TEXT] [--ttl SECONDS]
                                [--waiting | --done | --failed | --clear]
 
@@ -199,6 +199,9 @@ public enum SignalCommand {
         var detail: String?
         var sender: String?
         var index = 0
+        // After `--` every word is an id: an id may start with `-`, as the
+        // route allows (`012` kapı).
+        var flagsEnded = false
         func value(_ flag: String) -> Result<String, UsageError> {
             guard index + 1 < arguments.count else { return .failure(UsageError(message: "\(flag) needs a value")) }
             index += 1
@@ -206,7 +209,9 @@ public enum SignalCommand {
         }
         while index < arguments.count {
             let argument = arguments[index]
-            switch argument {
+            switch flagsEnded ? "" : argument {
+            case "--":
+                flagsEnded = true
             case "-h", "--help":
                 return .success(.help)
             case "--waiting", "--done", "--failed", "--clear":
@@ -246,7 +251,9 @@ public enum SignalCommand {
                     ttl = seconds
                 }
             default:
-                if argument.hasPrefix("-") { return .failure(UsageError(message: "unknown flag \(argument)")) }
+                if !flagsEnded, argument.hasPrefix("-") {
+                    return .failure(UsageError(message: "unknown flag \(argument) (use -- before an id that starts with -)"))
+                }
                 guard id == nil else { return .failure(UsageError(message: "one id only (got \(id!) and \(argument))")) }
                 guard SignalReport.isValid(id: argument) else {
                     return .failure(UsageError(message: "id must match [A-Za-z0-9._-]{1,64}"))

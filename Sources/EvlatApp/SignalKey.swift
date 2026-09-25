@@ -63,6 +63,33 @@ enum SignalKey {
         }
     }
 
+    /// The file a listener wrote, set on its queue and read when the
+    /// process ends.
+    final class Written: @unchecked Sendable {
+        private let lock = NSLock()
+        private var file: (url: URL, key: String)?
+
+        func set(_ url: URL, _ key: String) { lock.withLock { file = (url, key) } }
+
+        /// `SignalKey.remove` for what was written, once.
+        func remove() {
+            guard let file = lock.withLock({ () -> (url: URL, key: String)? in
+                defer { self.file = nil }
+                return self.file
+            }) else { return }
+            SignalKey.remove(file.key, at: file.url)
+        }
+    }
+
+    /// Removes the key file on quit, if it still holds `key`: a program that
+    /// posts afterwards finds no key and stays silent rather than handing the
+    /// key and its command line to whatever takes the port next (`012` kapı).
+    /// A crash leaves the file; the next launch replaces it.
+    static func remove(_ key: String, at url: URL) {
+        guard read(from: url) == key else { return }
+        unlink(url.path)
+    }
+
     /// The key a running Evlat wrote, or `nil` when there is no readable file.
     /// Surrounding whitespace is dropped, so a file edited by hand still reads.
     static func read(from url: URL) -> String? {
@@ -82,6 +109,9 @@ enum SignalKey {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        // An existing directory keeps its mode otherwise — the chats' store
+        // makes it first at `0755` (`012` kapı). Stated, like the file's.
+        if chmod(directory.path, 0o700) != 0 { throw WriteError(step: "chmod directory", code: errno) }
         // Unique, so a temporary left by a crash never blocks `O_EXCL`.
         let temporary = directory.appendingPathComponent(
             ".\(url.lastPathComponent).\(getpid())-\(UInt32.random(in: .min ... .max))")

@@ -64,6 +64,38 @@ final class SignalKeyTests: XCTestCase {
         XCTAssertEqual(names, ["signal-48999.token"])
     }
 
+    /// The chats' store makes the directory first, at `0755`; the key's
+    /// writer states `0700` on it anyway.
+    func testAnExistingDirectoryIsMadeOwnerOnly() throws {
+        let directory = location.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o755])
+        XCTAssertNotNil(SignalKey.write(to: location))
+        XCTAssertEqual(try mode(directory), 0o700)
+    }
+
+    /// Quitting takes the key away — only its own: a key another launch wrote
+    /// since stays.
+    func testQuittingRemovesItsOwnKeyOnly() throws {
+        let written = SignalKey.Written()
+        let writer = AppController.signalKeyWriter(home: home, environment: [:], written: written)
+        XCTAssertNotNil(writer(48999))
+        written.remove()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
+
+        let other = SignalKey.Written()
+        XCTAssertNotNil(AppController.signalKeyWriter(home: home, environment: [:], written: other)(48999))
+        let newer = try XCTUnwrap(SignalKey.write(to: location))
+        other.remove()
+        XCTAssertEqual(SignalKey.read(from: location), newer)
+    }
+
+    /// Whatever holds the port wrote the refusal; it goes to a terminal.
+    func testARefusalIsCleanedBeforeItIsPrinted() {
+        let body = #"{"error":{"code":"x","message":"\u001b]0;owned\u0007\u001b[2Jhi"}}"#
+        XCTAssertEqual(SignalClient.refusal(code: 400, body: body), "400 x: ]0;owned[2Jhi")
+    }
+
     func testEveryLaunchWritesANewKey() throws {
         let first = try XCTUnwrap(SignalKey.write(to: location))
         let second = try XCTUnwrap(SignalKey.write(to: location))

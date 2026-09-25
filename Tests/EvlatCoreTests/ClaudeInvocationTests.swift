@@ -20,6 +20,17 @@ final class ClaudeInvocationTests: XCTestCase {
 
     /// Every turn names the chat's mode, a resumed one too: none of the
     /// modes that skip or deny every check can be named.
+    func testAParentSessionsMarkersAreNotInherited() {
+        let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: false,
+                                         prompt: "hi", attachments: [], directory: "/tmp/p")
+        let inherited = ["CLAUDECODE": "1", "CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_CODE_SESSION_ID": "x",
+                         "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/s", "CLAUDE_PID": "1",
+                         "CLAUDE_CODE_USE_BEDROCK": "1", "PATH": "/bin", "EVLAT_TASK": "old"]
+        XCTAssertEqual(call.environment(inheriting: inherited),
+                       ["CLAUDE_CODE_USE_BEDROCK": "1", "PATH": "/bin", "EVLAT_TASK": "C1"],
+                       "a turn started from inside Claude Code is not its child; user settings pass")
+    }
+
     func testEveryTurnNamesItsMode() {
         XCTAssertEqual(PermissionMode.standard, .auto)
         XCTAssertEqual(PermissionMode.allCases.map(\.rawValue), ["default", "auto", "acceptEdits"],
