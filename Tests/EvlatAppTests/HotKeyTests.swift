@@ -261,8 +261,7 @@ final class HotKeyTests: XCTestCase {
     }
 
     func testEveryRecorderTextIsInBothTables() {
-        let keys = SystemHotKeys.nameKeys + ["hotkey.recorder.prompt", "hotkey.recorder.current",
-                                             "hotkey.recorder.hint", "hotkey.recorder.needsModifier",
+        let keys = SystemHotKeys.nameKeys + ["hotkey.recorder.hint", "hotkey.recorder.needsModifier",
                                              "hotkey.recorder.appShortcut",
                                              "hotkey.recorder.system"]
         for lang in ["en", "tr"] {
@@ -273,7 +272,7 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(Set((0...200).map(SystemHotKeys.nameKey)), Set(SystemHotKeys.nameKeys))
     }
 
-    // MARK: - The recorder
+    // MARK: - The recorder (Settings → Chat's row, `014/phase-2`)
 
     private func key(_ code: Int, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
@@ -281,113 +280,116 @@ final class HotKeyTests: XCTestCase {
                                        isARepeat: false, keyCode: UInt16(code)))
     }
 
-    private func recording(_ fake: FakeHotKey) throws -> (AppController, HotKeyRecorder) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+    /// The rules, apart from any window.
+    func testTheClassifierRefusesWhatCannotBeAShortcut() {
+        let system = SystemHotKeys(entries: Self.system)
+        func verdict(_ code: Int, _ flags: NSEvent.ModifierFlags) -> HotKeyVerdict {
+            HotKeyVerdict.classify(keyCode: UInt16(code), modifiers: flags, system: system)
+        }
+        XCTAssertEqual(verdict(kVK_Escape, []), .cancel)
+        XCTAssertEqual(verdict(kVK_Escape, [.command]), .cancel)
+        XCTAssertEqual(verdict(kVK_ANSI_K, []), .needsModifier)
+        XCTAssertEqual(verdict(kVK_ANSI_K, [.shift]), .needsModifier, "⇧ alone types capitals")
+        XCTAssertEqual(verdict(kVK_ANSI_V, [.command]),
+                       .appShortcut(HotKeyCombination(keyCode: UInt16(kVK_ANSI_V), modifiers: [.command])))
+        XCTAssertEqual(verdict(kVK_ANSI_Z, [.command, .shift]),
+                       .appShortcut(HotKeyCombination(keyCode: UInt16(kVK_ANSI_Z), modifiers: [.command, .shift])))
+        let optionControlSpace = HotKeyCombination(keyCode: UInt16(kVK_Space), modifiers: [.control, .option])
+        XCTAssertEqual(verdict(kVK_Space, [.control, .option]), .system(optionControlSpace, id: 61))
+        XCTAssertEqual(verdict(kVK_F5, [.control, .option, .function]),
+                       .accept(HotKeyCombination(keyCode: UInt16(kVK_F5), modifiers: [.control, .option])))
+        XCTAssertEqual(verdict(kVK_Space, [.command, .shift]), .accept(.standard))
+    }
+
+    private func recording(_ fake: FakeHotKey) throws -> AppController {
         let controller = controller(fake)
+        controller.settingsActivation = { }
         controller.systemHotKeys = { SystemHotKeys(entries: Self.system) }
         controller.recordHotKey(nil)
-        return (controller, try XCTUnwrap(controller.hotKeyRecorder))
+        return controller
     }
 
-    /// Change…: the recorder takes the keyboard without bringing Evlat
-    /// forward, and the current shortcut is let go while it listens.
-    func testChangeOpensTheRecorderWithTheKeyboardAndLetsTheShortcutGo() throws {
-        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    /// Change… opens Settings at Chat, recording; the shortcut is let go
+    /// while it listens, and comes back when it ends.
+    func testChangeOpensTheSettingsAtChatRecordingAndLetsTheShortcutGo() throws {
         let fake = FakeHotKey()
-        let (controller, recorder) = try recording(fake)
+        let controller = try recording(fake)
         defer {
-            recorder.cancel()
+            controller.settingsWindow?.close()
             controller.panel?.close()
         }
-        XCTAssertTrue(recorder.isRecording)
-        XCTAssertTrue(recorder.panel.isKeyWindow)
-        XCTAssertTrue(recorder.panel.styleMask.contains(.nonactivatingPanel))
-        XCTAssertFalse(try XCTUnwrap(controller.panel).isKeyWindow, "the bar is never key")
+        XCTAssertEqual(controller.settings?.section, .chat)
+        XCTAssertTrue(try XCTUnwrap(controller.settingsWindow).isVisible)
+        XCTAssertTrue(controller.hotKeyRecorder.isRecording)
         XCTAssertNil(fake.registered, "a registered key would never reach the recorder")
-        XCTAssertEqual(recorder.model.current, "⇧⌘Space")
-        // `NSApp.isActive` reads `true` while a nonactivating panel is key
-        // (ChatPanelTests): the system's view is what counts.
-        XCTAssertFalse(NSRunningApplication.current.isActive)
-        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, front)
+        controller.hotKeyRecorder.cancel()
+        XCTAssertEqual(fake.registered, .standard, "a cancel registers the kept one again")
+        XCTAssertFalse(try XCTUnwrap(controller.panel).isKeyWindow, "the bar is never key")
     }
 
-    /// ⌃⌥Space is macOS's (input sources): refused with the reason, and the
-    /// recorder waits; a key without ⌃⌥⌘ is not a shortcut; the next good
-    /// one is stored, registered and named by the menu.
+    /// The keys arrive through the settings window: a refusal keeps it
+    /// recording, a good one is stored, registered and named by the menu.
     func testASystemShortcutIsRefusedAndAnotherIsStored() throws {
         let fake = FakeHotKey()
-        let (controller, recorder) = try recording(fake)
+        let controller = try recording(fake)
         defer {
-            recorder.cancel()
+            controller.settingsWindow?.close()
             controller.panel?.close()
         }
-        let optionControlSpace = HotKeyCombination(keyCode: UInt16(kVK_Space), modifiers: [.control, .option])
-        XCTAssertTrue(recorder.handle(try key(kVK_Space, [.control, .option])))
-        XCTAssertEqual(recorder.model.line, .system(optionControlSpace, id: 61))
+        let window = try XCTUnwrap(controller.settingsWindow?.window)
+        window.sendEvent(try key(kVK_Space, [.control, .option]))
+        let recorder = controller.hotKeyRecorder
         XCTAssertTrue(recorder.isRecording, "refused, not stored")
-        XCTAssertNil(defaults.object(forKey: AppController.hotKeyCombinationKey))
-        XCTAssertEqual(L10n.t("hotkey.recorder.system",
-                              ["shortcut": optionControlSpace.title,
-                               "use": L10n.t(SystemHotKeys.nameKey(61), in: "en")], in: "en"),
+        XCTAssertEqual(recorder.text(in: "en")?.0,
                        "macOS uses ⌃⌥Space for switching input sources. Press another · Esc cancels")
-
-        XCTAssertTrue(recorder.handle(try key(kVK_ANSI_K, [.shift])))
-        XCTAssertEqual(recorder.model.line, .needsModifier)
-        XCTAssertTrue(recorder.isRecording)
-
-        // ⌘V and ⇧⌘Z are every app's: a global hot key would take them.
-        let appShortcuts: [(Int, NSEvent.ModifierFlags)] = [(kVK_ANSI_V, [.command]), (kVK_ANSI_Z, [.command, .shift])]
-        for (code, flags) in appShortcuts {
-            XCTAssertTrue(recorder.handle(try key(code, flags)))
-            XCTAssertEqual(recorder.model.line,
-                           .appShortcut(HotKeyCombination(keyCode: UInt16(code), modifiers: flags)))
-            XCTAssertTrue(recorder.isRecording)
-        }
+        window.sendEvent(try key(kVK_ANSI_K, [.shift]))
+        XCTAssertEqual(recorder.line, .needsModifier)
         XCTAssertNil(defaults.object(forKey: AppController.hotKeyCombinationKey))
 
         let chosen = HotKeyCombination(keyCode: UInt16(kVK_F5), modifiers: [.control, .option])
-        XCTAssertTrue(recorder.handle(try key(kVK_F5, [.control, .option, .function])))
+        window.sendEvent(try key(kVK_F5, [.control, .option, .function]))
         XCTAssertFalse(recorder.isRecording)
         XCTAssertEqual(AppController.storedHotKey(defaults), chosen)
         XCTAssertEqual(fake.registered, chosen)
         XCTAssertEqual(try entry(controller.makeMenu(diagnostics: false, in: "en")).title, "Shortcut: ⌃⌥F5")
     }
 
-    /// Esc (or a click elsewhere) leaves everything as it was and puts the
-    /// old shortcut back; a recorded one turns an off shortcut on.
-    func testEscPutsTheOldShortcutBackAndARecordingTurnsItOn() throws {
+    /// Esc while recording cancels the recording, not the window; losing
+    /// the keyboard cancels too; a recorded one turns an off shortcut on.
+    func testEscCancelsTheRecordingAndKeepsTheWindow() throws {
         let fake = FakeHotKey()
         defaults.set(false, forKey: AppController.hotKeyKey)
-        let (controller, recorder) = try recording(fake)
-        defer { controller.panel?.close() }
-        XCTAssertTrue(recorder.handle(try key(kVK_Escape)))
-        XCTAssertFalse(recorder.isRecording)
+        let controller = try recording(fake)
+        defer {
+            controller.settingsWindow?.close()
+            controller.panel?.close()
+        }
+        let window = try XCTUnwrap(controller.settingsWindow?.window)
+        window.sendEvent(try key(kVK_Escape))
+        XCTAssertFalse(controller.hotKeyRecorder.isRecording)
+        XCTAssertTrue(window.isVisible, "Esc was the recorder's")
         XCTAssertNil(fake.registered, "off stays off")
-        XCTAssertNil(defaults.object(forKey: AppController.hotKeyCombinationKey))
 
         controller.recordHotKey(nil)
-        recorder.panel.resignKey()
-        XCTAssertFalse(recorder.isRecording, "losing the keyboard cancels")
+        window.resignKey()
+        XCTAssertFalse(controller.hotKeyRecorder.isRecording, "losing the keyboard cancels")
 
         controller.recordHotKey(nil)
-        XCTAssertTrue(recorder.handle(try key(kVK_ANSI_J, [.command, .option])))
+        window.sendEvent(try key(kVK_ANSI_J, [.command, .option]))
         XCTAssertEqual(defaults.object(forKey: AppController.hotKeyKey) as? Bool, true)
         XCTAssertEqual(fake.registered, HotKeyCombination(keyCode: UInt16(kVK_ANSI_J), modifiers: [.command, .option]))
 
-        controller.recordHotKey(nil)
-        XCTAssertNil(fake.registered)
-        recorder.cancel()
-        XCTAssertEqual(fake.registered, HotKeyCombination(keyCode: UInt16(kVK_ANSI_J), modifiers: [.command, .option]),
-                       "a cancel registers the kept one again")
+        window.sendEvent(try key(kVK_Escape))
+        XCTAssertFalse(window.isVisible, "not recording: Esc closes")
     }
 
-    /// The recorder opens where the balloon does and closes the balloon:
-    /// one window has the keyboard.
+    /// Change… closes the balloon: one window has the keyboard.
     func testTheRecorderClosesTheBalloon() throws {
         let fake = FakeHotKey()
         let controller = controller(fake)
+        controller.settingsActivation = { }
         defer {
-            controller.hotKeyRecorder?.cancel()
+            controller.settingsWindow?.close()
             controller.chatPanel?.close()
             controller.panel?.close()
         }
@@ -396,6 +398,35 @@ final class HotKeyTests: XCTestCase {
         XCTAssertTrue(controller.isChatOpen)
         controller.recordHotKey(nil)
         XCTAssertFalse(controller.isChatOpen)
-        XCTAssertTrue(try XCTUnwrap(controller.hotKeyRecorder).panel.isKeyWindow)
+        XCTAssertTrue(controller.hotKeyRecorder.isRecording)
+    }
+}
+
+extension HotKeyTests {
+    /// Leaving Chat stops the recording; a recorded shortcut's refusal
+    /// shows at once, without reopening the window.
+    func testLeavingChatStopsTheRecordingAndARefusalShowsAtOnce() throws {
+        let fake = FakeHotKey()
+        let controller = controller(fake)
+        controller.settingsActivation = { }
+        controller.systemHotKeys = { SystemHotKeys(entries: [:]) }
+        defer {
+            controller.settingsWindow?.close()
+            controller.panel?.close()
+        }
+        controller.recordHotKey(nil)
+        controller.settings?.section = .remote
+        XCTAssertFalse(controller.hotKeyRecorder.isRecording)
+        XCTAssertEqual(fake.registered, .standard)
+
+        controller.settings?.section = .chat
+        controller.recordHotKey(nil)
+        fake.status = OSStatus(eventHotKeyExistsErr)
+        let window = try XCTUnwrap(controller.settingsWindow?.window)
+        window.sendEvent(try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .option], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_J))))
+        XCTAssertEqual(controller.settings?.dots, [.chat], "the refusal is a dot while the window is open")
     }
 }

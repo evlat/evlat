@@ -71,18 +71,12 @@ final class RemoteMachinesModel: ObservableObject {
             case .removeHooks, .removeUsage: return .remove
             }
         }
-
-        var titleKey: String {
-            switch self {
-            case .installHooks: return "remote.auto.hooks.install"
-            case .removeHooks: return "remote.auto.hooks.remove"
-            case .installUsage: return "remote.auto.usage.install"
-            case .removeUsage: return "remote.auto.usage.remove"
-            }
-        }
     }
 
-    enum SetupMode: Hashable { case automatic, manual }
+    /// The three rows under an open machine (`014`, R7).
+    enum Item: String, CaseIterable {
+        case hooks, usage, command
+    }
 
     /// A machine's settings files and command as last read over `ssh`
     /// (`RemoteInstaller.read`). None until the row is opened or checked.
@@ -137,7 +131,11 @@ final class RemoteMachinesModel: ObservableObject {
     @Published private(set) var busy: Set<String> = []
     @Published private(set) var outcomes: [String: Outcome] = [:]
     @Published private(set) var confirmingRemoval: String?
-    @Published var mode: SetupMode = .automatic
+    /// The machine whose rows are open under it; one at a time, none at
+    /// first (the settings section's rows open on a click).
+    @Published private(set) var expanded: String?
+    /// The row a running job writes, by machine: its spinner.
+    @Published private(set) var working: [String: Item] = [:]
     /// The block whose button says "Copied", for a moment.
     @Published private(set) var copied: String?
     @Published private(set) var readings: [String: Reading] = [:]
@@ -185,6 +183,7 @@ final class RemoteMachinesModel: ObservableObject {
         if let pending = confirmingRemoval, !fresh.contains(where: { $0.id == pending }) {
             confirmingRemoval = nil
         }
+        if let expanded, !fresh.contains(where: { $0.id == expanded }) { self.expanded = nil }
         let gone = readings.keys.filter { id in !fresh.contains { $0.id == id } }
         for id in gone { readings[id] = nil }
     }
@@ -231,6 +230,41 @@ final class RemoteMachinesModel: ObservableObject {
         confirmingRemoval = selection
     }
 
+    /// A machine row's own "Remove…".
+    func askToRemove(_ id: String) {
+        selection = id
+        confirmingRemoval = id
+    }
+
+    // MARK: - Opening a machine
+
+    /// A click on a machine's row: its rows open under it and the machine
+    /// is read once (`open`); a second click closes them. The jobs act on
+    /// the open one.
+    func toggle(_ id: String) {
+        guard rows.contains(where: { $0.id == id }) else { return }
+        if expanded == id {
+            expanded = nil
+            return
+        }
+        expanded = id
+        selection = id
+        if confirmingRemoval != id { confirmingRemoval = nil }
+        open(id)
+    }
+
+    /// A row's button: `action` on `item` of machine `id`, under its lock.
+    func perform(_ item: Item, _ action: RemoteSettings.Action, on id: String) {
+        guard rows.contains(where: { $0.id == id }), canRun(id) else { return }
+        selection = id
+        switch item {
+        case .hooks: run(action == .install ? .installHooks : .removeHooks)
+        case .usage: run(action == .install ? .installUsage : .removeUsage)
+        case .command: runCommand(action)
+        }
+        if busy.contains(id) { working[id] = item }
+    }
+
     func cancelRemoval() {
         confirmingRemoval = nil
     }
@@ -241,6 +275,7 @@ final class RemoteMachinesModel: ObservableObject {
         host.remove(id)
         outcomes[id] = nil
         readings[id] = nil
+        if expanded == id { expanded = nil }
         reload()
     }
 
@@ -259,9 +294,9 @@ final class RemoteMachinesModel: ObservableObject {
             [weak self] results in
             guard let self else { return }
             self.busy.remove(id)
+            self.working[id] = nil
             self.outcomes[id] = Self.outcome(results, job.action, in: self.lang)
-            // What was read is stale now; a block made from it would be refused.
-            self.readings[id] = nil
+            self.reread(id)
         }
         guard started else { return }
         busy.insert(id)
@@ -308,6 +343,14 @@ final class RemoteMachinesModel: ObservableObject {
 
     /// "I ran it, check": the same read again. It writes nothing.
     func check(_ id: String) { read(id) }
+
+    /// A job finished: what was read is stale — a block made from it would
+    /// be refused — so the machine is read once more (one `ssh` call), and
+    /// its rows say what the write left instead of "unknown".
+    private func reread(_ id: String) {
+        readings[id] = nil
+        read(id)
+    }
 
     /// Under the machine's lock: while a job runs there the read is skipped,
     /// not waited for — the job's own line says what it did.
@@ -383,8 +426,9 @@ final class RemoteMachinesModel: ObservableObject {
             [weak self] result in
             guard let self else { return }
             self.busy.remove(id)
+            self.working[id] = nil
             self.outcomes[id] = Self.commandOutcome(result, action, in: self.lang)
-            self.readings[id] = nil
+            self.reread(id)
         }
         guard started else { return }
         busy.insert(id)
@@ -548,19 +592,16 @@ final class RemoteMachinesModel: ObservableObject {
     /// Every key this window asks for, besides the ones it borrows
     /// (`source.*`, `summary.sessions*`, `time.*`, the local hints).
     static var keys: [String] {
-        var keys = ["remote.window.title",
-                    "remote.empty.title", "remote.empty.body", "remote.empty.requirement",
+        var keys = ["remote.empty.title", "remote.empty.body", "remote.empty.requirement",
                     "remote.add.placeholder", "remote.add", "remote.add.duplicate",
                     "remote.environment",
                     "remote.state.stopped", "remote.state.connecting", "remote.state.connected",
                     "remote.state.connected.sessions", "remote.state.waiting", "remote.retry", "remote.retry.soon",
-                    "remote.setup", "remote.setup.automatic", "remote.setup.manual", "remote.auto.body",
-                    "remote.auto.busy", "remote.change.usage", "remote.result.part",
-                    "remote.manual.body", "remote.manual.remove", "remote.manual.surface",
+                    "remote.change.usage", "remote.result.part",
+                    "remote.manual.remove", "remote.manual.surface",
                     "remote.copy", "remote.copied",
                     "remote.remove", "remote.remove.confirm", "remote.remove.cancel", "remote.remove.do",
-                    "remote.command", "remote.command.auto.body", "remote.command.install", "remote.command.remove",
-                    "remote.command.noCurl", "remote.command.try", "remote.command.manual.body",
+                    "remote.command.noCurl", "remote.command.try",
                     "remote.command.manual.script", "remote.command.manual.key", "remote.command.manual.remove",
                     "remote.items.title", "remote.items.body",
                     "remote.item.hooks", "remote.item.usage", "remote.item.command",
@@ -568,7 +609,6 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.combined", "remote.combined.hint", "remote.combined.title", "remote.combined.body",
                     "remote.combined.whole", "remote.combined.check", "remote.combined.checkNote"]
         keys += [RemoteMachine.TargetProblem.empty, .option, .invalidCharacter].map(problemKey)
-        keys += Job.allCases.map(\.titleKey)
         keys += blocks.map(\.captionKey)
         let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable, .other]
         keys += failures.map(failureKey) + failures.map(adviceKey)

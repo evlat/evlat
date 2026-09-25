@@ -108,9 +108,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// until launch — a test hands a fake, and a controller without one
     /// registers nothing.
     var hotKey: HotKeyRegistration?
-    /// The menu's "Change…" (`HotKeyRecorder`), once opened.
-    private(set) var hotKeyRecorder: HotKeyRecorder?
-    /// The system's own shortcuts, read as the recorder opens; a test hands
+    /// The one shortcut recorder: Settings → Chat's row (`014`, Karar 7).
+    /// While it records nothing is registered (`applyHotKey`).
+    private(set) lazy var hotKeyRecorder: HotKeyRecorder = makeHotKeyRecorder()
+    /// The system's own shortcuts, read as a recording starts; a test hands
     /// its own table.
     var systemHotKeys: () -> SystemHotKeys = SystemHotKeys.current
     /// The last registration's answer while the shortcut is on; `nil` when
@@ -128,8 +129,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var remoteSignalKeys: [String: String] = [:]
     /// The `ssh` the tunnels run, which the window's installer runs too.
     private var remoteSSHPath = AppController.sshPath()
-    /// The remote machines window, once opened.
-    private(set) var remoteWindow: RemoteMachinesWindow?
+    /// The settings window (`014`, R6), once opened, and its model.
+    private(set) var settingsWindow: AppWindow?
+    private(set) var settings: SettingsModel?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
@@ -1077,6 +1079,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .entity(let entity)?: select(entity)
         case nil: break
         }
+        if let section = Self.forcedSettings() { openSettings(section: section) }
         poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) {
             [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }  // Timer callback is nonisolated
@@ -1677,7 +1680,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// current one again could not be recorded.
     func applyHotKey() {
         guard let hotKey else { return }
-        if isHotKeyOn, hotKeyRecorder?.isRecording != true {
+        if isHotKeyOn, !hotKeyRecorder.isRecording {
             let status = hotKey.register(hotKeyCombination)
             hotKeyStatus = status
             if status != noErr { NSLog("Evlat: the shortcut was not registered (%d)", status) }
@@ -1685,6 +1688,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             hotKey.unregister()
             hotKeyStatus = nil
         }
+        // A refused registration is the settings' Chat dot and line: read
+        // again whoever changed the shortcut (the menu, the recorder).
+        if settingsWindow?.isVisible == true { settings?.setup.reload() }
     }
 
     /// The shortcut's "Turn Off" / "Turn On": stored, then applied.
@@ -1703,27 +1709,26 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyHotKey()
     }
 
-    /// The shortcut's "Change…": the recorder, where the balloon would be,
-    /// with the keyboard and Evlat still in the background. The balloon
-    /// closes first — one window has the keyboard. A recorded combination
-    /// is stored and turns the shortcut on; a cancel puts the old one back.
+    /// The shortcut's "Change…": Settings → Chat, recording. Evlat comes
+    /// forward with the window (`014`, Karar 7 — the bar's own recorder
+    /// panel is gone). The balloon closes first: one window has the
+    /// keyboard. A recorded combination is stored and turns the shortcut
+    /// on; a cancel puts the old one back.
     @objc func recordHotKey(_ sender: Any?) {
-        guard let bar = panel else { return }
         if isChatOpen { closeChat() }
-        let recorder = hotKeyRecorder ?? makeHotKeyRecorder()
-        guard !recorder.isRecording else { return }
-        hotKey?.unregister()
-        hotKeyStatus = nil
-        recorder.show(current: hotKeyCombination, beside: bar, edge: bar.edge, in: L10n.language)
+        openSettings(section: .chat)
+        hotKeyRecorder.start()
     }
 
     private func makeHotKeyRecorder() -> HotKeyRecorder {
         let recorder = HotKeyRecorder(systemHotKeys: { [weak self] in self?.systemHotKeys() ?? .current() })
+        // Let go while listening: a registered key never reaches a window,
+        // so the current one could not be pressed again.
+        recorder.onStart = { [weak self] in self?.applyHotKey() }
         recorder.onFinish = { [weak self] combination in
             guard let self else { return }
             if let combination { self.storeHotKey(combination) } else { self.applyHotKey() }
         }
-        hotKeyRecorder = recorder
         return recorder
     }
 
@@ -1878,22 +1883,94 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
     }
 
+    /// The settings window's view of the rest of the app (`SettingsModel`).
+    var settingsHost: SettingsModel.Host {
+        SettingsModel.Host(
+            edge: { [weak self] in self?.barState.edge ?? .right },
+            setEdge: { [weak self] in self?.setEdge($0) },
+            isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
+            setHotKey: { [weak self] in self?.setHotKey(on: $0) },
+            hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
+            defaultMode: { [weak self] in self?.defaultMode ?? .standard },
+            setDefaultMode: { [weak self] in self?.setDefaultMode($0) },
+            locateClaude: { [weak self] completion in
+                guard let self else { return completion(nil) }
+                self.claudeLocator.locate { completion($0.executable) }
+            },
+            memoryCount: { [weak self] in
+                guard let chats = self?.chats else { return nil }
+                return chats.memoryContents()?.count ?? 0
+            },
+            showMemory: { [weak self] in
+                guard let folder = self?.chats?.memoryDirectory else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([folder])
+            },
+            clearMemory: { [weak self] in self?.chats?.clearMemory() })
+    }
+
     /// The window's focus call on open; a test holds it still so the runner
     /// is never activated.
-    var remoteWindowActivation: () -> Void = { NSApp.activate() }
+    var settingsActivation: () -> Void = { NSApp.activate() }
 
-    /// The menus' "Remote Machines…": the window, built on first use. Like
-    /// the other entries the open list closes first; unlike them, Evlat comes
-    /// forward — the user asked for a window to type into.
-    @objc func openRemoteMachines(_ sender: Any?) {
+    /// The settings window at `section`, built on first use. Like the menus'
+    /// entries the open list closes first; unlike them, Evlat comes forward —
+    /// the user asked for a window to type into.
+    func openSettings(section: SettingsModel.Section? = nil) {
         hover.closeNow()
         if barState.isOpen { closeBar() }
-        let window = remoteWindow ?? RemoteMachinesWindow(
-            model: RemoteMachinesModel(host: remoteMachinesHost,
-                                       installer: RemoteInstaller(sshPath: remoteSSHPath)),
-            activate: { [weak self] in self?.remoteWindowActivation() })
-        remoteWindow = window
+        let window = settingsWindow ?? makeSettingsWindow()
+        if let section { settings?.section = section }
         window.show()
+    }
+
+    private func makeSettingsWindow() -> AppWindow {
+        let model = SettingsModel(
+            host: settingsHost,
+            setup: SetupModel(host: setupHost),
+            remote: RemoteMachinesModel(host: remoteMachinesHost, installer: RemoteInstaller(sshPath: remoteSSHPath)),
+            recorder: hotKeyRecorder)
+        let window = AppWindow(make: {
+            let window = AppKeyWindow(contentRect: NSRect(origin: .zero, size: SettingsView.size),
+                                      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                      backing: .buffered, defer: false)
+            window.title = model.t("settings.window.title")
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.contentMinSize = SettingsView.minimumSize
+            window.contentViewController = NSHostingController(rootView: SettingsView(model: model))
+            window.setContentSize(SettingsView.size)
+            return window
+        }, activate: { [weak self] in self?.settingsActivation() })
+        window.onOpen = { model.reload() }
+        window.onCancel = { model.cancelInside() }
+        window.keyInterceptor = { [weak model] event in model?.recorder.handle(event) ?? false }
+        window.onResignKey = { [weak model] in model?.recorder.cancel() }
+        window.onClose = { [weak model] in model?.windowClosed() }
+        settings = model
+        settingsWindow = window
+        return window
+    }
+
+    /// The menus' "Settings…".
+    @objc func openSettingsFromMenu(_ sender: Any?) { openSettings() }
+
+    /// The menus' "Remote Machines…" (until `phase-4` takes it out): the
+    /// settings at their remote section.
+    @objc func openRemoteMachines(_ sender: Any?) {
+        openSettings(section: .remote)
+    }
+
+    /// `EVLAT_SETTINGS=<section>` opens the settings at launch at that
+    /// section (`general`, `sessions`, `chat`, `command`, `remote`) — for
+    /// looking at one, the same pattern as `EVLAT_SELECT`. It only reads:
+    /// nothing is pressed. An unknown value opens nothing.
+    nonisolated static func forcedSettings(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SettingsModel.Section? {
+        guard let raw = environment["EVLAT_SETTINGS"]?.trimmingCharacters(in: .whitespaces).lowercased(),
+              !raw.isEmpty else { return nil }
+        return SettingsModel.Section(rawValue: raw)
+            ?? SettingsModel.Section.allCases.first { "\($0)".lowercased() == raw }
     }
 
     /// Adds a machine by its `ssh` target, stores it and opens its tunnel.
@@ -2131,7 +2208,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
-        if let remoteWindow, remoteWindow.isVisible { remoteWindow.model.reload() }
+        if let settingsWindow, settingsWindow.isVisible { settings?.follow() }
     }
 
     /// The card follows the selected session through the same snapshot: its
@@ -2350,7 +2427,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                            "menu.hooks.error.noDirectory", "menu.hooks.error.changedUnderneath",
                            "menu.hooks.error.unwritable",
                            "menu.usage.install", "menu.usage.remove", "menu.usage.modified", "menu.usage.hint",
-                           "menu.remote", "menu.remote.failure",
+                           "menu.remote", "menu.remote.failure", "menu.settings",
                            "menu.memory", "menu.memory.show", "menu.memory.clear", "menu.memory.empty",
                            "menu.memory.confirm", "menu.memory.confirm.detail", "menu.memory.cancel",
                            "menu.memory.do"]
@@ -2428,6 +2505,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         addMemoryEntry(to: menu, in: lang)
 
         menu.addItem(.separator())
+        let settings = menu.addItem(withTitle: L10n.t("menu.settings", in: lang),
+                                    action: #selector(openSettingsFromMenu(_:)), keyEquivalent: ",")
+        settings.target = self
         let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp

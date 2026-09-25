@@ -475,7 +475,7 @@ final class RemoteReadingTests: XCTestCase {
         XCTAssertTrue(RemoteMachinesModel.keys.contains(block.captionKey))
     }
 
-    func testACheckWhileAJobRunsIsSkippedAndTheJobDropsTheReading() throws {
+    func testACheckWhileAJobRunsIsSkippedAndTheJobReadsTheMachineOnce() throws {
         let server = try self.server("/bin/sh")
         try seed(.claude, nil, in: server)
         let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
@@ -490,13 +490,14 @@ final class RemoteReadingTests: XCTestCase {
         model.open("m")
         XCTAssertNotEqual(model.readings["m"], .reading, "a machine running a job is not read, nor waited for")
         waitUntil("job") { model.outcomes["m"] != nil }
-        XCTAssertLessThanOrEqual(server.sshRuns - runs, 3, "the job's own calls only")
-        XCTAssertNil(model.readings["m"], "a write makes the reading stale: it is dropped")
-        XCTAssertEqual(model.items(for: "m").hooks, .unknown)
-
-        model.check("m")
+        XCTAssertNotNil(model.readings["m"], "a finished write reads the machine again")
         waitUntil("read again") { model.readings["m"] != .reading }
-        XCTAssertEqual(model.items(for: "m").hooks, .installed)
+        XCTAssertEqual(model.items(for: "m").hooks, .installed, "the row says what the write left, not unknown")
+        XCTAssertLessThanOrEqual(server.sshRuns - runs, 4, "the job's own calls and one read")
+
+        model.runCommand(.install)
+        waitUntil("command") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
+        XCTAssertEqual(model.items(for: "m").command, .installed, "the command's write reads it again too")
     }
 
     func testAMachineThatCannotBeReachedReadsAsUnknown() throws {

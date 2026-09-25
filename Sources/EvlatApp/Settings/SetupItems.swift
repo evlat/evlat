@@ -101,8 +101,11 @@ enum SetupAttention: Equatable {
     case machineUnreachable(String)
     case commandLinkElsewhere
 
-    /// Where the settings window shows it (`phase-2`'s sections).
-    enum Section: Equatable { case general, sessions, chat, commandLine, remote }
+    /// Where the settings window shows it: its sections, in the side
+    /// list's order. The raw value is `EVLAT_SETTINGS`'.
+    enum Section: String, CaseIterable, Equatable {
+        case general, sessions, chat, commandLine = "command", remote
+    }
 
     var section: Section {
         switch self {
@@ -252,6 +255,17 @@ final class SetupModel: ObservableObject {
         self.rows = rows
         self.attention = attention
         if let manualOpen, !rows.contains(where: { $0.item == manualOpen }) { self.manualOpen = nil }
+    }
+
+    /// The machines' part of the attention list moves with their tunnels:
+    /// read again only when it would read differently, so the settings
+    /// window's refresh reads no file while nothing changed.
+    func reloadIfMachinesChanged() {
+        let shown = attention.compactMap { attention -> String? in
+            if case .machineUnreachable(let name) = attention { return name }
+            return nil
+        }
+        if shown != host.unreachableMachines() { reload() }
     }
 
     private func row(_ item: SetupItem, _ status: SetupStatus, detail: String, note: String? = nil,
@@ -445,84 +459,71 @@ final class SetupModel: ObservableObject {
            "setup.attention.machine", "setup.attention.commandLink", "menu.usage.modified"]
 }
 
-/// One row as both windows draw it: name and file, status, the button with
-/// its consent line right above, and the "by hand" block. Holds no state of
-/// its own; the model says what is open.
+/// One row as both windows draw it (`tasarim.html`'s `.row`): name and
+/// file, status; the button inside a box that lists what it writes (R3);
+/// the "by hand" block. Holds no state of its own but "Copied"; the model
+/// says what is open.
 struct SetupRowView: View {
     let row: SetupRow
     @ObservedObject var model: SetupModel
     /// The setup writes with one press for all rows: its rows draw no
     /// button and no consent of their own.
     var showsButton = true
+    /// The detail is a path (monospace), not a sentence.
+    var monospaced = true
     @State private var copied = false
 
     private var lang: String { model.lang }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.name).font(.system(size: 13, weight: .semibold))
-                    Text(row.detail).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                Text(L10n.t(row.status.key, in: lang))
-                    .font(.system(size: 12))
-                    .foregroundStyle(row.status == .installed ? Color.green : .secondary)
+        RowBox {
+            HStack(alignment: .center, spacing: 10) {
+                RowTitle(name: row.name, detail: row.detail, monospaced: monospaced,
+                         code: row.item == .commandLink)
+                StatusText(status: row.status, text: L10n.t(row.status.key, in: lang))
             }
             .opacity(row.status == .foreign ? 0.55 : 1)
             if let note = row.note {
-                Text(note).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text(note).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
             if let failure = row.failure {
-                Text(failure).font(.system(size: 11.5)).foregroundStyle(.orange)
+                Text(failure).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if showsButton, let action = row.action, model.manualOpen != row.item {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(model.consent(row.item, action), id: \.self) { line in
-                        Text(line).font(.system(size: 11.5)).foregroundStyle(.secondary)
-                    }
-                    Button(L10n.t(action.key, in: lang)) { model.perform(row.item) }
-                        .controlSize(.small)
+                ConsentAction(lines: model.consent(row.item, action), title: L10n.t(action.key, in: lang)) {
+                    model.perform(row.item)
                 }
             }
             manualPart
         }
-        .padding(.vertical, 8)
     }
 
     @ViewBuilder private var manualPart: some View {
         if let manual = model.manual(row.item), row.status != .installed, row.status != .foreign {
             if model.manualOpen == row.item {
-                VStack(alignment: .leading, spacing: 6) {
-                    ScrollView([.vertical, .horizontal]) {
-                        Text(manual.text).font(.system(size: 10.5, design: .monospaced)).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                ManualBox(text: manual.text, footnote: manual.removal) {
+                    Button(L10n.t(copied ? "setup.manual.copied" : "setup.manual.copy", in: lang)) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(manual.text, forType: .string)
+                        copied = true
                     }
-                    .frame(maxHeight: 92)
-                    if let wrapping = manual.wrapping {
-                        Text(L10n.t("setup.manual.wrapping", in: lang)).font(.system(size: 11)).foregroundStyle(.secondary)
-                        Text(wrapping).font(.system(size: 10.5, design: .monospaced)).textSelection(.enabled)
-                            .lineLimit(3)
-                    }
-                    HStack(spacing: 6) {
-                        Button(L10n.t(copied ? "setup.manual.copied" : "setup.manual.copy", in: lang)) {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(manual.text, forType: .string)
-                            copied = true
-                        }
-                        Button(L10n.t("setup.manual.check", in: lang)) { model.check() }
-                        Button(L10n.t("setup.manual.auto", in: lang)) { model.toggleManual(row.item) }
-                    }
-                    .controlSize(.small)
-                    Text(manual.removal).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .buttonStyle(SmallButtonStyle())
+                    Button(L10n.t("setup.manual.check", in: lang)) { model.check() }
+                        .buttonStyle(SmallButtonStyle())
+                    Button(L10n.t("setup.manual.auto", in: lang)) { model.toggleManual(row.item) }
+                        .buttonStyle(LinkButtonStyle())
                 }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+                if let wrapping = manual.wrapping {
+                    ManualBox(lead: L10n.t("setup.manual.wrapping", in: lang), text: wrapping, maxHeight: 60) {
+                        EmptyView()
+                    }
+                }
             } else {
                 Button(L10n.t("setup.manual.open", in: lang)) { copied = false; model.toggleManual(row.item) }
-                    .buttonStyle(.link)
-                    .font(.system(size: 12))
+                    .buttonStyle(LinkButtonStyle())
             }
         }
     }

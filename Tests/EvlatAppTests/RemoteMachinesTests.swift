@@ -34,7 +34,7 @@ final class RemoteMachinesTests: XCTestCase {
         // Every fake started here ends here, even when an assertion failed.
         for controller in controllers {
             controller.remote?.stopAll()
-            controller.remoteWindow?.window?.close()
+            controller.settingsWindow?.close()
             controller.panel?.close()
         }
         controllers = []
@@ -549,21 +549,29 @@ final class RemoteMachinesTests: XCTestCase {
         let controller = AppController(defaults: defaults)
         controllers.append(controller)
         controller.installPanel()
-        controller.remoteWindowActivation = { }
+        controller.settingsActivation = { }
         controller.openRemoteMachines(nil)
-        let first = try XCTUnwrap(controller.remoteWindow?.window)
+        let first = try XCTUnwrap(controller.settingsWindow?.window)
         XCTAssertTrue(first.isVisible)
+        XCTAssertEqual(controller.settings?.section, .remote, "the old entry opens the settings at its section")
         controller.openRemoteMachines(nil)
-        XCTAssertTrue(controller.remoteWindow?.window === first)
+        XCTAssertTrue(controller.settingsWindow?.window === first)
     }
 
-    // MARK: - Focus
+    // MARK: - Focus (the settings window, `014/phase-2`)
+
+    private func appWindow(frontmost: @escaping () -> NSRunningApplication? = { nil },
+                           activate: @escaping () -> Void = {},
+                           restore: @escaping (NSRunningApplication) -> Void = { _ in }) -> AppWindow {
+        AppWindow(make: {
+            AppKeyWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        }, frontmost: frontmost, activate: activate, restore: restore)
+    }
 
     func testTheWindowTakesKeyAndTheBarStillDoesNot() throws {
-        let window = RemoteMachinesWindow(model: RemoteMachinesModel(
-            host: host(Recorder()), installer: RemoteInstaller(sshPath: "/nonexistent"),
-            pasteboard: pasteboard, lang: "en"))
-        let made = window.makeWindow()
+        let window = appWindow()
+        let made = window.build()
         defer { made.close() }
         XCTAssertTrue(made.canBecomeKey, "a field to type into")
         XCTAssertFalse(made.isReleasedWhenClosed, "a second open reuses it")
@@ -579,17 +587,13 @@ final class RemoteMachinesTests: XCTestCase {
         }, "some other app runs")
         var activations = 0
         var restored: [NSRunningApplication] = []
-        let window = RemoteMachinesWindow(
-            model: RemoteMachinesModel(host: host(Recorder()), installer: RemoteInstaller(sshPath: "/nonexistent"),
-                                       pasteboard: pasteboard, lang: "en"),
-            frontmost: { other },
-            activate: { activations += 1 },
-            restore: { restored.append($0) })
+        let window = appWindow(frontmost: { other }, activate: { activations += 1 },
+                               restore: { restored.append($0) })
         window.show()
         XCTAssertEqual(activations, 1, "opening is the user's act: Evlat comes forward")
         window.show()
         XCTAssertEqual(activations, 2)
-        window.window?.close()
+        window.close()
         XCTAssertEqual(restored, [other], "the app that was in front before the first open, once")
         XCTAssertFalse(window.isVisible)
     }
@@ -603,14 +607,11 @@ final class RemoteMachinesTests: XCTestCase {
         guard others.count >= 2 else { throw XCTSkip("needs two other apps running") }
         var front = others[0]
         var restored: [NSRunningApplication] = []
-        let window = RemoteMachinesWindow(
-            model: RemoteMachinesModel(host: host(Recorder()), installer: RemoteInstaller(sshPath: "/nonexistent"),
-                                       pasteboard: pasteboard, lang: "en"),
-            frontmost: { front }, activate: {}, restore: { restored.append($0) })
+        let window = appWindow(frontmost: { front }, restore: { restored.append($0) })
         window.show()
         front = others[1]
         window.show()
-        window.window?.close()
+        window.close()
         XCTAssertEqual(restored, [others[1]])
     }
 
@@ -634,18 +635,22 @@ final class RemoteMachinesTests: XCTestCase {
     }
 
     func testEscapeCancelsTheQuestionThenCloses() throws {
-        let recorder = Recorder()
-        let model = RemoteMachinesModel(host: host(recorder), installer: RemoteInstaller(sshPath: "/nonexistent"),
-                                        pasteboard: pasteboard, lang: "en")
-        model.draft = "devbox"
-        model.add()
-        let window = RemoteMachinesWindow(model: model, frontmost: { nil }, activate: {}, restore: { _ in })
-        window.show()
-        model.askToRemove()
+        let controller = AppController(defaults: defaults)
+        controllers.append(controller)
+        controller.installPanel()
+        controller.settingsActivation = { }
+        let ssh = try fakeSSH(.connect)
+        controller.startRemoteTunnels(configuration: RemoteMachine.Configuration(
+            machines: [try XCTUnwrap(RemoteMachine(id: "m1", target: "devbox"))], fromEnvironment: true, rejected: []),
+            sshPath: ssh, confirmAfter: 0.2)
+        controller.openSettings(section: .remote)
+        let window = try XCTUnwrap(controller.settingsWindow)
+        let model = try XCTUnwrap(controller.settings?.remote)
+        model.askToRemove("m1")
         window.window?.cancelOperation(nil)
         XCTAssertNil(model.confirmingRemoval, "Esc answers the question first")
         XCTAssertTrue(window.isVisible)
-        XCTAssertEqual(recorder.removed, [])
+        XCTAssertEqual(controller.remote?.machines.map(\.id), ["m1"])
         window.window?.cancelOperation(nil)
         XCTAssertFalse(window.isVisible)
     }

@@ -121,7 +121,6 @@
 "menu.memory.do" = "Clear";
 
 /* The window. With no machine it shows an invitation and the field. */
-"remote.window.title" = "Remote Machines";
 "remote.empty.title" = "No remote machines yet";
 "remote.empty.body" = "Sessions you run on a server over ssh can show up on the bar like local ones. Add the server by the name you give ssh — an alias from ~/.ssh/config such as devbox, or me@server.";
 "remote.empty.requirement" = "Needs passwordless ssh, and to have connected once from Terminal.";
@@ -162,15 +161,6 @@
 "remote.failure.other.advice" = "Run “ssh {target}” in Terminal to see why.";
 
 /* Setting the server up: two ways, always both offered. */
-"remote.setup" = "Setup on the server";
-"remote.setup.automatic" = "Automatically";
-"remote.setup.manual" = "By hand";
-"remote.auto.body" = "Evlat connects over ssh and edits the server's settings files with the same writer as this Mac's menu: it never creates a missing folder, keeps a copy of the first version, and leaves a file alone if it changed meanwhile.";
-"remote.auto.hooks.install" = "Install or update hooks";
-"remote.auto.hooks.remove" = "Remove hooks";
-"remote.auto.usage.install" = "Install the usage line";
-"remote.auto.usage.remove" = "Remove the usage line";
-"remote.auto.busy" = "Working on {name}…";
 /* The result line: one "{change}: {result}" per file, joined with " · ".
    {change} is source.* or remote.change.usage. */
 "remote.result.part" = "{change}: {result}";
@@ -189,7 +179,6 @@
 
 /* By hand: exactly what the automatic setup writes, to paste yourself.
    {placeholder} is the word to replace with your own command. */
-"remote.manual.body" = "Prefer to see every change first — on a production server, say? Paste these yourself; they are byte for byte what the automatic setup writes. Each hook only sends the event to 127.0.0.1:48151 on the server, fails silently and prints nothing; the tunnel brings it to this Mac.";
 "remote.manual.claude" = "~/.claude/settings.json — merge this “hooks” block into the file, next to any hooks you already have:";
 "remote.manual.codex" = "~/.codex/hooks.json — the same for Codex, if it is on the server:";
 "remote.manual.statusLine" = "The usage line — if settings.json has no “statusLine” yet, add this:";
@@ -200,17 +189,13 @@
 "remote.copied" = "Copied";
 
 /* Removing a machine: asked in the window first. */
-"remote.remove" = "Remove Machine…";
-"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, use Remove hooks. The evlat command on the server stays silent until it is installed again: its key goes with the machine.";
+"remote.remove" = "Remove…";
+"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, remove them in the Hooks row. The evlat command on the server stays silent until it is installed again: its key goes with the machine.";
 "remote.remove.cancel" = "Cancel";
 "remote.remove.do" = "Remove";
 
 /* The command line (013): `evlat watch …` and `evlat signal …` on the
    server, ~/.local/bin/evlat and this machine's key. */
-"remote.command" = "Command line (evlat)";
-"remote.command.auto.body" = "Puts the evlat command in ~/.local/bin and this machine's key in ~/.config/evlat (readable by you alone), over ssh. Then evlat watch npm run build on the server shows on this bar. An evlat that is not Evlat's is left alone; an up-to-date command is not written again.";
-"remote.command.install" = "Install or update the command";
-"remote.command.remove" = "Remove the command";
 "remote.command.result.installed" = "Command installed: ~/.local/bin/evlat and this machine's key.";
 "remote.command.result.current" = "The command was already up to date; the key was written again.";
 "remote.command.result.removed" = "Command removed: ~/.local/bin/evlat and the key.";
@@ -221,7 +206,6 @@
 "remote.command.result.unreachable" = "Could not reach the server; nothing was changed.";
 "remote.command.noCurl" = "curl is not on the server: evlat sends with curl, so nothing reaches the bar until it is installed.";
 "remote.command.try" = "Try it in a new session on the server: evlat --list. If the shell does not find evlat, ~/.local/bin is not on your PATH — run ~/.local/bin/evlat, or add it to PATH.";
-"remote.command.manual.body" = "The same by hand: paste each block into the server's shell (sh, bash or zsh). The first writes the command, the second this machine's key — shown hidden here, Copy takes the real one — the third takes both away.";
 "remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
 "remote.command.manual.key" = "~/.config/evlat/signal.token — this machine's key, readable by you alone:";
 "remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
@@ -299,8 +283,6 @@
 "menu.hotkey.off" = "Turn Off";
 "menu.hotkey.on" = "Turn On";
 "menu.hotkey.failure" = "Could not register the shortcut ({status})";
-"hotkey.recorder.prompt" = "Press the new shortcut";
-"hotkey.recorder.current" = "Now: {shortcut}";
 "hotkey.recorder.hint" = "Hold ⌃, ⌥ or ⌘ with a key · Esc cancels";
 "hotkey.recorder.needsModifier" = "Add ⌃, ⌥ or ⌘ to the key · Esc cancels";
 "hotkey.recorder.appShortcut" = "{shortcut} belongs to apps. With ⌘ alone use Space or an F key, or add ⌃ or ⌥";
@@ -390,3 +372,66 @@
 "setup.attention.hotKey" = "The shortcut is not registered";
 "setup.attention.machine" = "{machine}: server unreachable";
 "setup.attention.commandLink" = "The evlat command points elsewhere";
+
+/* Settings window (014/phase-2) */
+"menu.settings" = "Settings…";
+"settings.window.title" = "Evlat Settings";
+"settings.section.general" = "General";
+"settings.section.sessions" = "Sessions";
+"settings.section.chat" = "Chat";
+"settings.section.command" = "Command Line";
+"settings.section.remote" = "Remote Machines";
+"settings.attention" = "needs attention";
+"settings.general.bar" = "Bar";
+"settings.general.edge" = "Edge";
+"settings.general.edge.detail" = "Which edge of the screen the bar sits on.";
+"settings.general.edge.left" = "Left";
+"settings.general.edge.right" = "Right";
+"settings.general.start" = "Startup";
+"settings.sessions.agents" = "Agents";
+"settings.sessions.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Open Claude sessions load the change with /hooks.";
+"settings.sessions.usage" = "Usage";
+"settings.sessions.none" = "Neither Claude Code nor Codex is on this Mac. Their rows appear once one is installed.";
+"settings.chat.open" = "Opening";
+"settings.chat.hotkey" = "Shortcut";
+"settings.chat.hotkey.detail" = "A key the system uses is not accepted. Clicking the mascot always opens it.";
+"settings.chat.hotkey.change" = "Change";
+"settings.chat.hotkey.cancel" = "Cancel";
+"settings.chat.hotkey.recording" = "Press keys…";
+"settings.chat.hotkey.off" = "Off: only a click on the mascot opens the chat.";
+"settings.chat.modes" = "Permission mode for new chats";
+"settings.chat.modes.note" = "The mode button in the balloon changes that chat only.";
+"settings.chat.modes.recommended" = "recommended";
+"settings.chat.claude.found" = "claude found · {path}";
+"settings.chat.claude.missing" = "claude was not found. The modes appear once it is installed.";
+"settings.chat.claude.looking" = "Looking for claude…";
+"settings.chat.memory" = "Memory";
+"settings.chat.memory.title" = "Evlat's memory";
+"settings.chat.memory.count" = "{count} notes · workspace chats share them";
+"settings.chat.memory.one" = "1 note · workspace chats share it";
+"settings.chat.memory.empty" = "Nothing remembered yet";
+"settings.chat.memory.show" = "Show in Finder";
+"settings.chat.memory.clear" = "Clear…";
+"settings.chat.memory.confirm" = "Clear Evlat's memory?";
+"settings.chat.memory.confirm.detail" = "What Claude remembered in Evlat's chats is deleted for good. Chats in a folder of yours keep that folder's memory.";
+"settings.chat.memory.cancel" = "Cancel";
+"settings.chat.memory.do" = "Clear";
+"settings.command.title" = "evlat command";
+"settings.command.examples" = "Examples";
+"settings.command.watch" = "evlat watch npm run build";
+"settings.command.watch.detail" = "Runs the command as it is; a row on the bar while it runs, green or red when it ends.";
+"settings.command.signal" = "evlat signal render-01 --progress 0.4";
+"settings.command.signal.detail" = "You drive the row step by step from a script of your own.";
+"settings.command.note" = "Accepted from this Mac only (127.0.0.1); the key is in ~/Library/Application Support/Evlat, readable by you alone.";
+"settings.remote.machines" = "Machines";
+"settings.remote.note" = "Click a machine to see what is set up on that server.";
+"settings.remote.open" = "open";
+"settings.remote.closed" = "closed";
+"settings.remote.usage.detail" = "{file} · statusLine";
+"settings.remote.command.detail" = "{command}\nkey {key}";
+"settings.remote.retry" = "Read again";
+"settings.remote.close" = "Close";
+"settings.remote.what.command" = "the evlat command";
+"settings.remote.what.command.remove" = "the evlat command is removed";
+"settings.remote.what.key" = "this machine's key, readable by you alone";
+"settings.remote.what.key.remove" = "the key is removed";

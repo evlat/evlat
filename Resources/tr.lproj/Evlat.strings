@@ -75,7 +75,6 @@
 "menu.memory.cancel" = "Vazgeç";
 "menu.memory.do" = "Temizle";
 
-"remote.window.title" = "Uzak makineler";
 "remote.empty.title" = "Henüz uzak makine yok";
 "remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";
 "remote.empty.requirement" = "Parolasız ssh ve bir kez terminalden bağlanmış olmak gerekir.";
@@ -107,15 +106,6 @@
 "remote.failure.other" = "ssh başarısız";
 "remote.failure.other.advice" = "Nedenini görmek için terminalde “ssh {target}” çalıştır.";
 
-"remote.setup" = "Sunucuda kurulum";
-"remote.setup.automatic" = "Otomatik";
-"remote.setup.manual" = "Elle";
-"remote.auto.body" = "Evlat ssh ile bağlanır ve sunucunun ayar dosyalarını bu Mac'in menüsüyle aynı yazıcıyla düzenler: olmayan klasörü yaratmaz, ilk hâlin bir kopyasını saklar, arada değişen dosyaya dokunmaz.";
-"remote.auto.hooks.install" = "Hook'ları kur ya da güncelle";
-"remote.auto.hooks.remove" = "Hook'ları kaldır";
-"remote.auto.usage.install" = "Kullanım satırını kur";
-"remote.auto.usage.remove" = "Kullanım satırını kaldır";
-"remote.auto.busy" = "{name} üzerinde çalışılıyor…";
 "remote.result.part" = "{change}: {result}";
 "remote.change.usage" = "Kullanım satırı";
 "remote.result.installed" = "kuruldu";
@@ -129,7 +119,6 @@
 "remote.result.unwritable" = "dosya yazılamadı";
 "remote.result.unreachable" = "Sunucuya ulaşılamadı; hiçbir şey değişmedi.";
 
-"remote.manual.body" = "Her değişikliği önce görmek mi istersin — örneğin prod bir sunucuda? Bunları kendin yapıştır; otomatik kurulumun yazdığıyla bayt bayt aynılar. Her hook olayı yalnız sunucudaki 127.0.0.1:48151'e gönderir, sessizce başarısız olur ve hiçbir şey basmaz; tünel onu bu Mac'e getirir.";
 "remote.manual.claude" = "~/.claude/settings.json — bu “hooks” bloğunu dosyaya, varsa kendi hook'larının yanına ekle:";
 "remote.manual.codex" = "~/.codex/hooks.json — sunucuda Codex varsa onun için aynısı:";
 "remote.manual.statusLine" = "Kullanım satırı — settings.json'da henüz “statusLine” yoksa bunu ekle:";
@@ -139,15 +128,11 @@
 "remote.copy" = "Kopyala";
 "remote.copied" = "Kopyalandı";
 
-"remote.remove" = "Makineyi kaldır…";
-"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'ları kaldır'ı kullan. Sunucudaki evlat komutu yeniden kurulana dek sessiz kalır: anahtarı makineyle birlikte gider.";
+"remote.remove" = "Kaldır…";
+"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'lar satırından kaldır. Sunucudaki evlat komutu yeniden kurulana dek sessiz kalır: anahtarı makineyle birlikte gider.";
 "remote.remove.cancel" = "Vazgeç";
 "remote.remove.do" = "Kaldır";
 
-"remote.command" = "Komut satırı (evlat)";
-"remote.command.auto.body" = "ssh ile evlat komutunu ~/.local/bin'e, bu makinenin anahtarını ~/.config/evlat'a (yalnız senin okuyabileceğin biçimde) koyar. Sonra sunucuda evlat watch npm run build bu barda görünür. Evlat'ın olmayan bir evlat'a dokunulmaz; güncel komut yeniden yazılmaz.";
-"remote.command.install" = "Komutu kur ya da güncelle";
-"remote.command.remove" = "Komutu kaldır";
 "remote.command.result.installed" = "Komut kuruldu: ~/.local/bin/evlat ve bu makinenin anahtarı.";
 "remote.command.result.current" = "Komut zaten günceldi; anahtar yeniden yazıldı.";
 "remote.command.result.removed" = "Komut kaldırıldı: ~/.local/bin/evlat ve anahtar.";
@@ -158,7 +143,6 @@
 "remote.command.result.unreachable" = "Sunucuya ulaşılamadı; hiçbir şey değişmedi.";
 "remote.command.noCurl" = "Sunucuda curl yok: evlat curl ile gönderir, o kurulana dek bara hiçbir şey gelmez.";
 "remote.command.try" = "Sunucuda yeni bir oturumda dene: evlat --list. Kabuk evlat'ı bulamazsa ~/.local/bin PATH'inde değildir — ~/.local/bin/evlat diye çağır ya da PATH'e ekle.";
-"remote.command.manual.body" = "Aynısı elle: her bloğu sunucunun kabuğuna (sh, bash ya da zsh) yapıştır. İlki komutu, ikincisi bu makinenin anahtarını yazar — burada gizli gösterilir, Kopyala gerçeğini alır —, üçüncüsü ikisini de kaldırır.";
 "remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
 "remote.command.manual.key" = "~/.config/evlat/signal.token — bu makinenin anahtarı, yalnız senin okuyabileceğin biçimde:";
 "remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
@@ -236,8 +220,6 @@
 "menu.hotkey.off" = "Kapat";
 "menu.hotkey.on" = "Aç";
 "menu.hotkey.failure" = "Kısayol kaydedilemedi ({status})";
-"hotkey.recorder.prompt" = "Yeni kısayola bas";
-"hotkey.recorder.current" = "Şu an: {shortcut}";
 "hotkey.recorder.hint" = "Bir tuşla ⌃, ⌥ ya da ⌘ · Esc vazgeçer";
 "hotkey.recorder.needsModifier" = "Tuşa ⌃, ⌥ ya da ⌘ ekle · Esc vazgeçer";
 "hotkey.recorder.appShortcut" = "{shortcut} uygulamaların kısayolu. Yalnız ⌘ ile Space ya da bir F tuşu seç, ya da ⌃ veya ⌥ ekle";
@@ -327,3 +309,66 @@
 "setup.attention.hotKey" = "Kısayol kaydedilemedi";
 "setup.attention.machine" = "{machine}: sunucuya ulaşılamıyor";
 "setup.attention.commandLink" = "evlat komutu başka bir yere gidiyor";
+
+/* Settings window (014/phase-2) */
+"menu.settings" = "Ayarlar…";
+"settings.window.title" = "Evlat Ayarları";
+"settings.section.general" = "Genel";
+"settings.section.sessions" = "Oturumlar";
+"settings.section.chat" = "Sohbet";
+"settings.section.command" = "Komut satırı";
+"settings.section.remote" = "Uzak makineler";
+"settings.attention" = "dikkat istiyor";
+"settings.general.bar" = "Bar";
+"settings.general.edge" = "Kenar";
+"settings.general.edge.detail" = "Bar ekranın hangi kenarında dursun.";
+"settings.general.edge.left" = "Sol";
+"settings.general.edge.right" = "Sağ";
+"settings.general.start" = "Başlangıç";
+"settings.sessions.agents" = "Ajanlar";
+"settings.sessions.agents.note" = "İlk yazımdan önce dosyanın yanına .evlat.bak yedeği alınır. Açık Claude oturumlarında değişiklik /hooks ile yüklenir.";
+"settings.sessions.usage" = "Kullanım";
+"settings.sessions.none" = "Bu Mac'te Claude Code da Codex de yok. Biri kurulunca satırı burada çıkar.";
+"settings.chat.open" = "Açmak";
+"settings.chat.hotkey" = "Kısayol";
+"settings.chat.hotkey.detail" = "Sistemin kullandığı bir tuşu kabul etmez. Maskota tıklamak her zaman açar.";
+"settings.chat.hotkey.change" = "Değiştir";
+"settings.chat.hotkey.cancel" = "Vazgeç";
+"settings.chat.hotkey.recording" = "Tuşlara bas…";
+"settings.chat.hotkey.off" = "Kapalı: sohbeti yalnız maskota tıklamak açar.";
+"settings.chat.modes" = "Yeni sohbetlerin izin kipi";
+"settings.chat.modes.note" = "Balondaki kip düğmesi yalnız o sohbeti değiştirir.";
+"settings.chat.modes.recommended" = "önerilen";
+"settings.chat.claude.found" = "claude bulundu · {path}";
+"settings.chat.claude.missing" = "claude bulunamadı. Kipler claude kurulunca açılır.";
+"settings.chat.claude.looking" = "claude aranıyor…";
+"settings.chat.memory" = "Hafıza";
+"settings.chat.memory.title" = "Evlat'ın hafızası";
+"settings.chat.memory.count" = "{count} not · çalışma alanı sohbetleri paylaşır";
+"settings.chat.memory.one" = "1 not · çalışma alanı sohbetleri paylaşır";
+"settings.chat.memory.empty" = "Henüz hatırlanan bir şey yok";
+"settings.chat.memory.show" = "Finder'da göster";
+"settings.chat.memory.clear" = "Temizle…";
+"settings.chat.memory.confirm" = "Evlat'ın hafızası temizlensin mi?";
+"settings.chat.memory.confirm.detail" = "Claude'un Evlat sohbetlerinde hatırladıkları kalıcı olarak silinir. Kendi klasöründeki sohbetler o klasörün hafızasını korur.";
+"settings.chat.memory.cancel" = "Vazgeç";
+"settings.chat.memory.do" = "Temizle";
+"settings.command.title" = "evlat komutu";
+"settings.command.examples" = "Örnekler";
+"settings.command.watch" = "evlat watch npm run build";
+"settings.command.watch.detail" = "Komutu olduğu gibi çalıştırır; sürerken barda satır, bitince yeşil ya da kırmızı.";
+"settings.command.signal" = "evlat signal render-01 --progress 0.4";
+"settings.command.signal.detail" = "Satırı kendi betiğinden adım adım sen sürersin.";
+"settings.command.note" = "Yalnız bu Mac'ten (127.0.0.1) kabul edilir; anahtar ~/Library/Application Support/Evlat içinde, yalnız sana açık.";
+"settings.remote.machines" = "Makineler";
+"settings.remote.note" = "Bir makineye tıkla: o sunucuya neyin kurulu olduğu açılır.";
+"settings.remote.open" = "açık";
+"settings.remote.closed" = "kapalı";
+"settings.remote.usage.detail" = "{file} · statusLine";
+"settings.remote.command.detail" = "{command}\nanahtar {key}";
+"settings.remote.retry" = "Yeniden oku";
+"settings.remote.close" = "Kapat";
+"settings.remote.what.command" = "evlat komutu";
+"settings.remote.what.command.remove" = "evlat komutu kaldırılır";
+"settings.remote.what.key" = "bu makinenin anahtarı, yalnız sana açık";
+"settings.remote.what.key.remove" = "anahtar kaldırılır";
