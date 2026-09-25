@@ -170,10 +170,18 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   `argv`'yi `LaunchMode.of` sınıflar (`LaunchModeTests`): uygulama yalnız
   argümansız ya da sistemin eklediğiyle (`-psn_…`, `-NS…`/`-Apple…` çifti)
   açılır; `--help`/`-h`/`help` yardım + `0`, bilinmeyen her kelime kullanım +
-  `2`. Yeni bir alt komut `LaunchMode`'a eklenmeden uygulamaya düşer diye
+  `2`; argümansız `evlat` (komut bağlantısının adı, `014`) de kullanım + `2`
+  döner, uygulamayı paketin `Evlat`'ı ve `open` açar. Yeni bir alt komut `LaunchMode`'a eklenmeden uygulamaya düşer diye
   sanılmasın — düşmez, `2` döner. İkiliyi elle koşturmak yine ölçüm ortamıyla
   (`EVLAT_HOME` geçici, `EVLAT_PORT`, `EVLAT_MACHINES`, sahte `EVLAT_SSH`)
   yapılır: sınıflandırmanın bir hatası kullanıcının sunucularına gider.
+- **AppKit menü kısayolunu açılışta klavyeye göre yeniden yazar.** Türkçe Q'da
+  `keyEquivalent: ","` menü açıkken `"ö"` oldu (ABD virgülünün fiziksel
+  tuşu) ve menü *Ayarlar… ⌘Ö* gösterdi; oysa Türkçe Q'nun kendi `,` tuşu var
+  (`014` kapı, açık menü ekran görüntüsüyle ölçüldü). Yazıldığı anda
+  `keyEquivalent` hâlâ `","` okur — sınama bunu görmez, bayrağı tutar
+  (`allowsAutomaticKeyEquivalentLocalization = false`,
+  `MenuTests.testSettingsIsCommandCommaOnEveryKeyboard`).
 - **`ScrollView`'un içinden dışarı gönderilen preference bir kez, boş
   gelir.** Kurulum penceresinin kayan kenarı (`SetupView`) içeriğin konumunu
   preference ile dışarı taşıdı: değer bir kez boş geldi, kaydırınca bir daha

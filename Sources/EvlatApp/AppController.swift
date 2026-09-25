@@ -2555,6 +2555,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let settings = menu.addItem(withTitle: L10n.t("menu.settings", in: lang),
                                     action: #selector(openSettingsFromMenu(_:)), keyEquivalent: ",")
         settings.target = self
+        // AppKit otherwise moves ⌘, to the US comma's physical key while the
+        // menu is open: on Turkish Q that key types "ö", and the menu showed
+        // and matched ⌘Ö (measured). Turkish Q has its own "," key.
+        settings.allowsAutomaticKeyEquivalentLocalization = false
         let setup = menu.addItem(withTitle: L10n.t("menu.setup", in: lang),
                                  action: #selector(openSetupFromMenu(_:)), keyEquivalent: "")
         setup.target = self

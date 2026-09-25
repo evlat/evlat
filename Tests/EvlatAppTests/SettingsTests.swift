@@ -31,18 +31,25 @@ final class SettingsTests: XCTestCase {
         var unreachable: [String] = []
         var hotKeyRefused = false
         var mode = PermissionMode.auto
+        /// Only for the command link's row: a temporary home and a binary.
+        var home: URL?
+        var binary: URL?
+        var loginPath: String?
+        /// Runs in the `claude` lookup, before its answer.
+        var onLookup: () -> Void = {}
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
         let host = SettingsModel.Host(
             edge: { .right }, setEdge: { _ in }, isHotKeyOn: { true }, setHotKey: { _ in },
             hotKey: { .standard }, defaultMode: { recorder.mode }, setDefaultMode: { recorder.mode = $0 },
-            locateClaude: { $0(recorder.claude) },
+            locateClaude: { recorder.onLookup(); $0(recorder.claude) },
             memoryCount: { recorder.memory },
             showMemory: {},
             clearMemory: { recorder.cleared += 1; recorder.memory = 0 })
         let setup = SetupModel(host: SetupModel.Host(
-            home: { nil }, binary: { nil }, loginStatus: { nil }, loginPath: { nil },
+            home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
+            loginPath: { recorder.loginPath },
             hotKeyRefused: { recorder.hotKeyRefused }, unreachableMachines: { recorder.unreachable },
             setHooks: { _, _ in }, setUsageRelay: { _ in }, setCommandLink: { _, _ in }, setLoginItem: { _ in },
             hookFailure: { _ in nil }, usageFailure: { nil }, commandLinkFailure: { nil },
@@ -70,6 +77,23 @@ final class SettingsTests: XCTestCase {
         recorder.hotKeyRefused = false
         model.follow()
         XCTAssertEqual(model.dots, [])
+    }
+
+    /// The login shell's `PATH` arrives with the `claude` lookup, after the
+    /// first reading: the note is read again when it does.
+    func testThePathNoteAppearsOnceTheLookupReadsThePath() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("evlat.tests.settings.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let recorder = Recorder()
+        recorder.home = home
+        recorder.binary = home.appendingPathComponent("Evlat")
+        recorder.onLookup = { recorder.loginPath = "/usr/bin:/bin" }
+        let model = model(recorder)
+        model.reload()
+        XCTAssertEqual(model.setup.row(.commandLink)?.note,
+                       "~/.local/bin is not on your shell's PATH: add it to type evlat alone.")
     }
 
     func testTheModesAreOfferedOnlyWithAClaude() {

@@ -77,6 +77,10 @@ final class SettingsModel: ObservableObject {
         confirmingClear = false
         host.locateClaude { [weak self] path in
             self?.claude = path.map(Claude.found) ?? .missing
+            // The lookup reads the login shell's `PATH`, which the command
+            // link's "not on your PATH" note is made from: read above, the
+            // first opening had none yet.
+            self?.setup.reload()
         }
     }
 

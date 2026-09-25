@@ -107,6 +107,22 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.queueConsent, [], "nothing left to write")
     }
 
+    /// Waiting for approval in System Settings is registered: the switch
+    /// stays live and takes it back.
+    func testALoginItemWaitingForApprovalCanBeTurnedOff() throws {
+        login = LoginItem.inMemory(.needsApproval)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        XCTAssertEqual(model.row(.loginItem)?.status, .installed)
+        XCTAssertEqual(model.row(.loginItem)?.action, .remove)
+        XCTAssertEqual(model.row(.loginItem)?.note,
+                       "Waiting for your approval in System Settings → General → Login Items.")
+        model.perform(.loginItem)
+        XCTAssertEqual(login.status(), .off)
+        XCTAssertEqual(model.row(.loginItem)?.status, .missing)
+    }
+
     func testWithoutAHomeNothingIsWritten() throws {
         var calls: [String] = []
         let controller = try controller(home: nil)

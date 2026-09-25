@@ -125,7 +125,14 @@ final class CommandLinkTests: XCTestCase {
             XCTAssertEqual(process.terminationStatus, 0, line)
         }
         let line = CommandLink.manualLine(binary: binary)
-        XCTAssertTrue(line.hasPrefix("mkdir -p ~/.local/bin && ln -s '"), line)
+        XCTAssertTrue(line.hasPrefix("mkdir -p ~/.local/bin && ln -sf '"), line)
+        // Offered over another copy's link and a broken one too: it replaces.
+        for stale in [otherCopy.path, home.appendingPathComponent("gone/Evlat").path] {
+            try makeLink(to: stale)
+            try sh(line)
+            XCTAssertEqual(CommandLink.state(at: link, binary: binary), .current, stale)
+            try FileManager.default.removeItem(at: link)
+        }
         try sh(line)
         let byHand = destination()
         XCTAssertEqual(CommandLink.state(at: link, binary: binary), .current)

@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// A window Evlat opens because the user asked for one — the settings, and
-/// (`phase-3`) the setup. `RemoteMachinesWindow`'s focus pattern, made
-/// general (`014`, Karar 6).
+/// A window Evlat opens because the user asked for one — the settings and
+/// the setup. The focus pattern of the remote machines' own window, which
+/// `014` folded into the settings, made general (Karar 6).
 ///
 /// **The focus rule loosens here, and only here.** The bar is a
 /// non-activating panel and stays one; this is an ordinary titled window

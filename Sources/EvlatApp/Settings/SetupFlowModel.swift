@@ -81,6 +81,8 @@ final class SetupFlowModel: ObservableObject {
         if step == .edge || step == .done { blinks += 1 }
         settings.locateClaude { [weak self] path in
             self?.claude = path.map(SettingsModel.Claude.found) ?? .missing
+            // The login `PATH` for the command link's note (`SettingsModel.reload`).
+            self?.setup.reload()
         }
     }
 

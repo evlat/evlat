@@ -70,8 +70,11 @@ public enum CommandLink {
     }
 
     /// The line a user pastes instead: the same link the writer makes.
+    /// `-f`: the block is also offered over another copy's or a broken link
+    /// (`outdated`), where a bare `ln -s` stops at "File exists". A foreign
+    /// file gets no block.
     public static func manualLine(binary: URL) -> String {
-        "mkdir -p \(directoryDisplayPath) && ln -s \(RemoteSettings.quoted(binary.path)) \(displayPath)"
+        "mkdir -p \(directoryDisplayPath) && ln -sf \(RemoteSettings.quoted(binary.path)) \(displayPath)"
     }
 
     /// Taking it away by hand.

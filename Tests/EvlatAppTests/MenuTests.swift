@@ -131,6 +131,22 @@ final class MenuTests: XCTestCase {
         XCTAssertTrue(titles(forced).contains("Boşta"))
     }
 
+    /// On a Turkish Q keyboard AppKit's automatic localization rewrote the
+    /// item's key to "ö" while the menu was open (the US comma's physical
+    /// key) and the menu showed ⌘Ö; "," has its own key there.
+    func testSettingsIsCommandCommaOnEveryKeyboard() throws {
+        let controller = controller()
+        defer { controller.panel?.close() }
+        for diagnostics in [false, true] {
+            let menu = controller.makeMenu(diagnostics: diagnostics, in: "tr")
+            let settings = try XCTUnwrap(menu.items.first { $0.title == "Ayarlar…" })
+            XCTAssertEqual(settings.keyEquivalent, ",")
+            XCTAssertEqual(settings.keyEquivalentModifierMask, .command)
+            XCTAssertFalse(settings.allowsAutomaticKeyEquivalentLocalization,
+                           "localized, ⌘, becomes ⌘Ö on Turkish Q")
+        }
+    }
+
     func testEveryMenuKeyIsInBothTables() {
         for lang in ["en", "tr"] {
             for key in AppController.menuKeys {

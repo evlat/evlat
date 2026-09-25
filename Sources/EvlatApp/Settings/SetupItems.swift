@@ -241,7 +241,9 @@ final class SetupModel: ObservableObject {
             switch login {
             case .on: status = .installed
             case .off: status = .missing
-            case .needsApproval: status = .unknown
+            // Registered and waiting in System Settings: on as far as Evlat
+            // is concerned, so the switch can still take it back.
+            case .needsApproval: status = .installed
             }
             let path = host.binary().map { Self.bundlePath(of: $0) }
             rows.append(row(.loginItem, status, detail: L10n.t("setup.login.detail", in: lang),
