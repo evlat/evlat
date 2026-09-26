@@ -3,3 +3,7 @@ build/
 *.xcodeproj
 .DS_Store
 .swiftpm/
+
+# Local planning notebook, not published
+.tasks/
+.claude/
