@@ -1,5 +1,31 @@
 import Foundation
 
+/// One finish, as the user can have seen it: which row, how it ended, and
+/// when. The **stamp is part of the key**. With the entity alone a row that
+/// went `working → review` twice between two polls would read its second
+/// finish as already seen; with the stamp it is new news. Every producer's
+/// `updatedAt` is the moment its phase began, so the key holds still for as
+/// long as the finish does — and a merge that vetoes the report for a while
+/// gets the same key back once the veto lifts (`Registry.reconcile` passes
+/// the report's own stamp).
+public struct Finish: Hashable {
+    public let entity: String
+    public let phase: Phase
+    public let updatedAt: Date
+
+    public init(entity: String, phase: Phase, updatedAt: Date) {
+        self.entity = entity
+        self.phase = phase
+        self.updatedAt = updatedAt
+    }
+
+    /// The finish this row is, if it is one: `review` or `failed`.
+    public init?(_ signal: Signal) {
+        guard signal.phase == .review || signal.phase == .failed else { return nil }
+        self.init(entity: signal.entity, phase: signal.phase, updatedAt: signal.updatedAt)
+    }
+}
+
 /// Collects what the providers say and reduces it to a single view.
 ///
 /// **No time-driven transitions live here, and none will.** v1 ran them on a
@@ -30,6 +56,16 @@ public final class Registry {
     public func reload() {
         for provider in providers {
             (provider as? Reloadable)?.reload()
+        }
+    }
+
+    /// Hands the seen finishes to every `Releasable` provider; which rows
+    /// that drops is theirs to say (`Releasable`), and a provider that keeps
+    /// none is not asked.
+    public func release(_ finishes: Set<Finish>) {
+        guard !finishes.isEmpty else { return }
+        for provider in providers {
+            (provider as? Releasable)?.release(finishes)
         }
     }
 
@@ -184,6 +220,32 @@ public final class Registry {
         }
     }
 
+    /// Where a row stands. **Not a `Phase` and not a `Signal` field**: it is
+    /// derived here, from the phase and from what the user has seen, and
+    /// nowhere else — the list sorts by it and the face reads only its active
+    /// part, so the two cannot disagree.
+    ///
+    /// `waiting`, `working` and `news` are **active**; `passive` is a finish
+    /// already seen, or a row with nothing to say (`idle`). The case order is
+    /// the list's order.
+    public enum Layer: Int, Comparable {
+        case waiting, working, news, passive
+
+        public var isActive: Bool { self != .passive }
+
+        public static func < (a: Layer, b: Layer) -> Bool { a.rawValue < b.rawValue }
+
+        /// A finish is news until its key is in `seen`.
+        static func of(_ signal: Signal, seen: Set<Finish>) -> Layer {
+            switch signal.phase {
+            case .waiting: return .waiting
+            case .working: return .working
+            case .review, .failed: return Finish(signal).map(seen.contains) == true ? .passive : .news
+            case .idle: return .passive
+            }
+        }
+    }
+
     /// Everything a caller needs from one scan.
     ///
     /// This type exists because the alternative kept losing: asking the
@@ -193,49 +255,73 @@ public final class Registry {
     /// scan, which duplicated the aggregation rule at three sites — and the
     /// two copies that actually drove the UI were the ones the tests did not
     /// cover.
+    ///
+    /// **What the user has seen is an input, never state.** "Seeing" is a UI
+    /// fact; the shell keeps the set and hands it in, the rule that reads it
+    /// lives here and is tested without a window. No clock either.
     public struct Snapshot: Equatable {
         /// Display order: live rows first, dimmed ones (`Signal.isLive`) under
-        /// them. Within each part waiting on top, then working, then recently
-        /// finished, idle at the bottom. On a tie, by `entity`: stable, never
-        /// by stamp.
+        /// them. Within each part by `Layer` — waiting, working, news,
+        /// passive — news newest finish first; any other tie by `entity`:
+        /// stable, never by a stamp that moves while the phase holds.
         public let ordered: [Signal]
-        /// The mascot's face. Highest `Phase.priority` among **live** rows
-        /// wins; `idle` when there is none. A dimmed row is one nobody can
-        /// currently hear, so its last word — a `working` from a machine whose
-        /// tunnel dropped — must not keep the face busy.
+        /// Every row's layer, by `entity`.
+        public let layers: [String: Layer]
+        /// The live rows' news, newest finish first. A dimmed row's finish is
+        /// not here: nobody can currently hear it, so it paints nothing.
+        public let news: [Finish]
+        /// The mascot's face: the highest `Phase.priority` among **live,
+        /// active** rows, the newest finish between two pieces of news; `idle`
+        /// when there is none. A dimmed row is one nobody can currently hear,
+        /// so its last word — a `working` from a machine whose tunnel dropped
+        /// — must not keep the face busy; a passive one has already been heard.
         public let aggregate: Phase
         /// Is anything live? **Not a phase**, a render condition: the mascot's
         /// blink and breath loops check this and leave the view tree when it is
-        /// false (idle drawing stops; `AGENTS.md` → Architecture). A usage signal
-        /// never enters it: a limit being read is not something live, and
-        /// letting it in would keep the mascot's loops running on an idle
-        /// machine for as long as a window is known. A dimmed row does not
-        /// enter it either, for the same budget: it is listed, not live.
+        /// false (idle drawing stops; `AGENTS.md` → Architecture). It is "any
+        /// live, active row": an idle session or a seen finish lets the mascot
+        /// sleep. A usage signal never enters it: a limit being read is not
+        /// something live, and letting it in would keep the mascot's loops
+        /// running on an idle machine for as long as a window is known. A
+        /// dimmed row does not enter it either, for the same budget: it is
+        /// listed, not live.
         public let hasLive: Bool
         /// The usage windows, apart from the session line: this Mac's groups
         /// first, then remote machines'; within each by group, then by window
         /// length, then by `entity` — deterministic, never by stamp.
         public let usage: [Signal]
 
-        public init(signals: [Signal]) {
+        public init(signals: [Signal], seen: Set<Finish> = []) {
             // Split on `kind`, never on the provider's name: a usage source
             // nobody has written yet lands here too, and none of them reaches
             // the order, the aggregate or `hasLive`.
             let sessionLine = signals.filter { $0.kind != .usage }
-            // The stamp stays out of the order: the hook refreshes it on every
-            // `PostToolUse`, so sorting by it reshuffled the rows at event rate.
-            // Liveness is read from `isLive` and nothing else, never from
-            // the provider's name: the three rules below agree by reading the
-            // same derived value.
+            var layers: [String: Layer] = [:]
+            for signal in sessionLine { layers[signal.entity] = Layer.of(signal, seen: seen) }
+            self.layers = layers
+            // A session's stamp stays out of the order: the hook refreshes it
+            // on every `PostToolUse`, so sorting by it reshuffled the rows at
+            // event rate. A finish's stamp is the moment it finished and holds
+            // still, so news alone is ordered by it. Liveness is read from
+            // `isLive` and nothing else, never from the provider's name: the
+            // rules below agree by reading the same derived value.
             ordered = sessionLine.sorted {
                 if $0.isLive != $1.isLive { return $0.isLive }
-                return $0.phase.priority != $1.phase.priority
-                    ? $0.phase.priority > $1.phase.priority
-                    : $0.entity < $1.entity
+                let a = layers[$0.entity] ?? .passive, b = layers[$1.entity] ?? .passive
+                if a != b { return a < b }
+                if a == .news, $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+                return $0.entity < $1.entity
             }
-            let live = sessionLine.filter(\.isLive)
-            aggregate = live.map(\.phase).max(by: { $0.priority < $1.priority }) ?? .idle
-            hasLive = !live.isEmpty
+            let active = ordered.filter { $0.isLive && layers[$0.entity]?.isActive == true }
+            news = active.compactMap { layers[$0.entity] == .news ? Finish($0) : nil }
+            // Priority first, then the newest stamp: only news ties with a
+            // different phase, and there the newest finish speaks.
+            aggregate = active.max {
+                $0.phase.priority != $1.phase.priority
+                    ? $0.phase.priority < $1.phase.priority
+                    : $0.updatedAt < $1.updatedAt
+            }?.phase ?? .idle
+            hasLive = !active.isEmpty
             // A usage row missing its field is a provider's mistake; it sorts
             // last rather than being dropped, so the mistake stays visible.
             usage = signals.filter { $0.kind == .usage }.sorted {
@@ -250,7 +336,7 @@ public final class Registry {
 
     /// One directory scan, every derived value. The only reading API callers
     /// should need.
-    public func snapshot() -> Snapshot {
-        Snapshot(signals: signals())
+    public func snapshot(seen: Set<Finish> = []) -> Snapshot {
+        Snapshot(signals: signals(), seen: seen)
     }
 }

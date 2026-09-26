@@ -196,4 +196,46 @@ final class SignalsProviderTests: XCTestCase {
         XCTAssertEqual(provider.apply(report("more")), .dropped(limit: SignalsProvider.limit))
         XCTAssertEqual(remote.apply(report("row-0")), .stored)
     }
+
+    // MARK: - Release
+
+    /// A released finish leaves; the row is the finish the bar was shown.
+    func testReleaseDropsTheMatchingFinish() {
+        _ = provider.apply(report("a", phase: "done"))
+        _ = provider.apply(report("b", phase: "failed"))
+        let finish = Finish(provider.currentSignals().first { $0.entity == "signal:a" }!)!
+        provider.release([finish])
+        XCTAssertEqual(provider.currentSignals().map(\.entity), ["signal:b"])
+        XCTAssertEqual(provider.count, 1, "gone, not hidden")
+    }
+
+    /// A new phase for the same id in between is not what was seen.
+    func testReleaseKeepsARowThatMovedOn() {
+        _ = provider.apply(report("a", phase: "done"))
+        let finish = Finish(provider.currentSignals().first!)!
+        clock += 5
+        _ = provider.apply(report("a", phase: "working"))
+        provider.release([finish])
+        XCTAssertEqual(provider.currentSignals().map(\.phase), [.working])
+        clock += 5
+        _ = provider.apply(report("a", phase: "done"))
+        provider.release([finish])
+        XCTAssertEqual(provider.currentSignals().map(\.phase), [.review],
+                       "a later finish is a new one, whatever its word")
+    }
+
+    /// A machine's instance maps its own namespace, and only its own.
+    func testAMachinesReleaseUsesItsNamespace() {
+        remote.setLink(connected: true)
+        _ = remote.apply(report("x", phase: "done"))
+        _ = provider.apply(report("x", phase: "done"))
+        let local = Finish(provider.currentSignals().first!)!
+        remote.release([local])
+        XCTAssertEqual(remote.count, 1, "the local key is not the machine's row")
+        let far = Finish(remote.currentSignals().first!)!
+        XCTAssertEqual(far.entity, "signal:M:x")
+        remote.release([far])
+        XCTAssertEqual(remote.count, 0)
+        XCTAssertEqual(provider.count, 1)
+    }
 }

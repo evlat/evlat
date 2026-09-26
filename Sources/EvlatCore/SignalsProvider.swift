@@ -18,7 +18,7 @@ import Foundation
 /// `hasLive`. The cap is each instance's own.
 ///
 /// Main queue, like every provider.
-public final class SignalsProvider: Provider {
+public final class SignalsProvider: Provider, Releasable {
     public static let id = SignalReport.provider
     public var id: String { Self.id }
 
@@ -104,6 +104,19 @@ public final class SignalsProvider: Provider {
                               dim: machine == nil ? nil : link.disconnected(row.mark))
         }
             .sorted { $0.entity < $1.entity }
+    }
+
+    /// Drops the rows that are still the finish that was seen. The key is
+    /// built the way the row is (`SignalReport.signal`), so this instance's
+    /// namespace — `signal:<id>` here, `signal:<machine>:<id>` for a machine —
+    /// is matched by construction and another instance's key never is. A
+    /// new phase for the id since then moved the stamp, so it stays.
+    public func release(_ finishes: Set<Finish>) {
+        rows = rows.filter { _, row in
+            guard let finish = row.report.signal(phaseStart: row.phaseStart, machine: machine)
+                .flatMap(Finish.init) else { return true }
+            return !finishes.contains(finish)
+        }
     }
 
     private func prune(at now: Date) {

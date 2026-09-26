@@ -24,3 +24,15 @@ public protocol Reloadable: AnyObject {
     /// Read the source again. Called on the main queue.
     func reload()
 }
+
+/// A provider whose rows can be let go of once they have been seen.
+///
+/// Optional, like `Reloadable`: the shell hands every provider the same set
+/// through `Registry.release(_:)` without knowing which one owns a row, and a
+/// provider that keeps no such rows is never asked. What "let go" means is
+/// the provider's: a row is dropped only while it is still the finish that
+/// was seen — one that has moved on since is someone else's news.
+public protocol Releasable: AnyObject {
+    /// Drop the rows these finishes name. Called on the main queue.
+    func release(_ finishes: Set<Finish>)
+}

@@ -83,8 +83,16 @@ Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
   `failed` — and stays at five. A new value must update three places at once:
   `Phase.priority`, the bar's indicator language and the mascot's expression
   table; miss one and the new state is silently invisible.
-- `Aggregator` reduces N entities to the mascot's one face, priority
-  `failed > waiting > working > review > idle`.
+- Every row has a **layer** (`Registry.Layer`, derived in
+  `Registry.Snapshot`; not a `Phase`, not a `Signal` field): `waiting`,
+  `working`, **news** (a `review`/`failed` whose `Finish` — entity, phase,
+  stamp — the user has not seen) and `passive` (a seen finish, or `idle`). The
+  first three are active. The list sorts by layer, news newest finish first;
+  dimmed rows stay at the bottom and paint nothing.
+- `Aggregator` reduces the live, active rows to the mascot's one face,
+  `Phase.priority`: `waiting > news (newest) > working > idle`. With no active
+  row the face is `idle`. The seen set is the snapshot's pure input; the core
+  keeps no clock and no seen state.
 - An unrecognised source word stays **visible** in `rawStatus` and lands in the
   provider's `unrecognizedStatuses`; it is drawn as `idle` but never swallowed.
 - `activity`, `usage` and `machine` are not phases and never change priority.
@@ -92,7 +100,8 @@ Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
   or `hasLive`.
 - `Fidelity` (`official | derived | manual`) reaches the UI: derived and manual
   numbers are drawn with a `~` prefix, so an estimate never looks published.
-- "Is anything live?" is `Registry.hasLive`, not a phase.
+- "Is anything live?" is `Registry.hasLive` — any live, active row — not a
+  phase. An idle session or a seen finish lets the mascot sleep.
 
 The reverse direction, `Action`, carries three things from UI to core: send a
 prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a

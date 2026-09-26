@@ -324,13 +324,21 @@ public enum Phase: String, CaseIterable, Equatable {
     case idle, working, waiting, review, failed
 
     /// The mascot has one face and there are N sessions: this decides which
-    /// one wins. Anything that blocks the user always comes forward.
+    /// one wins, among the rows that are still **active**
+    /// (`Registry.Snapshot`). Two rules, in this order: **a waiting row always
+    /// comes forward** — the user is the one holding it up — and **news comes
+    /// before work**: a finish nobody has seen yet (`review`, `failed`) is
+    /// worth more than a session still running. Between two pieces of news
+    /// the value ties and the newest finish speaks.
+    ///
+    /// It is the face's order, not the list's: the list reads the snapshot's
+    /// layer (waiting › working › news › passive), which one integer cannot
+    /// carry alongside this one.
     public var priority: Int {
         switch self {
-        case .failed: return 4
         case .waiting: return 3
-        case .working: return 2
-        case .review: return 1
+        case .review, .failed: return 2
+        case .working: return 1
         case .idle: return 0
         }
     }

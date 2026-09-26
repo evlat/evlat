@@ -318,17 +318,25 @@ public final class SessionRowsModel: ObservableObject {
     /// counts but does not draw is written too — on purpose: the open list
     /// draws it.
     ///
-    /// **The order within a phase is the order rows entered it, newest
-    /// first.** The session that just finished leads the idle rows instead of
-    /// dropping back to its place by entity. The key moves only on a phase
-    /// change, never on the stamp a busy session refreshes with every tool
-    /// event, so the column stays still between changes; ties (rows never
-    /// seen changing) fall back to the entity.
+    /// **The layers are the snapshot's** (`Registry.Layer`): waiting,
+    /// working, news, passive, read from `snapshot.layers` and never worked
+    /// out again here — a second copy of the rule is the one the tests would
+    /// not cover. News is ordered by its finish, newest first, the same key
+    /// the snapshot uses.
+    ///
+    /// **Within any other layer the order is the order rows entered their
+    /// phase, newest first.** The session that just went idle leads the
+    /// passive rows instead of dropping back to its place by entity. The key
+    /// moves only on a phase change, never on the stamp a busy session
+    /// refreshes with every tool event, so the column stays still between
+    /// changes; ties (rows never seen changing) fall back to the entity.
     ///
     /// **Live rows come first**, the same first key `Registry.Snapshot`
     /// sorts by; without it this re-sort would mix dimmed rows back in among
     /// the live ones.
-    public func update(from signals: [Signal]) {
+    public func update(from snapshot: Registry.Snapshot) {
+        let signals = snapshot.ordered
+        let layers = snapshot.layers
         for signal in signals where lastPhase[signal.entity] != signal.phase {
             if lastPhase[signal.entity] == nil {
                 entered[signal.entity] = 0
@@ -346,7 +354,9 @@ public final class SessionRowsModel: ObservableObject {
 
         let ordered = signals.sorted { a, b in
             if a.isLive != b.isLive { return a.isLive }
-            if a.phase.priority != b.phase.priority { return a.phase.priority > b.phase.priority }
+            let la = layers[a.entity] ?? .passive, lb = layers[b.entity] ?? .passive
+            if la != lb { return la < lb }
+            if la == .news, a.updatedAt != b.updatedAt { return a.updatedAt > b.updatedAt }
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity
         }
@@ -362,6 +372,12 @@ public final class SessionRowsModel: ObservableObject {
         }
         if rows != next { rows = next }
         setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    /// The same, for a caller holding rows rather than a snapshot: the
+    /// layers still come from `Registry.Snapshot`, with nothing seen.
+    public func update(from signals: [Signal]) {
+        update(from: Registry.Snapshot(signals: signals))
     }
 
     /// The clock follows one Bool and nothing else. A change in the list that

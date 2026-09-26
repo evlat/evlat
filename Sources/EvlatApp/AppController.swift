@@ -2314,7 +2314,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// silently — the app keeps working and simply re-evaluates the bar at
     /// event rate.
     func refresh() {
-        let snapshot = registry.snapshot()
+        let snapshot = registry.snapshot(seen: [])
         if mascot.phase != snapshot.aggregate {
             // The only trace the seam leaves in the field. `--capture` shows
             // the events and `--list` the file rows, but neither runs in this
@@ -2334,7 +2334,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.
         let before = sessionRows.rows
-        sessionRows.update(from: snapshot.ordered)
+        sessionRows.update(from: snapshot)
         // The block's own deadband: its lines move with the drawn percent and
         // the minute, not with a relay's stamp. The clock is read here, so a
         // window that resets leaves within one poll.

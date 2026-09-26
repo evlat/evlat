@@ -156,6 +156,24 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertEqual(hooks.currentSignals().first?.phase, .working)
     }
 
+    /// A finish's key is its stamp, so an event that sets no phase must not
+    /// move it during a `review`; one that sets a phase does.
+    func testOnlyAPhaseSettingEventMovesAReviewsStamp() {
+        let hooks = provider()
+        hooks.handle(event("Stop"))
+        let finished = clock.now
+        clock.now += 5
+        hooks.handle(event("Notification", notification: "idle_prompt"))
+        clock.now += 5
+        hooks.handle(event("Stop", stopHookActive: true))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .review)
+        XCTAssertEqual(hooks.currentSignals().first?.updatedAt, finished)
+        clock.now += 5
+        hooks.handle(event("PostToolUse"))
+        XCTAssertEqual(hooks.currentSignals().first?.phase, .working)
+        XCTAssertEqual(hooks.currentSignals().first?.updatedAt, clock.now)
+    }
+
     func testSessionEndRemovesTheRow() {
         let hooks = provider()
         hooks.handle(event("UserPromptSubmit"))

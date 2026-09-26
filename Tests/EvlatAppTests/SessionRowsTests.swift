@@ -195,6 +195,20 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.entity), ["b", "c", "a"], "b finished last")
     }
 
+    /// The column takes the snapshot's layers: waiting, working, news with
+    /// the newest finish on top, then passive rows.
+    func testTheColumnFollowsTheSnapshotsLayers() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("a", .idle), signal("b", .failed, stamp: 10),
+                            signal("c", .review, stamp: 20), signal("d", .working),
+                            signal("e", .waiting)])
+        XCTAssertEqual(model.rows.map(\.entity), ["e", "d", "c", "b", "a"])
+        let seen: Set<Finish> = [Finish(signal("c", .review, stamp: 20))!]
+        model.update(from: Registry.Snapshot(signals: [signal("a", .idle), signal("b", .failed, stamp: 10),
+                                                       signal("c", .review, stamp: 20)], seen: seen))
+        XCTAssertEqual(model.rows.map(\.entity), ["b", "a", "c"], "a seen finish is passive")
+    }
+
     func testNothingToBeatMeansNoClock() {
         let model = SessionRowsModel()
         model.update(from: [])
@@ -393,12 +407,13 @@ final class SessionRowsTests: XCTestCase {
 
     /// The clock follows what is drawn. Closed, a working row behind the
     /// count is not drawn and must not keep the clock running; open, it is.
-    /// `failed` outranks `working`, so three of them fill the closed rings.
+    /// Three working jobs with a known progress (still rings) fill the
+    /// closed rings ahead of a turning one, by entity.
     func testTheClockFollowsTheDrawnRowsOnly() {
         let model = SessionRowsModel()
-        model.update(from: [signal("a", .failed), signal("b", .failed), signal("c", .failed),
-                            signal("d", .working), signal("e", .idle)])
-        XCTAssertEqual(model.closedRows.map(\.entity), ["a", "b", "c"])
+        model.update(from: [outside("a", progress: 0.1), outside("b", progress: 0.2),
+                            outside("c", progress: 0.3), signal("z", .working), signal("e", .idle)])
+        XCTAssertEqual(model.closedRows.map(\.entity), ["signal:a", "signal:b", "signal:c"])
         XCTAssertFalse(model.isBeating, "the working row is in the count: nothing drawn beats")
 
         model.setOpen(true)

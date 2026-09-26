@@ -488,4 +488,125 @@ final class RegistryTests: XCTestCase {
         XCTAssertEqual(snapshot.aggregate, .failed)
         XCTAssertTrue(snapshot.usage.isEmpty)
     }
+
+    // MARK: - News, layers and the face
+
+    /// A row at a stamp of its own, for the rules that read it.
+    private func row(_ entity: String, _ phase: Phase, at offset: TimeInterval = 0,
+                     reachable: Bool = true) -> Signal {
+        let dim = reachable ? nil
+            : Signal.Machine.Dim(reason: .disconnected, since: Date(timeIntervalSince1970: 1_790_000_000))
+        return Signal(provider: "stub", entity: entity, phase: phase, label: entity, fidelity: .official,
+                      rawStatus: "said-so", updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + offset),
+                      machine: reachable ? nil : Signal.Machine(name: "devbox", dim: dim))
+    }
+
+    /// A blocked user always comes forward, even over a failure.
+    func testWaitingOutranksAFailure() {
+        let snapshot = Registry.Snapshot(signals: [row("f", .failed), row("w", .waiting)])
+        XCTAssertEqual(snapshot.aggregate, .waiting)
+    }
+
+    /// Two pieces of news: the newest speaks, whichever it is.
+    func testTheNewestNewsSpeaks() {
+        let snapshot = Registry.Snapshot(signals: [row("r", .review, at: 20), row("f", .failed, at: 10)])
+        XCTAssertEqual(snapshot.aggregate, .review)
+        XCTAssertEqual(snapshot.news.map(\.entity), ["r", "f"], "newest first")
+        let older = Registry.Snapshot(signals: [row("r", .review, at: 10), row("f", .failed, at: 20)])
+        XCTAssertEqual(older.aggregate, .failed)
+    }
+
+    /// News is worth more than work still running.
+    func testNewsOutranksWork() {
+        XCTAssertEqual(Registry.Snapshot(signals: [row("f", .failed), row("w", .working)]).aggregate, .failed)
+        XCTAssertEqual(Registry.Snapshot(signals: [row("r", .review), row("w", .working)]).aggregate, .review)
+    }
+
+    /// A finish already seen is passive: it no longer speaks.
+    func testASeenFinishIsPassive() {
+        let failed = row("f", .failed)
+        let seen: Set<Finish> = [Finish(entity: "f", phase: .failed, updatedAt: failed.updatedAt)]
+        let snapshot = Registry.Snapshot(signals: [failed, row("w", .working)], seen: seen)
+        XCTAssertEqual(snapshot.aggregate, .working)
+        XCTAssertEqual(snapshot.layers["f"], .passive)
+        XCTAssertTrue(snapshot.news.isEmpty)
+        XCTAssertEqual(Finish(failed), seen.first, "the key a row gives is the key it is seen by")
+    }
+
+    /// The same entity finishing again is new news: the stamp is part of the key.
+    func testAFinishAtANewStampIsNewsAgain() {
+        let seen: Set<Finish> = [Finish(row("r", .review, at: 0))!]
+        let snapshot = Registry.Snapshot(signals: [row("r", .review, at: 30)], seen: seen)
+        XCTAssertEqual(snapshot.layers["r"], .news)
+    }
+
+    /// Idle alone is nothing live: the mascot sleeps.
+    func testAnIdleSessionAloneIsNotLive() {
+        let snapshot = Registry.Snapshot(signals: [row("i", .idle)])
+        XCTAssertEqual(snapshot.aggregate, .idle)
+        XCTAssertFalse(snapshot.hasLive)
+        XCTAssertEqual(snapshot.layers["i"], .passive)
+        let seen = Registry.Snapshot(signals: [row("r", .review)],
+                                     seen: [Finish(row("r", .review))!])
+        XCTAssertFalse(seen.hasLive, "a seen finish wakes nothing either")
+        XCTAssertTrue(Registry.Snapshot(signals: [row("r", .review)]).hasLive, "news does")
+    }
+
+    /// A dimmed row paints nothing: not the face, not `hasLive`, no news.
+    func testADimmedRowIsNeitherNewsNorLive() {
+        let snapshot = Registry.Snapshot(signals: [row("far", .working, reachable: false),
+                                                   row("done", .review, reachable: false)])
+        XCTAssertEqual(snapshot.aggregate, .idle)
+        XCTAssertFalse(snapshot.hasLive)
+        XCTAssertTrue(snapshot.news.isEmpty)
+    }
+
+    /// The list: waiting, working, news (newest on top), passive, dimmed.
+    func testTheListOrder() {
+        let snapshot = Registry.Snapshot(signals: [
+            row("a-idle", .idle),
+            row("b-old-news", .failed, at: 10),
+            row("c-seen", .review, at: 5),
+            row("d-new-news", .review, at: 20),
+            row("e-work", .working),
+            row("f-wait", .waiting),
+            row("g-dim", .waiting, reachable: false),
+        ], seen: [Finish(row("c-seen", .review, at: 5))!])
+        XCTAssertEqual(snapshot.ordered.map(\.entity),
+                       ["f-wait", "e-work", "d-new-news", "b-old-news", "a-idle", "c-seen", "g-dim"])
+    }
+
+    /// The key survives the merge: a veto in between and the file coming
+    /// back to idle give the same finish, so a seen one stays seen.
+    func testTheFinishKeySurvivesAVeto() {
+        func keyed(file: Phase) -> Registry.Snapshot {
+            let registry = Registry()
+            registry.register(StubProvider(id: "file", signals: [signal("s", file, .derived, at: 50)]))
+            registry.register(StubProvider(id: "hook", signals: [signal("s", .review, .official, at: 10)]))
+            return registry.snapshot()
+        }
+        let first = keyed(file: .idle)
+        XCTAssertEqual(first.news, [Finish(entity: "s", phase: .review,
+                                           updatedAt: Date(timeIntervalSince1970: 1_790_000_010))])
+        let vetoed = keyed(file: .working)
+        XCTAssertEqual(vetoed.ordered.map(\.phase), [.working], "a busy file vetoes the review")
+        XCTAssertEqual(keyed(file: .idle).news, first.news, "and the same key comes back")
+    }
+
+    /// `release` reaches only the providers that can release.
+    func testReleaseReachesReleasableProviders() {
+        final class Holder: Provider, Releasable {
+            let id = "holder"
+            var released: [Set<Finish>] = []
+            func currentSignals() -> [Signal] { [] }
+            func release(_ finishes: Set<Finish>) { released.append(finishes) }
+        }
+        let holder = Holder()
+        let registry = Registry()
+        registry.register(StubProvider(id: "plain", signals: []))
+        registry.register(holder)
+        let finish = Finish(row("x", .review))!
+        registry.release([finish])
+        XCTAssertEqual(holder.released, [[finish]])
+    }
 }

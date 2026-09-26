@@ -251,23 +251,22 @@ final class BodyPresenceWiringTests: XCTestCase {
 
     // MARK: - One row's finish
 
-    /// A job done beside sessions still working leaves the aggregate at
-    /// `working`; the finish is told anyway, briefly.
-    func testOneRowFinishingPeeksWhileTheAggregateStaysWorking() throws {
+    /// A job done beside sessions still working is news, and news outranks
+    /// work: the aggregate becomes the finish and it is told, briefly.
+    func testOneRowFinishingBesideWorkIsTheAggregate() throws {
         let rig = rig(.smart)
         defer { rig.panel.close() }
         rig.set([("a", .working), ("job", .working)])
         rig.set([("a", .working), ("job", .review)])
-        XCTAssertEqual(rig.controller.mascot.phase, .working, "the aggregate is unchanged")
+        XCTAssertEqual(rig.controller.mascot.phase, .review, "news outranks work")
         XCTAssertEqual(rig.controller.peekPhase, .review)
         XCTAssertEqual(rig.controller.barState.presence.level, .peek)
         XCTAssertEqual(rig.timers.pending.last?.delay, AppController.reviewPeek)
         rig.timers.fire(rig.timers.pending.count - 1)
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
-        XCTAssertEqual(rig.controller.barState.presence.dot, .working)
     }
 
-    /// With the peek off, the dot takes the finish's colour for the same while.
+    /// With the peek off, the dot takes the finish's colour.
     func testWithoutThePeekTheDotTellsARowFinish() throws {
         let rig = rig(.smart)
         defer { rig.panel.close() }
@@ -276,19 +275,16 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.set([("a", .working), ("job", .review)])
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
         XCTAssertEqual(rig.controller.barState.presence.dot, .review)
-        XCTAssertEqual(rig.timers.pending.last?.delay, AppController.reviewPeek)
-        rig.timers.fire(rig.timers.pending.count - 1)
-        XCTAssertEqual(rig.controller.barState.presence.dot, .working)
     }
 
-    /// A row first seen already finished tells nothing: after a launch every
-    /// old finish would otherwise peek at once.
-    func testARowFirstSeenFinishedIsNotAnnounced() throws {
+    /// A row first seen already finished is news like any other finish:
+    /// beside work it becomes the aggregate and is told.
+    func testARowFirstSeenFinishedIsNewsBesideWork() throws {
         let rig = rig(.smart)
         defer { rig.panel.close() }
         rig.set([("a", .working)])
         rig.set([("a", .working), ("old", .review)])
-        XCTAssertNil(rig.controller.peekPhase)
-        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+        XCTAssertEqual(rig.controller.peekPhase, .review)
     }
 }
