@@ -36,7 +36,7 @@ Evlat asks for no macOS permissions. Its local API listens only on loopback.
 ## Build and install
 
 ```sh
-git clone <this repo> evlat && cd evlat
+git clone https://github.com/evlat/evlat.git && cd evlat
 make install     # builds build/Evlat.app, copies it to /Applications, opens it
 ```
 
