@@ -23,6 +23,9 @@ final class GazeTracker {
         self.anchor = anchor
     }
 
+    /// Whether the global monitor is installed.
+    var isRunning: Bool { monitor != nil }
+
     func start() {
         guard monitor == nil else { return }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) {

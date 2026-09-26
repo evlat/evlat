@@ -158,10 +158,19 @@ struct BodyPresence: Equatable {
         case .none, .sliver: return Area(width: Self.sliverWidth, length: Self.triggerLength)
         case .peek: return Area(width: Self.peekWidth, length: Self.triggerLength)
         case .full:
-            return isOpen ? Area(width: openWidth, length: openLength)
-                          : Area(width: AppController.barWidth, length: closedLength)
+            let body = isOpen ? Area(width: openWidth, length: openLength)
+                              : Area(width: AppController.barWidth, length: closedLength)
+            guard mode != .always else { return body }
+            // Never shorter than the strip that brought it out: a short body
+            // (no session) would leave the strip's lower end outside it, and a
+            // cursor or a drag there would open and close it on every move.
+            return Area(width: body.width, length: max(body.length, Self.triggerLength))
         }
     }
+
+    /// The area drawn with the near-transparent fill, so hover and drops are
+    /// heard on it; `nil` on today's bar, whose body is its own area.
+    var trigger: Area? { mode == .always ? nil : area }
 
     // MARK: Latch
 

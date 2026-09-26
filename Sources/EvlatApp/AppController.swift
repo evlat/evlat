@@ -156,6 +156,36 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// How far the open list is scrolled. Apart from `barState` so a scroll
     /// re-evaluates the list and the card, not the whole body.
     let listScroll = ListScroll()
+    /// How much of the body is out (Settings → General → Body). Read at
+    /// launch (`EVLAT_BODY`, then the stored choice); a controller built
+    /// without one — every test that does not set it — is today's bar.
+    var bodyMode: BodyPresence.Mode = .always {
+        didSet { if bodyMode != oldValue { applyPresence() } }
+    }
+    var bodyToggles = BodyPresence.Toggles() {
+        didSet { if bodyToggles != oldValue { applyPresence() } }
+    }
+    /// The finish that outlives its phase and colours the sliver's dot until
+    /// the bar is opened once (`BodyPresence.latch`).
+    private(set) var latch: Phase?
+    /// The finish whose short peek is running; its timer clears it.
+    private(set) var peekPhase: Phase?
+    /// A file drag is over the body's area.
+    private var isDragging = false
+    /// The effective phase the last derivation saw: a finish latches and
+    /// peeks on the way **into** it, so the poll re-reading the same phase
+    /// sets nothing up again.
+    private var presencePhase: Phase = .idle
+    /// Bumped by every phase change: a peek timer from an older change finds
+    /// it moved and does nothing (the `HoverIntent` guard).
+    private var peekGeneration = 0
+    /// How a finish's peek is timed. A `var` so a test fires it by hand.
+    var peekSchedule: HoverIntent.Scheduler = { delay, item in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+    /// How long a finish peeks before the body goes back in.
+    static let reviewPeek: TimeInterval = 2.5
+    static let failedPeek: TimeInterval = 4
     private var poller: Timer?
     private var screenObserver: NSObjectProtocol?
     /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
@@ -1091,6 +1121,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         self.hotKey = hotKey
         applyHotKey()
 
+        // Before the panel, so its first hover area is already the mode's.
+        bodyToggles = Self.storedBodyToggles(defaults)
+        bodyMode = Self.bodyMode(defaults)
         // The environment over the stored choice, the right over nothing.
         // Read here, never written back: only `setEdge` writes.
         let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right)
@@ -1137,8 +1170,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             guard let panel else { return .zero }
             return Self.gazeAnchor(frame: panel.frame, edge: panel.edge)
         }
-        tracker.start()
         gaze = tracker
+        // Started by the rule: an unseen mascot follows nothing.
+        applyPresence()
 
         panel.onPointer = { [weak self] pointer in self?.pointer(pointer) }
 
@@ -1189,8 +1223,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                               onGoButtonFrame: { [weak self] rect in
                                                   self?.goButtonFrameChanged(rect)
                                               }))
-        panel.setVisibleWidth(Self.barWidth)
-        panel.setVisibleLength(barState.length)
         panel.onClick = { [weak self] point in
             self?.click(at: point) ?? false
         }
@@ -1205,6 +1237,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
         self.panel = panel
+        // The hover areas are the rule's to set, from the first one on.
+        applyPresence()
         return panel
     }
 
@@ -1220,6 +1254,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if barState.isOpen { closeBar() }
         panel?.edge = edge
         if barState.edge != edge { barState.edge = edge }
+        applyPresence()
     }
 
     /// The cursor over the bar. While the balloon is open hover is not told:
@@ -1238,7 +1273,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             if barState.hovered != nil { barState.hovered = nil }
             hover.pointerExited()
         case .moved(let point):
-            gaze?.observe(point)
+            // An unseen mascot looks at nothing.
+            if presence.mascotShown { gaze?.observe(point) }
             guard !isChatOpen else { return }
             // A move is only reported inside the bar, so it also says
             // "still here" — which is what cancels a close pending from a
@@ -1287,6 +1323,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if barState.isOpen { closeBar() }
         let balloon = chatPanel ?? makeChatPanel()
         isChatOpen = true
+        // After the flag: the `closeBar` above derived the hidden level, and
+        // the balloon has to come out of a whole body.
+        applyPresence()
         if chatModel.edge != bar.edge { chatModel.edge = bar.edge }
         syncChat()
         refreshFolder()
@@ -1339,6 +1378,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard isChatOpen else { return }
         isChatOpen = false
         chatPanel?.orderOut(nil)
+        applyPresence()
     }
 
     private func makeChatPanel() -> ChatPanel {
@@ -1450,19 +1490,32 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func drag(_ drag: BarHostingView.Drag) -> Bool {
         switch drag {
         case .over(let point, let screen):
+            // A hidden body comes out whole for a file that reaches it, and
+            // its larger area then holds the drag.
             let over = isOverDrawnBar(point)
+            setDragging(over)
             setCatching(over)
-            if over { gaze?.observe(screen) }
+            if over, presence.mascotShown { gaze?.observe(screen) }
             return over
         case .left:
+            setDragging(false)
             setCatching(false)
             return false
         case .drop(let point, let items):
+            // Read against the area the drag opened, before it shrinks back.
+            let over = isOverDrawnBar(point)
+            setDragging(false)
             setCatching(false)
-            guard isOverDrawnBar(point), !items.isEmpty else { return false }
+            guard over, !items.isEmpty else { return false }
             attach(items)
             return true
         }
+    }
+
+    private func setDragging(_ on: Bool) {
+        guard isDragging != on else { return }
+        isDragging = on
+        applyPresence()
     }
 
     private func setCatching(_ on: Bool) {
@@ -1470,13 +1523,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The drawn bar, not the window: the transparent room beside and below
-    /// it is the desktop's.
+    /// it is the desktop's. The rule's area, the one hover is heard in.
     private func isOverDrawnBar(_ point: CGPoint) -> Bool {
         guard let panel, let bounds = panel.contentView?.bounds else { return false }
         let x = panel.edge.inset(of: point.x, in: bounds)
         let y = point.y - bounds.minY
-        let width = barState.isOpen ? barState.openWidth : Self.barWidth
-        return x >= 0 && x <= width && y >= 0 && y <= barState.drawnLength
+        let area = presence.area
+        return x >= 0 && x <= area.width && y >= 0 && y <= area.length
     }
 
     /// The label: before the first prompt it picks another folder, after
@@ -2283,26 +2336,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             let openLength = Self.openLength(rows: rowCount, usageLines: usageBlock.lines.count)
             let usageTop = Self.usageTop(rows: rowCount)
             if abs(barState.usageTop - usageTop) > 0.5 { barState.usageTop = usageTop }
-            var lengthChanged = false
-            if abs(barState.length - length) > 0.5 {
-                barState.length = length
-                lengthChanged = true
-            }
-            if abs(barState.openLength - openLength) > 0.5 {
-                barState.openLength = openLength
-                lengthChanged = true
-            }
-            if lengthChanged { panel?.setVisibleLength(barState.drawnLength) }
+            if abs(barState.length - length) > 0.5 { barState.length = length }
+            if abs(barState.openLength - openLength) > 0.5 { barState.openLength = openLength }
             // A shorter list takes the offset back to its new end, so the
             // last row stays whole and nothing is scrolled past.
             listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
             // The open body is as wide as the names it holds, the summary and
             // the block.
             let width = Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines)
-            if abs(barState.openWidth - width) > 0.5 {
-                barState.openWidth = width
-                if barState.isOpen { panel?.setVisibleWidth(width) }
-            }
+            if abs(barState.openWidth - width) > 0.5 { barState.openWidth = width }
             if rowsChanged {
                 // The rows' trace on stderr, for the same reason as the line above.
                 // A row nobody can hear is marked: its phase alone reads like a live one.
@@ -2318,6 +2360,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
         }
         syncSelection(snapshot.ordered)
+        // The lengths, the width and the phase are all read now; the hover
+        // area follows them from here. It writes nothing that did not change.
+        applyPresence()
         if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
@@ -2435,7 +2480,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             goToSession()
             return true
         }
-        guard let panel, let bounds = panel.contentView?.bounds,
+        // A mascot behind the edge takes no click: the sliver and the
+        // trigger lie on its place, and a click there would open the balloon.
+        guard presence.takesMascotClick, let panel, let bounds = panel.contentView?.bounds,
               Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
                                 fromTop: point.y - bounds.minY) else { return false }
         toggleChat()
@@ -2486,10 +2533,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // is what brings the new reading onto the body being opened.
         registry.reload()
         refresh()
-        panel?.setVisibleWidth(barState.openWidth)
-        panel?.setVisibleLength(barState.openLength)
+        // After the scan: a finish it brings in has been seen by opening.
+        latch = nil
         sessionRows.setOpen(true)
         barState.isOpen = true
+        applyPresence()
     }
 
     /// Closing: the body narrows back to the edge and the hover area with it.
@@ -2501,8 +2549,66 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         barState.isOpen = false
         sessionRows.setOpen(false)
         listScroll.set(0, max: 0)
-        panel?.setVisibleWidth(Self.barWidth)
-        panel?.setVisibleLength(barState.length)
+        applyPresence()
+    }
+
+    // MARK: - Presence
+
+    /// The rule, read from what is true now.
+    var presence: BodyPresence {
+        BodyPresence(mode: bodyMode, toggles: bodyToggles, phase: mascot.effectivePhase,
+                     latch: latch, peekPhase: peekPhase, isOpen: barState.isOpen,
+                     chatOpen: isChatOpen, dragging: isDragging,
+                     closedLength: barState.length, openWidth: barState.openWidth,
+                     openLength: barState.openLength)
+    }
+
+    /// Derives the presence and writes what follows from it — the hover
+    /// area, the drawn level, the mascot's visibility, the gaze monitor.
+    /// The one writer of all four: everything that moves an input calls this
+    /// after it, and nothing sets them by hand, so hover, the balloon, a
+    /// drag and a phase can never race to be the last writer. Each is
+    /// written only when it changed.
+    func applyPresence() {
+        let phase = mascot.effectivePhase
+        if phase != presencePhase {
+            presencePhase = phase
+            phaseMoved(to: phase)
+        }
+        let presence = self.presence
+        // The peek glows in what brought it out: waiting, else its finish.
+        let drawn = BarState.Presence(level: presence.level, dot: presence.dot,
+                                      glow: presence.level == .peek ? (phase == .waiting ? .waiting : peekPhase) : nil,
+                                      trigger: presence.trigger.map { CGSize(width: $0.width, height: $0.length) })
+        if barState.presence != drawn { barState.presence = drawn }
+        panel?.setVisibleWidth(presence.area.width)
+        panel?.setVisibleLength(presence.area.length)
+        let shown = presence.mascotShown
+        if mascot.isShown != shown { mascot.isShown = shown }
+        if let gaze, gaze.isRunning != shown { shown ? gaze.start() : gaze.stop() }
+    }
+
+    /// The way into a new effective phase: a finish latches and starts its
+    /// peek, anything else ends a running one. One timer at a time.
+    /// A finish seen on the open bar or with the balloon out is not news:
+    /// it neither latches nor peeks.
+    private func phaseMoved(to phase: Phase) {
+        peekGeneration &+= 1
+        let watched = barState.isOpen || isChatOpen
+        if !watched { latch = BodyPresence.latch(latch, on: phase) }
+        guard !watched, phase == .review || phase == .failed else {
+            peekPhase = nil
+            return
+        }
+        peekPhase = phase
+        let mine = peekGeneration
+        peekSchedule(phase == .failed ? Self.failedPeek : Self.reviewPeek, DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.peekGeneration == mine else { return }
+                self.peekPhase = nil
+                self.applyPresence()
+            }
+        })
     }
 
     /// Menu-bar entry. Its menu is rebuilt each time it opens
@@ -2770,10 +2876,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         dock(edge)
     }
 
-    @objc private func clearOverride() { mascot.override = nil }
+    @objc private func clearOverride() {
+        mascot.override = nil
+        applyPresence()
+    }
 
     @objc private func setOverride(_ sender: NSMenuItem) {
         mascot.override = (sender.representedObject as? String).flatMap(Phase.init(rawValue:))
+        applyPresence()
     }
 }
 
@@ -2809,6 +2919,18 @@ final class BarState: ObservableObject {
     /// Its row's slot, which the card hangs from. Follows the row as the
     /// column reorders.
     @Published var selectedSlot: Int?
+    /// What `BodyPresence` says is drawn. Written by `applyPresence` alone.
+    @Published var presence = Presence()
+
+    /// The drawn part of the rule: the level, the sliver's dot and the
+    /// peek's glow.
+    struct Presence: Equatable {
+        var level: BodyPresence.Level = .full
+        var dot: Phase?
+        var glow: Phase?
+        /// The near-transparent strip's size; `nil` on today's bar.
+        var trigger: CGSize?
+    }
 }
 
 /// The bar's colours: codenotch's. The body is pure, opaque black so it reads
@@ -2914,30 +3036,49 @@ struct BarBody: View {
     /// column hang from.
     private var head: Alignment { isLeft ? .topLeading : .topTrailing }
 
+    private var level: BodyPresence.Level { state.presence.level }
+    private var isFull: Bool { level == .full }
+
     var body: some View {
         ZStack(alignment: head) {
+            trigger
             // Top-aligned in the envelope: the far end moves, the head stays.
             // The shadow and the inner edge are the shape's, so they shorten
             // with it.
             shapeLayer
                 // Opening widens and lengthens it on one curve: the change of
                 // `isOpen` is the innermost, so it wins over the length's.
-                .frame(width: state.isOpen ? state.openWidth : AppController.barWidth,
-                       height: state.drawnLength)
+                .frame(width: shapeSize.width, height: shapeSize.height)
                 .animation(BarMotion.body, value: state.isOpen)
                 .animation(BarMotion.body, value: state.openWidth)
                 .animation(BarMotion.length, value: state.length)
                 .animation(BarMotion.length, value: state.openLength)
+                // Going in or out of the edge is the opening's curve too.
+                .padding(.top, shapeTop)
+                .animation(BarMotion.body, value: level)
+            dot
             card
             // The mascot is the head of the bar; the rings line up beneath,
             // their visible area starting half a gap above the first ring.
+            // In the tree at every level — the `failed` shudder has to see
+            // the phase change while the body is still coming out — slid
+            // toward the edge and past it as the body goes in; the window's
+            // edge cuts the peek's half away.
             MascotView(model: mascot, size: AppController.mascotSize)
                 .frame(width: AppController.barWidth)
+                .offset(x: isLeft ? -mascotShift : mascotShift)
+                .opacity(level == .full || level == .peek ? 1 : 0)
+                .animation(BarMotion.body, value: level)
                 .padding(.top, AppController.mascotTopInset)
-            SessionColumn(model: rows, scroll: scroll, edge: state.edge, showsNames: state.isOpen,
-                          selected: state.selected, hovered: state.hovered,
-                          openWidth: state.openWidth)
-                .padding(.top, AppController.listTop)
+            // Only on the whole body: a hidden column would still turn its
+            // rings on their beats.
+            if isFull {
+                SessionColumn(model: rows, scroll: scroll, edge: state.edge, showsNames: state.isOpen,
+                              selected: state.selected, hovered: state.hovered,
+                              openWidth: state.openWidth)
+                    .padding(.top, AppController.listTop)
+                    .transition(.opacity.animation(BarMotion.namesOut))
+            }
             usageBlock
         }
         // Pinned to the screen edge and the head. What is left on the other
@@ -2992,19 +3133,112 @@ struct BarBody: View {
         }
     }
 
+    // MARK: The body behind the edge
+
+    /// The peek: half the mascot, with a little body around it.
+    static let peekCorner: CGFloat = 10
+    static let peekFlare: CGFloat = 8
+    static let peekLength: CGFloat = AppController.mascotSize + 2 * peekFlare + 8
+    static let peekTop: CGFloat = mascotMiddle - peekLength / 2
+    /// The sliver keeps the flare, small, so it reads as the bezel's own
+    /// bump rather than a stick laid on the screen.
+    static let sliverCorner: CGFloat = 1.5
+    static let sliverFlare: CGFloat = 3.5
+    static let dotSize: CGFloat = 3
+    /// How far the mascot's centre stands in from the edge in a peek: its
+    /// half with one eye looks out.
+    static let peekMascotInset: CGFloat = 3
+    private static var mascotMiddle: CGFloat {
+        AppController.mascotTopInset + AppController.mascotSize / 2
+    }
+
+    private var shapeSize: CGSize {
+        switch level {
+        case .full:
+            return CGSize(width: state.isOpen ? state.openWidth : AppController.barWidth,
+                          height: state.drawnLength)
+        case .peek: return CGSize(width: BodyPresence.peekWidth, height: Self.peekLength)
+        case .sliver, .none: return CGSize(width: BodyPresence.sliverWidth, height: BodyPresence.sliverLength)
+        }
+    }
+
+    private var shapeTop: CGFloat {
+        switch level {
+        case .full: return 0
+        case .peek: return Self.peekTop
+        case .sliver, .none: return BodyPresence.sliverTop
+        }
+    }
+
+    /// How far toward the edge the mascot is slid from its place on the
+    /// whole body; past the edge altogether when it is not shown.
+    private var mascotShift: CGFloat {
+        let home = AppController.barWidth / 2
+        switch level {
+        case .full: return 0
+        case .peek: return home - Self.peekMascotInset
+        case .sliver, .none: return home + AppController.mascotSize
+        }
+    }
+
+    /// Where hover is heard while the body can hide. Transparent pixels hear
+    /// nothing — no hover, no drag — so the area is filled, all but
+    /// invisibly. Not drawn on today's bar, whose body is its own area.
+    /// Kept under the whole body too while the body can hide: the strip may
+    /// reach below a short body, and a drag that brought the body out must
+    /// not fall onto transparent pixels while the shape is still growing.
+    @ViewBuilder private var trigger: some View {
+        if let size = state.presence.trigger {
+            Rectangle()
+                .fill(Color.black.opacity(0.01))
+                .frame(width: size.width, height: size.height)
+        }
+    }
+
+    /// The sliver's dot, in the rings' colours. Still: it is drawn once and
+    /// produces no frames.
+    @ViewBuilder private var dot: some View {
+        if let phase = state.presence.dot {
+            Circle()
+                .fill(Self.color(of: phase))
+                .frame(width: Self.dotSize, height: Self.dotSize)
+                .padding(.top, Self.mascotMiddle - Self.dotSize / 2)
+                .padding(isLeft ? .leading : .trailing, (BodyPresence.sliverWidth - Self.dotSize) / 2)
+                .transition(.opacity)
+        }
+    }
+
+    static func color(of phase: Phase) -> Color {
+        switch phase {
+        case .idle: return BarPalette.textSecondary
+        case .working: return BarPalette.textPrimary
+        case .waiting: return SessionIndicator.amber
+        case .review: return SessionIndicator.green
+        case .failed: return SessionIndicator.red
+        }
+    }
+
     private var shapeLayer: some View {
-        let shape = BarShape(corner: AppController.barCorner,
-                             flare: AppController.barFlare, edge: state.edge)
+        let sliver = level == .sliver || level == .none
+        let shape = BarShape(corner: sliver ? Self.sliverCorner : level == .peek ? Self.peekCorner : AppController.barCorner,
+                             flare: sliver ? Self.sliverFlare : level == .peek ? Self.peekFlare : AppController.barFlare,
+                             edge: state.edge)
         return shape
             .fill(BarPalette.body)
             // A thin inner edge separates the body from a dark wall behind it
             // and makes the flare's curve readable. `outline` drops the segment
             // that lies on the screen edge: stroking the closed path put a
-            // hairline on the screen's outermost pixel column.
-            .overlay(shape.outline.stroke(Color.white.opacity(0.10), lineWidth: 1))
+            // hairline on the screen's outermost pixel column. On the sliver it
+            // is the whole of the bump's relief.
+            .overlay(shape.outline.stroke(Color.white.opacity(sliver ? 0.12 : 0.10),
+                                          lineWidth: sliver ? 0.5 : 1))
             // The shadow deepens the curve; it is what sells "growing out of the
             // bezel". It needs the gutter above to render at all.
             // Cast into the screen, away from the docked edge.
-            .shadow(color: .black.opacity(0.35), radius: 10, x: isLeft ? 3 : -3, y: 0)
+            .shadow(color: .black.opacity(0.35), radius: sliver ? 2 : 10, x: isLeft ? 3 : -3, y: 0)
+            // The peek glows in the colour of what brought it out.
+            .shadow(color: state.presence.glow.map { Self.color(of: $0).opacity(0.55) } ?? .clear,
+                    radius: state.presence.glow == nil ? 0 : 8)
+            .opacity(level == .none ? 0 : 1)
     }
 }

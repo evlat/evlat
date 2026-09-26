@@ -22,6 +22,10 @@ public final class MascotModel: ObservableObject {
     /// catches it. Not a phase and not `override` — see `MascotPose.catching`.
     /// Written only when it changes; nothing writes it while no drag is on.
     @Published public var catching = false
+    /// Whether the mascot is on screen at all: `false` while the body is in
+    /// behind the edge (`BodyPresence.mascotShown`). Written by the controller
+    /// only, and only when it changes.
+    @Published public var isShown = true
 
     public init() {}
 
@@ -38,7 +42,10 @@ public final class MascotModel: ObservableObject {
     /// whichever branch is on screen (`caughtGaze`), so the eyes spring open
     /// on the body already there. Waking would swap the asleep body for the
     /// clip player and the face would crossfade between two views instead.
-    public var isAwake: Bool { hasLive || override != nil }
+    ///
+    /// An unseen mascot sleeps: a clip walking behind the edge would produce
+    /// frames nobody sees.
+    public var isAwake: Bool { (hasLive || override != nil) && isShown }
 
     /// Where the caught file is, while one is: the gaze the catching face
     /// turns to. `nil` when nothing is being caught.

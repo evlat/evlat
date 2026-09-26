@@ -242,6 +242,28 @@ final class BodyPresenceTests: XCTestCase {
         XCTAssertEqual(open, BodyPresence.Area(width: Self.openWidth, length: Self.openLength))
     }
 
+    /// A body shorter than the strip (no session) still holds the strip:
+    /// otherwise the strip's lower end opens it and the body, not reaching
+    /// there, closes it again on the next move.
+    func testTheWholeBodyHoldsTheStripThatOpenedIt() {
+        let short = AppController.barLength(slots: 0)
+        XCTAssertLessThan(short, BodyPresence.triggerLength, "precondition")
+        for mode in [BodyPresence.Mode.smart, .hidden] {
+            for isOpen in [false, true] {
+                let p = BodyPresence(mode: mode, toggles: .init(), phase: .idle, latch: nil,
+                                     peekPhase: nil, isOpen: isOpen, chatOpen: false, dragging: true,
+                                     closedLength: short, openWidth: Self.openWidth, openLength: short)
+                XCTAssertEqual(p.area.length, BodyPresence.triggerLength, "\(mode) open \(isOpen)")
+                XCTAssertEqual(p.trigger, p.area)
+            }
+        }
+        let today = BodyPresence(mode: .always, toggles: .init(), phase: .idle, latch: nil,
+                                 peekPhase: nil, isOpen: false, chatOpen: false, dragging: false,
+                                 closedLength: short, openWidth: Self.openWidth, openLength: short)
+        XCTAssertEqual(today.area.length, short, "today's bar is not lengthened")
+        XCTAssertNil(today.trigger)
+    }
+
     /// The left edge is the right one mirrored, at every level.
     func testTheLeftEdgeIsTheMirrorOfTheRight() {
         let bounds = NSRect(x: 0, y: 0, width: 300, height: 400)
