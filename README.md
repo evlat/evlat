@@ -94,7 +94,8 @@ Contributions are accepted under the
 [Contributor License Agreement](CLA.md). You keep the copyright to your work;
 the agreement lets the project license it under the terms in
 [License](#license), and under other terms (for example, a commercial license).
-You will be asked to accept it on your first pull request.
+On your first pull request a bot asks you to accept it by commenting
+`I have read the CLA Document and I hereby sign the CLA`.
 
 ## License
 
