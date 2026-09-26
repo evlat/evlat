@@ -50,6 +50,8 @@ final class RemoteReadingTests: XCTestCase {
         let home: URL
         let ssh: String
         let runs: URL
+        /// The server user's login shell (`$SHELL`), a fake.
+        let shell: String
 
         var sshRuns: Int {
             ((try? String(contentsOf: runs, encoding: .utf8)) ?? "").split(separator: "\n").count
@@ -58,15 +60,48 @@ final class RemoteReadingTests: XCTestCase {
         var codex: URL { AgentSource.codex.settingsFile(home: home) }
         var command: URL { home.appendingPathComponent(RemoteCommand.commandPath) }
         var key: URL { home.appendingPathComponent(RemoteCommand.keyPath) }
+        func file(_ name: String) -> URL { home.appendingPathComponent(name) }
     }
 
-    private func server(_ shell: String, _ mode: Mode = .run) throws -> Server {
+    /// The PATH a root login on Ubuntu starts with: no `~/.local/bin`.
+    static let rootPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+    /// A fake login shell named `name` (`bash`, `zsh`, `sh`, `fish`): it
+    /// starts from `rootPath`, reads `$HOME`'s startup file as that shell
+    /// would (`.bashrc`, `.zshrc`, else `.profile`) and runs its `-lic`
+    /// command. `body` replaces all of that. The runner's own `$SHELL` is
+    /// never run interactively.
+    private func loginShell(_ name: String, in run: URL, body: String? = nil) throws -> String {
+        let folder = run.appendingPathComponent("shells-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fake = folder.appendingPathComponent(name)
+        try """
+            #!/bin/sh
+            \(FreshExecutable.warmLine)
+            \(body ?? """
+            PATH='\(Self.rootPath)'
+            export PATH
+            case ${0##*/} in bash) r=.bashrc ;; zsh) r=.zshrc ;; *) r=.profile ;; esac
+            [ -f "$HOME/$r" ] && . "$HOME/$r"
+            [ "$1" = -lic ] || exit 64
+            eval "$2"
+            """)
+
+            """.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        FreshExecutable.warm(fake.path)
+        return fake.path
+    }
+
+    private func server(_ shell: String, _ mode: Mode = .run, login: String = "bash",
+                        loginBody: String? = nil) throws -> Server {
         let run = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let home = run.appendingPathComponent("home", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let fake = run.appendingPathComponent("fake-ssh")
         let runs = run.appendingPathComponent("runs")
-        let exec = "umask 022\nHOME='\(home.path)' exec \(shell) -s"
+        let loginShell = try login.isEmpty ? "" : self.loginShell(login, in: run, body: loginBody)
+        let exec = "umask 022\nSHELL='\(loginShell)'\nexport SHELL\nHOME='\(home.path)' exec \(shell) -s"
         let body: String
         switch mode {
         case .run: body = exec
@@ -82,7 +117,7 @@ final class RemoteReadingTests: XCTestCase {
             """.write(to: fake, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
         FreshExecutable.warm(fake.path)
-        return Server(home: home, ssh: fake.path, runs: runs)
+        return Server(home: home, ssh: fake.path, runs: runs, shell: loginShell)
     }
 
     private func folder(_ source: AgentSource, in server: Server) throws {
@@ -115,17 +150,26 @@ final class RemoteReadingTests: XCTestCase {
             _ = RemoteInstaller.apply(change, .install, target: "fake", ssh: server.ssh)
         }
         _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+        // Then "Add to PATH", when the read says a new shell does not find it.
+        if case .success(let reading) = read(server), let path = reading.path, path.onPath == false, !path.added {
+            _ = RemoteInstaller.apply(.pathLine(path.file), .install, target: "fake", ssh: server.ssh)
+        }
     }
 
     /// `text` on `shell`'s stdin with `HOME` at `home`: what a user pasting
     /// the block into their shell on the server runs.
+    /// The user's shell is `loginShell` (`$SHELL`) and its `PATH` is `path`,
+    /// `rootPath` unless given: the PATH part of the block reads both.
     @discardableResult
-    private func paste(_ shell: String, _ text: String, home: URL) throws -> (status: Int32, errors: String) {
+    private func paste(_ shell: String, _ text: String, home: URL, loginShell: String,
+                       path: String = RemoteReadingTests.rootPath) throws -> (status: Int32, errors: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "umask 022; exec \"$0\" -s", shell]
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = home.path
+        environment["SHELL"] = loginShell
+        environment["PATH"] = path
         process.environment = environment
         let input = Pipe(), errors = Pipe()
         process.standardInput = input
@@ -345,14 +389,17 @@ final class RemoteReadingTests: XCTestCase {
                 for server in [automatic, hand] {
                     try seed(.claude, text, in: server)
                     try folder(.codex, in: server)
+                    // A startup file whose last line has no newline.
+                    if text != nil { try Data("alias ll='ls -l'".utf8).write(to: server.file(".bashrc")) }
                 }
                 installAutomatically(automatic)
                 let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(hand), key: key), shell)
-                XCTAssertEqual(try paste(shell, block, home: hand.home).status, 0, shell)
+                XCTAssertEqual(try paste(shell, block, home: hand.home, loginShell: hand.shell).status, 0, shell)
 
                 let label = "\(shell): \(text == nil ? "no file" : "a file")"
                 for (a, b) in [(automatic.claude, hand.claude), (automatic.codex, hand.codex),
-                               (automatic.command, hand.command), (automatic.key, hand.key)] {
+                               (automatic.command, hand.command), (automatic.key, hand.key),
+                               (automatic.file(".bashrc"), hand.file(".bashrc"))] {
                     XCTAssertEqual(bytes(b), bytes(a), "\(label): \(b.lastPathComponent)")
                     XCTAssertEqual(try mode(b), try mode(a), "\(label): \(b.lastPathComponent)'s mode")
                 }
@@ -371,6 +418,13 @@ final class RemoteReadingTests: XCTestCase {
                 XCTAssertEqual(bytes(hand.codex.appendingPathExtension("evlat.bak")),
                                bytes(automatic.codex.appendingPathExtension("evlat.bak")), label)
                 XCTAssertEqual(try mode(hand.key.deletingLastPathComponent()), 0o700, label)
+                XCTAssertEqual(bytes(hand.file(".bashrc.evlat.bak")), bytes(automatic.file(".bashrc.evlat.bak")),
+                               "\(label): .bashrc.evlat.bak")
+                XCTAssertEqual(bytes(hand.file(".bashrc.evlat.bak")), text.map { _ in Data("alias ll='ls -l'".utf8) },
+                               "\(label): the startup file as it was, and none when there was none")
+                XCTAssertEqual(bytes(hand.file(".bashrc")),
+                               Data(((text == nil ? "" : "alias ll='ls -l'\n") + RemotePath.line + "\n").utf8),
+                               "\(label): the PATH line, on a line of its own")
 
                 XCTAssertNil(RemoteSettings.combinedScript(try reading(hand), key: key),
                              "\(label): nothing left to write, no block")
@@ -387,7 +441,7 @@ final class RemoteReadingTests: XCTestCase {
             let theirs = Data(#"{"model":"sonnet"}"#.utf8)
             try theirs.write(to: server.claude)
 
-            let pasted = try paste(shell, block, home: server.home)
+            let pasted = try paste(shell, block, home: server.home, loginShell: server.shell)
             XCTAssertEqual(bytes(server.claude), theirs, "\(shell): theirs is kept")
             XCTAssertTrue(pasted.errors.contains(AgentSource.claude.settingsPath), "\(shell): \(pasted.errors)")
             XCTAssertEqual(try HookSettings.state(at: server.codex, for: .codex), .current, "\(shell): Codex is written")
@@ -411,7 +465,7 @@ final class RemoteReadingTests: XCTestCase {
             let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
             XCTAssertFalse(block.contains(AgentSource.codex.settingsPath), "\(shell): no Codex on the server, no Codex part")
             XCTAssertFalse(block.contains(RemoteCommand.marker), "\(shell): somebody else's evlat, no command part")
-            XCTAssertEqual(try paste(shell, block, home: server.home).status, 0, shell)
+            XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
 
             let settings = try JSONSerialization.jsonObject(with: try XCTUnwrap(bytes(server.claude))) as? [String: Any]
             XCTAssertEqual(HookSettings.state(of: try XCTUnwrap(settings), for: .claude), .current, "\(shell): hooks in")
@@ -429,8 +483,8 @@ final class RemoteReadingTests: XCTestCase {
         try folder(.codex, in: server)
         let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
         let lines = block.split(separator: "\n", omittingEmptySubsequences: false)
-        XCTAssertEqual(lines.filter { $0 == RemoteSettings.combinedDelimiter[...] }.count, 3,
-                       "three parts, each closed once")
+        XCTAssertEqual(lines.filter { $0 == RemoteSettings.combinedDelimiter[...] }.count, 4,
+                       "four parts (two files, the command, the PATH), each closed once")
         XCTAssertTrue(block.contains("<<'\(RemoteSettings.combinedDelimiter)'"), "a quoted delimiter: no expansion")
     }
 
@@ -521,7 +575,8 @@ final class RemoteReadingTests: XCTestCase {
         let model = model(server, machine: machine)
         model.check("m")
         waitUntil("read") { model.readings["m"] != .reading }
-        XCTAssertEqual(model.items(for: "m"), .init(hooks: .outdated, usage: .missing, command: .outdated))
+        XCTAssertEqual(model.items(for: "m"), .init(hooks: .outdated, usage: .missing, command: .outdated,
+                                                    offPath: .init(onPath: false, file: ".bashrc", added: false)))
     }
 }
 
@@ -542,6 +597,215 @@ extension RemoteReadingTests {
         XCTAssertEqual(hooks(file(nil), file(nil)), .missing)
         XCTAssertEqual(hooks(.failure(.noDirectory), .failure(.noDirectory)), .missing)
         XCTAssertEqual(hooks(file(Data("{".utf8)), file(codex)), .unknown)
+    }
+}
+
+// MARK: - PATH
+
+extension RemoteReadingTests {
+    private func pathStatus(_ server: Server, file: StaticString = #filePath, line: UInt = #line) throws -> RemotePath.Status {
+        try XCTUnwrap(try reading(server, file: file, line: line).path, "the probe answered", file: file, line: line)
+    }
+
+    /// `kararla_hetzner`, root: the command installed in `~/.local/bin`, a
+    /// login shell whose PATH has no such folder.
+    func testARootLoginWithoutTheFolderOnItsPathIsOffPath() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+            let reading = try self.reading(server)
+            XCTAssertTrue(reading.command.isCurrent, shell)
+            XCTAssertEqual(reading.path, .init(onPath: false, file: ".bashrc", added: false), shell)
+            let items = RemoteMachinesModel.items(reading)
+            XCTAssertEqual(items.command, .installed, shell)
+            XCTAssertEqual(items.offPath, reading.path, "\(shell): installed, but not found")
+        }
+    }
+
+    func testTheStartupFileFollowsTheLoginShell() throws {
+        for (login, file) in [("bash", ".bashrc"), ("zsh", ".zshrc"), ("sh", ".profile"), ("fish", ".profile")] {
+            for shell in shells {
+                let server = try self.server(shell, login: login)
+                XCTAssertEqual(try pathStatus(server), .init(onPath: false, file: file, added: false), "\(shell) · \(login)")
+            }
+        }
+    }
+
+    func testEvlatsLineInTheStartupFilePutsItOnPath() throws {
+        for shell in shells {
+            let server = try self.server(shell, login: "zsh")
+            try Data((RemotePath.line + "\n").utf8).write(to: server.file(".zshrc"))
+            XCTAssertEqual(try pathStatus(server), .init(onPath: true, file: ".zshrc", added: true), shell)
+
+            // The user's own line, not Evlat's: on PATH, nothing of Evlat's to take back.
+            try Data("PATH=\"$HOME/.local/bin/:$PATH\"\n".utf8).write(to: server.file(".zshrc"))
+            XCTAssertEqual(try pathStatus(server), .init(onPath: true, file: ".zshrc", added: false), shell)
+        }
+    }
+
+    func testWhatAStartupFilePrintsDoesNotFoolTheRead() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            let noise = """
+                echo 'Welcome to kararla'
+                printf 'x ipath %s\\n' "$HOME/.local/bin"
+                printf 'x path 1 1 .bashrc\\n'
+                echo 'to stderr' >&2
+                printf 'no newline at the end'
+
+                """
+            try Data(noise.utf8).write(to: server.file(".bashrc"))
+            XCTAssertEqual(try pathStatus(server), .init(onPath: false, file: ".bashrc", added: false), shell)
+            try Data((noise + RemotePath.line + "\n" + "printf 'more'\n").utf8).write(to: server.file(".bashrc"))
+            XCTAssertEqual(try pathStatus(server), .init(onPath: true, file: ".bashrc", added: true), shell)
+        }
+    }
+
+    /// A shell that never answers is given up on in `patience` seconds —
+    /// its child with it, which would hold the read's pipe open — and says
+    /// nothing about the PATH; the rest of the read stands.
+    func testAShellThatHangsIsGivenUpOn() throws {
+        for body in ["sleep 30", "exec sleep 30", "read line; echo never"] {
+            let server = try self.server("/bin/dash", login: "bash", loginBody: body)
+            try seed(.claude, oldHook, in: server)
+            let started = Date()
+            let result = RemoteInstaller.applyRead(target: "fake", ssh: server.ssh, patience: 1)
+            XCTAssertLessThan(Date().timeIntervalSince(started), 10, body)
+            guard case .success(let reading) = result else { return XCTFail("\(body): \(result)") }
+            XCTAssertNotNil(reading.path, body)
+            XCTAssertNil(reading.path?.onPath, "\(body): unknown, not off PATH")
+            XCTAssertEqual(reading.hooks(.claude), .state(.outdated), body)
+            XCTAssertEqual(RemoteMachinesModel.items(reading).offPath, nil, body)
+        }
+    }
+
+    func testNoLoginShellSaysNothingAboutThePath() throws {
+        let server = try self.server("/bin/sh", login: "")
+        XCTAssertEqual(try pathStatus(server), .init(onPath: nil, file: ".profile", added: false))
+    }
+
+    // MARK: Adding and removing the line
+
+    func testAddingTheLineIsIdempotentBacksUpOnceAndCreatesAMissingFile() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            let rc = server.file(".bashrc")
+            XCTAssertEqual(RemoteInstaller.apply(.pathLine(".bashrc"), .install, target: "fake", ssh: server.ssh),
+                           .success(.written), shell)
+            XCTAssertEqual(bytes(rc), Data((RemotePath.line + "\n").utf8), "\(shell): a missing file is made")
+            XCTAssertNil(bytes(server.file(".bashrc.evlat.bak")), "\(shell): nothing to back up")
+            XCTAssertEqual(try pathStatus(server), .init(onPath: true, file: ".bashrc", added: true), shell)
+
+            let mine = "alias ll='ls -l'\n"
+            try Data(mine.utf8).write(to: rc)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: rc.path)
+            XCTAssertEqual(RemoteInstaller.apply(.pathLine(".bashrc"), .install, target: "fake", ssh: server.ssh),
+                           .success(.written), shell)
+            XCTAssertEqual(bytes(rc), Data((mine + RemotePath.line + "\n").utf8), shell)
+            XCTAssertEqual(try mode(rc), 0o600, "\(shell): the file keeps its mode")
+            XCTAssertEqual(bytes(server.file(".bashrc.evlat.bak")), Data(mine.utf8), "\(shell): the first backup")
+
+            let before = try tree(server.home)
+            XCTAssertEqual(RemoteInstaller.apply(.pathLine(".bashrc"), .install, target: "fake", ssh: server.ssh),
+                           .success(.unchanged), "\(shell): already there")
+            XCTAssertEqual(try tree(server.home), before, "\(shell): nothing written the second time")
+
+            try Data(("# changed\n" + mine).utf8).write(to: rc)
+            _ = RemoteInstaller.apply(.pathLine(".bashrc"), .install, target: "fake", ssh: server.ssh)
+            XCTAssertEqual(bytes(server.file(".bashrc.evlat.bak")), Data(mine.utf8), "\(shell): the backup is kept")
+        }
+    }
+
+    func testAStartupFileThatChangedSinceItWasReadIsLeftAlone() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            try Data("a\n".utf8).write(to: server.file(".bashrc"))
+            let theirs = Data("a\nb\n".utf8)
+            let result = RemoteInstaller.apply(.pathLine(".bashrc"), .install, target: "fake", ssh: server.ssh,
+                                               beforeWrite: { try? theirs.write(to: server.file(".bashrc")) })
+            XCTAssertEqual(result, .failure(.file(.changedUnderneath)), shell)
+            XCTAssertEqual(bytes(server.file(".bashrc")), theirs, shell)
+        }
+    }
+
+    func testRemovingTheCommandTakesOnlyEvlatsLine() throws {
+        let server = try self.server("/bin/sh")
+        let theirs = "export PATH=\"$HOME/.local/bin:$PATH\"\n"
+        try Data(theirs.utf8).write(to: server.file(".bashrc"))
+        _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+        _ = RemoteInstaller.apply(.pathLine(".bashrc"), .install, target: "fake", ssh: server.ssh)
+        XCTAssertEqual(bytes(server.file(".bashrc")), Data((theirs + RemotePath.line + "\n").utf8))
+
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        XCTAssertEqual(model.items(for: "m").command, .installed)
+        XCTAssertEqual(model.pathLineToRemove(for: "m"), ".bashrc", "the removal's consent names the file")
+        model.perform(.command, .remove, on: "m")
+        waitUntil("removed") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: server.command.path))
+        XCTAssertEqual(bytes(server.file(".bashrc")), Data(theirs.utf8), "the user's own PATH line stays")
+        XCTAssertEqual(model.outcomes["m"]?.trouble, false, model.outcomes["m"]?.line ?? "")
+    }
+
+    func testAddToPathFromTheModelThenTheRowSaysInstalled() throws {
+        let server = try self.server("/bin/sh")
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        model.runCommand(.install)
+        waitUntil("installed") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: server.file(".bashrc").path),
+                       "installing the command writes no startup file")
+        XCTAssertEqual(model.items(for: "m").offPath?.file, ".bashrc", "the row says: not on PATH")
+
+        model.addToPath("m")
+        waitUntil("added") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
+        XCTAssertEqual(model.outcomes["m"]?.trouble, false, model.outcomes["m"]?.line ?? "")
+        XCTAssertNil(model.items(for: "m").offPath, "a new login shell finds it")
+        XCTAssertEqual(model.items(for: "m").command, .installed)
+        XCTAssertEqual(bytes(server.file(".bashrc")), Data((RemotePath.line + "\n").utf8))
+    }
+
+    // MARK: The one block's PATH part
+
+    func testTheBlocksPathPartWritesNothingWhenThePathAlreadyHasTheFolder() throws {
+        for shell in shells {
+            let server = try self.server(shell)
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            XCTAssertTrue(block.contains(RemotePath.line), shell)
+            let path = server.home.appendingPathComponent(RemotePath.directory).path + ":" + Self.rootPath
+            XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell, path: path).status, 0, shell)
+            XCTAssertNil(bytes(server.file(".bashrc")), "\(shell): the user's PATH has it: no file is written")
+            XCTAssertEqual(bytes(server.command), Data(RemoteCommand.script.utf8), "\(shell): the command is written")
+        }
+    }
+
+    func testTheBlocksPathPartAddsNoSecondLine() throws {
+        for shell in shells {
+            let server = try self.server(shell, login: "zsh")
+            try Data((RemotePath.line + "\n").utf8).write(to: server.file(".zshrc"))
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            // The shell the user pastes into has not read the file yet.
+            XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
+            XCTAssertEqual(bytes(server.file(".zshrc")), Data((RemotePath.line + "\n").utf8), shell)
+            XCTAssertNil(bytes(server.file(".zshrc.evlat.bak")), shell)
+        }
+    }
+
+    func testTheBlockAddsThePathForACommandAlreadyInstalled() throws {
+        for shell in shells {
+            let server = try self.server(shell, login: "sh")
+            _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key),
+                                      "\(shell): the command is current, the PATH is not")
+            XCTAssertFalse(block.contains(RemoteCommand.marker), "\(shell): no command part")
+            XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
+            XCTAssertEqual(bytes(server.file(".profile")), Data((RemotePath.line + "\n").utf8), shell)
+            XCTAssertNil(RemoteSettings.combinedScript(try reading(server), key: key), "\(shell): nothing left")
+        }
     }
 }
 

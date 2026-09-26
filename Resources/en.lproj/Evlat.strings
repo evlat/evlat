@@ -139,9 +139,10 @@
 
 /* Setting the server up: two ways, always both offered. */
 /* The result line: one "{change}: {result}" per file, joined with " · ".
-   {change} is source.* or remote.change.usage. */
+   {change} is source.*, remote.change.usage or remote.change.path. */
 "remote.result.part" = "{change}: {result}";
 "remote.change.usage" = "Usage line";
+"remote.change.path" = "PATH line";
 "remote.result.installed" = "installed";
 "remote.result.removed" = "removed";
 "remote.result.current" = "already up to date";
@@ -182,7 +183,7 @@
 "remote.command.result.unwritable" = "Could not write on the server: ~/.local/bin or ~/.config/evlat is not writable.";
 "remote.command.result.unreachable" = "Could not reach the server; nothing was changed.";
 "remote.command.noCurl" = "curl is not on the server: evlat sends with curl, so nothing reaches the bar until it is installed.";
-"remote.command.try" = "Try it in a new session on the server: evlat --list. If the shell does not find evlat, ~/.local/bin is not on your PATH — run ~/.local/bin/evlat, or add it to PATH.";
+"remote.command.try" = "Try it in a new session on the server: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
 "remote.command.manual.key" = "~/.config/evlat/signal.token — this machine's key, readable by you alone:";
 "remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
@@ -411,6 +412,15 @@
 "settings.remote.what.command.remove" = "the evlat command is removed";
 "settings.remote.what.key" = "this machine's key, readable by you alone";
 "settings.remote.what.key.remove" = "the key is removed";
+/* The evlat row when a new login shell on the server does not find the command. */
+"settings.remote.path.status" = "Not on PATH";
+"settings.remote.path.note" = "A new shell on the server does not find evlat: ~/.local/bin is not on its PATH.";
+"settings.remote.path.stillOff" = "Evlat's line is in {file}, but a new login shell still does not find evlat: that file may not be read at login (for bash, ~/.bash_profile has to read ~/.bashrc).";
+"settings.remote.path.add" = "Add to PATH";
+"settings.remote.what.path" = "one line that puts ~/.local/bin on PATH";
+"settings.remote.what.path.remove" = "Evlat's PATH line is removed";
+"settings.remote.path.manual" = "Add this line to {file}, then open a new shell:";
+"settings.remote.path.manual.remove" = "To remove: delete the line that ends with {marker} from {file}.";
 
 /* The setup window (014/phase-3) */
 "menu.setup" = "Setup…";

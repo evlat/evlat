@@ -164,6 +164,13 @@ tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
   koşturur.** Tuzaklardan sonra başlatılan nabız `kill`'de ölmek yerine
   ebeveynin "TERM yakalandı" tuzağını koştu ve `watch` asıldı
   (`013/phase-3`). Arka plan işleri tuzaklar kurulmadan **önce** başlatılır.
+- **`ssh … sh -s`'in PATH'i kullanıcının kabuğununki değildir.** Sunucuya
+  kurulan `~/.local/bin/evlat` satırda "kurulu" okurken `kararla_hetzner`'da
+  (Ubuntu, root) `evlat watch` "command not found" dedi: Ubuntu
+  `~/.local/bin`'i yalnız normal kullanıcının `~/.profile`'ında ekler, root'unkinde
+  değil (`014` ek, gerçek kullanıcıda). Komutun bulunduğunu söyleyen okuma
+  kullanıcının `$SHELL`'ini `-lic` ile koşturur (`RemotePath.probe`); sınamada
+  gerçek `$SHELL` değil sahte kabuk kullanılır.
 - **Evlat ikilisi tanımadığı argümanla uygulamanın kendisini açıyordu.**
   `Evlat --help` yardım basmadı; ortamsız (yalıtımsız) ikinci bir Evlat
   açıldı, kullanıcının makinelerine tünel denedi (`013/phase-5`). `013` kapısından beri

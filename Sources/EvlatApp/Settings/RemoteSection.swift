@@ -272,6 +272,14 @@ private struct ServerItemRow: View {
         }
     }
 
+    /// The command installed and current, but not found by a new login
+    /// shell on the server: the row says so and offers the PATH line
+    /// beside "Remove" — automatically, or by hand.
+    private var offPath: RemotePath.Status? {
+        guard item == .command, status == .installed else { return nil }
+        return model.items(for: row.id).offPath
+    }
+
     /// What the button does from the state: unknown (not read, or not
     /// readable) offers the install, which leaves a current setup as it is.
     private var action: RemoteSettings.Action? {
@@ -289,20 +297,42 @@ private struct ServerItemRow: View {
                 state
             }
             .opacity(status == .foreign ? 0.55 : 1)
-            if let action, manual != .item(item), model.readings[row.id] != .reading,
-               model.working[row.id] != item {
-                ConsentAction(lines: consent(action), title: model.t(buttonKey(action)),
-                              enabled: model.canRun(row.id)) {
-                    model.perform(item, action, on: row.id)
+            if let offPath {
+                Text(offPath.added ? model.t("settings.remote.path.stillOff", ["file": "~/" + offPath.file])
+                                   : model.t("settings.remote.path.note"))
+                    .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if manual != .item(item), model.readings[row.id] != .reading, model.working[row.id] != item {
+                // Evlat's line already there and still not found: nothing to
+                // add; the command can still be removed, line and all.
+                if let offPath, !offPath.added {
+                    ConsentAction(lines: [consentLine(offPath.file, "settings.remote.what.path")],
+                                  title: model.t("settings.remote.path.add"), enabled: model.canRun(row.id)) {
+                        model.addToPath(row.id)
+                    }
+                }
+                if let action {
+                    ConsentAction(lines: consent(action), title: model.t(buttonKey(action)),
+                                  enabled: model.canRun(row.id)) {
+                        model.perform(item, action, on: row.id)
+                    }
                 }
             }
-            manualPart
+            if let offPath {
+                if !offPath.added { pathManualPart(offPath) }
+            } else {
+                manualPart
+            }
         }
     }
 
     @ViewBuilder private var state: some View {
         if model.working[row.id] == item || model.readings[row.id] == .reading {
             ProgressView().controlSize(.small).frame(height: 16)
+        } else if offPath != nil {
+            StatusText(status: .outdated, text: model.t("settings.remote.path.status"))
         } else {
             StatusText(status: status, text: model.t(status.key))
         }
@@ -332,12 +362,14 @@ private struct ServerItemRow: View {
         }
     }
 
+    private func consentLine(_ file: String, _ whatKey: String) -> String {
+        model.t("setup.consent.line", ["file": path(file), "what": model.t(whatKey)])
+    }
+
     /// R3 for the server: each file the press writes, by its server path.
     private func consent(_ action: RemoteSettings.Action) -> [String] {
         let install = action == .install
-        func line(_ file: String, _ whatKey: String) -> String {
-            model.t("setup.consent.line", ["file": path(file), "what": model.t(whatKey)])
-        }
+        let line = consentLine
         switch item {
         case .hooks:
             let what = install ? "setup.consent.what.hooks" : "setup.consent.what.hooks.remove"
@@ -346,9 +378,14 @@ private struct ServerItemRow: View {
             return [line(AgentSource.claude.settingsPath,
                          install ? "setup.consent.what.usage" : "setup.consent.what.usage.remove")]
         case .command:
-            return [line(RemoteCommand.commandPath, install ? "settings.remote.what.command"
-                                                            : "settings.remote.what.command.remove"),
-                    line(RemoteCommand.keyPath, install ? "settings.remote.what.key" : "settings.remote.what.key.remove")]
+            var lines = [line(RemoteCommand.commandPath, install ? "settings.remote.what.command"
+                                                                 : "settings.remote.what.command.remove"),
+                         line(RemoteCommand.keyPath, install ? "settings.remote.what.key" : "settings.remote.what.key.remove")]
+            // The removal takes Evlat's PATH line with the command.
+            if !install, let file = model.pathLineToRemove(for: row.id) {
+                lines.append(line(file, "settings.remote.what.path.remove"))
+            }
+            return lines
         }
     }
 
@@ -390,6 +427,32 @@ private struct ServerItemRow: View {
                 Button(model.t("setup.manual.open")) { manual = .item(item) }
                     .buttonStyle(LinkButtonStyle())
             }
+        }
+    }
+
+    /// The PATH line by hand: the line, the file it goes into, and how to
+    /// take it out again.
+    @ViewBuilder private func pathManualPart(_ offPath: RemotePath.Status) -> some View {
+        if manual == .item(item) {
+            let block = RemoteMachinesModel.pathBlock
+            VStack(alignment: .leading, spacing: 6) {
+                ManualBox(lead: model.t(block.captionKey, ["file": path(offPath.file)]), text: block.shown,
+                          footnote: model.t("settings.remote.path.manual.remove",
+                                            ["marker": RemotePath.marker, "file": "~/" + offPath.file])) {
+                    Button(model.copied == block.id ? model.t("remote.copied") : model.t("remote.copy")) {
+                        model.copy(block)
+                    }
+                    .buttonStyle(SmallButtonStyle())
+                    Button(model.t("setup.manual.check")) { model.check(row.id) }
+                        .buttonStyle(SmallButtonStyle())
+                        .disabled(!model.canRun(row.id))
+                    Button(model.t("setup.manual.auto")) { manual = nil }
+                        .buttonStyle(LinkButtonStyle())
+                }
+            }
+        } else {
+            Button(model.t("setup.manual.open")) { manual = .item(item) }
+                .buttonStyle(LinkButtonStyle())
         }
     }
 

@@ -91,6 +91,11 @@ final class RemoteMachinesModel: ObservableObject {
         let hooks: SetupStatus
         let usage: SetupStatus
         let command: SetupStatus
+        /// The command is Evlat's, but a new login shell on the server does
+        /// not find it: `~/.local/bin` is not on its `PATH`. `nil` when it
+        /// is, when there is no command, or when no shell answered — then
+        /// the row says what it said before the check.
+        var offPath: RemotePath.Status? = nil
 
         static let unknown = Items(hooks: .unknown, usage: .unknown, command: .unknown)
     }
@@ -288,14 +293,18 @@ final class RemoteMachinesModel: ObservableObject {
     /// Runs `job` on the selected machine. A machine already running one
     /// refuses a second (the installer's rule, shown as disabled buttons).
     func run(_ job: Job) {
-        guard let row = selectedRow, canRun(row.id) else { return }
-        let id = row.id
-        let started = installer.run(job.changes, job.action, machine: id, target: row.target) {
+        guard let row = selectedRow else { return }
+        run(job.changes, job.action, machine: row.id)
+    }
+
+    private func run(_ changes: [RemoteSettings.Change], _ action: RemoteSettings.Action, machine id: String) {
+        guard let row = rows.first(where: { $0.id == id }), canRun(id) else { return }
+        let started = installer.run(changes, action, machine: id, target: row.target) {
             [weak self] results in
             guard let self else { return }
             self.busy.remove(id)
             self.working[id] = nil
-            self.outcomes[id] = Self.outcome(results, job.action, in: self.lang)
+            self.outcomes[id] = Self.outcome(results, action, in: self.lang)
             self.reread(id)
         }
         guard started else { return }
@@ -329,7 +338,7 @@ final class RemoteMachinesModel: ObservableObject {
             case (.hooks(.codex), .install): key = "menu.hooks.hint.codex"
             case (.hooks(.codex), .remove): key = "menu.hooks.hint.remove"
             case (.statusLine, .install): key = "menu.usage.hint"
-            case (.hooks(.claude), .remove), (.statusLine, .remove): key = nil
+            case (.hooks(.claude), .remove), (.statusLine, .remove), (.pathLine, _): key = nil
             }
             if let key { hints.append(L10n.t(key, in: lang)) }
         }
@@ -397,12 +406,32 @@ final class RemoteMachinesModel: ObservableObject {
         }
 
         let command: SetupStatus
+        var offPath: RemotePath.Status?
         switch reading.command {
         case .missing: command = .missing
         case .foreign: command = .foreign
-        case .installed: command = reading.command.isCurrent ? .installed : .outdated
+        case .installed:
+            command = reading.command.isCurrent ? .installed : .outdated
+            if let path = reading.path, path.onPath == false { offPath = path }
         }
-        return Items(hooks: hooks, usage: usage, command: command)
+        return Items(hooks: hooks, usage: usage, command: command, offPath: offPath)
+    }
+
+    /// The startup file whose Evlat `PATH` line a removal of the command
+    /// takes with it — what its consent names; `nil` when there is none.
+    func pathLineToRemove(for id: String) -> String? {
+        guard case .read(let reading)? = readings[id], case .installed = reading.command,
+              let path = reading.path, path.added else { return nil }
+        return path.file
+    }
+
+    /// "Add to PATH": Evlat's line into the startup file the read chose,
+    /// under the machine's lock, then the machine is read again.
+    func addToPath(_ id: String) {
+        guard let file = items(for: id).offPath?.file else { return }
+        selection = id
+        run([.pathLine(file)], .install, machine: id)
+        if busy.contains(id) { working[id] = .command }
     }
 
     /// Every row's block in one, from the machine's last reading
@@ -422,12 +451,14 @@ final class RemoteMachinesModel: ObservableObject {
     func runCommand(_ action: RemoteSettings.Action) {
         guard let row = selectedRow, canRun(row.id), let key = host.signalKey(row.id) else { return }
         let id = row.id
-        let started = installer.runCommand(action, key: key, machine: id, target: row.target) {
-            [weak self] result in
+        // The line the consent named, read with it: none on an install.
+        let pathLine = action == .remove ? pathLineToRemove(for: id) : nil
+        let started = installer.runCommand(action, key: key, pathLine: pathLine, machine: id, target: row.target) {
+            [weak self] result, path in
             guard let self else { return }
             self.busy.remove(id)
             self.working[id] = nil
-            self.outcomes[id] = Self.commandOutcome(result, action, in: self.lang)
+            self.outcomes[id] = Self.commandOutcome(result, action, path: path, in: self.lang)
             self.reread(id)
         }
         guard started else { return }
@@ -436,13 +467,19 @@ final class RemoteMachinesModel: ObservableObject {
     }
 
     /// What was done; after an install, `curl` missing (the command then
-    /// sends nothing) and how to try it. The PATH is not probed: `ssh … sh
-    /// -s` is not a login shell, and a login adds `~/.local/bin` on many
-    /// servers — the hint says what to do if a new session does not find it.
+    /// sends nothing) and how to try it. Whether a new login shell finds it
+    /// is the row's to say, from the read that follows (`RemotePath`). A
+    /// removal that took Evlat's `PATH` line says so after the command's
+    /// line (`path`).
     static func commandOutcome(_ result: RemoteInstaller.CommandResult, _ action: RemoteSettings.Action,
-                               in lang: String) -> Outcome {
-        let line = L10n.t(commandResultKey(result, action), in: lang)
+                               path: RemoteInstaller.Result? = nil, in lang: String) -> Outcome {
+        var line = L10n.t(commandResultKey(result, action), in: lang)
         guard case .success(let report) = result else { return Outcome(line: line, trouble: true, hints: []) }
+        if let path {
+            let part = outcome([(.pathLine(""), path)], action, in: lang)
+            line += " " + part.line
+            if part.trouble { return Outcome(line: line, trouble: true, hints: []) }
+        }
         guard action == .install else { return Outcome(line: line, trouble: false, hints: []) }
         var hints: [String] = []
         if !report.curl { hints.append(L10n.t("remote.command.noCurl", in: lang)) }
@@ -478,6 +515,9 @@ final class RemoteMachinesModel: ObservableObject {
         ]
     }
 
+    /// The PATH line to paste into the startup file the read chose.
+    static let pathBlock = Block(id: "command.path", captionKey: "settings.remote.path.manual", text: RemotePath.line)
+
     /// How a key is drawn.
     static let mask = String(repeating: "•", count: 16)
 
@@ -485,6 +525,7 @@ final class RemoteMachinesModel: ObservableObject {
         switch change {
         case .hooks(let source): return "source.\(source.rawValue)"
         case .statusLine: return "remote.change.usage"
+        case .pathLine: return "remote.change.path"
         }
     }
 
@@ -598,7 +639,7 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.environment",
                     "remote.state.stopped", "remote.state.connecting", "remote.state.connected",
                     "remote.state.connected.sessions", "remote.state.waiting", "remote.retry", "remote.retry.soon",
-                    "remote.change.usage", "remote.result.part",
+                    "remote.change.usage", "remote.change.path", "remote.result.part",
                     "remote.manual.remove", "remote.manual.surface",
                     "remote.copy", "remote.copied",
                     "remote.remove", "remote.remove.confirm", "remote.remove.cancel", "remote.remove.do",

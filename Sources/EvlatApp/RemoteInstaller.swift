@@ -58,13 +58,18 @@ final class RemoteInstaller {
 
     /// Installs or removes the server's `evlat` and its key on `target`,
     /// under the same one-job-per-machine lock as the settings: the buttons
-    /// of both go off together.
+    /// of both go off together. `pathLine`, on a removal: the startup file
+    /// whose Evlat `PATH` line goes with the command, in the same job, once
+    /// the command is gone.
     @discardableResult
-    func runCommand(_ action: RemoteSettings.Action, key: String, machine: String, target: String,
-                    completion: @escaping (CommandResult) -> Void) -> Bool {
+    func runCommand(_ action: RemoteSettings.Action, key: String, pathLine: String? = nil,
+                    machine: String, target: String,
+                    completion: @escaping (CommandResult, Result?) -> Void) -> Bool {
         let sshPath = self.sshPath
-        return start(machine: machine, completion: completion) {
-            Self.applyCommand(action, key: key, target: target, ssh: sshPath)
+        return start(machine: machine, completion: { (both: (CommandResult, Result?)) in completion(both.0, both.1) }) {
+            let command = Self.applyCommand(action, key: key, target: target, ssh: sshPath)
+            guard action == .remove, case .success = command, let pathLine else { return (command, Result?.none) }
+            return (command, Self.apply(.pathLine(pathLine), .remove, target: target, ssh: sshPath))
         }
     }
 
@@ -81,10 +86,11 @@ final class RemoteInstaller {
     }
 
     /// The read's one call, synchronously.
-    static func applyRead(target: String, ssh: String) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
+    static func applyRead(target: String, ssh: String,
+                          patience: Int = RemotePath.patience) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
         let nonce = UUID().uuidString
         guard let answer = try? run(ssh, RemoteSettings.arguments(target: target),
-                                    script: RemoteSettings.readingScript(nonce: nonce)) else {
+                                    script: RemoteSettings.readingScript(nonce: nonce, patience: patience)) else {
             return .failure(.unreachable)
         }
         do {

@@ -32,12 +32,15 @@ public enum RemoteSettings {
     public enum Change: Hashable {
         case hooks(AgentSource)
         case statusLine
+        /// `RemotePath.line` in a startup file (`.bashrc`…): text, not JSON.
+        case pathLine(String)
 
         /// The file, relative to the server's `$HOME`.
         public var path: String {
             switch self {
             case .hooks(let source): return source.settingsPath
             case .statusLine: return AgentSource.claude.settingsPath
+            case .pathLine(let file): return file
             }
         }
     }
@@ -151,6 +154,9 @@ public enum RemoteSettings {
     /// writers decide it from the file.
     public static func plan(_ change: Change, _ action: Action, original: Data?) throws -> Write? {
         do {
+            if case .pathLine = change {
+                return try RemotePath.plan(action, original: original).map { Write(contents: $0, backup: nil) }
+            }
             let settings = try SettingsFile.parse(original)
             switch (change, action) {
             case (.hooks(let source), .install):
@@ -175,6 +181,8 @@ public enum RemoteSettings {
                     return nil
                 }
                 return Write(contents: data, backup: nil)
+            case (.pathLine, _):
+                return nil
             }
         } catch let failure as SettingsFile.Failure {
             throw Failure.file(failure)
@@ -247,10 +255,13 @@ public enum RemoteSettings {
     }
 
     /// A machine as one call found it (`readingScript`): both settings
-    /// files' bytes with their `cksum`, and the `evlat` command.
+    /// files' bytes with their `cksum`, the `evlat` command, and whether a
+    /// new login shell finds it.
     public struct Reading: Equatable {
         public let files: [AgentSource: Result<Snapshot, SettingsFile.Failure>]
         public let command: RemoteCommand.Status
+        /// `nil` when the probe's line was not in the answer.
+        public var path: RemotePath.Status?
 
         /// The local reader's state, from the bytes read.
         public func hooks(_ source: AgentSource) -> Found<HookSettings.State> {
@@ -278,7 +289,7 @@ public enum RemoteSettings {
     /// runs in its own subshell, so a missing folder ends its part and not
     /// the read. It reads only: nothing is written, not even a temporary
     /// file, and a file that changes while it is read reads as unreadable.
-    public static func readingScript(nonce: String) -> String {
+    public static func readingScript(nonce: String, patience: Int = RemotePath.patience) -> String {
         let unreadable = code(.unreadable)
         var script = ""
         for source in AgentSource.allCases {
@@ -296,7 +307,8 @@ public enum RemoteSettings {
 
             """
         }
-        return script + RemoteCommand.statusProbe(nonce: nonce) + "\nexit 0\n"
+        return script + RemoteCommand.statusProbe(nonce: nonce) + "\n"
+            + RemotePath.probe(nonce: nonce, patience: patience) + "\nexit 0\n"
     }
 
     /// The script's answer; `unreachable` when `ssh` failed or no line of
@@ -325,7 +337,7 @@ public enum RemoteSettings {
             let bytes = Data(output[output.index(after: lineEnd)..<ending.lowerBound])
             files[source] = .success(Snapshot(bytes: checksum == absent ? nil : bytes, checksum: checksum))
         }
-        return Reading(files: files, command: command)
+        return Reading(files: files, command: command, path: RemotePath.status(output: output, nonce: nonce))
     }
 
     // MARK: - The one block
@@ -338,7 +350,8 @@ public enum RemoteSettings {
     /// runs in their own shell on the server — made from `reading`, so the
     /// same bytes: a settings file's part is its `writeScript` against the
     /// `cksum` read, and refuses a file that changed since; the command's
-    /// part is `RemoteCommand.manual`'s blocks.
+    /// part is `RemoteCommand.manual`'s blocks; the PATH part adds
+    /// `RemotePath.line` unless the pasting shell's `PATH` has the folder.
     ///
     /// It carries each settings file whole, as read. A part is left out
     /// when there is nothing to write, the agent's folder is missing, the
@@ -368,7 +381,8 @@ public enum RemoteSettings {
             parts.append(part(file: "~/" + source.settingsPath,
                               writeScript(path: source.settingsPath, expected: snapshot.checksum, write: write)))
         }
-        if reading.command != .foreign, !reading.command.isCurrent {
+        let commandPart = reading.command != .foreign && !reading.command.isCurrent
+        if commandPart {
             let manual = RemoteCommand.manual(key: key)
             let marker = quoted(RemoteCommand.marker)
             parts.append(part(file: "~/" + RemoteCommand.commandPath, """
@@ -380,6 +394,14 @@ public enum RemoteSettings {
                 exit 0
 
                 """))
+        }
+        // The command's folder on the user's PATH: decided where the block
+        // runs, in the user's own shell; left out when the read found it
+        // there or Evlat's line already in the file.
+        if reading.command != .foreign,
+           commandPart || reading.path?.onPath != true,
+           reading.path?.added != true {
+            parts.append(part(file: "~/" + (reading.path?.file ?? ".profile"), RemotePath.combinedPart))
         }
         guard !parts.isEmpty else { return nil }
         return parts.joined()

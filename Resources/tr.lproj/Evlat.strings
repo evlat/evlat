@@ -91,6 +91,7 @@
 
 "remote.result.part" = "{change}: {result}";
 "remote.change.usage" = "Kullanım satırı";
+"remote.change.path" = "PATH satırı";
 "remote.result.installed" = "kuruldu";
 "remote.result.removed" = "kaldırıldı";
 "remote.result.current" = "zaten güncel";
@@ -125,7 +126,7 @@
 "remote.command.result.unwritable" = "Sunucuya yazılamadı: ~/.local/bin ya da ~/.config/evlat yazılabilir değil.";
 "remote.command.result.unreachable" = "Sunucuya ulaşılamadı; hiçbir şey değişmedi.";
 "remote.command.noCurl" = "Sunucuda curl yok: evlat curl ile gönderir, o kurulana dek bara hiçbir şey gelmez.";
-"remote.command.try" = "Sunucuda yeni bir oturumda dene: evlat --list. Kabuk evlat'ı bulamazsa ~/.local/bin PATH'inde değildir — ~/.local/bin/evlat diye çağır ya da PATH'e ekle.";
+"remote.command.try" = "Sunucuda yeni bir oturumda dene: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
 "remote.command.manual.key" = "~/.config/evlat/signal.token — bu makinenin anahtarı, yalnız senin okuyabileceğin biçimde:";
 "remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
@@ -354,6 +355,14 @@
 "settings.remote.what.command.remove" = "evlat komutu kaldırılır";
 "settings.remote.what.key" = "bu makinenin anahtarı, yalnız sana açık";
 "settings.remote.what.key.remove" = "anahtar kaldırılır";
+"settings.remote.path.status" = "PATH'te değil";
+"settings.remote.path.note" = "Sunucuda yeni bir kabuk evlat'ı bulamıyor: ~/.local/bin PATH'inde değil.";
+"settings.remote.path.stillOff" = "Evlat'ın satırı {file} içinde, ama yeni bir oturum kabuğu evlat'ı hâlâ bulamıyor: bu dosya oturum açılışında okunmuyor olabilir (bash'te ~/.bash_profile'ın ~/.bashrc'yi okuması gerekir).";
+"settings.remote.path.add" = "PATH'e ekle";
+"settings.remote.what.path" = "~/.local/bin'i PATH'e koyan tek satır";
+"settings.remote.what.path.remove" = "Evlat'ın PATH satırı silinir";
+"settings.remote.path.manual" = "Bu satırı {file} dosyasına ekle, sonra yeni bir kabuk aç:";
+"settings.remote.path.manual.remove" = "Kaldırmak için: {file} içinde {marker} ile biten satırı sil.";
 
 /* Kurulum penceresi (014/phase-3) */
 "menu.setup" = "Kurulum…";

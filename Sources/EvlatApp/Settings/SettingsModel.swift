@@ -207,5 +207,8 @@ final class SettingsModel: ObservableObject {
         "settings.remote.retry", "settings.remote.close",
         "settings.remote.what.command", "settings.remote.what.command.remove",
         "settings.remote.what.key", "settings.remote.what.key.remove",
+        "settings.remote.path.status", "settings.remote.path.note", "settings.remote.path.stillOff",
+        "settings.remote.path.add", "settings.remote.what.path", "settings.remote.what.path.remove",
+        "settings.remote.path.manual", "settings.remote.path.manual.remove",
     ]
 }
