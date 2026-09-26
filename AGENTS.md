@@ -1,197 +1,471 @@
 # AGENTS.md
 
-Bu depoda çalışan ajanlar için **harita**. Kural taşımaz, kuralın sahibine
-götürür — aynı kural iki yerde dursa biri düzeltildiğinde öteki sessizce eskir.
+Guide for agents (and people) working in this repository. It holds the
+architecture's reasons, the contracts that must not move, how to verify a
+change, and the pitfalls that have already cost something. Every pitfall below
+was actually hit once; none is a guess.
 
-## Proje ne
+When this file and the code disagree, the code wins — then fix this file. A
+rule written here with no counterpart in the code means one of the two is lying.
 
-Evlat v2 — macOS için, ekranın kenarında duran bir durum şeridi. AI kodlama
-oturumlarının ne yaptığını periferik olarak anlatır: barın başında bir maskot
-toplu durumu gösterir, altında oturum başına bir gösterge durur.
+## What this is
 
-Uygulama "AI oturumu" bilmez, **`Signal`** bilir. Oturum takibi bu soyutlamanın
-ilk sağlayıcısıdır; usage, job ve dışarıdan gelen sinyaller aynı yoldan girer.
+Evlat is a macOS status strip that sits on the edge of the screen and tells you,
+peripherally, what your AI coding sessions are doing. A mascot at the head of
+the bar shows the aggregate state; below it, one indicator per session.
 
-## Nereye bakmalı
+The app does not know about "AI sessions". It knows about **`Signal`s**.
+Session tracking is the first provider of that abstraction; usage windows,
+chat jobs and external commands enter the same way.
 
-| ne arıyorsan | sahibi |
+## Layout
+
+```
+Package.swift
+Sources/EvlatCore/   pure core: Foundation + Dispatch only
+Sources/EvlatApp/    AppKit + SwiftUI shell; the NWListener transport lives here
+Sources/Evlat/       main.swift — classifies argv (app, `watch`, `signal`, help)
+Tests/EvlatCoreTests/
+Tests/EvlatAppTests/
+Tests/Fixtures/      fake `claude`, fake `ssh`
+Resources/{en,tr}.lproj/Evlat.strings
+scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist
+scripts/make-icon.swift draws the app icon; no image is checked in
+Makefile
+```
+
+Swift 5 language mode, macOS 14 minimum (`PhaseAnimator` and
+`KeyframeAnimator` come from there). No third-party dependencies.
+
+## Architecture
+
+Two layers, one hard seam. In one sentence: **the core does not import UI.**
+
+```
+┌──────────────────────────────────────────────────────┐
+│  EvlatApp  (AppKit + SwiftUI)                        │
+│  NSPanel · bar geometry · rings · detail card        │
+│  mascot · chat bubble · settings · setup             │
+└──────────────────────┬───────────────────────────────┘
+                       │  seam: Signal ↓  /  Action ↑
+┌──────────────────────┴───────────────────────────────┐
+│  EvlatCore  (Foundation + Dispatch only)             │
+│  Provider · Signal · Registry · Aggregator           │
+│  local HTTP API (routing, parsing, defenses)         │
+└──────────────────────────────────────────────────────┘
+```
+
+### Core rules
+
+- **`EvlatCore` imports only `Foundation` and `Dispatch`.** No `AppKit`,
+  `SwiftUI` or `Network`. A test fails if one does. The HTTP route table,
+  parsing, dispatch and browser defenses are in the core and tested without
+  sockets; only the `NWListener` *transport* is in the shell
+  (`HookListener.swift`).
+- **Platform capabilities are injected** through `Platform` (liveness, process
+  start time, clock). A direct Darwin call from the core is a bug even when it
+  compiles.
+- **Paths are parameters**, never constants (`~/.claude/sessions` is the
+  provider's argument).
+
+This is free discipline, not infrastructure: macOS is the only target today,
+but a core that obeys these rules should compile elsewhere; only the UI would
+be rewritten.
+
+### The seam: `Signal` and `Action`
+
+Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
+(`session | usage | job | custom`), `phase`, optional `progress`, `label`,
+`detail`, `source`, `fidelity`, `rawStatus`, `updatedAt`, `activity`,
+`usage`, `machine`.
+
+- **`Phase` has five values** — `idle`, `working`, `waiting`, `review`,
+  `failed` — and stays at five. A new value must update three places at once:
+  `Phase.priority`, the bar's indicator language and the mascot's expression
+  table; miss one and the new state is silently invisible.
+- `Aggregator` reduces N entities to the mascot's one face, priority
+  `failed > waiting > working > review > idle`.
+- An unrecognised source word stays **visible** in `rawStatus` and lands in the
+  provider's `unrecognizedStatuses`; it is drawn as `idle` but never swallowed.
+- `activity`, `usage` and `machine` are not phases and never change priority.
+  Usage signals are split out by `kind` and never reach the mascot, the rings
+  or `hasLive`.
+- `Fidelity` (`official | derived | manual`) reaches the UI: derived and manual
+  numbers are drawn with a `~` prefix, so an estimate never looks published.
+- "Is anything live?" is `Registry.hasLive`, not a phase.
+
+The reverse direction, `Action`, carries three things from UI to core: send a
+prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
+`claude -p` subprocess and a held permission connection.
+
+### Providers
+
+| provider | role | source | fidelity |
+|---|---|---|---|
+| `hooks` | backbone | the HTTP hook server; Claude Code and Codex flow into the **same** provider (`AgentSource`, `CodexHookAdapter`) | official |
+| `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid | derived |
+| `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept | official |
+| `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens | derived |
+| `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
+| `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
+
+Remote machines add no provider type: each machine gets its own `hooks`,
+`claude-usage` and `signal` *instances*, fed through an `ssh -R` reverse
+tunnel. Identity comes from the listener, never from the request body; remote
+entities are namespaced (`remote:<machine>:<session>`,
+`signal:<machine>:<id>`) so they can never merge with local rows.
+
+### The merge rule
+
+The same Claude session arrives from two sources (hooks and the session file)
+and must be one row. Rows with the same `entity` merge in
+`Registry.signals()`. Conflicts are settled by a **compatibility rule on
+fidelity, not by provider name**: an official phase is accepted only if it can
+be true at the same time as the derived one (`waiting`/`failed` beside
+`working`; `review`/`failed` beside `idle`); otherwise the derived phase
+stands. "Hook wins" would freeze a session that ended while Evlat was closed.
+Timestamps break ties only within the same fidelity.
+
+- The accepted report supplies phase, timestamp, `detail` and provider; the
+  **name stays the baseline's** (the hook body has no name, and the folder name
+  differs from it in most real sessions).
+- `activity` does not depend on acceptance — which tool is running is a fact
+  even a rejected report knows.
+- A row with no derived partner (Codex, external jobs) passes as it is. Dead
+  sessions are dropped by liveness checks in both providers, not by this rule.
+
+### Waiting vs idle
+
+The product's whole value is one distinction: **waiting** means the work has
+stopped *because of the user* (a permission or a question); **idle** means
+nothing is stopped. `waiting` comes from hook events:
+
+```
+PermissionRequest                                → waiting
+Notification(permission_prompt)                  → waiting
+Notification(elicitation_dialog / *_url_dialog)  → waiting
+Notification(agent_needs_input)                  → waiting
+Notification(idle_prompt)                        → NOT waiting
+Stop                                             → review
+```
+
+The session file's `status` does not carry this distinction; that file is for
+discovery, liveness, name and pid.
+
+### Rendering and CPU
+
+- **Idle draws nothing.** When nothing moves, no frames are produced. This
+  decision carries the product's entire CPU budget and breaks silently.
+- Continuous SwiftUI animation costs ~7% CPU on this hardware regardless of
+  technique (`PhaseAnimator`, `repeatForever`, `.drawingGroup()`), so the
+  mascot lives in **beats**: a short blink or a sparse breath, still in between.
+- The mascot reduces to a handful of animatable numbers (`MascotPose`); SwiftUI
+  springs are interruptible and keep velocity, so a state change never snaps.
+  Expression lives in the pose; the body shape is swappable.
+
+### Window
+
+- The bar is an `NSPanel` with `.nonactivatingPanel`: **clicking the bar must
+  never take focus from the front app.**
+- Windows that do take keyboard focus (Settings, Setup, the chat bubble) return
+  focus to the previous app when they close.
+
+### Permissions
+
+**No macOS permission is requested.** Any path that needs Accessibility, Screen
+Recording, Apple Events or notifications is an architecture decision, not an
+implementation detail.
+
+## Contracts
+
+### Hook contract
+
+The fixed point is the command already **installed** in the user's
+`~/.claude/settings.json` / `~/.codex/hooks.json`. Hooks installed by earlier
+versions must keep talking to this one unchanged.
+
+- The only author of the command is `LocalAPI.installedHookCommand(for:)`;
+  the writer (`HookSettings`) installs nothing else and never touches other
+  tools' hook groups.
+- The command **fails silently** (`curl -m 2 … || true`) and **writes nothing
+  to stdout**. The server's reply never reaches Claude Code — if it did, a
+  stray JSON on `PermissionRequest` could grant or deny. `POST /hook` always
+  returns `{}`.
+- Golden-string tests hold it byte for byte:
+  `LocalAPITests.testTheInstalledHookCommandIsUnchanged`,
+  `testTheInstalledCommandFailsSilently`,
+  `testTheCommandSendsTheHeadersTheServerReads`,
+  `testEverySourceHasItsOwnRoute`. A failing golden string means the contract
+  broke.
+- The canonical vocabulary is Claude Code's. Everything source-specific lives
+  in the adapter (`AgentSource.canonical`); a store or mascot rule that
+  branches on `source` is a bug.
+
+The status-line relay (`StatusLineRelay`) is the second installed contract: a
+`sh -c` wrapper that preserves the user's original command's output and exit
+code byte for byte (`StatusLineRelayTests`).
+
+### Local API
+
+Loopback only (`requiredInterfaceType = .loopback`; `lsof` shows `*:48151`,
+but a POST to the LAN address is refused). Default port **48151**.
+
+| route | notes |
 |---|---|
-| Mimari kararlar ve **neden** öyle | [`ROADMAP.md`](ROADMAP.md) |
-| Doğrulama komutları, kalite kapısı, yayın etkisi, dil kuralı, `001`–`002` tuzakları | [`.claude/is-akisi/proje.md`](.claude/is-akisi/proje.md) |
-| `003`'ten itibaren yakalanan tuzaklar | bu dosya → [Tuzaklar](#tuzaklar) |
-| İş seti düzeni, phase sıralaması, durum tablosu, set aralığı | [`.claude/is-akisi/duzen.md`](.claude/is-akisi/duzen.md) |
-| Hangi skill ne yapar, zincir nasıl işler | [`.claude/README.md`](.claude/README.md) |
-| Yapılmış işler, alınan kararlar, açık kalemler | [`.tasks/`](.tasks/) · indeks: [`.tasks/README.md`](.tasks/README.md) |
+| `POST /hook`, `/hook/claude`, `/hook/codex` | installed hooks; always `{}` |
+| `GET /health` | |
+| `POST /usage/claude` | status-line relay; only `rate_limits` is read |
+| `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
+| `POST /signal` | external jobs; requires `X-Evlat-Key` |
 
-**Koda dokunmadan önce `proje.md` → Tuzaklar ve aşağıdaki Tuzaklar okunur.** Oradaki her madde bir kez
-bozuldu ve bir bedeli oldu; hiçbiri tahmin değil.
+`/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
+≤ 1 h), `phase` (`working·waiting·done·failed`), `label`, `progress` 0…1,
+`detail`, `sender`; errors are `400` with a stable `code` (`SignalReport`).
+The server writes the identity (`signal:<id>`, `.manual`), at most 32 rows.
+The key is written on every launch to
+`~/Library/Application Support/Evlat/signal-<port>.token` (`0600`) by the
+process that holds the port and removed on quit; wrong or missing key → `403`.
+Through a tunnel the route takes the **machine's own** key.
 
-## Çelişki çıkarsa
+### Command line
 
-Kod kazanır → sonra ilgili phase'in `## Uygulama Notları`'ı → sonra
-`ROADMAP.md`. Biri yanlışsa **düzelt**, üstünden atlama: haritada yazan bir şeyin
-koddaki karşılığı yoksa ikisinden biri yalan söylüyordur.
+The binary inside the bundle is also the CLI (`~/.local/bin/evlat` is a
+symlink the app can install):
 
-## Şu an nerede
+```sh
+evlat watch npm run build        # wraps the command transparently
+evlat signal render --progress 0.4 --label Render
+evlat signal render --done
+```
 
-`001`–`008` teslim edildi, `009`–`010` teslim bekliyor. `011`'in (sohbet balonu) beş phase'i kodlandı ve
-kapıdan geçti, teslim bekliyor: maskota sol tık ya da kısayol (varsayılan ⇧⌘Space, menüden değişir) bir balon açar, iş kullanıcının
-`claude -p` kurulumuyla koşar (`Action` → `ChatStore`), izin balonda kartla
-cevaplanır, dosya maskota bırakılır; kapatılan iş barda maskot yüzlü bir
-`kind: .job` satırı olarak sürer ([Sohbete dön]), görülünce Geçmiş'e çekilir,
-Geçmiş 7 günde çalışma alanıyla kendini budar; çalışma alanı sohbetleri tek bir kalıcı hafızayı
-(`<kök>/memory/`) paylaşır. Metinler katalogda (`L10n`,
-`en`/`tr`). `012`'nin (dış işler) dört phase'i kodlandı ve kapıdan geçti, teslim bekliyor:
-anahtarlı `POST /signal` her programa barda bir `kind: .custom` satırı verir,
-birincil kullanımı `Evlat watch <komut…>` (komutu şeffaf sarar), alt düzeyi
-`Evlat signal <id>`. `013`'ün (uzak sinyal) beş phase'i kodlandı ve kapıdan geçti, teslim
-bekliyor: sunucudaki `evlat watch`/`signal` (POSIX `sh` betiği, Ayarlar →
-Uzak makineler'den otomatik ya da elle kurulur) tünelden makinenin kendi
-anahtarıyla barda makine etiketli bir satır açar. `014`'ün (kurulum ve ayarlar) beş phase'i
-kodlandı, set kapısı ve teslim bekliyor: ilk açılışta bir kez altı adımlık
-kurulum, sonra Ayarlar penceresi (Genel, Oturumlar, Sohbet, Komut satırı, Uzak
-makineler); ikisi aynı satırları ve `AppController`'ın iç yazıcılarını
-(`setHooks`, `setUsageRelay`, `setCommandLink`, `setLoginItem`…) kullanır,
-`~/.local/bin/evlat` ve "Oturum açınca başlat" oradan kurulur. Menü kısaldı:
-*Kenar ▸*, *Kısayol ▸*, dikkat isteyen soluk satırlar (tıklanınca Ayarlar o
-bölümde açılır), *Ayarlar… ⌘,*, *Kurulum…*, *Çık*. Güncel durum ve açık kalemler için `.tasks/README.md`, sıradaki
-setler için `ROADMAP.md` → Fazlar.
+`watch` returns the child's exit code and killing signal unchanged, leaves
+stdout/stderr bytes untouched and prints nothing when Evlat is closed or
+refuses (`WatchTests`, against the compiled binary). `argv` is classified by
+`LaunchMode.of`: the app opens only with no arguments or with what the system
+adds (`-psn_…`, `-NS…`/`-Apple…` pairs); an unknown word prints usage and exits
+`2` — a new subcommand not added there does **not** fall through to the app.
 
-## Tuzaklar
+The server-side script (`RemoteCommand.script`, POSIX `sh` + `curl`, installed
+to a remote machine's `~/.local/bin/evlat`) is the third installed contract:
+marked and versioned, generated from the Swift constants, run under
+`sh`/`dash`/`bash` in tests, and the key never appears in any argv. A change to
+the script bumps its version.
 
-Kodun ve ölçümün öğrettikleri. Her madde bir kez gerçekten yakalandı; yeni
-tuzak buraya eklenir (`.claude/` iş akışıdır, proje bilgisi taşımaz).
+### User files
 
-- **`asyncAfter` kapanışındaki `self` bir struct `View`'ın kopyasıdır.**
-  `@State` canlı okunur, `let` alanı kapanışın kurulduğu anda donar.
-  `ClipPlayer`'ın `let phase`'i yüzünden `waiting` bitmeden gelen `working`
-  maskotu donduruyordu (`003` kapısı). Kapanıştan okunacak her şey `@State`'te.
-- **`keyframeAnimator` tetiğin *değişmesinde* ateşler, ilk görünmede asla.**
-  Dal değişimi (uyur → uyanık) sahibini sıfırdan kurarsa `failed` titremesi hiç
-  oynamaz (`003/phase-1`). Geçici animasyonun sahibi dalların **üstünde** durur.
-- **Faz değişimi maskotun ritmini sıfırlamaz.** Her değişimde beklemeyi baştan
-  başlatan bir zamanlayıcı, faz hızlı sallanırken maskotu hiç kırptırmaz.
-  `001`'de düştü, `003/phase-1`'de yeniden yazıldı. Döngülü klipte faz
-  değişimi pozu taşır, takvime dokunmaz.
-- **Uyuyan maskot da bakışı izler; boşta ölçümü fareye duyarlıdır.** Aynı
-  uyuyan kod bir gün %0,04, ertesi gün %3,43 okudu; A/B fark bulmadı
-  (%0,85 ↔ %0,90), fark pencere boyunca farenin kullanılmasıydı (`003/phase-2`).
-  Boşta ölçümünde pencerenin başında ve sonunda fare/klavye hareketsizliği
-  yazılır:
-  `ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'`
-- **Ölçülecek ikili mutlak yolla başlatılır.** Göreli yolla (`build/Evlat.app/…`)
-  koşan süreç `pgrep -f 'evlat-v2/build/…'`'e ve `Makefile`'ın korumasına
-  görünmez; `003/phase-4`'te ölçüm boş pid okudu.
-- **Boş `EVLAT_SESSIONS` ölçümü yalıtmaz; `EVLAT_PORT` da gerekir.** Asıl
-  Evlat kapatılınca ölçülen süreç `48151`'i alır ve açık Claude oturumlarının
-  hook'ları ona akar: "0 satır" ölçümünün stderr'inde `working` satırı çıktı;
-  `EVLAT_PORT=48999` ile aynı paket %0,02 (`004/phase-3`).
-- **Patlayan klipte 90 sn'lik sayı *klip içi maliyet × çevrim oranı*dır.** Klip
-  içi maliyet beklemesiz varyantla (`EVLAT_MASCOT_PACING=continuous`) ayrı
-  ölçülür; çarpım 90 sn'yi iki yönde de şaşırıyor (`003`'te %37 altında, ~2 kat
-  üstünde), kapı yine 90 sn'dir. Döngüsüz klipte: *klip içi × `movingTime` /
-  pencere*.
-- **Anahtar `.nonactivatingPanel` varken `NSApp.isActive` `true` okur.**
-  Balon (`ChatPanel`) klavyeyi alınca AppKit'in bayrağı `true` oldu; öndeki
-  uygulama, menü çubuğunun sahibi ve `NSRunningApplication.current.isActive`
-  değişmedi, panel gidince bayrak `false`'a döndü (`011/phase-2`, ayrı süreçte
-  ölçüldü). "Evlat öne gelmedi" sınaması bu üçüne bakar, `NSApp.isActive`'e
-  değil.
-- **`HoverIntent.closeNow` bekleyen açılışı düşürmez.** Maskota tıklamaya
-  gelen imleç barı açmayı zaten istemişti; balon açılırken `closeNow` kapalı
-  barda hiçbir şey yapmadı ve 80 ms sonra liste balonun altında açıldı
-  (`011/phase-2`, gözle). Kapalı barda bekleyen açılışı `pointerExited` düşürür.
-- **Bara gelen ctrl-tık `mouseDown`'dan da geçer.** Maskota sol tık balonu
-  açınca ctrl-tık (menü) da balonu açtı ve bir sınamada anahtar panel sızdırdı
-  (`011/phase-2`); `BarHostingView.mouseDown` ctrl'lü tıkı `onClick`'e vermez.
-- **Balonun satırı sürüklenen dosyayı metin diye alır; SwiftUI başka alan
-  editörüne izin vermez.** Alan editörü imlecin altındaki en derin görünümdür
-  ve metin türüne kayıtlıdır (dosya URL'si de metin sunar): bırakılan dosyanın
-  yolu satıra yazıldı. Özel alan editörü (`fieldEditor(_:for:)`) süreci
-  düşürdü — `TextField` `_SystemTextFieldFieldEditor` bekliyor. Çare içeriğin
-  **üstünde** duran, dosyaya kayıtlı, `hitTest`'i `nil` bir katman
-  (`ChatDropView`, `011/phase-4`, gözle).
-- **Pencerenin şeffaf pikseli sürüklemeyi almaz.** Barın 485 pt'lik zarfında
-  yalnız çizili 54 pt sürükleme olayı gördü (`011/phase-4`, ölçüldü): "bara
-  yaklaşma" alanı çizili bardır.
-- **`NSApp.deactivate()` eşzamanlı değil.** Klasör panelinden sonra
-  `deactivate` + balonu hemen `makeKey`: ardından gelen istifa balonun
-  klavyesini aldı, balon kapandı ve Evlat önde kaldı (`011/phase-4`, gözle).
-  Önceki uygulama `activate` edilir, balon `didResignActive`'ten sonra döner.
-- **Yeni yazılmış çalıştırılabilir dosyanın ilk koşusu macOS'un
-  değerlendirmesini öder** (`syspolicyd`/`XprotectService`): sınamanın geçici
-  dizine yazdığı sahte `ssh`/`claude` ilk exec'te ~0,2 sn, ikincide ~0,03 sn;
-  `XprotectService` meşgulken bir kez ~50 sn. Tünelin 0,2 sn'lik onayını ve
-  5 sn'lik beklemeyi aştı, `RemoteMachinesTests` tam koşuda düştü, tek başına
-  geçti (`012` kapı). Zamanlı beklemeye giren sahte önce bir kez zamansız
-  koşturulur (`FreshExecutable.warm`, `--evlat-warm`).
-- **Evlat bir Claude Code terminalinden açılırsa o oturumun işaretlerini
-  miras alır** (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
-  `CLAUDE_CODE_SESSION_ID`, mesajlaşma soketi…); 2.1.281 bu ikisinden birini
-  görünce kendini alt oturum sayar. `claude -p`'ye giden ortam
-  `ClaudeInvocation.parentSessionVariables`'tan süzülür (`012` kapı).
-- **`proc_pidpath` kendini güncellemiş bir uygulamanın eski sürecinde boş
-  döner** (`ENOENT`) — Orca'nın pty yardımcısı böyleydi ve 13 oturum
-  "bulunamadı" okudu (`005/phase-5`). Başlatıldığı yol argüman alanında
-  (`KERN_PROCARGS2`) durur. Aynı ölçümde `claude`'un kendisi
-  `~/.local/share/claude/ClaudeCode.app` içinden koşuyordu: bir yolun `.app`
-  içinde olması onu terminal yapmaz.
-- **Codex'in `rollout-*.jsonl`'ı belgelenmemiş bir iç formattır ve büyür.**
-  `~/.codex/sessions/*/*/*/` altında, codex-cli 0.156.1'de görüldü; en yenisi
-  62 MB'a varan bir kopyada tamamını okumak yerine son 256 KB okundu (9–10 ms,
-  `009/phase-2`). `codex-usage` `.derived`'dır: biçim bozulursa susar, son iyi
-  okuma kalır, daha eski bir dosyaya düşülmez (eski gözlem yeni gibi okunurdu).
-- **Terminalin Ctrl-C'si `si_pid`'den ayırt edilmez.** `watch` terminalden
-  gelen SIGINT'i çocuğa ikinci kez iletmesin diye `SA_SIGINFO`'nun `si_pid`'ine
-  bakıldı: pty'ye yazılan `^C`'de `si_pid` 0 değil, **yazan sürecin** pid'iydi
-  (`script`), yani `kill -INT`'ten farkı yok (`012/phase-4`, ölçüldü). Ayrım
-  sarmalayıcının terminalin ön plan grubunda olup olmadığıyla yapılır
-  (`Watch.shouldForward`). Elle denemede `script -q /dev/null …` stdin'i
-  soket olan ajan kabuğunda düşer (`tcgetattr … not supported on socket`);
-  stdin'e boru verilir: `(sleep 2; printf '\003') | script -q /dev/null …`.
-- **POSIX `sh`'ta arka plan çocuğu `SIGINT`'i yok sayar ve bu geri
-  alınamaz.** İş denetimi kapalı kabukta `cmd &`'e giden `INT` çocuğu
-  öldürmedi — `/bin/sh` (bash 3.2), `dash` ve `bash`'te; `trap - INT` ve
-  `<&0` de çare değil (`013`, ölçüldü). Ctrl-C'yi duyması gereken komut ön
-  planda koşar; bedeli, sarmalayıcıya atılan `TERM`'ün komut bitene dek
-  ertelenmesidir.
-- **Arka plandaki nabız döngüsünün yetim `sleep`'i çağıranın borusunu
-  tutar.** `$(evlat watch true)` 3,0 sn bekledi; döngü ve `curl`
-  `</dev/null >/dev/null 2>&1` ile koşunca 0,35 sn (`013`, `sh` ve `dash`'te
-  ölçüldü). Sarmalayıcının arka plan işleri kullanıcının akışlarını hiç
-  devralmaz.
-- **`dash` alt kabukta, kendi `trap`'ini kurana dek ebeveynin tuzağını
-  koşturur.** Tuzaklardan sonra başlatılan nabız `kill`'de ölmek yerine
-  ebeveynin "TERM yakalandı" tuzağını koştu ve `watch` asıldı
-  (`013/phase-3`). Arka plan işleri tuzaklar kurulmadan **önce** başlatılır.
-- **`ssh … sh -s`'in PATH'i kullanıcının kabuğununki değildir.** Sunucuya
-  kurulan `~/.local/bin/evlat` satırda "kurulu" okurken `kararla_hetzner`'da
-  (Ubuntu, root) `evlat watch` "command not found" dedi: Ubuntu
-  `~/.local/bin`'i yalnız normal kullanıcının `~/.profile`'ında ekler, root'unkinde
-  değil (`014` ek, gerçek kullanıcıda). Komutun bulunduğunu söyleyen okuma
-  kullanıcının `$SHELL`'ini `-lic` ile koşturur (`RemotePath.probe`); sınamada
-  gerçek `$SHELL` değil sahte kabuk kullanılır.
-- **Evlat ikilisi tanımadığı argümanla uygulamanın kendisini açıyordu.**
-  `Evlat --help` yardım basmadı; ortamsız (yalıtımsız) ikinci bir Evlat
-  açıldı, kullanıcının makinelerine tünel denedi (`013/phase-5`). `013` kapısından beri
-  `argv`'yi `LaunchMode.of` sınıflar (`LaunchModeTests`): uygulama yalnız
-  argümansız ya da sistemin eklediğiyle (`-psn_…`, `-NS…`/`-Apple…` çifti)
-  açılır; `--help`/`-h`/`help` yardım + `0`, bilinmeyen her kelime kullanım +
-  `2`; argümansız `evlat` (komut bağlantısının adı, `014`) de kullanım + `2`
-  döner, uygulamayı paketin `Evlat`'ı ve `open` açar. Yeni bir alt komut `LaunchMode`'a eklenmeden uygulamaya düşer diye
-  sanılmasın — düşmez, `2` döner. İkiliyi elle koşturmak yine ölçüm ortamıyla
-  (`EVLAT_HOME` geçici, `EVLAT_PORT`, `EVLAT_MACHINES`, sahte `EVLAT_SSH`)
-  yapılır: sınıflandırmanın bir hatası kullanıcının sunucularına gider.
-- **AppKit menü kısayolunu açılışta klavyeye göre yeniden yazar.** Türkçe Q'da
-  `keyEquivalent: ","` menü açıkken `"ö"` oldu (ABD virgülünün fiziksel
-  tuşu) ve menü *Ayarlar… ⌘Ö* gösterdi; oysa Türkçe Q'nun kendi `,` tuşu var
-  (`014` kapı, açık menü ekran görüntüsüyle ölçüldü). Yazıldığı anda
-  `keyEquivalent` hâlâ `","` okur — sınama bunu görmez, bayrağı tutar
-  (`allowsAutomaticKeyEquivalentLocalization = false`,
-  `MenuTests.testSettingsIsCommandCommaOnEveryKeyboard`).
-- **`ScrollView`'un içinden dışarı gönderilen preference bir kez, boş
-  gelir.** Kurulum penceresinin kayan kenarı (`SetupView`) içeriğin konumunu
-  preference ile dışarı taşıdı: değer bir kez boş geldi, kaydırınca bir daha
-  gelmedi, solma hiç çizilmedi (`014/phase-3`, gözle). Konum içeride
-  `GeometryReader` + `onChange(of: frame(in: .named…), initial: true)` ile
-  okunur.
+`~/.claude/settings.json`, `~/.claude/statusline-*.sh`, `~/.codex/hooks.json`,
+`~/.codex/config.toml`, `~/.local/bin/evlat` and login items belong to the
+user. **Agents do not write them.** Writers are tested against a temporary root
+(`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
+
+Renaming a `UserDefaults` key silently loses the stored value; migrate it.
+
+## Verification
+
+| when | command |
+|---|---|
+| every change | `make all` (`swift build` + `swift test`) |
+| inner loop | `make build` |
+| one test | `swift test --filter EvlatCoreTests.RegistryTests` |
+| window, bar, mascot or menu touched | `make bundle && make run`, then look at it |
+| install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
+
+`make run` and `make install` stop **both** copies (`build/` and
+`/Applications/`) first: two Evlats race for port 48151 and the loser's hooks go
+nowhere. Processes are targeted **by path**, never by name.
+
+Visual checks are not optional for UI changes: transparency, the right-edge
+dock, the hover opening, focus staying with the front app. Use a real session
+(`working → waiting → review`) at least once. What can be tested in code
+(`canBecomeKey`, `activationPolicy`) goes to XCTest, not to the eye.
+
+Every user-visible string lives in the catalog (`L10n.t("key")`), never in
+code. Source language `en`, translation `tr` with full diacritics; a new string
+enters **both** tables (`L10nTests` keeps the keys paired).
+
+## Isolation
+
+Running a second Evlat next to the user's must not touch the user's state.
+
+| variable | effect |
+|---|---|
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, and no persistent chat store exists unless `EVLAT_CHATS` is given |
+| `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
+| `EVLAT_HOME` | temporary home root for every writer |
+| `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |
+| `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` |
+| `EVLAT_CHATS` | temporary chat root |
+| `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
+| `EVLAT_CLAUDE` | `claude` to run (tests use `Tests/Fixtures/fake-claude`) |
+
+Run the binary directly for these — `open` does not carry the environment.
+
+## Measuring
+
+**No unmeasured number is written.** "Smoother", "less CPU" is either measured
+or dropped from the sentence.
+
+```sh
+PID=$(pgrep -f "$PWD/build/Evlat[.]app/Contents/MacOS/Evlat")
+ps -o pid=,rss=,etime= -p "$PID"
+cpu() { ps -o cputime= -p "$1" | awk -F: '{s=0; for(i=1;i<=NF;i++) s=s*60+$i; print s}'; }
+T0=$(cpu "$PID"); sleep 90; T1=$(cpu "$PID")
+awk -v a="$T0" -v b="$T1" 'BEGIN{ printf "%.2f%% CPU / 90 s\n", (b-a)/90*100 }'
+```
+
+To measure one mascot state, fix the phase and empty the sessions:
+`EVLAT_PHASE=working EVLAT_SESSIONS=$(mktemp -d) EVLAT_PORT=48999`, binary
+started by absolute path.
+
+CPU is read from the `cputime` **delta**, not `%cpu`; the window starts after
+the launch settles. Record mouse/keyboard idleness at both ends of the window:
+
+```sh
+ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
+```
+
+## Conventions
+
+- Everything in the repository is English: identifiers, comments, test names,
+  assertion messages, fixture strings, CLI flags, `make` targets, commit
+  messages (imperative, one-line summary). The only exception is the `tr`
+  string table.
+- Comments explain **why**; new code matches the surrounding comment density.
+- The store and UI live on the main thread. File watchers and the server run on
+  their own queues and reach the store only through `DispatchQueue.main.async`.
+  Timer closures capture `[weak self]`.
+- New dependency, new macOS permission, or a change to `EvlatCore`'s import
+  surface: architecture decisions — stop and ask.
+- New resource file: does `scripts/bundle-app.sh` copy it, and is it found
+  under `swift run` too?
+- A newly caught pitfall goes into **Pitfalls** below — only things actually
+  hit, never guesses.
+
+## Pitfalls
+
+### Core and data sources
+
+- **`~/.claude/sessions/*.json` is an undocumented internal format.** The
+  provider is `.derived`; an unknown `status` stays visible. It is not written
+  at event rate: in a 135 s window with 53 hook events none of 22 files was
+  written. A fresh file has no `status` field for ~500 ms — reading the missing
+  field as idle would veto the hook's truth.
+- **`<pid>.json` is written in place, not atomically.** No torn JSON was seen
+  in 117,175 reads, but that is not a guarantee.
+- **`updatedAt` and `statusUpdatedAt` diverge** (up to 188.7 s). A row's
+  timestamp is the *status* timestamp.
+- **Subagent events are not filtered.** A subagent carries `agent_id` but its
+  parent's `session_id` and pid, emits only tool events and no `Stop`. The
+  actor that set a blocking phase is kept (`Session.blockedBy`); only that
+  actor or a session-level event (`Stop`, `UserPromptSubmit`) clears it —
+  otherwise a sibling's tool event erased the parent's `waiting`.
+- **PIDs are recycled.** Liveness alone shows ghost sessions; the record's
+  `startedAt` is compared with the process's real start
+  (`Platform.sameProcess`, tolerance 120 s; measured drift 0.7–6.3 s).
+- **`Data` indices are absolute in a slice.** `subdata(in: 0..<n)` on a slice
+  that does not start at zero crashes; the listener's buffer is exactly such a
+  slice. Use `startIndex`/`endIndex`. A test built from a zero-based `Data`
+  literal does not see it.
+- **`allowLocalEndpointReuse` is SO_REUSEADDR, not SO_REUSEPORT.** Two
+  processes cannot share the port (`testASecondListenerCannotTakeTheSamePort`);
+  if they could, hooks would silently split between two Evlats.
+- **Codex's `rollout-*.jsonl` is undocumented and grows** (62 MB seen). Read
+  the last 256 KB. `codex-usage` is derived: if the format breaks it goes
+  quiet and keeps the last good reading; it never falls back to an older file.
+- **`proc_pidpath` returns empty for an old process of a self-updated app**
+  (`ENOENT`). The launch path is in the argument area (`KERN_PROCARGS2`). Being
+  inside a `.app` does not make a path a terminal — `claude` itself runs from
+  one.
+
+### SwiftUI and AppKit
+
+- **A struct `View`'s `let` is not storage.** Views are rebuilt on every parent
+  update; a `Timer` publisher kept there is reborn each time and never fires.
+  Use `@State` or `static`.
+- **`self` in an `asyncAfter` closure is a copy of the struct `View`.**
+  `@State` is read live; a `let` freezes when the closure is built. Anything
+  read from the closure lives in `@State`.
+- **`keyframeAnimator` fires on trigger *change*, never on first appearance.**
+  If a branch switch rebuilds its owner from scratch, the transient animation
+  never plays. Put its owner **above** the branches.
+- **A phase change must not reset the mascot's rhythm.** A timer that restarts
+  its wait on every change never blinks while the phase flaps. In a looping
+  clip a phase change carries the pose and leaves the schedule alone.
+- **Do not write `@Published` on every event.** Mouse movement arrives at
+  display rate; without a deadband the whole bar re-evaluates at that rate
+  (`GazeTracker.deadband`).
+- **A `.nonactivatingPanel` that is key makes `NSApp.isActive` read `true`**
+  while the front app, the menu bar owner and
+  `NSRunningApplication.current.isActive` do not change. "Evlat did not come
+  forward" is tested on those three.
+- **`HoverIntent.closeNow` does not drop a pending open.** On a closed bar the
+  pending open is dropped by `pointerExited`; otherwise the list opened under
+  the chat bubble 80 ms later.
+- **Ctrl-click reaches `mouseDown` too.** `BarHostingView.mouseDown` does not
+  pass a ctrl-click to `onClick`; otherwise the menu click opened the bubble.
+- **A text field takes a dragged file as text, and SwiftUI allows no other
+  field editor** (a custom `fieldEditor(_:for:)` crashed —
+  `TextField` expects `_SystemTextFieldFieldEditor`). The fix is a file-typed
+  layer **above** the content whose `hitTest` returns `nil` (`ChatDropView`).
+- **Transparent window pixels receive no drags.** Of the bar's 485 pt envelope
+  only the drawn 54 pt saw drag events: "near the bar" means the drawn bar.
+- **`NSApp.deactivate()` is not synchronous.** Deactivate-then-`makeKey`
+  lost the bubble's keyboard to the resignation that followed. Activate the
+  previous app and bring the bubble back after `didResignActive`.
+- **AppKit rewrites menu key equivalents for the keyboard layout.** On
+  Turkish-Q, `keyEquivalent: ","` became `"ö"` while the menu was open, though
+  that layout has its own `,` key. At write time the property still reads
+  `","`, so a test cannot see it; keep
+  `allowsAutomaticKeyEquivalentLocalization = false`
+  (`MenuTests.testSettingsIsCommandCommaOnEveryKeyboard`).
+- **A preference sent out of a `ScrollView` arrives once, empty.** Read
+  positions inside with `GeometryReader` +
+  `onChange(of: frame(in: .named…), initial: true)`.
+- **`NSLog` is unreadable in the unified log for this app** (`<private>`;
+  `%{public}@` is an `os_log` specifier, not a fix). Read stderr by running the
+  binary in the foreground.
+
+### Processes and shells
+
+- **An Evlat launched from a Claude Code terminal inherits that session's
+  markers** (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
+  `CLAUDE_CODE_SESSION_ID`, …) and `claude -p` then thinks it is a child
+  session. The environment is filtered through
+  `ClaudeInvocation.parentSessionVariables`.
+- **The first run of a freshly written executable pays for macOS's
+  assessment** (`syspolicyd`/`XprotectService`): ~0.2 s, once ~50 s. A fake
+  that enters a timed wait is warmed once untimed first
+  (`FreshExecutable.warm`, `--evlat-warm`).
+- **A terminal's Ctrl-C cannot be told apart by `si_pid`** — it carries the
+  writer's pid, same as `kill -INT`. `watch` decides by whether it is in the
+  terminal's foreground group (`Watch.shouldForward`). To try it by hand from a
+  socket-stdin shell: `(sleep 2; printf '\003') | script -q /dev/null …`.
+- **In POSIX `sh` a background child ignores `SIGINT`, irreversibly** (`sh`,
+  `dash`, `bash`; `trap - INT` does not help). A command that must hear Ctrl-C
+  runs in the foreground; the price is that a `TERM` to the wrapper waits until
+  the command ends.
+- **An orphaned `sleep` of a background heartbeat holds the caller's pipe.**
+  `$(evlat watch true)` took 3.0 s; with the loop and `curl` on
+  `</dev/null >/dev/null 2>&1`, 0.35 s. Background work never inherits the
+  user's streams.
+- **`dash` runs the parent's trap in a subshell until the subshell sets its
+  own.** Start background jobs **before** installing traps.
+
+### Measuring and running
+
+- **Measure a binary started by absolute path.** A relative path is invisible
+  to `pgrep -f` and to the Makefile's guard.
+- **An empty `EVLAT_SESSIONS` does not isolate; `EVLAT_PORT` is needed too.**
+  With the real Evlat closed, the measured process takes 48151 and live
+  sessions' hooks flow into it.
+- **Idle CPU is mouse-sensitive** — the sleeping mascot still follows the
+  gaze. The same build read 0.04% one day and 3.43% the next; the difference
+  was the mouse. Record HID idleness around the window.
+- **`ps -o %cpu` is a decaying lifetime average,** not instantaneous; the same
+  process read 13.5% → 0.6% → 8.7%. Use the `cputime` delta.
+- **`ps -Axo … -p PID` returns the wrong row** — `-A` overrides the filter.
+- **A drop in CPU is not always good news.** Once it fell to 0.0% because the
+  mascot had stopped animating at all. Ask *what* was measured.
+- **For a bursting clip the 90 s number is in-clip cost × cycle rate.** Measure
+  the in-clip cost separately with `EVLAT_MASCOT_PACING=continuous`; the
+  product misses the 90 s figure in both directions, so the gate stays 90 s.
