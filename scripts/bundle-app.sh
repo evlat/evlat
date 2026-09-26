@@ -35,7 +35,7 @@ for l in Resources/*.lproj; do [ -d "$l" ] && cp -R "$l" "$APP/Contents/Resource
 
 # The app icon is drawn by scripts/make-icon.swift — its only source; no image
 # is checked in. Redrawn only when the script is newer than the cached .icns,
-# so an ordinary `make paket` pays nothing.
+# so an ordinary `make bundle` pays nothing.
 ICON=".build/AppIcon.icns"
 if [ ! -f "$ICON" ] || [ scripts/make-icon.swift -nt "$ICON" ]; then
   ICONSET="$(mktemp -d)/AppIcon.iconset"
