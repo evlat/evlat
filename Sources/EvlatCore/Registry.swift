@@ -29,10 +29,11 @@ public struct Finish: Hashable {
 /// Collects what the providers say and reduces it to a single view.
 ///
 /// **No time-driven transitions live here, and none will.** v1 ran them on a
-/// timer (`review`→`idle` after 25 s, stale-record pruning); in v2 the decay
-/// belongs to the provider, derived at read time from the clock it already
-/// holds, and dead rows leave through the liveness check rather than a pruning
-/// pass. So `Snapshot` takes signals and never a clock, which is what keeps it
+/// timer (`review`→`idle` after 25 s, stale-record pruning). Here no phase
+/// moves on a clock at all: a finish stays until the user has seen it (an
+/// input to `Snapshot`), a row's life is read by its provider from the clock
+/// it already holds, and dead rows leave through the liveness check rather
+/// than a pruning pass. So `Snapshot` takes signals and never a clock, which is what keeps it
 /// pure.
 public final class Registry {
     private var providers: [Provider] = []
@@ -119,8 +120,8 @@ public final class Registry {
     /// **`activity` is not admitted, it is carried**. The rule above
     /// is about the phase; a report whose phase is vetoed still knows which
     /// tool ran, and in practice that is most reports — a `working` hook next
-    /// to a `busy` file is refused, and so is a `review` that decayed to
-    /// `idle` beside an `idle` file. So the row's activity is the report's on
+    /// to a `busy` file is refused, and so is a `waiting` beside an `idle`
+    /// file. So the row's activity is the report's on
     /// both branches, with the baseline's pid when the report has none; with no
     /// report it is the baseline's. Only its wait is tied to the phase: a row
     /// that does not wait shows no block (`shown`). This narrows "a rejected report leaves no

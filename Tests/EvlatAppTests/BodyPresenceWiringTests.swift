@@ -26,11 +26,17 @@ final class BodyPresenceWiringTests: XCTestCase {
         func fire(_ index: Int) { pending[index].item.perform() }
     }
 
+    /// The controller's clock, moved by hand.
+    private final class Clock {
+        var now = Date(timeIntervalSince1970: 1_790_000_000)
+    }
+
     @MainActor private struct Rig {
         let controller: AppController
         let provider: Stub
         let panel: BarPanel
         let timers: Timers
+        let clock: Clock
 
         func set(_ phase: Phase) {
             provider.signals = [Signal(provider: "stub", entity: "s", phase: phase, label: "s",
@@ -47,6 +53,28 @@ final class BodyPresenceWiringTests: XCTestCase {
             controller.refresh()
         }
 
+        /// Several rows with their stamps: a finish's key is its stamp, so a
+        /// row that finishes again must say when.
+        func set(_ rows: [(String, Phase, TimeInterval)], dim: Set<String> = []) {
+            provider.signals = rows.map { Self.row($0.0, $0.1, at: $0.2, dim: dim.contains($0.0)) }
+            controller.refresh()
+        }
+
+        static func row(_ entity: String, _ phase: Phase, at stamp: TimeInterval, dim: Bool = false) -> Signal {
+            Signal(provider: "stub", entity: entity, phase: phase, label: entity,
+                   fidelity: .official, updatedAt: Date(timeIntervalSince1970: stamp),
+                   machine: dim ? Signal.Machine(name: "m", dim: .init(reason: .disconnected,
+                                                                       since: Date(timeIntervalSince1970: 0)))
+                                : nil)
+        }
+
+        /// The bar open for `seconds`, then closed.
+        func look(for seconds: TimeInterval) {
+            controller.openBar()
+            clock.now += seconds
+            controller.closeBar()
+        }
+
         /// The body's hover area as AppKit holds it.
         func bodyRect() throws -> NSRect {
             let view = try XCTUnwrap(panel.contentView)
@@ -56,16 +84,22 @@ final class BodyPresenceWiringTests: XCTestCase {
         }
     }
 
-    private func rig(_ mode: BodyPresence.Mode, edge: BarPanel.Edge = .right) -> Rig {
+    /// `before` is what the providers hold at the first scan.
+    private func rig(_ mode: BodyPresence.Mode, edge: BarPanel.Edge = .right,
+                     before: [Signal] = [], prepare: (AppController, Clock) -> Void = { _, _ in }) -> Rig {
         let controller = AppController()
+        let clock = Clock()
+        controller.now = { clock.now }
         let timers = Timers()
         controller.peekSchedule = { delay, item in timers.pending.append((delay, item)) }
         controller.bodyMode = mode
         let provider = Stub()
+        provider.signals = before
         controller.registry.register(provider)
+        prepare(controller, clock)
         let panel = controller.installPanel(edge: edge)
         controller.refresh()
-        return Rig(controller: controller, provider: provider, panel: panel, timers: timers)
+        return Rig(controller: controller, provider: provider, panel: panel, timers: timers, clock: clock)
     }
 
     // MARK: - Always: today's bar
@@ -286,5 +320,226 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.set([("a", .working), ("old", .review)])
         XCTAssertEqual(rig.controller.mascot.phase, .review)
         XCTAssertEqual(rig.controller.peekPhase, .review)
+    }
+
+    // MARK: - News: told once, from one place
+
+    /// Beside a failure already told, a newer review is the one told, and
+    /// the newest finish is what the dot shows after.
+    func testANewerReviewBesideAFailureIsTheOneTold() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("a", .failed, 1)])
+        XCTAssertEqual(rig.controller.peekPhase, .failed)
+        rig.timers.fire(rig.timers.pending.count - 1)
+        rig.set([("a", .failed, 1), ("b", .review, 2)])
+        XCTAssertEqual(rig.controller.peekPhase, .review)
+        XCTAssertEqual(rig.timers.pending.last?.delay, AppController.reviewPeek)
+        rig.timers.fire(rig.timers.pending.count - 1)
+        XCTAssertNil(rig.controller.peekPhase)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .review, "the newest finish")
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+    }
+
+    /// The first scan's finishes are old: active, but not told.
+    func testTheFirstScansNewsIsActiveButNotTold() {
+        let rig = rig(.smart, before: [Rig.row("old", .review, at: 1)])
+        defer { rig.panel.close() }
+        XCTAssertNil(rig.controller.peekPhase)
+        XCTAssertTrue(rig.timers.pending.isEmpty)
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+        XCTAssertTrue(rig.controller.mascot.hasLive)
+    }
+
+    /// A row whose phase moves on and finishes again is new news.
+    func testTheSameRowFinishingAgainIsToldAgain() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("a", .review, 1)])
+        rig.set([("a", .working, 2)])
+        let told = rig.timers.pending.count
+        rig.set([("a", .review, 3)])
+        XCTAssertEqual(rig.timers.pending.count, told + 1)
+        XCTAssertEqual(rig.controller.peekPhase, .review)
+    }
+
+    /// A finish that came while the balloon was out was seen there: closing
+    /// the balloon does not tell it, the dot shows it.
+    func testAFinishUnderTheBalloonIsNotToldWhenItCloses() {
+        let rig = rig(.smart)
+        defer {
+            rig.controller.closeChat()
+            rig.controller.chatPanel?.close()
+            rig.panel.close()
+        }
+        rig.controller.openChat()
+        rig.set([("a", .review, 1)])
+        rig.controller.closeChat()
+        XCTAssertNil(rig.controller.peekPhase)
+        XCTAssertTrue(rig.timers.pending.isEmpty)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .review)
+    }
+
+    /// The veto flutter: the merge holds a finish back while the file says
+    /// `busy`, then lets it through with the same stamp. Not new news, and a
+    /// seen one stays seen.
+    func testAVetoFlutterNeitherRetellsNorRevivesAFinish() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("a", .review, 1)])
+        let told = rig.timers.pending.count
+        rig.set([("a", .working, 0)])
+        rig.set([("a", .review, 1)])
+        XCTAssertEqual(rig.timers.pending.count, told, "not told again")
+        rig.look(for: 2)
+        XCTAssertEqual(rig.controller.mascot.phase, .idle)
+        rig.set([("a", .working, 0)])
+        rig.set([("a", .review, 1)])
+        XCTAssertEqual(rig.controller.mascot.phase, .idle, "seen stays seen")
+        XCTAssertFalse(rig.controller.mascot.hasLive)
+    }
+
+    // MARK: - Seen
+
+    /// A second's look at the open bar sees its news: the finish goes
+    /// passive, the face falls back and the mascot may sleep.
+    func testALookOfASecondSeesTheNews() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("a", .working, 0), ("b", .review, 1)])
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+        rig.look(for: 1.2)
+        XCTAssertEqual(rig.controller.mascot.phase, .working)
+        rig.set([("a", .idle, 2), ("b", .review, 1)])
+        XCTAssertEqual(rig.controller.mascot.phase, .idle)
+        XCTAssertFalse(rig.controller.mascot.hasLive, "nothing active: the mascot sleeps")
+    }
+
+    /// A glance is not a look: under a second the news stays news.
+    func testAGlanceSeesNothing() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("b", .review, 1)])
+        rig.look(for: 0.5)
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+        XCTAssertTrue(rig.controller.mascot.hasLive)
+    }
+
+    /// Nothing moves on the open bar because it was seen: the order changes
+    /// only once it closes.
+    func testTheOpenBarDoesNotReorderWhatItShows() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("z", .review, 1), ("b", .idle, 0)])
+        rig.controller.openBar()
+        rig.clock.now += 5
+        rig.controller.refresh()
+        XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), ["z", "b"])
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+        rig.controller.closeBar()
+        XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), ["b", "z"])
+    }
+
+    /// A dimmed finish is on the open bar too: seen there, it is not told
+    /// when its machine is heard again.
+    func testADimmedFinishSeenOnTheBarIsNotToldWhenItComesBack() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("r", .review, 1)], dim: ["r"])
+        rig.look(for: 2)
+        let told = rig.timers.pending.count
+        rig.set([("r", .review, 1)])
+        XCTAssertEqual(rig.timers.pending.count, told)
+        XCTAssertEqual(rig.controller.mascot.phase, .idle)
+    }
+
+    // MARK: - Release
+
+    /// A seen outside row stays through the close it was seen at and goes
+    /// at the next; a seen session stays.
+    func testASeenSignalRowGoesAtTheNextClose() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        let controller = rig.controller
+        controller.registry.register(controller.signals)
+        guard case .success(let done) = SignalReport.parse(json: ["id": "job", "ttl": 60, "phase": "done"]) else {
+            return XCTFail("fixture refused")
+        }
+        _ = controller.signals.apply(done)
+        rig.set([("s", .review, 1)])
+        rig.look(for: 2)
+        XCTAssertEqual(Set(controller.sessionRows.rows.map(\.entity)), ["s", "signal:job"])
+        rig.look(for: 0.2)
+        XCTAssertEqual(controller.sessionRows.rows.map(\.entity), ["s"], "the session stays")
+        XCTAssertEqual(controller.signals.count, 0)
+    }
+
+    // MARK: - A chat's finish
+
+    /// A chat left unseen by the last run: a store with it in the index.
+    private func unseenChat(_ controller: AppController, _ clock: Clock, id: String, directory: URL) {
+        let entry = ChatIndex.Entry(id: id, sessionID: "S-\(id)", title: "T",
+                                    folder: directory.appendingPathComponent("chats/\(id)").path,
+                                    isWorkspace: true, createdAt: clock.now - 3600,
+                                    lastActivity: clock.now - 3600, lastReply: "Done.",
+                                    started: true, unseen: .review)
+        try? ChatIndex(entries: [entry]).encoded().write(to: directory.appendingPathComponent(ChatStore.indexName))
+        let store = ChatStore(root: directory, platform: .unknown,
+                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]),
+                              now: { clock.now })
+        controller.chats = store
+        controller.registry.register(store.provider)
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    private func unseen(_ id: String, in directory: URL) throws -> Phase? {
+        try ChatIndex.decode(Data(contentsOf: directory.appendingPathComponent(ChatStore.indexName)))
+            .entries.first { $0.id == id }?.unseen
+    }
+
+    /// The store is loaded before the first scan: an old unseen chat is
+    /// active but not told. Seen at one close, it goes at the next, and the
+    /// index forgets it was unseen.
+    func testASeenChatGoesAtTheNextCloseAndIsWrittenDown() throws {
+        let directory = try temporaryDirectory()
+        let id = "0C9E7D1A-8E57-4B9B-8D0F-7F2B4E6A1C33"
+        let rig = rig(.smart) { self.unseenChat($0, $1, id: id, directory: directory) }
+        defer { rig.panel.close() }
+        let entity = ChatSession.entity(id)
+        XCTAssertNil(rig.controller.peekPhase, "an old finish is not told at launch")
+        XCTAssertEqual(rig.controller.mascot.phase, .review)
+        rig.look(for: 2)
+        XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), [entity], "kept at the close it was seen")
+        XCTAssertEqual(try unseen(id, in: directory), .review)
+        rig.look(for: 0.2)
+        XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), [])
+        XCTAssertNil(try unseen(id, in: directory))
+    }
+
+    /// The balloon drawing a chat's end is seeing it: passive at once, gone
+    /// at the next close of the bar.
+    func testTheBalloonSeesAChatsEnd() throws {
+        let directory = try temporaryDirectory()
+        let id = "0C9E7D1A-8E57-4B9B-8D0F-7F2B4E6A1C33"
+        let rig = rig(.smart) { self.unseenChat($0, $1, id: id, directory: directory) }
+        defer {
+            rig.controller.closeChat()
+            rig.controller.chatPanel?.close()
+            rig.panel.close()
+        }
+        rig.controller.openChat(chat: id)
+        rig.controller.closeChat()
+        rig.controller.refresh()
+        XCTAssertEqual(rig.controller.mascot.phase, .idle)
+        XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), [ChatSession.entity(id)])
+        rig.look(for: 0.2)
+        XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), [])
+        XCTAssertNil(try unseen(id, in: directory))
     }
 }

@@ -238,4 +238,51 @@ final class SignalsProviderTests: XCTestCase {
         XCTAssertEqual(remote.count, 0)
         XCTAssertEqual(provider.count, 1)
     }
+
+    // MARK: - A finish lives until seen
+
+    /// A finished row is news until the user sees it, whatever its sender's
+    /// ttl said: it stays past the ttl, and a clock alone ends it only at the
+    /// cap.
+    func testAFinishOutlivesItsTTLUntilTheCap() {
+        let finished = clock
+        _ = provider.apply(report("a", ttl: 60, phase: "done"))
+        clock = finished + 11 * 3600
+        XCTAssertEqual(provider.currentSignals().map(\.phase), [.review], "the ttl does not end a finish")
+        clock = finished + ChatSession.unseenLifetime
+        XCTAssertTrue(provider.currentSignals().isEmpty, "twelve hours is the cap")
+        XCTAssertEqual(provider.count, 0)
+    }
+
+    /// A finish re-sent keeps its start, so its life is not extended by it.
+    func testARepeatedFinishDoesNotExtendItsLife() {
+        let finished = clock
+        _ = provider.apply(report("a", phase: "failed"))
+        clock += 6 * 3600
+        _ = provider.apply(report("a", phase: "failed"))
+        clock = finished + ChatSession.unseenLifetime
+        XCTAssertTrue(provider.currentSignals().isEmpty)
+    }
+
+    /// `ttl: 0` still removes a finished row at once; work still follows its ttl.
+    func testAZeroTTLStillClearsAFinishAndWorkKeepsItsTTL() {
+        _ = provider.apply(report("a", phase: "done"))
+        XCTAssertEqual(provider.apply(report("a", ttl: 0, phase: nil)), .cleared)
+        XCTAssertTrue(provider.currentSignals().isEmpty)
+        _ = provider.apply(report("b", ttl: 60, phase: "waiting"))
+        clock += 60
+        XCTAssertTrue(provider.currentSignals().isEmpty, "a live phase lives by its ttl")
+    }
+
+    /// Finished rows count against the cap for as long as they wait to be
+    /// seen; releasing them is what makes room.
+    func testReleasedFinishesMakeRoomUnderTheCap() {
+        for index in 0..<SignalsProvider.limit {
+            _ = provider.apply(report("row-\(index)", ttl: 60, phase: "done"))
+        }
+        clock += 3600
+        XCTAssertEqual(provider.apply(report("new")), .dropped(limit: SignalsProvider.limit))
+        provider.release(Set(provider.currentSignals().compactMap(Finish.init)))
+        XCTAssertEqual(provider.apply(report("new")), .stored)
+    }
 }

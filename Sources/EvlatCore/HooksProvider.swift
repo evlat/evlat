@@ -36,13 +36,11 @@ public final class HooksProvider: Provider {
     public static let id = "hooks"
     public var id: String { Self.id }
 
-    /// How long a finished turn stays `review` before it reads as `idle`.
-    /// v1's number, and v1 reached it with `DispatchQueue.main.asyncAfter` plus
-    /// a generation token to cancel the pending block. None of that is here:
-    /// the decay is **derived at read time** from the clock this provider
-    /// already holds, so there is no timer to leak, no token to get wrong, and
-    /// a new event resets it by moving the stamp.
-    public static let reviewDecay: TimeInterval = 25
+    // A finished turn stays `review` until an event says otherwise. There is
+    // no decay to `idle`: whether the finish is still news is the shell's
+    // question (what the user has seen, `Registry.Snapshot`), and a row that
+    // quietly turned `idle` after a while took the finish with it before
+    // anyone had looked.
 
     /// How long a row with no pid lives after the last thing it heard. With
     /// no process to ask, silence is the only evidence of death: a live
@@ -151,9 +149,8 @@ public final class HooksProvider: Provider {
 
     /// Phases the user cannot walk away from. They are the ones worth
     /// protecting — `working`, `idle` and `review` are corrected by the next
-    /// event either way — and they are also the only two that never decay,
-    /// which is why the phase alone says whether a block is standing and no
-    /// separate "is blocked" flag is kept.
+    /// event either way — and the phase alone says whether a block is
+    /// standing, so no separate "is blocked" flag is kept.
     private static func blocks(_ phase: Phase) -> Bool {
         phase == .waiting || phase == .failed
     }
@@ -319,8 +316,9 @@ public final class HooksProvider: Provider {
         if case .set(let phase) = effect, Self.mayApply(phase, from: event, to: session) {
             session.phase = phase
             // The stamp belongs to the phase. An event that assigns none must
-            // not restart the decay, or a `Notification` arriving a minute into
-            // an idle session would spring `review` back to life.
+            // not move it: the stamp is the finish's key (`Finish`), and a
+            // `Notification` arriving a minute into a finished session would
+            // make a seen finish news again.
             session.since = platform.now()
             session.word = event.name
             // A phase that does not block clears the ownership with it, and
@@ -341,7 +339,7 @@ public final class HooksProvider: Provider {
         // grow the dictionary for the lifetime of the process.
         sessions = sessions.filter { isAlive($0.value, now: now) }
         return sessions.map { entity, session in
-            let phase = session.shownPhase(now: now)
+            let phase = session.phase
             return Signal(
                 provider: Self.id,
                 entity: entity,
@@ -355,10 +353,7 @@ public final class HooksProvider: Provider {
                 detail: session.cwd,
                 source: session.source,
                 fidelity: .official,
-                // The source's own word for this phase — the event name. It
-                // survives the decay on purpose: `review` reading as `idle`
-                // later is Evlat's inference, and the thing the source actually
-                // said stays on the row.
+                // The source's own word for this phase — the event name.
                 rawStatus: session.word,
                 // The stamp stays the phase's: the card's facts change at event
                 // rate and must not look like a fresher state.
@@ -417,8 +412,8 @@ public final class HooksProvider: Provider {
     /// there is no subagent set.
     private struct Session {
         var phase: Phase
-        /// When the phase was assigned. Both the row's stamp and the decay read
-        /// it, because they are the same fact.
+        /// When the phase was assigned: the row's stamp, and so a finish's
+        /// key.
         var since: Date
         /// When any event last reached this row, a phaseless one included,
         /// and when the tunnel lost it. What pidless liveness and remote
@@ -470,17 +465,6 @@ public final class HooksProvider: Provider {
             Signal.Activity(pid: pid, lastTool: lastTool, blockingTool: blockingTool,
                             waitKind: waitKind, lastReply: lastReply,
                             toolCount: toolCount, countIsPartial: countIsPartial)
-        }
-
-        /// The phase as of now. Only `review` decays: `waiting` and `failed`
-        /// are the user's business and wait for an event from whoever put them
-        /// up (`mayApply`), while `working` is corrected by the next event
-        /// either way.
-        func shownPhase(now: Date) -> Phase {
-            guard phase == .review, now.timeIntervalSince(since) >= HooksProvider.reviewDecay else {
-                return phase
-            }
-            return .idle
         }
 
         /// The same fallback the file record uses, so the two rows do not

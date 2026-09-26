@@ -27,8 +27,10 @@ public struct SignalReport: Equatable {
 
     /// A row may ask to live at most a day…
     public static let ttlLimit = 86400
-    /// …and a finished one at most an hour: a `done` kept for a day would keep
-    /// the mascot's loops running for a day (`Registry.Snapshot.hasLive`).
+    /// …and a finished one at most an hour. On a finish the limit is only the
+    /// validation of what was sent: a `done` or `failed` row lives until the
+    /// user sees it, at most `SignalsProvider.finishLifetime`, whatever its ttl
+    /// (`SignalsProvider`). The cut stays so the parse is unchanged.
     public static let finishedTTLLimit = 3600
     public static let idLimit = 64
     public static let labelLimit = 80

@@ -411,8 +411,10 @@ final class ChatStore {
         return folder
     }
 
-    /// The balloon drew the chat's end: its row goes, and the index
-    /// forgets that it was unseen. Its activity is not moved: looking is
+    /// Lets a seen chat's row go: the shell calls it at the close of the bar
+    /// after the chat's end was seen (by the bar or the balloon), not the
+    /// moment it was drawn. Its row goes, and the index forgets that it was
+    /// unseen. Its activity is not moved: looking is
     /// not using, and the history's week counts from the last turn.
     func markSeen(_ id: String) {
         guard var chat = provider[id], chat.markSeen() else { return }

@@ -10,6 +10,14 @@ import Foundation
 /// `Registry`'s rule ("no time-driven transitions") carried to the provider,
 /// the same shape as `ChatsProvider`'s clock.
 ///
+/// **A finish lives until it is seen, not for its ttl.** `working` and
+/// `waiting` live by the sender's ttl — a sender that stops pulsing is gone.
+/// A `done` or `failed` is news: it stays until the shell releases it after
+/// the user has seen it (`release`), or `ttl: 0` removes it, and the clock
+/// ends it only at `finishLifetime` after it finished — the same twelve hours
+/// an unseen chat keeps its row. The sent ttl is still validated
+/// (`SignalReport`); on a finish it no longer sets the life.
+///
 /// **One instance per origin**: this Mac's port has one, and each
 /// remote machine has its own, fed by its tunnel. A machine's rows are
 /// namespaced and carry the machine (`SignalReport.signal`), and are live only
@@ -27,6 +35,10 @@ public final class SignalsProvider: Provider, Releasable {
     /// without end. A machine's instance has its own, so a busy Mac never
     /// silences a server, nor one server another.
     public static let limit = 32
+
+    /// How long an unseen finish keeps its row: one number for every kind
+    /// of finish on the bar (`ChatSession.unseenLifetime`).
+    public static let finishLifetime = ChatSession.unseenLifetime
 
     /// What `apply` did with a report. `dropped` is not an error answer: the
     /// cap is known on the main queue, after the listener has already
@@ -91,8 +103,12 @@ public final class SignalsProvider: Provider, Releasable {
         // start moves only when the phase does.
         var phaseStart = now
         if let previous, previous.report.word == word { phaseStart = previous.phaseStart }
+        // A finish counts from when it finished, so re-sending it does not
+        // extend it; live work counts from the last pulse.
+        let finished = word == .done || word == .failed
         rows[report.id] = Row(report: report, phaseStart: phaseStart,
-                              expiresAt: now.addingTimeInterval(TimeInterval(report.ttl)),
+                              expiresAt: finished ? phaseStart.addingTimeInterval(Self.finishLifetime)
+                                                  : now.addingTimeInterval(TimeInterval(report.ttl)),
                               mark: LinkClock.Mark(heardAt: now))
         return .stored
     }

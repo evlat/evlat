@@ -1,11 +1,11 @@
 import XCTest
 @testable import EvlatCore
 
-/// The hook provider's contract: an event becomes a phase, a phase decays on
-/// its own, and a row leaves when the process behind it does.
+/// The hook provider's contract: an event becomes a phase, a phase holds until
+/// another event moves it, and a row leaves when the process behind it does.
 ///
 /// Headless, like every other provider test. Time and liveness are injected, so
-/// the 25 s decay is asserted in microseconds and `kill -9` is a closure.
+/// "an hour later" is asserted in microseconds and `kill -9` is a closure.
 final class HooksProviderTests: XCTestCase {
     /// A clock the test moves by hand. `Platform.now` is a closure precisely so
     /// a time-dependent rule can be pinned instead of waited out.
@@ -253,8 +253,7 @@ final class HooksProviderTests: XCTestCase {
     }
 
     /// `failed` blocks the user exactly as `waiting` does, so it is guarded the
-    /// same way. (These are also the only two phases that never decay, which is
-    /// why the phase alone can say whether a block is standing.)
+    /// same way. (The phase alone can say whether a block is standing.)
     func testAFailedPhaseIsGuardedLikeAWait() {
         let hooks = provider()
         hooks.handle(event("StopFailure"))
@@ -310,46 +309,34 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertEqual(row?.detail, "/tmp/second")
     }
 
-    // MARK: - review → idle, with no timer anywhere
+    // MARK: - No phase decays
 
-    func testReviewDecaysAtReadTime() {
+    /// A finish stays until something moves it: whether it is still news is
+    /// what the user has seen, not how long ago it happened.
+    func testAReviewIsStillAReviewAnHourLater() {
         let hooks = provider()
         hooks.handle(event("Stop"))
-        clock.now += HooksProvider.reviewDecay - 1
-        XCTAssertEqual(hooks.currentSignals().first?.phase, .review)
-
-        clock.now += 2
+        let finished = clock.now
+        clock.now += 3_600
         let row = hooks.currentSignals().first
-        XCTAssertEqual(row?.phase, .idle, "derived from the clock, not from a timer")
-        XCTAssertEqual(row?.rawStatus, "Stop",
-                       "the row stays: dropping it would take the source's own word with it")
-    }
-
-    /// The stamp belongs to the phase, not to the traffic. An event that
-    /// assigns no phase must not restart the decay — `Notification` is
-    /// installed and arrives while a session sits idle.
-    func testANoOpEventDoesNotRestartTheDecay() {
-        let hooks = provider()
-        hooks.handle(event("Stop"))
-        clock.now += HooksProvider.reviewDecay + 5
-        hooks.handle(event("Notification", notification: "idle_prompt"))
-        XCTAssertEqual(hooks.currentSignals().first?.phase, .idle,
-                       "a decayed review must not spring back to review")
+        XCTAssertEqual(row?.phase, .review)
+        XCTAssertEqual(row?.updatedAt, finished, "the finish's key holds still")
+        XCTAssertEqual(row?.rawStatus, "Stop")
     }
 
     func testANewEventResetsTheStamp() {
         let hooks = provider()
         hooks.handle(event("Stop"))
-        clock.now += HooksProvider.reviewDecay + 5
+        clock.now += 3_600
         hooks.handle(event("UserPromptSubmit"))
         XCTAssertEqual(hooks.currentSignals().first?.phase, .working)
         XCTAssertEqual(hooks.currentSignals().first?.updatedAt, clock.now)
     }
 
-    /// Only `review` decays. `failed` and `waiting` are the user's business and
-    /// wait for an event that says otherwise.
-    func testNoOtherPhaseDecays() {
-        for name in ["StopFailure", "PermissionRequest", "UserPromptSubmit"] {
+    /// No phase moves on the clock: `failed` and `waiting` are the user's
+    /// business, `review` is news until seen, `working` waits for its event.
+    func testNoPhaseDecays() {
+        for name in ["Stop", "StopFailure", "PermissionRequest", "UserPromptSubmit"] {
             let hooks = provider()
             let before = phase(after: [name], in: hooks)
             clock.now += 3_600

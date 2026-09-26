@@ -77,6 +77,22 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertNil(controller.barState.selected)
     }
 
+    /// Going to a finished session is seeing it: its row goes passive at
+    /// once, however briefly the bar was open, and stays on the list.
+    func testGoingToAFinishSeesIt() {
+        let finished = Signal(provider: "stub", entity: "a", phase: .review, label: "a",
+                              fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0),
+                              activity: Signal.Activity(pid: 900))
+        let (controller, _) = controller([finished]) { .app(self.term) }
+        defer { controller.panel?.close() }
+        XCTAssertEqual(controller.mascot.phase, .review)
+        controller.select("a")
+        controller.goToSession()
+        XCTAssertEqual(controller.mascot.phase, .idle)
+        XCTAssertFalse(controller.mascot.hasLive)
+        XCTAssertEqual(controller.sessionRows.rows.map(\.entity), ["a"], "a session is not let go")
+    }
+
     /// The app quit after the card came up: the click opens nothing, and the
     /// card now says the app is closed.
     func testAnAppThatQuitSinceIsSaidNotOpened() {
@@ -297,7 +313,8 @@ final class GoToSessionTests: XCTestCase {
     }
 
     /// `[Back to chat]` opens the balloon with that chat; the bar closes,
-    /// nothing is activated, and the chat, now seen, leaves the bar.
+    /// nothing is activated, and the chat, now seen, goes passive and leaves
+    /// the bar at its next close.
     func testBackToChatOpensTheBalloonWithIt() throws {
         let (controller, root) = try chatController()
         defer { controller.closeChat(); controller.panel?.close(); controller.chatPanel?.close()
@@ -311,12 +328,18 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertEqual(controller.chatModel.messages, [.reply("Moved 42 files.")])
         XCTAssertTrue(controller.chatModel.hasChat)
         controller.refresh()
-        XCTAssertEqual(controller.sessionRows.rows, [], "seen: in the history now")
+        XCTAssertEqual(controller.mascot.phase, .idle, "seen: passive")
+        XCTAssertEqual(controller.sessionRows.rows.count, 1, "still on the bar until it closes")
+        controller.closeChat()
+        controller.openBar()
+        controller.closeBar()
+        XCTAssertEqual(controller.sessionRows.rows, [], "let go: in the history now")
         XCTAssertEqual(controller.chats?.history.map(\.id), [chatID])
     }
 
     /// A balloon opened with nothing asked for takes the chat still on the
-    /// bar; `[+ New]` empties it and the chat is in the history list.
+    /// bar; `[+ New]` empties it, and once the bar's close lets the seen chat
+    /// go it is in the history list.
     func testTheBalloonOpensWithAnUnseenChatAndNewEmptiesIt() throws {
         let (controller, root) = try chatController()
         defer { controller.closeChat(); controller.panel?.close(); controller.chatPanel?.close()
@@ -326,11 +349,13 @@ final class GoToSessionTests: XCTestCase {
         controller.chatModel.newChat()
         XCTAssertNil(controller.currentChat)
         XCTAssertFalse(controller.chatModel.hasChat)
-        XCTAssertEqual(controller.chatModel.history.map(\.id), [chatID])
-        XCTAssertEqual(controller.chatModel.history.first?.folder, "/tmp/somewhere")
         controller.closeChat()
+        controller.openBar()
+        controller.closeBar()
         controller.openChat()
         XCTAssertNil(controller.currentChat, "seen and off the bar: an empty balloon")
+        XCTAssertEqual(controller.chatModel.history.map(\.id), [chatID])
+        XCTAssertEqual(controller.chatModel.history.first?.folder, "/tmp/somewhere")
         controller.chatModel.open(chatID)
         XCTAssertEqual(controller.currentChat, chatID)
         controller.chatModel.removeFromHistory(chatID)

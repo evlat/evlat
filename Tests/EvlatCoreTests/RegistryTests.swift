@@ -175,9 +175,9 @@ final class RegistryTests: XCTestCase {
         XCTAssertEqual(rows.first?.activity?.toolCount, 3)
     }
 
-    /// A report that decayed to `idle` next to an `idle` file is refused, and
-    /// the reply the turn ended with stays on the row.
-    func testADecayedReportKeepsItsReply() {
+    /// An `idle` report next to an `idle` file, and the reply the turn ended
+    /// with stays on the row.
+    func testAnIdleReportKeepsItsReply() {
         let rows = merged([signal("s", .idle, .derived)],
                           [signal("s", .idle, .official, activity: Signal.Activity(lastReply: "Done."))])
         XCTAssertEqual(rows.first?.activity?.lastReply, "Done.")

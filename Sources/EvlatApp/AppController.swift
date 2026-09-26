@@ -177,16 +177,34 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private(set) var trayAmber = false
     /// The finish whose short peek is running; its timer clears it.
     private(set) var peekPhase: Phase?
-    /// Each row's phase at the last refresh: a single row's finish is told
-    /// even when the aggregate does not move (`announcePieceFinishes`).
-    private var rowPhases: [String: Phase] = [:]
+    /// The finishes the user has seen: the bar looked at for a while, `[Go
+    /// to session]`, the balloon drawing a chat's end. Handed to every
+    /// snapshot, which reads a finish in it as passive (`Registry.Layer`).
+    /// Memory only: a chat's is written down by its store when its row is
+    /// let go (`ChatStore.markSeen`); a hook's or an outside row's is lost
+    /// with the process, and so is the row itself.
+    private(set) var seen: Set<Finish> = []
+    /// The finishes already told — by a peek, or silently because they
+    /// came while the bar or the balloon was out, or with the first scan.
+    /// A finish is told once, and only from here (`tellNews`).
+    private var announced: Set<Finish> = []
+    /// When the bar opened; a close reads how long it was looked at.
+    private var openedAt: Date?
+    /// Has the first scan run? Its finishes are old news: they enter
+    /// `announced` without a peek. The first scan runs after the chat store
+    /// has loaded (`applicationDidFinishLaunching`), so a chat left unseen by
+    /// the last run is among them.
+    private var scanned = false
+    /// The last refresh's snapshot: what the open bar showed when it closes.
+    private var lastSnapshot: Registry.Snapshot?
     /// A file drag is over the body's area.
     private var isDragging = false
-    /// The effective phase the last derivation saw: a finish
-    /// peeks on the way **into** it, so the poll re-reading the same phase
-    /// sets nothing up again.
+    /// The effective phase the last derivation saw: a phase change ends a
+    /// running peek (and a forced finish peeks) on the way **into** it, so
+    /// the poll re-reading the same phase sets nothing up again.
     private var presencePhase: Phase = .idle
-    /// Bumped by every phase change: a peek timer from an older change finds
+    /// Bumped by every phase change and every new peek (`tellNews`): a peek
+    /// timer from an older change finds
     /// it moved and does nothing (the `HoverIntent` guard).
     private var peekGeneration = 0
     /// How a finish's peek is timed. A `var` so a test fires it by hand.
@@ -196,6 +214,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// How long a finish peeks before the body goes back in.
     static let reviewPeek: TimeInterval = 2.5
     static let failedPeek: TimeInterval = 4
+    /// How long the bar must stay open for its news to be seen. A shorter
+    /// opening is a pass of the cursor, not a look.
+    static let seenAfter: TimeInterval = 1
     private var poller: Timer?
     private var screenObserver: NSObjectProtocol?
     /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
@@ -1610,14 +1631,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     static let handBackWait: TimeInterval = 1
 
     /// The balloon's lines follow its chat. A finished chat on screen is
-    /// seen: its row leaves the bar for the history. The
+    /// seen: its row goes passive, and leaves the bar for the history at the
+    /// next close of the bar. The
     /// history and a workspace's files are written here too, each only
     /// when it changed.
     private func syncChat() {
         let chat = currentChat.flatMap { chats?.chat($0) }
         chatModel.update(from: chat)
         chatModel.setHasChat(chat != nil)
-        if isChatOpen, let chat, chat.isFinished, !chat.seen { chats?.markSeen(chat.id) }
+        // Drawn is seen; the row goes at the next close of the bar (`release`).
+        if isChatOpen, let chat, chat.isFinished, !chat.seen,
+           let finish = chat.signal(at: now()).flatMap(Finish.init), seen.insert(finish).inserted {
+            scheduleRefresh()
+        }
         chatModel.setHistory(chats?.history.filter { $0.id != currentChat }.map {
             ChatModel.HistoryItem(id: $0.id, title: $0.title ?? L10n.t("chat.folder.workspace"),
                                   folder: $0.isWorkspace ? nil : $0.folder,
@@ -2287,8 +2313,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// A plain `async` would not do: the events of one turn arrive over
     /// seconds, each on its own run-loop turn, so there would be nothing to
     /// coalesce with. Nor is this the ruled-out timer — that one was a
-    /// scheduled **state change** (`review` → `idle` after 25 s),
-    /// which is derived at read time now. This schedules a read.
+    /// scheduled **state change** (v1's `review` → `idle` after 25 s),
+    /// and no phase moves on a clock now. This schedules a read.
     private func scheduleRefresh() {
         guard !refreshPending else { return }
         refreshPending = true
@@ -2314,7 +2340,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// silently — the app keeps working and simply re-evaluates the bar at
     /// event rate.
     func refresh() {
-        let snapshot = registry.snapshot(seen: [])
+        let snapshot = registry.snapshot(seen: seen)
+        lastSnapshot = snapshot
+        // Pruned when the row leaves, not when its key does: while the merge
+        // holds a finish back (the file says `busy`) its key is missing for a
+        // while and comes back unchanged, and it must come back seen and told.
+        let present = snapshot.layers
+        if seen.contains(where: { present[$0.entity] == nil }) { seen = seen.filter { present[$0.entity] != nil } }
+        if announced.contains(where: { present[$0.entity] == nil }) {
+            announced = announced.filter { present[$0.entity] != nil }
+        }
         if mascot.phase != snapshot.aggregate {
             // The only trace the seam leaves in the field. `--capture` shows
             // the events and `--list` the file rows, but neither runs in this
@@ -2378,7 +2413,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The lengths, the width and the phase are all read now; the hover
         // area follows them from here. It writes nothing that did not change.
         applyPresence()
-        announcePieceFinishes(in: snapshot.ordered)
+        tellNews(snapshot.news)
         if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
@@ -2532,10 +2567,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             openChat(chat: id)
             return
         }
+        // Read before the close, which takes the selection with it.
+        let finish = barState.selected.flatMap { entity in
+            lastSnapshot?.ordered.first { $0.entity == entity }
+        }.flatMap(Finish.init)
         guard detail.go() else { return }
         hover.closeNow()
         // The intent may already have believed the bar closed.
         if barState.isOpen { closeBar() }
+        // Going to it is seeing it — after the close, so the close that
+        // follows the next opening is the one that lets its row go.
+        if let finish, seen.insert(finish).inserted { refresh() }
     }
 
     /// Opening is the drawn body widening and lengthening; the window is
@@ -2548,6 +2590,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // providers answer is theirs to say (`Reloadable`); the scan after it
         // is what brings the new reading onto the body being opened.
         registry.reload()
+        if openedAt == nil { openedAt = now() }
         refresh()
         // After the scan: a finish it brings in has been seen by opening.
         // `refresh()` ran with the bar still closed, so a finish it moved
@@ -2562,6 +2605,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Closing: the body narrows back to the edge and the hover area with it.
     func closeBar() {
+        let opened = openedAt
+        openedAt = nil
         // The list and the card close together; the selection does not
         // outlive them.
         deselect()
@@ -2570,6 +2615,39 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         sessionRows.setOpen(false)
         listScroll.set(0, max: 0)
         applyPresence()
+        // Seeing is applied here and only here: nothing moves on the open bar
+        // because it was seen. A close with no opening sees nothing.
+        guard let opened, let snapshot = lastSnapshot else { return }
+        // First what was seen before this close: an outside row or a chat
+        // stays through the close it was seen at, and goes at the next.
+        release(from: snapshot)
+        if now().timeIntervalSince(opened) >= Self.seenAfter {
+            // A dimmed finish is on the open bar too, if at the bottom: seen
+            // there, it is not news when its machine is heard again. So the
+            // layers, not `news`, which holds live rows only.
+            seen.formUnion(snapshot.ordered.compactMap {
+                snapshot.layers[$0.entity] == .news ? Finish($0) : nil
+            })
+        }
+        refresh()
+    }
+
+    /// Lets go of the seen, passive rows that are not sessions: an outside
+    /// row leaves its provider (`Registry.release`), a chat goes to the
+    /// history the way it always has (`ChatStore.markSeen`, which writes it
+    /// down). A session stays; its row is the session, not the finish.
+    private func release(from snapshot: Registry.Snapshot) {
+        var finishes: Set<Finish> = []
+        for signal in snapshot.ordered where signal.kind == .job || signal.kind == .custom {
+            guard let finish = Finish(signal), seen.contains(finish) else { continue }
+            if let id = ChatSession.chatID(fromEntity: signal.entity) {
+                // Only the finish that was seen: a turn since then is new.
+                if chats?.chat(id)?.signal(at: now()).flatMap(Finish.init) == finish { chats?.markSeen(id) }
+            } else {
+                finishes.insert(finish)
+            }
+        }
+        registry.release(finishes)
     }
 
     // MARK: - Presence
@@ -2630,9 +2708,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = toggles
     }
 
-    /// The way into a new effective phase: a finish starts its peek,
-    /// anything else ends a running one. One timer at a time. A finish seen
-    /// on the open bar or with the balloon out is not news: it does not peek.
+    /// The way into a new effective phase ends a running peek. One timer at
+    /// a time. A row's finish is told by `tellNews`, not here: the face
+    /// moving is not what makes a finish new. Only a forced phase
+    /// (`MascotModel.override`, the menu's "Force state") peeks on its way
+    /// into a finish, as it always has — there is no row to be news.
     ///
     /// Nothing outlives the phase. A dot that remembered a finish after its
     /// row had gone back to idle opened onto a bar with nothing finished on
@@ -2640,7 +2720,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func phaseMoved(to phase: Phase) {
         peekGeneration &+= 1
         let watched = barState.isOpen || isChatOpen
-        guard !watched, phase == .review || phase == .failed else {
+        guard mascot.override != nil, !watched, phase == .review || phase == .failed else {
             peekPhase = nil
             return
         }
@@ -2661,22 +2741,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         })
     }
 
-    /// One row finishing while the aggregate stays where it was — a job done
-    /// beside sessions still working. The aggregate is right to stay
-    /// `working`, but the finish would then be told nowhere, so it is told
-    /// briefly: the same peek, because the steady state is the aggregate's. A row seen for the first time finishes nothing; the
-    /// first refresh after launch would otherwise announce every old finish.
-    private func announcePieceFinishes(in rows: [Signal]) {
-        let before = rowPhases
-        rowPhases = Dictionary(rows.map { ($0.entity, $0.phase) }, uniquingKeysWith: { a, _ in a })
-        // The aggregate's own finish is already being told.
-        guard peekPhase == nil, !barState.isOpen, !isChatOpen else { return }
-        let finishes = rows.filter { row in
-            guard row.phase == .review || row.phase == .failed, let old = before[row.entity] else { return false }
-            return old != .review && old != .failed
-        }
-        guard !finishes.isEmpty else { return }
-        announce(finishes.contains { $0.phase == .failed } ? .failed : .review)
+    /// The one way a row's finish is told: news no scan has told yet, while
+    /// the bar and the balloon are closed, peeks in the newest one's colour.
+    /// Every scan's news enters `announced`, told or not: one that came while
+    /// the bar was open was seen coming and is not told late when it closes,
+    /// and the first scan's is old. A row first seen already finished is news
+    /// like any other.
+    private func tellNews(_ news: [Finish]) {
+        let first = !scanned
+        scanned = true
+        // `news` is newest first.
+        guard let fresh = news.first(where: { !announced.contains($0) }) else { return }
+        announced.formUnion(news)
+        guard !first, !barState.isOpen, !isChatOpen else { return }
+        // An older peek's timer finds the generation moved and does nothing.
+        peekGeneration &+= 1
+        announce(fresh.phase)
         applyPresence()
     }
 

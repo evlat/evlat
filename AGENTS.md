@@ -161,6 +161,33 @@ Stop                                             → review
 The session file's `status` does not carry this distinction; that file is for
 discovery, liveness, name and pid.
 
+### News and passive
+
+A finish (`review`, `failed`) is **news** until the user has seen it, then
+**passive**. No phase moves on a clock: a hook `review` stays until the user
+sees it or the next event moves the row. The shell keeps two in-memory sets of
+`Finish` keys, pruned when the row leaves (not when the key goes missing, so a
+merge that holds a finish back for a while neither retells nor revives it):
+
+- **seen** — handed to every snapshot. A finish is seen when the bar closes
+  after being open ≥ 1 s (a shorter opening is a pass of the cursor; the news
+  on the open bar, dimmed rows included), by `[Go to session]` on its row, or
+  when the balloon draws a chat's end. The same row's next phase is a new key.
+  Nothing on the open bar moves because it was seen: seeing is applied at the
+  close.
+- **announced** — a finish is told once, from one place: news not yet told,
+  while the bar and the balloon are closed, peeks in the newest finish's
+  colour. News that came while either was open, or with the first scan, enters
+  silently. A forced phase ("Force state") still peeks on its own.
+
+A seen `job`/`custom` row stays through the close it was seen at and is let go
+at the next one: an outside row through `Registry.release`, a chat through
+`ChatStore.markSeen` (which writes it down). A passive session stays listed.
+
+A restart is asymmetric: an unseen chat's finish is persisted and comes back
+as news (old, so not told), while hook and `/signal` news lives in memory and
+is lost with the process.
+
 ### Rendering and CPU
 
 - **Idle draws nothing.** When nothing moves, no frames are produced. This
@@ -250,6 +277,11 @@ but a POST to the LAN address is refused). Default port **48151**.
 ≤ 1 h), `phase` (`working·waiting·done·failed`), `label`, `progress` 0…1,
 `detail`, `sender`; errors are `400` with a stable `code` (`SignalReport`).
 The server writes the identity (`signal:<id>`, `.manual`), at most 32 rows.
+`working`/`waiting` live by their `ttl`. On a finish (`done`/`failed`) the
+`ttl` is only validated: the row stays until the user has seen it, at most
+12 h after it finished, and counts against the 32 while it waits; `ttl: 0`
+still drops it at once. The "600 s" in `evlat signal`'s help is the value it
+sends, not the row's life.
 The key is written on every launch to
 `~/Library/Application Support/Evlat/signal-<port>.token` (`0600`) by the
 process that holds the port and removed on quit; wrong or missing key → `403`.
