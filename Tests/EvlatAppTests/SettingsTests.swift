@@ -35,6 +35,8 @@ final class SettingsTests: XCTestCase {
         var home: URL?
         var binary: URL?
         var loginPath: String?
+        var bodyMode = BodyPresence.Mode.always
+        var bodyToggles = BodyPresence.Toggles()
         /// Runs in the `claude` lookup, before its answer.
         var onLookup: () -> Void = {}
     }
@@ -46,7 +48,9 @@ final class SettingsTests: XCTestCase {
             locateClaude: { recorder.onLookup(); $0(recorder.claude) },
             memoryCount: { recorder.memory },
             showMemory: {},
-            clearMemory: { recorder.cleared += 1; recorder.memory = 0 })
+            clearMemory: { recorder.cleared += 1; recorder.memory = 0 },
+            bodyMode: { recorder.bodyMode }, setBodyMode: { recorder.bodyMode = $0 },
+            bodyToggles: { recorder.bodyToggles }, setBodyToggles: { recorder.bodyToggles = $0 })
         let setup = SetupModel(host: SetupModel.Host(
             home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
             loginPath: { recorder.loginPath },
@@ -169,5 +173,62 @@ final class SettingsTests: XCTestCase {
         }
         XCTAssertEqual(SettingsModel.tilde("/Users/me/.local/bin/claude", home: "/Users/me"), "~/.local/bin/claude")
         XCTAssertEqual(SettingsModel.tilde("/opt/claude", home: "/Users/me"), "/opt/claude")
+    }
+    // MARK: - Body
+
+    /// The choice goes to the writer; the switches are offered only under
+    /// Smart, and turning the waiting peek off says what is left of it.
+    func testTheBodyRowGoesToTheWriterAndShowsTheSwitchesOnlyWhenSmart() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        XCTAssertEqual(model.bodyMode, .always)
+        XCTAssertFalse(model.showsBodyToggles, "today's bar has nothing to switch")
+        XCTAssertFalse(model.showsPeekWarning)
+        model.setBodyMode(.smart)
+        XCTAssertEqual(recorder.bodyMode, .smart)
+        XCTAssertTrue(model.showsBodyToggles)
+        XCTAssertFalse(model.showsPeekWarning, "every switch on: nothing to warn about")
+        model.setBodyToggle(\.peekWaiting, on: false)
+        XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: true, peekWaiting: false, peekDone: true))
+        XCTAssertTrue(model.showsPeekWarning)
+        model.setBodyToggle(\.sliver, on: false)
+        XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: false, peekWaiting: false, peekDone: true))
+        model.setBodyMode(.hidden)
+        XCTAssertFalse(model.showsBodyToggles, "hidden has neither sliver nor peek")
+        XCTAssertFalse(model.showsPeekWarning)
+    }
+
+    /// The controller's writers store the choice and apply it at once.
+    func testTheBodyWritersStoreAndApply() throws {
+        let controller = AppController(defaults: defaults)
+        let panel = controller.installPanel()
+        defer { panel.close() }
+        let host = controller.settingsHost
+        host.setBodyMode(.smart)
+        XCTAssertEqual(controller.bodyMode, .smart)
+        XCTAssertEqual(host.bodyMode(), .smart)
+        XCTAssertEqual(defaults.string(forKey: AppController.bodyModeKey), "smart")
+        XCTAssertNotEqual(controller.barState.presence.level, .full, "applied to the bar at once")
+        host.setBodyToggles(BodyPresence.Toggles(sliver: false, peekWaiting: true, peekDone: false))
+        XCTAssertEqual(AppController.storedBodyToggles(defaults),
+                       BodyPresence.Toggles(sliver: false, peekWaiting: true, peekDone: false))
+        XCTAssertEqual(controller.barState.presence.level, .none, "the sliver switched off is gone")
+    }
+
+    /// Under `EVLAT_BODY` the writers apply but never store: the user's
+    /// choice is not overwritten by a forced launch.
+    func testAForcedBodyIsAppliedButNotStored() {
+        let controller = AppController(defaults: defaults)
+        let panel = controller.installPanel()
+        defer { panel.close() }
+        controller.bodyForced = true
+        let host = controller.settingsHost
+        host.setBodyMode(.hidden)
+        host.setBodyToggles(BodyPresence.Toggles(sliver: true, peekWaiting: false, peekDone: true))
+        XCTAssertEqual(controller.bodyMode, .hidden)
+        XCTAssertEqual(controller.bodyToggles.peekWaiting, false)
+        XCTAssertNil(defaults.object(forKey: AppController.bodyModeKey))
+        XCTAssertNil(defaults.object(forKey: AppController.bodyPeekWaitingKey))
+        XCTAssertNil(defaults.object(forKey: AppController.bodySliverKey))
     }
 }

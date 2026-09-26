@@ -32,6 +32,11 @@ final class SettingsModel: ObservableObject {
         var clearMemory: () -> Void
         /// General's "Open Setup…".
         var openSetup: () -> Void = {}
+        /// General's "Body": the mode in force and its three switches.
+        var bodyMode: () -> BodyPresence.Mode = { .always }
+        var setBodyMode: (BodyPresence.Mode) -> Void = { _ in }
+        var bodyToggles: () -> BodyPresence.Toggles = { BodyPresence.Toggles() }
+        var setBodyToggles: (BodyPresence.Toggles) -> Void = { _ in }
     }
 
     /// Where `claude` is, once looked for.
@@ -97,6 +102,31 @@ final class SettingsModel: ObservableObject {
         host.setEdge(edge)
         objectWillChange.send()
     }
+
+    var bodyMode: BodyPresence.Mode { host.bodyMode() }
+    var bodyToggles: BodyPresence.Toggles { host.bodyToggles() }
+
+    func setBodyMode(_ mode: BodyPresence.Mode) {
+        guard mode != host.bodyMode() else { return }
+        host.setBodyMode(mode)
+        objectWillChange.send()
+    }
+
+    func setBodyToggle(_ toggle: WritableKeyPath<BodyPresence.Toggles, Bool>, on: Bool) {
+        var toggles = host.bodyToggles()
+        guard toggles[keyPath: toggle] != on else { return }
+        toggles[keyPath: toggle] = on
+        host.setBodyToggles(toggles)
+        objectWillChange.send()
+    }
+
+    /// The switches shape only Smart: Always has nothing to hide, Hidden
+    /// has neither the sliver nor a peek.
+    var showsBodyToggles: Bool { bodyMode == .smart }
+
+    /// Without the waiting peek, waiting is told only by the sliver's amber
+    /// dot — said beside the switch, so the loss is chosen, not stumbled on.
+    var showsPeekWarning: Bool { showsBodyToggles && !bodyToggles.peekWaiting }
 
     // MARK: - Chat
 
@@ -187,6 +217,12 @@ final class SettingsModel: ObservableObject {
         "settings.window.title",
         "settings.general.bar", "settings.general.edge", "settings.general.edge.detail",
         "settings.general.edge.left", "settings.general.edge.right", "settings.general.start",
+        "settings.general.body", "settings.general.body.detail", "settings.general.body.always",
+        "settings.general.body.smart", "settings.general.body.hidden",
+        "settings.general.body.sliver", "settings.general.body.sliver.detail",
+        "settings.general.body.peekWaiting", "settings.general.body.peekWaiting.detail",
+        "settings.general.body.peekWaiting.off",
+        "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
         "settings.sessions.agents", "settings.sessions.agents.note", "settings.sessions.usage",
         "settings.sessions.none",
         "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",

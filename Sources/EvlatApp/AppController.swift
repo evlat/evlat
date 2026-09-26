@@ -165,6 +165,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var bodyToggles = BodyPresence.Toggles() {
         didSet { if bodyToggles != oldValue { applyPresence() } }
     }
+    /// The mode came from `EVLAT_BODY`: the settings' writers apply the
+    /// choice but never store it, so a forced launch — an isolated copy
+    /// looked at or measured — leaves the user's choice alone.
+    var bodyForced = false
+    /// Whether the menu-bar icon is the amber one (`TrayIcon.isAmber`).
+    /// Written by `applyPresence` alone.
+    private(set) var trayAmber = false
     /// The finish that outlives its phase and colours the sliver's dot until
     /// the bar is opened once (`BodyPresence.latch`).
     private(set) var latch: Phase?
@@ -1124,6 +1131,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Before the panel, so its first hover area is already the mode's.
         bodyToggles = Self.storedBodyToggles(defaults)
         bodyMode = Self.bodyMode(defaults)
+        bodyForced = Self.forcedBodyMode() != nil
         // The environment over the stored choice, the right over nothing.
         // Read here, never written back: only `setEdge` writes.
         let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right)
@@ -2005,7 +2013,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
             },
             clearMemory: { [weak self] in self?.chats?.clearMemory() },
-            openSetup: { [weak self] in self?.openSetup() })
+            openSetup: { [weak self] in self?.openSetup() },
+            bodyMode: { [weak self] in self?.bodyMode ?? .always },
+            setBodyMode: { [weak self] in self?.setBodyMode($0) },
+            bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
+            setBodyToggles: { [weak self] in self?.setBodyToggles($0) })
     }
 
     /// The window's focus call on open; a test holds it still so the runner
@@ -2586,6 +2598,28 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let shown = presence.mascotShown
         if mascot.isShown != shown { mascot.isShown = shown }
         if let gaze, gaze.isRunning != shown { shown ? gaze.start() : gaze.stop() }
+        let amber = TrayIcon.isAmber(mode: bodyMode, phase: phase)
+        if trayAmber != amber {
+            trayAmber = amber
+            statusItem?.button?.image = TrayIcon.image(amber: amber)
+        }
+    }
+
+    /// Settings → General → Body. Stored, then applied at once (`bodyMode`'s
+    /// `didSet`); under `EVLAT_BODY` only applied.
+    func setBodyMode(_ mode: BodyPresence.Mode) {
+        if !bodyForced { defaults?.set(mode.storedValue, forKey: Self.bodyModeKey) }
+        bodyMode = mode
+    }
+
+    /// The body's three switches, the same way as its mode.
+    func setBodyToggles(_ toggles: BodyPresence.Toggles) {
+        if !bodyForced {
+            defaults?.set(toggles.sliver, forKey: Self.bodySliverKey)
+            defaults?.set(toggles.peekWaiting, forKey: Self.bodyPeekWaitingKey)
+            defaults?.set(toggles.peekDone, forKey: Self.bodyPeekDoneKey)
+        }
+        bodyToggles = toggles
     }
 
     /// The way into a new effective phase: a finish latches and starts its
@@ -2615,7 +2649,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// (`menuNeedsUpdate`), so the edge's mark is never stale.
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = TrayIcon.image()
+        item.button?.image = TrayIcon.image(amber: trayAmber)
         item.menu = trayMenu()
         statusItem = item
     }

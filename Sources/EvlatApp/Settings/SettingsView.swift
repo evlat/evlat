@@ -115,6 +115,7 @@ private struct GeneralSection: View {
                     .accessibilityLabel(model.t("settings.general.edge"))
                 }
             }
+            BodyRows(model: model)
         }
         if let row = setup.row(.loginItem) {
             SettingsGroup(title: model.t("settings.general.start")) {
@@ -128,6 +129,53 @@ private struct GeneralSection: View {
                     Button(model.t("settings.general.setup.open")) { model.openSetup() }
                         .buttonStyle(SmallButtonStyle())
                 }
+            }
+        }
+    }
+}
+
+/// "Body": how much of the bar stays out, and under Smart the three
+/// switches that shape it, with a note when waiting loses its peek.
+private struct BodyRows: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.general.body"), detail: model.t("settings.general.body.detail"))
+                Picker("", selection: Binding(get: { model.bodyMode }, set: { model.setBodyMode($0) })) {
+                    Text(model.t("settings.general.body.always")).tag(BodyPresence.Mode.always)
+                    Text(model.t("settings.general.body.smart")).tag(BodyPresence.Mode.smart)
+                    Text(model.t("settings.general.body.hidden")).tag(BodyPresence.Mode.hidden)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(model.t("settings.general.body"))
+            }
+        }
+        if model.showsBodyToggles {
+            toggle(\.sliver, "settings.general.body.sliver")
+            toggle(\.peekWaiting, "settings.general.body.peekWaiting")
+            toggle(\.peekDone, "settings.general.body.peekDone")
+        }
+    }
+
+    private func toggle(_ path: WritableKeyPath<BodyPresence.Toggles, Bool>, _ key: String) -> some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t(key), detail: model.t(key + ".detail"))
+                Toggle("", isOn: Binding(get: { model.bodyToggles[keyPath: path] },
+                                         set: { model.setBodyToggle(path, on: $0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .accessibilityLabel(model.t(key))
+            }
+            if path == \.peekWaiting && model.showsPeekWarning {
+                Text(model.t("settings.general.body.peekWaiting.off"))
+                    .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

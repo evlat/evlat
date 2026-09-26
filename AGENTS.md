@@ -162,6 +162,12 @@ discovery, liveness, name and pid.
 - The mascot reduces to a handful of animatable numbers (`MascotPose`); SwiftUI
   springs are interruptible and keep velocity, so a state change never snaps.
   Expression lives in the pose; the body shape is swappable.
+- **A mascot nobody can see does not move.** In the hidden body modes the
+  mascot is out of sight below the peek (`MascotModel.isShown` false): its
+  clips leave the tree and the gaze monitor stops, so a hidden idle bar
+  produces no frames and reads no mouse. The sliver and its dot are static.
+  The mascot's view stays in the tree at every level, so `failed`'s shake
+  (a `keyframeAnimator`) still fires on the way into the peek.
 
 ### Window
 
@@ -169,6 +175,19 @@ discovery, liveness, name and pid.
   never take focus from the front app.**
 - Windows that do take keyboard focus (Settings, Setup, the chat bubble) return
   focus to the previous app when they close.
+- **The body can hide** (Settings → General → Body: Always out, Smart hide,
+  Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
+  the effective phase, the finish latch, the peek, the open bar, the balloon
+  and a drag into a level — `none · sliver · peek · full` — and its hover and
+  drop area; `AppController.applyPresence()` is the only writer of what
+  follows from it (panel area, drawn level, `isShown`, gaze, tray icon). The
+  level is not a `Phase`. At rest in the hiding modes (`none`, `sliver`) the
+  hover area is a 5 pt band from the window's top to 60 pt below where the
+  sliver sits, painted almost clear (black, alpha
+  0.01) because fully transparent pixels receive no drags; `HoverIntent`
+  opens the bar from it unchanged. Hidden × waiting turns the menu-bar icon
+  amber, the only place waiting is left. Always out is today's bar, unchanged,
+  and is what nothing stored means.
 
 ### Permissions
 
