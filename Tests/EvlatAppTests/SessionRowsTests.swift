@@ -407,7 +407,7 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertFalse(model.isBeating)
     }
 
-    // MARK: - Outside rows (`012`)
+    // MARK: - Outside rows
 
     private func outside(_ id: String, _ phase: Phase = .working, progress: Double? = nil,
                          label: String = "render", sender: String? = "blender",
@@ -482,7 +482,7 @@ final class SessionRowsTests: XCTestCase {
                machine: Signal.Machine(name: machine), sender: sender)
     }
 
-    /// A remote outside row answers "where" first (`013`): its tag is the
+    /// A remote outside row answers "where" first: its tag is the
     /// machine, and the card says both — the sender, then the machine.
     func testARemoteOutsideRowIsTaggedWithItsMachine() {
         let row = SessionRow(remoteOutside("a", machine: "devbox"))
@@ -494,7 +494,7 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(RowTraits.Tag.sender.text(machine: "devbox", sender: nil, inCard: true), "devbox")
         XCTAssertEqual(RowTraits.Tag.machine.text(machine: "devbox", sender: "x", inCard: true), "devbox")
         XCTAssertEqual(RowTraits.Tag.evlat.text(machine: nil, sender: nil), SessionRow.jobTag)
-        // A chat job's card has the mascot's face and no tag (`011`, as before `013`).
+        // A chat job's card has the mascot's face and no tag, as before remote outside rows.
         XCTAssertNil(RowTraits.Tag.evlat.text(machine: nil, sender: nil, inCard: true))
     }
 

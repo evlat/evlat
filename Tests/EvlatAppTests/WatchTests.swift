@@ -2,7 +2,7 @@ import XCTest
 import EvlatCore
 @testable import EvlatApp
 
-/// `Evlat watch` and `Evlat signal` as a user runs them (`012/phase-4`): the
+/// `Evlat watch` and `Evlat signal` as a user runs them: the
 /// **built binary**, against a listener this test opens under a temporary
 /// home (`EVLAT_HOME` + `EVLAT_PORT`, so the user's key and port are never
 /// touched). What is pinned is the promise of transparency — the exit code,

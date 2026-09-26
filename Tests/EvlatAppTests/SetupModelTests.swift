@@ -2,7 +2,7 @@ import XCTest
 import EvlatCore
 @testable import EvlatApp
 
-/// The setup rows' model (`014`, R1–R3) on a real controller's writers, all
+/// The setup rows' model on a real controller's writers, all
 /// under a temporary home and a suite of its own: the user's files, domain
 /// and login item are never touched.
 @MainActor
@@ -257,7 +257,7 @@ final class SetupModelTests: XCTestCase {
     }
 }
 
-/// The writers split out of the menu (`014`, R1) and the setup's opening
+/// The writers split out of the menu and the setup's opening
 /// condition on the controller.
 @MainActor
 final class SetupWritersTests: XCTestCase {

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-/// The setup window (`014`, R8; `tasarim.html` → kurulum): the mascot at
+/// The setup window: the mascot at
 /// the top, the step under it — both scroll inside the fixed window, the
 /// scrolled edge fading — and the footer that never moves: "‹ Back", the
 /// dots, "Not now", the primary button.
@@ -22,7 +22,7 @@ struct SetupView: View {
                     SetupMascot(mascot: model.mascot, blinks: model.blinks)
                         .padding(.bottom, 12)
                     // The old step fades out where it stood as the new one
-                    // fades in (`tasarim.html`'s `.content.out`).
+                    // fades in.
                     ZStack(alignment: .topLeading) {
                         step
                             .id(model.step)

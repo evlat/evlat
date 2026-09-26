@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-/// The settings window (`014`, R6; `tasarim.html` → Ayarlar penceresi): the
+/// The settings window: the
 /// five sections on the left, a dot on the ones that want attention; the
 /// open section on the right under its title.
 struct SettingsView: View {

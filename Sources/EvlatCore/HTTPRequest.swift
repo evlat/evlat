@@ -4,14 +4,14 @@ import Foundation
 ///
 /// Pure bytes in, values out: no socket is involved, which is what lets the
 /// whole contract be tested without opening one. The transport that feeds this
-/// is `phase-3`'s and lives in `EvlatApp`.
+/// lives in `EvlatApp`.
 ///
 /// Only six headers are read, and each has a job: `X-Evlat-Task` and
 /// `X-Evlat-Pid` are what the installed hook command sends, `Origin` and `Host`
 /// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`),
 /// `X-Evlat-Permission` is the token a chat's own permission hook carries
-/// (`PermissionHook`, `011`), and `X-Evlat-Key` is an outside program's key
-/// for `/signal` (`012`).
+/// (`PermissionHook`), and `X-Evlat-Key` is an outside program's key
+/// for `/signal`.
 public struct HTTPRequest: Equatable {
     public let method: String
     /// The request line's target: path **and** query, exactly as written.

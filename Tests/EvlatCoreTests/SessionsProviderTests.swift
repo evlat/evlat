@@ -56,7 +56,7 @@ final class SessionsProviderTests: XCTestCase {
         XCTAssertEqual(provider().currentSignals().first?.activity, Signal.Activity(pid: 100))
     }
 
-    /// A `claude -p` turn writes a record too (measured, `011/phase-1`:
+    /// A `claude -p` turn writes a record too (measured:
     /// `entrypoint: "sdk-cli"`, `kind: "interactive"`), so a chat Evlat runs
     /// would come back as a session row. Evlat chose that session id, so the
     /// set is handed in; no rule reads `entrypoint` or `kind`.
@@ -102,7 +102,7 @@ final class SessionsProviderTests: XCTestCase {
         XCTAssertEqual(signals.map(\.entity), ["intact"], "a broken record does not drop the others")
     }
 
-    /// The `proje.md` trap: an unrecognised `status` must not sink silently
+    /// A known pitfall: an unrecognised `status` must not sink silently
     /// into `idle`. A value actually seen on this machine: `shell`.
     func testUnknownStatusStaysVisible() throws {
         try write(pid: 100, sessionId: "s-1", status: "shell")
@@ -225,7 +225,7 @@ extension SessionsProviderTests {
         XCTAssertTrue(p.unrecognizedStatuses.isEmpty)
     }
 
-    /// The row's stamp is the **status** stamp. Measured in `phase-3`: on 2 of
+    /// The row's stamp is the **status** stamp. Measured: on 2 of
     /// 22 live records the two fields disagree, by up to 188 690 ms. They are
     /// different facts — `updatedAt` moves when anything in the record is
     /// written, a session name included, so with that stamp a rename looks

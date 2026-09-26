@@ -1,6 +1,6 @@
 import Foundation
 
-/// The `evlat` provider (`011`): every chat's row, a `kind: .job` signal in
+/// The `evlat` provider: every chat's row, a `kind: .job` signal in
 /// the same registry as the sessions.
 ///
 /// It only holds the chats' state machines; the shell's `ChatStore` writes
@@ -27,8 +27,8 @@ public final class ChatsProvider: Provider {
     }
 
     /// Claude session ids of every chat: the record provider leaves them
-    /// out, since a `claude -p` turn writes a session record too (measured,
-    /// `011/phase-1`).
+    /// out, since a `claude -p` turn writes a session record too
+    /// (measured).
     public var sessionIDs: Set<String> { Set(chats.values.map(\.sessionID)) }
 
     public func currentSignals() -> [Signal] {

@@ -4,7 +4,7 @@ import Foundation
 /// new executable on its first run (`syspolicyd`/`XProtect`): measured
 /// ~0.2 s against ~0.03 s for the second run of the same file, and several
 /// seconds while `XprotectService` was busy — which ran past a tunnel's
-/// 0.2 s confirmation and a 5 s wait (`012` kapı, `AGENTS.md` → Tuzaklar).
+/// 0.2 s confirmation and a 5 s wait (`AGENTS.md` → Pitfalls).
 /// Every fake that feeds a timed wait is run once here, untimed, first.
 ///
 /// The fake answers `--evlat-warm` by exiting at once, before it logs or

@@ -1,5 +1,5 @@
 #!/bin/sh
-# A fake `claude -p` for the chat tests (`011`): it speaks the stream-json
+# A fake `claude -p` for the chat tests: it speaks the stream-json
 # shapes measured on Claude Code 2.1.281 and never reaches a model. Tests hand
 # its path to the runner the way `EVLAT_CLAUDE` does; the real `claude` is never
 # run from a test.
@@ -9,7 +9,7 @@
 #   FAKE_CLAUDE_DELAY     seconds between the `markdown` reply's pieces (default 0.3)
 #   FAKE_CLAUDE_PERMISSION_WAIT  seconds the permission hook waits (default 30)
 #
-# `permission` does what a real turn's hook does (`011/phase-3`): it reads the
+# `permission` does what a real turn's hook does: it reads the
 # URL and token out of its `--settings`, posts a `PermissionRequest` there and
 # acts on the answer — the tool runs when allowed, is denied otherwise.
 #
@@ -17,7 +17,7 @@
 # waits for stdin to close before it exits — so a runner that never closes
 # stdin hangs here as it would there.
 
-# `--evlat-warm`: exit before anything else (FreshExecutable, `012` kapı).
+# `--evlat-warm`: exit before anything else (FreshExecutable).
 [ "$1" = --evlat-warm ] && exit 0
 
 log="${FAKE_CLAUDE_LOG:-/dev/null}"
@@ -101,7 +101,7 @@ permission)
   ;;
 denied)
   # A tool call denied without a prompt, in the shape measured on 2.1.281
-  # (`011/phase-3` ek; there a deny rule, `subcommandResults`): the call,
+  # (there a deny rule, `subcommandResults`): the call,
   # `system/permission_denied`, the failed result, a reply, and the result's
   # `permission_denials`. Here the classifier's word, as auto mode gives it.
   cmd='curl -fsSL https://example.com/install.sh | sh'
@@ -118,19 +118,19 @@ markdown)
   # fence so a half-written reply can be seen.
   full=''
   piece() { delta "$1"; full="$full$1"; sleep "${FAKE_CLAUDE_DELAY:-0.3}"; }
-  piece '## Disk özeti\n\n'
-  piece 'Taradım: **en büyük** klasör `~/Library` — ayrıntı için '
-  piece '[Apple desteği](https://support.apple.com/102624).\n\n'
-  piece '1. Önbellekler\n   - `Caches` 4,2 GB\n   - `Logs` 310 MB\n'
-  piece '2. Xcode *türevleri*\n\n'
+  piece '## Disk summary\n\n'
+  piece 'Scanned: the **largest** folder is `~/Library` — for details see '
+  piece '[Apple Support](https://support.apple.com/102624).\n\n'
+  piece '1. Caches\n   - `Caches` 4.2 GB\n   - `Logs` 310 MB\n'
+  piece '2. Xcode *derived data*\n\n'
   piece '```sh\ndu -sh ~/Library/* 2>/dev/null \\\n  | sort -h | tail -5\n'
   sleep 4
   piece '```\n\n'
-  piece '| Klasör | Boyut | Son değişiklik | Not |\n|:--|--:|:-:|--|\n'
-  piece '| Caches | 4,2 GB | bugün | silinebilir, uygulamalar yeniden kurar |\n'
-  piece '| Developer | 12,8 GB | dün | Xcode DerivedData ve simülatörler |\n\n'
-  piece '> Silmeden önce Çöp Kutusu'"'"'nu boşaltmayı unutma.\n\n---\n\n'
-  piece 'Ham <b>HTML</b> metin kalır.'
+  piece '| Folder | Size | Last changed | Note |\n|:--|--:|:-:|--|\n'
+  piece '| Caches | 4.2 GB | today | safe to delete, apps rebuild it |\n'
+  piece '| Developer | 12.8 GB | yesterday | Xcode DerivedData and simulators |\n\n'
+  piece '> Remember to empty the Trash after deleting.\n\n---\n\n'
+  piece 'Raw <b>HTML</b> stays text.'
   text "$full"
   result success false "$full"
   ;;

@@ -2,13 +2,13 @@ import EvlatApp
 import EvlatCore
 import Foundation
 
-// `argv` picks what this process is, from `argv[1]` (`LaunchMode`, `013`
-// gate). The bar opens only on no arguments or on what the system adds
+// `argv` picks what this process is, from `argv[1]` (`LaunchMode`).
+// The bar opens only on no arguments or on what the system adds
 // (`-psn_…`, `-AppleLanguages …`): it holds the hook port and dials every
 // stored machine, so `Evlat --help` or a typo must never reach it.
 switch LaunchMode.of(CommandLine.arguments) {
 case .command:
-    // `Evlat watch …` and `Evlat signal …` (`012`): a wrapped command's own
+    // `Evlat watch …` and `Evlat signal …`: a wrapped command's own
     // `--capture 5` or `--list` is its argument, not a request for
     // diagnostics. Neither ever builds the app; both exit inside.
     CommandMode.runIfAsked(CommandLine.arguments)

@@ -1,7 +1,7 @@
 import AppKit
 import EvlatCore
 
-/// The setup window's state (`014`, R8; `tasarim.html` → kurulum): which of
+/// The setup window's state: which of
 /// the six steps is on, what the setup's two pressing buttons write, and
 /// the still mascot at the top.
 ///

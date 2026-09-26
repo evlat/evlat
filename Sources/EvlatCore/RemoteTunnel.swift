@@ -68,7 +68,8 @@ public struct RemoteMachine: Codable, Equatable {
 
     // MARK: - Which machines
 
-    /// The `UserDefaults` key the stored list lives under (`plan.md` → Göç).
+    /// The `UserDefaults` key the stored list lives under. Renaming it loses
+    /// the stored list silently.
     public static let storageKey = "remote.machines"
 
     /// The machines this process opens tunnels to, and whether they came from
@@ -133,8 +134,9 @@ public struct RemoteMachine: Codable, Equatable {
 
     // MARK: - Signal keys
 
-    /// The `UserDefaults` key the machines' `/signal` keys live under
-    /// (`013`, `plan.md` → Göç): `{machine id: key}`, next to the list.
+    /// The `UserDefaults` key the machines' `/signal` keys live under:
+    /// `{machine id: key}`, next to the list. Renaming it loses the stored
+    /// keys silently.
     ///
     /// Unlike this Mac's own key (`signal-<port>.token`, new on every
     /// launch), a machine's key is **kept**: a copy of it is on the server,

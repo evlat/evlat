@@ -7,7 +7,7 @@ import Foundation
 /// **The canonical vocabulary is Claude Code's**: event names, field names and
 /// tool names. Every rule downstream reads only that and never learns a source
 /// name; anything source-specific stays inside `canonical(_:)`. A rule that
-/// branches on the source is a finding in this repo (`proje.md` → tuzaklar).
+/// branches on the source is a finding in this repo (`AGENTS.md` → Pitfalls).
 public enum AgentSource: String, CaseIterable {
     case claude, codex
 
@@ -27,7 +27,7 @@ public enum AgentSource: String, CaseIterable {
 
     /// The events Evlat's command is installed on, byte for byte v1's lists.
     /// `SubagentStart`/`SubagentStop` are left out on purpose: a subagent's tool
-    /// events already arrive on the parent's row (`proje.md` → tuzaklar).
+    /// events already arrive on the parent's row (`HooksProvider`).
     /// Codex's `Interrupt` is there because Codex sends no `Stop` on an
     /// interrupt; the adapter translates it (`CodexHookAdapter`).
     public var hookEvents: [String] {

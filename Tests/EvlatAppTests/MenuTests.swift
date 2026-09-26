@@ -3,7 +3,7 @@ import AppKit
 import EvlatCore
 @testable import EvlatApp
 
-/// The stored edge and the two menus (`007/phase-2`): what is read and
+/// The stored edge and the two menus: what is read and
 /// written, what the menus hold, where a right click opens one, and that
 /// choosing an edge activates nothing.
 ///

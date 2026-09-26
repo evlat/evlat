@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-/// Settings → Remote machines (`014`, R7): what the "Remote Machines…"
+/// Settings → Remote machines: what the "Remote Machines…"
 /// window held, as a section. Each machine is a row that opens on a click
 /// (the whole row, and a 24 pt chevron); open, it lists what is set up on
 /// **the server's own files** — hooks, the usage line, the `evlat` command —
@@ -211,7 +211,7 @@ private struct ServerPart: View {
     }
 
     /// Only from a reading: without one there is no block and no button
-    /// (`014`, Karar 5) — each row's own blocks remain.
+    /// — each row's own blocks remain.
     @ViewBuilder private var combined: some View {
         if let block = model.combinedBlock(for: row.id) {
             if manual == .combined {

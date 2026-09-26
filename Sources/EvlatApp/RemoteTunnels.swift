@@ -28,7 +28,7 @@ final class RemoteTunnels {
         let machine: RemoteMachine
         let hooks: HooksProvider
         let usage: ClaudeUsageProvider
-        /// The machine's outside rows (`013`), namespaced by its id.
+        /// The machine's outside rows, namespaced by its id.
         let signals: SignalsProvider
         /// What the machine's `/signal` asks for; fixed for the link's life.
         let signalKey: String
@@ -169,7 +169,7 @@ final class RemoteTunnels {
                 // A tunnel answers `/permission` with `404` (`LocalAPI`):
                 // a remote machine never puts a card in front of this user.
                 case .permission: break
-                // The machine's own outside row (`013`): the listener has
+                // The machine's own outside row: the listener has
                 // already checked the machine's key. A dropped row is said on
                 // stderr like a local one, with the machine's name.
                 case .signal(let report):

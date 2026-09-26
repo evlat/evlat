@@ -2,7 +2,7 @@ import XCTest
 import EvlatCore
 @testable import EvlatApp
 
-/// `~/.local/bin/evlat` (`014`, R4): the five states, the writer's rules and
+/// `~/.local/bin/evlat`: the five states, the writer's rules and
 /// the manual line. Every path is under a temporary home; the user's
 /// `~/.local/bin` is never read or written here.
 final class CommandLinkTests: XCTestCase {

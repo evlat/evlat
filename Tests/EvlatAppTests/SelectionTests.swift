@@ -85,7 +85,7 @@ final class RowSwitchTests: XCTestCase {
     }
 
     /// No card yet: staying on a row for the dwell brings its card up — the
-    /// card opens by hover, not by a click (`005`, user's decision).
+    /// card opens by hover, not by a click (the user's decision).
     func testWithoutASelectionTheDwellBringsTheCardUp() throws {
         let rowSwitch = makeSwitch()
         rowSwitch.hover("b", selected: nil)
@@ -225,7 +225,7 @@ final class SlotGeometryTests: XCTestCase {
             XCTAssertLessThanOrEqual(top + AppController.detailCardMaxHeight + AppController.shadowGutter,
                                      AppController.envelopeSize.height + 0.5, "slot \(slot)")
         }
-        // The window grew for the usage block (`009`); the floor did not.
+        // The window grew for the usage block; the floor did not.
         XCTAssertEqual(limit, AppController.slotTop(SessionRowsModel.slotCount - 1), accuracy: 0.5)
         XCTAssertEqual(BarBody.cardTop(slot: 6), limit, accuracy: 0.5, "held")
         for slot in 0...6 {
@@ -288,11 +288,11 @@ final class SelectionTests: XCTestCase {
         XCTAssertEqual(controller.barState.selected, "s-a")
         XCTAssertEqual(controller.detail.detail?.entity, "s-a")
 
-        controller.hooks.handle(hook("PreToolUse", "s-a", tool: "Bash", command: "make paket"))
+        controller.hooks.handle(hook("PreToolUse", "s-a", tool: "Bash", command: "make bundle"))
         controller.refresh()
         let tool = try XCTUnwrap(controller.detail.detail?.activity?.lastTool)
         XCTAssertEqual(tool.name, "Bash")
-        XCTAssertEqual(tool.subject, "make paket")
+        XCTAssertEqual(tool.subject, "make bundle")
 
         var writes = 0
         let token = controller.detail.objectWillChange.sink { _ in writes += 1 }
@@ -441,7 +441,7 @@ final class SelectionTests: XCTestCase {
         XCTAssertFalse(panel.canBecomeKey)
     }
 
-    /// A click on a ring takes nothing: the card comes by hover (`005`,
+    /// A click on a ring takes nothing: the card comes by hover (the
     /// user's decision). The one click the bar takes, `[Go to session]`'s,
     /// goes through the real view and leaves Evlat inactive and the panel
     /// not key — only the target is activated.

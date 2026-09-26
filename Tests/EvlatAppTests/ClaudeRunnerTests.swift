@@ -323,7 +323,7 @@ final class ClaudeRunnerTests: XCTestCase {
         store.perform(.send(chat: id, text: "write a note", attachments: []))
         // The card lives about the fake's one second, and the predicate is
         // polled about once a second: waiting to *see* it open raced its
-        // closing under load (`012` kapı). The card stays in the chat once
+        // closing under load. The card stays in the chat once
         // it came, so its arrival is what is waited for.
         waitUntil("the card came") {
             store.chat(id)?.messages.contains { if case .permission = $0 { return true } else { return false } } == true
@@ -471,7 +471,7 @@ final class ClaudeRunnerTests: XCTestCase {
     }
 
     /// The store's own row is the chat's; the session record the same turn
-    /// writes is left out by id (measured, `011/phase-1`).
+    /// writes is left out by id (measured).
     func testTheStoreNamesItsSessionsForTheRecordProvider() throws {
         let store = try make()
         let id = store.newChat(folder: directory.path)

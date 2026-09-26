@@ -12,8 +12,8 @@ import EvlatCore
 /// It is **not** reached through `Platform`. That type exists so the pure core
 /// can ask the app a question and be told "I don't know" when nothing is bound;
 /// a listener has no such answer. A no-op listener does not say "I don't know",
-/// it silently receives no events — the opposite of this repo's discipline
-/// (`discussion.md` → Karar 1). The call direction here is App → Core.
+/// it silently receives no events — the opposite of this repo's discipline.
+/// The call direction here is App → Core.
 public final class HookListener {
     /// Where the endpoint stands. A failure to bind is a **value**, not a log
     /// line that scrolls away: the one way this feature breaks in the field is
@@ -50,10 +50,10 @@ public final class HookListener {
     /// tunnel (`RemoteTunnels`). Handed to `LocalAPI`, which decides what that
     /// means; the listener only knows which one it is.
     private let origin: LocalAPI.Origin
-    /// Makes the listener's `/signal` key once the port is bound (`012`):
+    /// Makes the listener's `/signal` key once the port is bound:
     /// given the bound port, the local one writes the key file and answers
-    /// the key, or `nil`; a tunnel's answers its machine's kept key (`013`,
-    /// `RemoteTunnels.add`). Called at most once, on `queue`, so a listener that never binds
+    /// the key, or `nil`; a tunnel's answers its machine's kept key
+    /// (`RemoteTunnels.add`). Called at most once, on `queue`, so a listener that never binds
     /// never calls it — and never overwrites the key of the Evlat that holds
     /// the port.
     private let makeSignalKey: (UInt16) -> String?
@@ -65,7 +65,7 @@ public final class HookListener {
     private let onDelivery: (LocalAPI.Delivery) -> Void
     private let onStatus: ((Status) -> Void)?
     /// A held request went away before it was answered: Claude's time ran
-    /// out or its turn ended (`011/phase-3`). Main queue.
+    /// out or its turn ended. Main queue.
     private let onAbandoned: ((String) -> Void)?
     /// Permission requests waiting for the user, by request id. Touched on
     /// `queue` only.
@@ -103,7 +103,7 @@ public final class HookListener {
     /// `signalKey` is asked once, after the bind, for the key `/signal`
     /// accepts (`SignalKey`); the default has none. A tunnel's listener
     /// without one has no `/signal` (`404`); with its machine's key it
-    /// answers as the local one does (`LocalAPI.handle`, `013`).
+    /// answers as the local one does (`LocalAPI.handle`).
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
                 signalKey: @escaping (UInt16) -> String? = { _ in nil },
@@ -130,7 +130,7 @@ public final class HookListener {
     /// ship the same bundle id, so a stored `"port"` would follow v1 too, while
     /// the number in the user's hook command is plain text. Both apps would
     /// listen somewhere else, neither would receive anything, and neither would
-    /// report an error (`plan.md` → Göç). The override is an environment
+    /// report an error. The override is an environment
     /// variable, the same shape `EVLAT_SESSIONS` already has.
     ///
     /// `0` is rejected as an override even though it is a valid port number to
@@ -157,7 +157,7 @@ public final class HookListener {
         // socket's address family, not its reachability.
         parameters.requiredInterfaceType = .loopback
         // Rebinding right after a restart otherwise fails while the previous
-        // socket sits in TIME_WAIT — `make calistir` replaces the process in
+        // socket sits in TIME_WAIT — `make run` replaces the process in
         // well under that. It is SO_REUSEADDR, not SO_REUSEPORT: a second
         // process still cannot take a port that is already being listened on
         // (pinned by `testASecondListenerCannotTakeTheSamePort`).

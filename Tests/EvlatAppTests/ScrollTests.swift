@@ -5,7 +5,7 @@ import Combine
 import EvlatCore
 @testable import EvlatApp
 
-/// The open list scrolls inside the body (`006/phase-2`): the offset is held
+/// The open list scrolls inside the body: the offset is held
 /// to its bounds, visibility and the card follow it, and a still cursor's
 /// row is read again after it moves.
 @MainActor

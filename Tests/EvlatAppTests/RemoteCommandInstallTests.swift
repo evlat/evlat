@@ -2,7 +2,7 @@ import XCTest
 @testable import EvlatCore
 @testable import EvlatApp
 
-/// Installing the server's `evlat` (`013/phase-4`) end to end against a
+/// Installing the server's `evlat` end to end against a
 /// **fake `ssh`** that runs the script it is handed with `HOME` set to a
 /// temporary "server" home, under `/bin/sh` and `/bin/dash`, and records its
 /// argv. The real `ssh` is never run and no real home is read or written.
@@ -179,7 +179,7 @@ final class RemoteCommandInstallTests: XCTestCase {
 
     /// A link at the key's path (a dotfiles tool's, say) is replaced, never
     /// followed: `mv` onto a link to a folder would put the key inside it and
-    /// `chmod 600` would lock that folder (`013` gate).
+    /// `chmod 600` would lock that folder.
     func testALinkAtTheKeysPathIsReplacedNotFollowed() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)

@@ -1,11 +1,11 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// Three targets, two layers. `EvlatCore` and `EvlatApp` are the ROADMAP's two
-// layers; `Evlat` is a thin shell carrying only main.swift. The shell is
-// separate for testing: an executable target's top-level code gets in the way of
-// its own tests, and the panel's configuration (PanelConfigTests) has to be
-// testable in code.
+// Three targets, two layers. `EvlatCore` and `EvlatApp` are the two layers of
+// `AGENTS.md` → Architecture; `Evlat` is a thin shell carrying only
+// main.swift. The shell is separate for testing: an executable target's
+// top-level code gets in the way of its own tests, and the panel's
+// configuration (PanelConfigTests) has to be testable in code.
 //
 // Layer direction is closed BY THE COMPILER: EvlatCore depends on nothing, so
 // `import EvlatApp` is impossible. The import test only adds a tripwire on top

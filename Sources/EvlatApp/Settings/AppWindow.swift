@@ -2,15 +2,15 @@ import AppKit
 import SwiftUI
 
 /// A window Evlat opens because the user asked for one — the settings and
-/// the setup. The focus pattern of the remote machines' own window, which
-/// `014` folded into the settings, made general (Karar 6).
+/// the setup. The focus pattern of the remote machines' own window, since
+/// folded into the settings, made general.
 ///
 /// **The focus rule loosens here, and only here.** The bar is a
 /// non-activating panel and stays one; this is an ordinary titled window
 /// with fields and a shortcut recorder, so opening it brings Evlat forward.
 /// Closing it hands the focus back to the app that was in front before —
 /// by activating that app: `NSApp.deactivate()` is not synchronous
-/// (`AGENTS.md` → Tuzaklar), and an accessory app left active with no
+/// (`AGENTS.md` → Pitfalls), and an accessory app left active with no
 /// window would otherwise keep it.
 ///
 /// One instance: a second open brings the same window forward.

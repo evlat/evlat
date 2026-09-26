@@ -4,7 +4,7 @@ import Foundation
 /// and the one line that makes it: `~/.local/bin` is where the command goes
 /// for every user, root too, but it is not on every login's `PATH` — Ubuntu
 /// adds it in a normal user's `~/.profile` only, so root's `evlat watch`
-/// said "command not found" while the row said installed (`014` ek).
+/// said "command not found" while the row said installed.
 ///
 /// Pure: script parts, read back here, and the line's plan on bytes. The
 /// write is `RemoteSettings`' own (`Change.pathLine`): read, plan, a write
@@ -72,7 +72,7 @@ public enum RemotePath {
     /// group to kill.
     ///
     /// The watcher is started before any trap and keeps no stream of the
-    /// read's (`AGENTS.md` → Tuzaklar: a stray `sleep` holding the caller's
+    /// read's (`AGENTS.md` → Pitfalls: a stray `sleep` holding the caller's
     /// pipe; dash running the parent's trap in a subshell).
     static func probe(nonce: String, patience: Int) -> String {
         """

@@ -36,8 +36,8 @@ struct MascotClip: Equatable {
         /// Seconds of that hold the step spends **moving** — `curve`'s own
         /// duration. The rest is still.
         ///
-        /// This is the measurement instrument's raw material (`plan.md` →
-        /// Yaklaşım 6): frames are produced while a step travels and not while
+        /// This is the measurement instrument's raw material (`AGENTS.md` →
+        /// Measuring): frames are produced while a step travels and not while
         /// it waits, so `motion / hold` summed over a clip is the duty cycle
         /// that multiplies the in-clip cost. It is a stored field rather than
         /// something read back off `curve` because `Animation` does not expose
@@ -64,12 +64,12 @@ struct MascotClip: Equatable {
     /// Whether the last step wraps back to the first. `false` means the clip
     /// plays once and **holds its final pose** — v1 defaulted this to `true`,
     /// and that default is the one thing from v1's clip layer we are not
-    /// taking: a loop that never stops is the ~7% CPU floor measured in `001`.
+    /// taking: a loop that never stops is the measured ~7% CPU floor.
     var loops: Bool
 
     /// Phase → motion, the sibling of `MascotPose.resting(for:)`.
     ///
-    /// Every phase has its own clip (`003/phase-3`), and **whether it loops is
+    /// Every phase has its own clip, and **whether it loops is
     /// part of what it says**: `idle`, `working` and `failed` are states you sit
     /// in, so they keep a sparse rhythm going; `waiting` and `review` are news,
     /// so they play once and hold. Peripheral vision catches a change, not a
@@ -99,7 +99,7 @@ struct MascotClip: Equatable {
         return loops && !steps.isEmpty ? 0 : nil
     }
 
-    /// **`idle`**: today's behaviour, as `phase-1` wrote it down — an
+    /// **`idle`**: the long-standing behaviour — an
     /// occasional blink, a rarer breath, quiet in between. It stays the sparsest
     /// loop in the table (duty cycle 0.16) because it is the one that runs for
     /// hours.
@@ -142,7 +142,7 @@ struct MascotClip: Equatable {
         .eased(rest, over: 0.12, hold: hold)
     }
 
-    // MARK: - Measurement (`plan.md` → Yaklaşım 6)
+    // MARK: - Measurement (`AGENTS.md` → Measuring)
 
     /// Seconds one full pass through the clip takes.
     var cycle: Double { steps.reduce(0) { $0 + $1.hold } }
@@ -175,7 +175,7 @@ struct MascotClip: Equatable {
 
     /// The fraction of the cycle that produces frames.
     ///
-    /// This is the multiplier `proje.md`'s canonical 90 s window hides: over a
+    /// This is the multiplier the canonical 90 s window hides: over a
     /// bursting clip that window reads *in-clip cost × duty cycle*, and
     /// stretching the window buys any number you like. Measure the in-clip cost
     /// with `continuous`, multiply by this, and the 90 s reading has something
@@ -202,7 +202,7 @@ struct MascotClip: Equatable {
     /// "in-clip cost" means.
     ///
     /// The in-clip leg of the measurement runs on this. It is not a mode to
-    /// ship — a clip that never stops is the ~7% floor `001` measured — which
+    /// ship — a clip that never stops is the measured ~7% floor — which
     /// is why it is reachable only through `EVLAT_MASCOT_PACING=continuous`.
     /// A one-shot clip comes out **looping** too, on purpose: played once it
     /// would be gone before the window opened. As a loop its step 0 re-enters
@@ -236,7 +236,7 @@ extension MascotPose {
 
     /// Where the eyes are pointed, with the body left alone. A pose that aims
     /// somewhere only reaches the screen because `gazeMix` is below 1: at full
-    /// mix the cursor overwrites it, which is the state `phase-1` ended.
+    /// mix the cursor overwrites it, as it did before gaze was additive.
     func aimed(yaw: Double, pitch: Double) -> MascotPose {
         var p = self
         p.yaw = yaw
@@ -257,19 +257,19 @@ extension MascotPose {
 // MARK: - `working`
 
 extension MascotClip {
-    /// **`working`: heads-down.** The user's pick out of three candidates in
-    /// `003/phase-2` (the others were a body rhythm alone and a gaze release
-    /// alone; both are gone, the measurements stay in the phase's notes).
+    /// **`working`: heads-down.** The user's pick out of three candidates
+    /// (the others were a body rhythm alone and a gaze release alone; both
+    /// are gone).
     ///
     /// It carries both signals at low amplitude. The gaze is half released
     /// (`gazeMix` 0.30, in `resting(for:)`) and settles **downward** — onto the
     /// work rather than away from you — and the body bobs once while it is down
     /// there, with one dart sideways before it comes back up. The aims live in
     /// the pose's own `yaw`/`pitch`, the two fields no phase could reach before
-    /// `phase-1` made gaze additive; this clip is what that change was for.
+    /// gaze was made additive; this clip is what that change was for.
     ///
-    /// Like every clip it bursts rather than runs (Karar 3a), blinks, never
-    /// animates `gazeMix` (Karar 4) and ends where it started, so the loop's
+    /// Like every clip it bursts rather than runs, blinks, never
+    /// animates `gazeMix` and ends where it started, so the loop's
     /// seam is not a jump. Measured: 1.84% over 90 s at a duty cycle of 0.215.
     static func working() -> MascotClip {
         let rest = MascotPose.resting(for: .working)
@@ -346,8 +346,8 @@ extension MascotClip {
 
     /// **`failed`: the shudder, then a slow slump.** Loops, sparsely.
     ///
-    /// The shudder (`MascotShake`) is the arrival and stays where `phase-1`
-    /// moved it. What follows used to be `idle`'s rhythm on a squashed face,
+    /// The shudder (`MascotShake`) is the arrival, a transient of its
+    /// own. What follows used to be `idle`'s rhythm on a squashed face,
     /// which made the two phases the same motion; this is its own: a slow,
     /// heavy blink, and now and then a sigh that sinks the body further and
     /// drops the eyes before it comes back. It keeps looping — a failure sits
@@ -372,7 +372,7 @@ extension MascotClip {
 /// It stays out of `MascotPose` because it is not a pose the mascot can rest in
 /// — it is a transient fired by *arriving* at `failed`, which is what SwiftUI's
 /// `keyframeAnimator(trigger:)` is for. What it is not allowed to stay is
-/// invisible to the tests: before `003`, `grep -rn "shake\|keyframe" Tests/`
+/// invisible to the tests: once, `grep -rn "shake\|keyframe" Tests/`
 /// returned nothing, so "the behaviour is preserved" had no guard at all.
 struct MascotShake: Equatable {
     struct Key: Equatable {

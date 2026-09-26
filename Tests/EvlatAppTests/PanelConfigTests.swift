@@ -70,7 +70,7 @@ final class PanelConfigTests: XCTestCase {
     }
 
     /// The open body is as wide as its names, between a floor and a cap: a
-    /// fixed width left most of it empty (the user's screenshot, `004`).
+    /// fixed width left most of it empty (the user's screenshot).
     /// Under a short name the status line is the wider of the two, at its
     /// widest form, so the body does not move as the minutes pass.
     func testTheOpenBodyHugsItsNames() {
@@ -185,12 +185,11 @@ final class PanelConfigTests: XCTestCase {
                            + AppController.indicatorTopGap, accuracy: 0.5)
     }
 
-    /// The whole list did not grow the window; the usage block did, once
-    /// (`009`): the envelope is the longest open body — seven and a half
-    /// rows, the summary and a full block — with the shadow's room, and no
-    /// more. Every open list fits inside it. Growing it past that would put
-    /// the window's foot at the Dock (`006` context → Ekran payı).
-    /// `010`: one machine's usage group takes the block from six lines to
+    /// The whole list did not grow the window; the usage block did, once: the
+    /// envelope is the longest open body — seven and a half rows, the summary
+    /// and a full block — with the shadow's room, and no more. Every open list
+    /// fits inside it. Growing it past that would put the window's foot at the
+    /// Dock. One machine's usage group takes the block from six lines to
     /// nine, and the envelope grows by exactly those three lines.
     func testTheEnvelopeFollowsTheBlocksNineLines() {
         XCTAssertEqual(UsageBlockModel.maxLines, 9)

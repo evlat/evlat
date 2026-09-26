@@ -6,7 +6,7 @@ import Foundation
 /// Raw enter/exit is too eager both ways: a cursor crossing the screen brushes
 /// the bar and would unfold it, and a hand that slips a pixel off the open bar
 /// would fold it under itself. So opening waits a moment and closing tolerates
-/// a moment — the starting values ROADMAP took from codenotch.
+/// a moment — starting values taken from codenotch.
 ///
 /// **One pending decision at a time.** A new wish cancels the old one; an old
 /// one that fires anyway is dropped by the generation check. That check is the
@@ -20,7 +20,7 @@ final class HoverIntent {
     /// How long the cursor has to stay before the bar opens. Short: the bar
     /// sits on the screen edge, where a cursor seldom passes on its way
     /// elsewhere, and codenotch's 180 ms read as a lag before the opening
-    /// (user's feedback, `005`). What is left still ignores a brush.
+    /// (user's feedback). What is left still ignores a brush.
     static let openDelay: TimeInterval = 0.08
     /// How long the cursor may be gone before the bar closes.
     static let closeTolerance: TimeInterval = 0.25

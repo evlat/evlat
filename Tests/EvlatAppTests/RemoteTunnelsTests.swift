@@ -157,7 +157,7 @@ final class RemoteTunnelsTests: XCTestCase {
 
     // MARK: - What arrives
 
-    /// The hand-off from `phase-1`: the first request marks the link up
+    /// The hand-off from the tunnel: the first request marks the link up
     /// **before** the event lands, so the row is live, not dimmed as
     /// "not heard since the link came up".
     func testATunneledHookBecomesALiveRemoteRowWithoutAPid() throws {
@@ -208,7 +208,7 @@ final class RemoteTunnelsTests: XCTestCase {
         waitUntil("process gone") { kill(pid, 0) != 0 }
     }
 
-    /// `013`: with its machine's key a tunnel's `/signal` becomes that
+    /// With its machine's key a tunnel's `/signal` becomes that
     /// machine's outside row — namespaced, named after the machine, live while
     /// the tunnel is up, dimmed when it goes, gone with the machine. Without
     /// the key, with a wrong one or with another machine's, `403` and no row.

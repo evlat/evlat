@@ -1,5 +1,5 @@
 #!/bin/sh
-# The command `WatchTests` wraps with `Evlat watch` (`012/phase-4`). Run as
+# The command `WatchTests` wraps with `Evlat watch`. Run as
 # `sh watch-child.sh MODE [ARG]`, so the checkout need not keep an exec bit.
 #
 #   exit N    exits with N

@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
 
-// The settings window's look (`tasarim.html` → Ayarlar penceresi): the
-// design's light values, with a dark counterpart each, as one palette and a
+// The settings window's look: the design's light values, with a dark counterpart each, as one palette and a
 // few small parts every section is built from.
 
 /// A colour that follows the window's appearance.
@@ -45,7 +44,7 @@ enum SettingsPalette {
     static let selected = dynamic(0x16181C, 0xE8EBF0)
     static let selectedInk = dynamic(0xFFFFFF, 0x16181C)
     static let radio = dynamic(0xB9BCC3, 0x5A616D)
-    // The setup's (`tasarim.html` → `.dots`, `.edge`, `.mini`, `.btn.ghost`).
+    // The setup's: its dots, the edge picture, the small and ghost buttons.
     static let dotOff = dynamic(0xD3D5DA, 0x3A404B)
     static let edgeLine = dynamic(0xDCDEE3, 0x3A404B)
     static let screenTop = dynamic(0xDFE4EA, 0x2A3440)

@@ -8,7 +8,7 @@ import EvlatCore
 /// Two things are pinned here and neither is visible from `EvlatCore`: that a
 /// burst of events produces **one** scan, and that an unchanged snapshot never
 /// reaches `@Published`. Both are traps this repo names outright
-/// (`proje.md` → tuzaklar), and both fail silently — the app keeps
+/// (`AGENTS.md` → Pitfalls), and both fail silently — the app keeps
 /// working, it just burns the bar's whole CPU budget re-evaluating itself.
 @MainActor
 final class RefreshTests: XCTestCase {

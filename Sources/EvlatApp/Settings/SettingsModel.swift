@@ -1,7 +1,7 @@
 import AppKit
 import EvlatCore
 
-/// The settings window's state (`014`, R6): which section is open, the
+/// The settings window's state: which section is open, the
 /// dots of the sections that want attention, and the few things the rows'
 /// shared model does not hold — the edge, the shortcut, the next chats'
 /// mode, `claude`'s place and the memory's inline confirmation.

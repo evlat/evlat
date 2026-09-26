@@ -3,7 +3,7 @@ import AppKit
 import EvlatCore
 @testable import EvlatApp
 
-/// The setup window (`014/phase-3`, R8/R9): its steps forward and back,
+/// The setup window: its steps forward and back,
 /// what "Install" and "Finish" write, the chat step without a `claude`, the
 /// launch that opens it once, and its fixed height. Every writer is a real
 /// controller's under a temporary home and a suite of its own, recorded on

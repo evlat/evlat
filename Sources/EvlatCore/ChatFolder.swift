@@ -1,6 +1,6 @@
 import Foundation
 
-/// Dropped files (`011/phase-4`, Karar 8): which folder a chat runs in, how
+/// Dropped files: which folder a chat runs in, how
 /// the files are named in the prompt, and what kind of thing they are — the
 /// balloon's suggestions follow the kind.
 ///
@@ -34,7 +34,7 @@ public enum ChatFolder {
     /// Downloads share only the home, and a turn run there reaches
     /// everything the user has. Such a chat gets the workspace and names the
     /// files by their full paths; reaching them goes through the permission
-    /// card (`phase-3`).
+    /// card.
     public static func folder(for items: [Item], home: String) -> String? {
         guard let first = items.first else { return nil }
         let candidate: String

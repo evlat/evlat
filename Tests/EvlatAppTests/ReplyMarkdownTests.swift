@@ -27,8 +27,8 @@ final class ReplyMarkdownTests: XCTestCase {
         let model = ChatModel()
         var copied: [String] = []
         model.onCopy = { copied.append($0) }
-        model.copy("make hepsi\n")
-        XCTAssertEqual(copied, ["make hepsi\n"])
+        model.copy("make all\n")
+        XCTAssertEqual(copied, ["make all\n"])
     }
 
     func testTheInlineReaderStylesCodeSpansAndKeepsLinks() {

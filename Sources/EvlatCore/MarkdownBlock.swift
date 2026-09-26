@@ -1,6 +1,6 @@
 import Foundation
 
-/// A reply's markdown, cut into blocks (`011/phase-3`, after the gate).
+/// A reply's markdown, cut into blocks.
 ///
 /// Foundation's `AttributedString(markdown:)` reads only what is inside a
 /// line — emphasis, code spans, links — so a heading, a list or a fenced
@@ -97,7 +97,8 @@ public enum MarkdownBlock: Equatable, Sendable {
 
     /// Does this line start a block of its own, ending a paragraph above it?
     /// A numbered line does only when it counts from 1: "Kanuna göre\n15.
-    /// madde uyarınca" is one sentence broken before an ordinal.
+    /// madde uyarınca" (Turkish, "under the law's\n15th article") is one
+    /// sentence broken before an ordinal.
     private static func interrupts(_ lines: [String], at i: Int) -> Bool {
         let line = lines[i]
         if let marker = ListMarker(line), !marker.ordered || marker.number == 1 { return true }

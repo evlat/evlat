@@ -1,6 +1,6 @@
 import Foundation
 
-/// `Evlat signal …` and `Evlat watch …` as arguments (`012/phase-4`): the
+/// `Evlat signal …` and `Evlat watch …` as arguments: the
 /// words, and the bodies they turn into. Pure — nothing here posts, spawns or
 /// reads the process: the pid, the folder and the home are handed in, so the
 /// shell (`EvlatApp`) owns every side effect and this owns every rule.
@@ -200,7 +200,7 @@ public enum SignalCommand {
         var sender: String?
         var index = 0
         // After `--` every word is an id: an id may start with `-`, as the
-        // route allows (`012` kapı).
+        // route allows.
         var flagsEnded = false
         func value(_ flag: String) -> Result<String, UsageError> {
             guard index + 1 < arguments.count else { return .failure(UsageError(message: "\(flag) needs a value")) }

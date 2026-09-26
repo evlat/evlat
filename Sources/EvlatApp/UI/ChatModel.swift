@@ -20,14 +20,14 @@ final class ChatModel: ObservableObject {
     @Published var draft = ""
     /// Counts the balloon's openings; a change takes the field's focus.
     @Published private(set) var openings = 0
-    /// Files dropped for the next prompt (`011/phase-4`): chips over the
+    /// Files dropped for the next prompt: chips over the
     /// line, sent with it and cleared.
     @Published private(set) var attachments: [ChatFolder.Item] = []
     /// The folder the chat runs in, for the corner label; `nil` is its own
     /// workspace. Written by the controller.
     @Published private(set) var folder: String?
     /// Sent once: the folder is the chat's for good and the label only
-    /// shows it (Karar 8).
+    /// shows it.
     @Published private(set) var folderLocked = false
     /// The chat's permission mode — or, before the first prompt, the one
     /// it will start in. The corner label beside the folder shows it.
@@ -35,7 +35,7 @@ final class ChatModel: ObservableObject {
     /// A file is being dragged over the balloon.
     @Published var dropTargeted = false
     /// Does the balloon speak for a chat? Then `[+ New]` takes the hint's
-    /// place (`011/phase-5`).
+    /// place.
     @Published private(set) var hasChat = false
     /// The history, under an empty balloon: pinned first, then the latest.
     @Published private(set) var history: [HistoryItem] = []
@@ -85,11 +85,11 @@ final class ChatModel: ObservableObject {
     /// Three prompts a bare `claude -p` can answer from its own folder,
     /// asking for no folder the system guards (Downloads, Desktop) and no
     /// screen — those would put a macOS permission prompt in front of the
-    /// user (Kapsam Dışı). Sent as they are.
+    /// user. Sent as they are.
     static let suggestionKeys = ["chat.suggestion.capabilities", "chat.suggestion.memory",
                                  "chat.suggestion.disk"]
 
-    /// With files, the suggestions follow what they are (`011/phase-4`):
+    /// With files, the suggestions follow what they are:
     /// PDFs are summarised or mined for tables, and two of them compared;
     /// images explained or read; one folder organised or looked into. A
     /// mix — or a kind with nothing particular to offer — gets what fits
@@ -287,7 +287,7 @@ final class ChatModel: ObservableObject {
         onFolder?()
     }
 
-    // MARK: - History and made files (`011/phase-5`)
+    // MARK: - History and made files
 
     func setHasChat(_ value: Bool) {
         if hasChat != value { hasChat = value }

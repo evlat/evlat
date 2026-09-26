@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-// The setup's and the settings window's shared parts (`014`, R2/R3): one row
+// The setup's and the settings window's shared parts: one row
 // value, one row view, and the model behind both. There is no protocol over
 // the items: each reads its own thing (a settings file, the link, the login
 // item) and reduces it to `SetupStatus`.
@@ -471,8 +471,8 @@ final class SetupModel: ObservableObject {
             .map(AppController.failureKey)
 }
 
-/// One row as both windows draw it (`tasarim.html`'s `.row`): name and
-/// file, status; the button inside a box that lists what it writes (R3);
+/// One row as both windows draw it: name and file, status; the button
+/// inside a box that lists what it writes;
 /// the "by hand" block. Holds no state of its own but "Copied"; the model
 /// says what is open.
 struct SetupRowView: View {

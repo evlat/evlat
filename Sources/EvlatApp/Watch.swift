@@ -1,7 +1,7 @@
 import Foundation
 import EvlatCore
 
-/// `Evlat watch <command…>` (`012/phase-4`): runs the command **as it is**
+/// `Evlat watch <command…>`: runs the command **as it is**
 /// and keeps a row on the bar while it runs.
 ///
 /// Transparent is the whole promise. The child inherits the wrapper's stdin,
@@ -19,7 +19,7 @@ enum Watch {
     /// The signals the wrapper takes over to pass on. `SIGQUIT` is here too:
     /// its default would kill the wrapper before it could say `failed`; so
     /// are the ones a supervisor sends and whose default also kills
-    /// (`SIGUSR1`, `SIGUSR2`, `SIGALRM`, `012` kapı) — else the wrapper would
+    /// (`SIGUSR1`, `SIGUSR2`, `SIGALRM`) — else the wrapper would
     /// die, the child run on unwatched and its exit code be lost.
     static let forwarded: [Int32] = [SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, SIGALRM]
 

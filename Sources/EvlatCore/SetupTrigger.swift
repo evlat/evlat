@@ -1,6 +1,6 @@
 import Foundation
 
-/// Whether the setup opens by itself at launch (`014`, R9). Only once, and
+/// Whether the setup opens by itself at launch. Only once, and
 /// only for someone who has set nothing up yet: a v1 user has an edge or
 /// hooks, and a measurement or a test is isolated.
 public enum SetupTrigger {

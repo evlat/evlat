@@ -72,7 +72,7 @@ final class RemoteTunnelTests: XCTestCase {
 
     // MARK: - Signal keys
 
-    /// Every machine has a key (`013`): a stored one is kept, a missing or
+    /// Every machine has a key: a stored one is kept, a missing or
     /// unusable one is made, and a key whose machine is gone is dropped.
     func testEveryMachineGetsAKeyAndOnlyTheListedOnesKeepOne() throws {
         let kept = String(repeating: "a", count: 64)

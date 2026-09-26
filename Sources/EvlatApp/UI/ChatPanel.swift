@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import SwiftUI
 import EvlatCore
 
-/// The balloon's window (`011`, Karar 7): the one Evlat window that takes the
+/// The balloon's window: the one Evlat window that takes the
 /// keyboard — and still never makes Evlat the active app.
 ///
 /// `.nonactivatingPanel` with `canBecomeKey` is the Spotlight pattern: the
@@ -19,7 +19,7 @@ final class ChatPanel: NSPanel {
     /// The balloon wants to close: Esc, or the keyboard went elsewhere. The
     /// controller closes it, so every way out passes one place.
     var onClose: (() -> Void)?
-    /// Files dropped on the balloon (`011/phase-4`): added to the next prompt.
+    /// Files dropped on the balloon: added to the next prompt.
     var onFiles: (([ChatFolder.Item]) -> Void)? {
         get { drop.onFiles }
         set { drop.onFiles = newValue }
@@ -136,7 +136,7 @@ final class ChatPanel: NSPanel {
     }
 }
 
-/// Files dropped on the balloon (`011/phase-4`): the open balloon takes
+/// Files dropped on the balloon: the open balloon takes
 /// more. A transparent layer **over** the SwiftUI content, not the hosting
 /// view itself: the line's field editor sits deepest under the cursor and
 /// registers for text — which a file URL also offers — so it won the drop

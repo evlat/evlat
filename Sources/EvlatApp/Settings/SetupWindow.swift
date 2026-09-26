@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// The setup's window (`014`, R8): `AppWindow`'s focus pattern at a fixed
+/// The setup's window: `AppWindow`'s focus pattern at a fixed
 /// size. The steps scroll inside it and the footer stays put, so a long
 /// step never grows the window and the buttons never move.
 enum SetupWindow {
-    /// `tasarim.html`'s `.win`.
+    /// The design's window size.
     static let width: CGFloat = 392
     static let maxHeight: CGFloat = 468
 
@@ -37,7 +37,7 @@ enum SetupWindow {
     }
 
     /// "Close" on the last step: the window shrinks into the bar's mascot
-    /// and fades (`tasarim.html`'s `fly-right`/`fly-left`). The window
+    /// and fades. The window
     /// itself closes at once — the focus goes back to the app before it
     /// without waiting — and a picture of it, in a borderless window of
     /// its own that takes no click, makes the flight. Without a bar to fly

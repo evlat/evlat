@@ -1,6 +1,6 @@
 import Foundation
 
-/// The chats' one small file (`011`, Karar 5): what the history lists and
+/// The chats' one small file: what the history lists and
 /// what a resumed chat needs, never the conversation — the full text stays
 /// in Claude's own record, which has no documented reader.
 ///
@@ -43,7 +43,7 @@ public struct ChatIndex: Equatable, Codable {
         /// would otherwise be refused for ever ("session id in use").
         public var started: Bool
         /// The last turn's end — `review` or `failed` — while the balloon has
-        /// not shown it (`phase-5`): a relaunch brings its row back until
+        /// not shown it: a relaunch brings its row back until
         /// `ChatSession.unseenLifetime`. Optional, so a file written before
         /// it existed still reads (a missing key is `nil`, "seen").
         public var unseen: Phase?
@@ -123,7 +123,7 @@ public struct ChatIndex: Equatable, Codable {
     /// (`terminate`); a recycled pid, or one recorded without a start time,
     /// may be someone else's and is left alone.
     ///
-    /// Measured (`011/phase-1`): `claude -p` whose parent is killed finishes
+    /// Measured: `claude -p` whose parent is killed finishes
     /// the turn in flight and exits by itself (5.5 s on a short reply), so
     /// this is a safety net for a turn that hangs, not the usual path.
     public func orphans(platform: Platform) -> (terminate: [Int32], interrupted: [String]) {
@@ -138,7 +138,7 @@ public struct ChatIndex: Equatable, Codable {
         return (terminate, running.map(\.id))
     }
 
-    // MARK: - History and pruning (`phase-5`)
+    // MARK: - History and pruning
 
     /// How long a chat is kept after its last activity, pinned ones aside:
     /// the history cleans itself, the user never has to.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// How much a chat's turn does without asking (`011/phase-3` ek): the
+/// How much a chat's turn does without asking: the
 /// value of `claude -p --permission-mode`, chosen per chat in the balloon.
 ///
 /// Three of Claude Code's modes and no more. `bypassPermissions` and

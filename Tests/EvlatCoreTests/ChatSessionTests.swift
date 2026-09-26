@@ -151,7 +151,7 @@ final class ChatSessionTests: XCTestCase {
     }
 }
 
-/// Permission cards (`phase-3`): `waiting` while one is open, `working`
+/// Permission cards: `waiting` while one is open, `working`
 /// again once the last is answered.
 final class ChatSessionPermissionTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
@@ -253,7 +253,7 @@ final class ChatSessionPermissionTests: XCTestCase {
         XCTAssertEqual(chat.phase, .failed)
     }
 
-    // MARK: - Not done (`011/phase-3` ek)
+    // MARK: - Not done
 
     private func denial(_ id: String, reason: String? = "classifier") -> ChatStream.Event {
         .permissionDenied(.init(tool: "Bash", toolUseID: id, reason: reason, message: "denied"))
@@ -353,7 +353,7 @@ final class ChatSessionPermissionTests: XCTestCase {
 
 }
 
-/// Seen, the row's life, the title and a chat read back (`phase-5`).
+/// Seen, the row's life, the title and a chat read back.
 final class ChatSessionLifeTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
 

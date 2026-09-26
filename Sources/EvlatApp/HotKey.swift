@@ -19,7 +19,7 @@ struct HotKeyCombination: Equatable {
         self.modifiers = modifiers.intersection(Self.modifierMask)
     }
 
-    /// ⇧⌘Space (`011`, after `phase-2`): ⌥Space is Claude.app's Quick Entry,
+    /// ⇧⌘Space: ⌥Space is Claude.app's Quick Entry,
     /// ChatGPT's and Gemini's on this machine, and Carbon does not report
     /// another process holding a key — one press opened two apps. ⌃⌥Space is
     /// macOS's next input source (symbolic hot key 61).
@@ -129,7 +129,7 @@ struct HotKeyCombination: Equatable {
 /// function keys add `.function`, masked away here as on the recorder's side).
 ///
 /// Only the system's: other apps' shortcuts are not visible to Evlat — Carbon
-/// does not report them either (measured, `phase-2`) — and nothing here
+/// does not report them either (measured) — and nothing here
 /// claims otherwise.
 struct SystemHotKeys {
     /// The entries by id, as the preferences hold them; handed in by a test.
@@ -194,13 +194,13 @@ protocol HotKeyRegistration: AnyObject {
     func unregister()
 }
 
-/// The balloon's shortcut (`011`, Karar 6): Carbon's `RegisterEventHotKey`.
+/// The balloon's shortcut: Carbon's `RegisterEventHotKey`.
 ///
 /// **Not `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)`:** that one
 /// listens to every key and needs Accessibility; this asks the system to
 /// deliver one combination and needs no permission.
 ///
-/// Measured (`phase-2`): with ⌥Space held by another process (Claude's
+/// Measured: with ⌥Space held by another process (Claude's
 /// Quick Entry) the call still returns `noErr` — Carbon does not report a
 /// combination another app holds. Only the same process registering it
 /// twice fails (`eventHotKeyExistsErr`, -9878). The menu's line is for a

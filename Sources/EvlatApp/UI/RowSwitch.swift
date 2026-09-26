@@ -2,13 +2,13 @@ import Foundation
 
 /// On the open list, decides when a cursor on a row means "show me that one".
 ///
-/// The card opens by hover, not by a click (`005`, user's decision: the rows
+/// The card opens by hover, not by a click (the user's decision: the rows
 /// did not read as clickable). A cursor that stays on a row for `dwell` brings
 /// its card up; with a card up, one that stays on another row for `delay`
 /// takes the card there. Taking it along on every row crossed would make it
 /// jump under a hand on its way to the card. Leaving the row first — onto the
 /// card, back onto the selected row, off the rows — drops the pending switch.
-/// No direction test: the delay alone is the rule (`discussion.md` → Karar 6).
+/// No direction test: the delay alone is the rule.
 ///
 /// `HoverIntent`'s skeleton: one pending target, a new wish cancels the old
 /// one, and a late item is dropped by the generation check, not the cancel.

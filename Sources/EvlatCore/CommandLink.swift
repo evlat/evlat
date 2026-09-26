@@ -1,6 +1,6 @@
 import Foundation
 
-/// `~/.local/bin/evlat` (`014`, R4): a symbolic link to this bundle's binary,
+/// `~/.local/bin/evlat`: a symbolic link to this bundle's binary,
 /// so `evlat watch …` works in a terminal. What is at the path now, the line
 /// that makes it by hand and the line that takes it away. The writer is the
 /// app's (`CommandLinkWriter`); this reads.

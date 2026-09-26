@@ -5,11 +5,11 @@ import Darwin
 ///
 /// A port of v1's `SessionHost`, living in `EvlatApp` because every lookup
 /// under it is Darwin or AppKit. The walk itself is pure over the lookups in
-/// `Probe`, so each chain measured on a real machine is a table in the tests
-/// (`005` context.md → Kanıt). Nothing here asks for a permission: `sysctl`
-/// (parent, argument area), `proc_pidpath`, `Bundle` and
-/// `NSRunningApplication` read what any process may read of its user's own. Choosing the tab or the split inside the app would need one, and
-/// is out of scope.
+/// `Probe`, so each chain measured on a real machine is a table in the tests.
+/// Nothing here asks for a permission: `sysctl` (parent, argument area),
+/// `proc_pidpath`, `Bundle` and `NSRunningApplication` read what any process
+/// may read of its user's own. Choosing the tab or the split inside the app
+/// would need one, and is out of scope.
 ///
 /// **Not cached.** It is resolved when the card comes up and again on the
 /// click: the app may have quit or come back in between.
@@ -104,7 +104,7 @@ enum SessionHost: Equatable {
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }
 
-    /// The same path v1 measured (`003 phase-1 §0`, macOS 26.4.1): from a
+    /// The same path v1 measured (macOS 26.4.1): from a
     /// background `LSUIElement` app this brings the target forward. Evlat
     /// itself is not activated.
     @discardableResult

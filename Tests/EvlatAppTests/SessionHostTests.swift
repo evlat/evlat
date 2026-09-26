@@ -2,8 +2,8 @@ import XCTest
 @testable import EvlatApp
 
 /// Finding a session's terminal from its pid, without a permission. The walk
-/// is pure over five lookups, so every chain measured on a real machine
-/// (`005` context.md → Kanıt) is a table here.
+/// is pure over five lookups, so every chain measured on a real machine is a
+/// table here.
 final class SessionHostTests: XCTestCase {
     /// A fake process table: pid → (parent, executable path, the app if the
     /// process is a `.regular` one).

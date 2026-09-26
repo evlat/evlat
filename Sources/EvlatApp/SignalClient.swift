@@ -1,7 +1,7 @@
 import Foundation
 import EvlatCore
 
-/// The sending half of `/signal` (`012/phase-4`): `Evlat signal`, `Evlat
+/// The sending half of `/signal`: `Evlat signal`, `Evlat
 /// watch` and `--list`'s probe post through here.
 ///
 /// The key is read **on every call** (`SignalKey`) and the port resolved the

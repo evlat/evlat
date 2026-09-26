@@ -1,7 +1,7 @@
 import Foundation
 
 /// How one chat turn is started: `claude -p`'s arguments, the one stdin line
-/// and what the environment gains (`011`, Karar 2: a process per turn).
+/// and what the environment gains (a process per turn).
 ///
 /// Pure — the shell resolves the binary and the `PATH` and runs it
 /// (`ClaudeRunner`).
@@ -9,7 +9,7 @@ public struct ClaudeInvocation: Equatable {
     public let arguments: [String]
     /// One documented stream-json user line, newline-terminated. The stream
     /// stays open after it: the shell closes stdin when the `result` arrives,
-    /// which is when the process exits (measured, `011/phase-1`).
+    /// which is when the process exits (measured).
     public let input: Data
     /// Added to the inherited environment.
     public let environment: [String: String]
@@ -22,7 +22,7 @@ public struct ClaudeInvocation: Equatable {
     public static let taskVariable = "EVLAT_TASK"
 
     /// What a Claude Code session puts in its children's environment to say
-    /// "you run inside me" (read off 2.1.281's bundle, `012` kapı). An Evlat
+    /// "you run inside me" (read off 2.1.281's bundle). An Evlat
     /// started from a Claude Code terminal inherits them; a turn that kept
     /// them would take itself for a child session and reach for the parent's
     /// messaging socket. User settings (`CLAUDE_CODE_USE_BEDROCK`, …) are not
@@ -50,14 +50,14 @@ public struct ClaudeInvocation: Equatable {
     /// The first turn names the session (`--session-id`: Evlat picks the id,
     /// so it is known before the process says it), later ones `--resume` it.
     /// `addDirectories` and `allowedTools` are what the chat was granted
-    /// before (`phase-3`); both flags take a list, so each value gets its own
+    /// before; both flags take a list, so each value gets its own
     /// flag — a bare list would swallow the option after it.
     ///
     /// Both lists come from a card's suggestions, which Claude wrote: a
     /// value that would read as an option (`-…`) is dropped, and a folder
     /// must be absolute. A list flag takes a dash-led value as the next
     /// option, so `--add-dir --dangerously-…` would be a new flag, not a
-    /// folder (`011` kapı).
+    /// folder.
     ///
     /// `mode` is the chat's (`PermissionMode`): `--permission-mode`.
     public static func turn(chatID: String, sessionID: String, resume: Bool,
@@ -81,11 +81,11 @@ public struct ClaudeInvocation: Equatable {
                                 directory: directory)
     }
 
-    /// The turn, asking its permissions through `endpoint` (`phase-3`):
+    /// The turn, asking its permissions through `endpoint`:
     /// `--permission-prompts none`, so what would prompt is denied unless
     /// the inline hook allows it, and `--settings` carrying that hook. The
-    /// user's own settings still load; hooks merge across them (measured,
-    /// `phase-1`). Added when the turn starts, because only then is the
+    /// user's own settings still load; hooks merge across them (measured).
+    /// Added when the turn starts, because only then is the
     /// listener's port known to be bound.
     ///
     /// `memoryDirectory` goes into the same settings as
@@ -100,7 +100,7 @@ public struct ClaudeInvocation: Equatable {
 
     /// `{"type":"user","message":{"role":"user","content":…}}`. Attached
     /// files are named by path under the prompt; how they are labelled and
-    /// suggested is `phase-4`'s.
+    /// suggested is `ChatFolder`'s.
     static func userLine(prompt: String, attachments: [String]) -> Data {
         let content = attachments.isEmpty ? prompt : prompt + "\n\n" + attachments.joined(separator: "\n")
         let line: [String: Any] = ["type": "user", "message": ["role": "user", "content": content]]

@@ -3,7 +3,7 @@ import AppKit
 import EvlatCore
 @testable import EvlatApp
 
-/// The remote machines window (`010/phase-5`): its model apart from the view
+/// The remote machines window: its model apart from the view
 /// — adding, the duplicate refusal, removing, what is stored, the busy
 /// buttons, the result and status lines, the blocks to paste — the menu's
 /// entry and its failure lines, and the window's focus rules.
@@ -219,7 +219,7 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: RemoteMachine.storageKey))
     }
 
-    // MARK: - Signal keys (`013`)
+    // MARK: - Signal keys
 
     private func storedKeys() -> [String: String]? {
         defaults.dictionary(forKey: RemoteMachine.signalKeysStorageKey) as? [String: String]
@@ -512,7 +512,7 @@ final class RemoteMachinesTests: XCTestCase {
         menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
     }
 
-    /// The window has no menu entry of its own (`014`); a failing machine
+    /// The window has no menu entry of its own; a failing machine
     /// is an attention line that opens the settings at the remote section.
     func testAFailingMachineIsAnAttentionLine() throws {
         let ssh = try fakeSSH(.fail("me@devbox: Permission denied (publickey)."))
@@ -547,7 +547,7 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertTrue(controller.settingsWindow?.window === first)
     }
 
-    // MARK: - Focus (the settings window, `014/phase-2`)
+    // MARK: - Focus (the settings window)
 
     private func appWindow(frontmost: @escaping () -> NSRunningApplication? = { nil },
                            activate: @escaping () -> Void = {},
@@ -612,7 +612,7 @@ final class RemoteMachinesTests: XCTestCase {
         final class Rows: Provider {
             let id = "rows"
             func currentSignals() -> [Signal] {
-                // An outside row of a machine (`013`) is not a session.
+                // An outside row of a machine is not a session.
                 ["remote:a:s1", "remote:a:b:s2", "remote:a:b:s3", "signal:a:x"].map {
                     Signal(provider: "rows", entity: $0, phase: .idle, label: "x",
                            fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))

@@ -1,8 +1,7 @@
 import XCTest
 @testable import EvlatCore
 
-/// The folder a chat runs in and what the dropped files are (`011/phase-4`,
-/// Karar 8): pure path arithmetic, no disk.
+/// The folder a chat runs in and what the dropped files are: pure path arithmetic, no disk.
 final class ChatFolderTests: XCTestCase {
     private let home = "/Users/me"
 
@@ -43,7 +42,7 @@ final class ChatFolderTests: XCTestCase {
 
     /// A file on the Desktop and one in Downloads have the home as their
     /// common parent — and a turn run there reaches everything the user
-    /// has. Karar 8: never the home. The chat gets its own workspace and the
+    /// has. So never the home. The chat gets its own workspace and the
     /// files are named by their full paths.
     func testTheHomeOrAboveIsNeverTheFolder() {
         XCTAssertNil(ChatFolder.folder(for: [file("/Users/me/Desktop/a.pdf"),

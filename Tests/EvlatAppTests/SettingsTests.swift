@@ -3,7 +3,7 @@ import AppKit
 import EvlatCore
 @testable import EvlatApp
 
-/// The settings window's model (`014/phase-2`): the side list's dots, the
+/// The settings window's model: the side list's dots, the
 /// modes only with a `claude`, the memory's inline confirmation, the menu's
 /// entry and `EVLAT_SETTINGS`. Every writer is a recorder or a controller
 /// with a suite of its own and no home: nothing of the user's is touched.

@@ -1,7 +1,7 @@
 import Foundation
 
-/// Is this process kept apart from the user's own (`014`)? One predicate for
-/// the writers this set adds — the setup's "shown" mark, the login item — and
+/// Is this process kept apart from the user's own? One predicate for
+/// the setup's writers — the setup's "shown" mark, the login item — and
 /// for the setup opening by itself.
 ///
 /// Any `EVLAT_` key counts, set to anything (blank included): a measurement,
@@ -11,7 +11,7 @@ import Foundation
 /// its own chats' `claude -p` turns: it says nothing about this process.
 ///
 /// Today's writers (edge, shortcut, permission mode, machines) keep their own
-/// rules (`discussion.md` → Muhakeme); this predicate does not replace them.
+/// rules, each tested where it is written; this predicate does not replace them.
 public enum Isolation {
     /// The keys that do not isolate.
     public static let exempt: Set<String> = ["EVLAT_TASK"]

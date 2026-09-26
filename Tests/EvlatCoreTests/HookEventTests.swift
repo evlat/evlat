@@ -154,7 +154,7 @@ final class HookEventTests: XCTestCase {
 
     // MARK: - Sources
 
-    /// v1's measured rule (`008 phase-4`): `apply_patch` becomes the canonical
+    /// v1's measured rule: `apply_patch` becomes the canonical
     /// tool its first header names, with that file as the path. The patch
     /// text itself does not survive the translation.
     func testCodexApplyPatchBecomesEditOrWrite() {

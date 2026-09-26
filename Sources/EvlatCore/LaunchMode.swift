@@ -1,12 +1,13 @@
 import Foundation
 
-/// What `argv` asks the `Evlat` binary to be (`013` gate). Pure: `main.swift`
+/// What `argv` asks the `Evlat` binary to be. Pure: `main.swift`
 /// switches on it and owns every side effect.
 ///
 /// The binary is two things — the bar, and a command-line tool
 /// (`watch`, `signal`, `--list`, `--capture`). The bar is the dangerous one to
 /// open by mistake: it holds the hook port and dials every stored machine over
-/// `ssh`. `Evlat --help` used to fall through to it (`013/phase-5`). So the
+/// `ssh`. `Evlat --help` used to fall through to it and open an
+/// unisolated second bar. So the
 /// app opens only on **no** arguments, or on arguments the system itself adds;
 /// every other word is a command, a request for help, or a usage error.
 public enum LaunchMode: Equatable {
@@ -21,14 +22,14 @@ public enum LaunchMode: Equatable {
     /// Anything else: one line and the usage on stderr, exit 2.
     case usageError(String)
 
-    /// The diagnostics' words, read from `argv[1]` only (`012`).
+    /// The diagnostics' words, read from `argv[1]` only.
     public static let diagnosticsWords: Set<String> = ["--list", "--capture"]
     static let helpWords: Set<String> = ["--help", "-h", "help"]
 
-    /// The name the command link gives the binary (`~/.local/bin/evlat`,
-    /// `014`). Called by it with nothing after, the binary prints its usage:
+    /// The name the command link gives the binary (`~/.local/bin/evlat`).
+    /// Called by it with nothing after, the binary prints its usage:
     /// a bare `evlat` in a terminal must not open a second, unisolated bar
-    /// that inherits the terminal's Claude markers (`AGENTS.md` → Tuzaklar).
+    /// that inherits the terminal's Claude markers (`AGENTS.md` → Pitfalls).
     public static let linkName = "evlat"
 
     public static func of(_ argv: [String]) -> LaunchMode {

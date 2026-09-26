@@ -1,6 +1,6 @@
 import Foundation
 
-/// The `signal` provider (`012`): outside programs' rows, as `POST /signal`
+/// The `signal` provider: outside programs' rows, as `POST /signal`
 /// left them. In memory only — a restart loses them, and a `watch`'s pulse
 /// brings its row back within a minute.
 ///
@@ -10,7 +10,7 @@ import Foundation
 /// `Registry`'s rule ("no time-driven transitions") carried to the provider,
 /// the same shape as `ChatsProvider`'s clock.
 ///
-/// **One instance per origin** (`013`): this Mac's port has one, and each
+/// **One instance per origin**: this Mac's port has one, and each
 /// remote machine has its own, fed by its tunnel. A machine's rows are
 /// namespaced and carry the machine (`SignalReport.signal`), and are live only
 /// while the machine can be heard — the same `LinkClock` its `HooksProvider`

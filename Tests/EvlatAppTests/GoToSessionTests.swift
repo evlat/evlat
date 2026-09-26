@@ -199,7 +199,7 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertFalse(line.contains("4242"), line)
     }
 
-    // MARK: - An outside job (`012`)
+    // MARK: - An outside job
 
     private func outside(_ id: String) -> Signal {
         Signal(provider: "signal", entity: "signal:\(id)", kind: .custom, phase: .working,
@@ -248,7 +248,7 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertFalse(line.contains("frame 12"), line)
     }
 
-    // MARK: - Evlat's own chat (`011/phase-5`)
+    // MARK: - Evlat's own chat
 
     private let chatID = "6B1F3C52-7B8B-4F4B-9C1E-2B7C1D0E9A11"
 

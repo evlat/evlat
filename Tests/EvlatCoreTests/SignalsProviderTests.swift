@@ -108,7 +108,7 @@ final class SignalsProviderTests: XCTestCase {
         for id in ["c", "a", "b"] { _ = provider.apply(report(id)) }
         XCTAssertEqual(provider.currentSignals().map(\.entity), ["signal:a", "signal:b", "signal:c"])
     }
-    // MARK: - A machine's instance (`013`)
+    // MARK: - A machine's instance
 
     private let devbox = Signal.Machine.Identity(id: "M", name: "devbox")
     private lazy var remote = SignalsProvider(now: { [unowned self] in self.clock }, machine: devbox)

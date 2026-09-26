@@ -4,7 +4,7 @@ import Foundation
 /// vocabulary (Claude Code's); another source's body arrives here after
 /// `AgentSource.canonical`.
 ///
-/// Only what a rule or the detail card reads is kept. The card (`005`) added
+/// Only what a rule or the detail card reads is kept. The card added
 /// `tool_name`, a one-line subject taken from `tool_input`, and
 /// `last_assistant_message` — all three measured on Claude Code 2.1.280 and
 /// documented. **The raw `tool_input` is not kept**: `Write` carries the whole
@@ -27,9 +27,9 @@ public struct HookEvent: Equatable {
     public let sessionID: String?
     public let cwd: String?
     /// `agent_id`. Filled when a subagent produced the event; whether such
-    /// events are used is `phase-4`'s rule, decided on a measurement.
+    /// events are used is `HooksProvider`'s rule, decided on a measurement.
     public let agentID: String?
-    /// `notification_type`. Which values block the user is `phase-4`'s rule.
+    /// `notification_type`. Which values block the user is `HooksProvider`'s rule.
     public let notificationType: String?
     /// Claude Code sets this when the `Stop` hook is itself what continued the
     /// session; treating it as a real stop loops.

@@ -1,7 +1,7 @@
 import XCTest
 @testable import EvlatCore
 
-/// `Evlat signal` and `Evlat watch` as arguments (`012/phase-4`): what each
+/// `Evlat signal` and `Evlat watch` as arguments: what each
 /// word means, where Evlat's flags end and the wrapped command begins, and
 /// that every body the command builds is one the route accepts.
 final class SignalCommandTests: XCTestCase {

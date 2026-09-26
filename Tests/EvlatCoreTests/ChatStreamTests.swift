@@ -3,7 +3,7 @@ import XCTest
 
 /// The stream-json reader. Lines are shaped like the ones a real
 /// `claude -p --output-format stream-json --verbose --include-partial-messages`
-/// printed (Claude Code 2.1.281, `011/phase-1`), cut to the fields read.
+/// printed (Claude Code 2.1.281), cut to the fields read.
 final class ChatStreamTests: XCTestCase {
     private func events(_ lines: [String]) -> ([ChatStream.Event], ChatStream) {
         var stream = ChatStream()
@@ -72,7 +72,7 @@ final class ChatStreamTests: XCTestCase {
     }
 
     /// The frame as 2.1.281 wrote it for a deny rule on a compound command
-    /// (`011/phase-3` ek, measured).
+    /// (measured).
     func testAMeasuredDenialKeepsItsCallAndReason() {
         let (events, _) = events([#"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_01J","decision_reason_type":"subcommandResults","message":"Permission to use Bash with command touch x.txt && ls -l x.txt has been denied.","uuid":"u","session_id":"S"}"#])
         XCTAssertEqual(events, [.permissionDenied(.init(
@@ -94,7 +94,7 @@ final class ChatStreamTests: XCTestCase {
 
     /// A line split across reads, fed as a slice that does not start at
     /// zero: the listener's buffer is exactly such a slice, and `Data`'s
-    /// indices stay absolute in it (`proje.md` → Tuzaklar).
+    /// indices stay absolute in it (`AGENTS.md` → Pitfalls).
     func testALineSplitAcrossChunksFromANonZeroSlice() {
         let line = #"{"type":"system","subtype":"init","session_id":"S1"}"# + "\n" +
             #"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}}"# + "\n"

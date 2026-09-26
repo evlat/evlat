@@ -1,6 +1,6 @@
 import Foundation
 
-/// A chat turn's own permission hook (`011`, Karar 1): the inline settings a
+/// A chat turn's own permission hook: the inline settings a
 /// `claude -p` turn is started with, the request it posts, and the decision
 /// Evlat answers with.
 ///
@@ -16,7 +16,7 @@ import Foundation
 /// under `none` is a denial: the safe side.
 ///
 /// The shapes are the ones Claude Code 2.1.281 validates (read from its
-/// schema, `011/phase-3`): the input carries `tool_name`, `tool_input` and
+/// schema): the input carries `tool_name`, `tool_input` and
 /// `permission_suggestions`; the output is
 /// `hookSpecificOutput.decision.behavior` with `updatedPermissions`.
 ///
@@ -39,7 +39,7 @@ public enum PermissionHook {
 
     /// The only destination Evlat ever grants to: in memory, this session.
     /// The user's settings files (`localSettings`, `userSettings`, …) are
-    /// never written through a card (Karar 8).
+    /// never written through a card.
     static let destination = "session"
 
     /// Where a turn's hook posts, and the token that says which turn it is.
@@ -62,7 +62,7 @@ public enum PermissionHook {
     /// the turn's own `--settings`, never into the user's files. An ask rule
     /// prompts even in auto mode, and a rule matches any subcommand of a
     /// compound command (`cd x && rm -r y` asks) — documented, and `rm -r`
-    /// measured to reach the card (`011/phase-3` ek). `Bash(x:*)` is the
+    /// measured to reach the card. `Bash(x:*)` is the
     /// same prefix rule as `Bash(x *)`: it also matches a bare `x`.
     ///
     /// The one list; the tests read it from here.

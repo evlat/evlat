@@ -24,7 +24,7 @@ public final class SessionsProvider: Provider {
     private let platform: Platform
     /// Unrecognised `status` values seen in the **last** scan. Collected so
     /// they cannot drop silently into `idle`; diagnostics read them from here
-    /// (`proje.md` → tuzaklar).
+    /// (`AGENTS.md` → Pitfalls).
     ///
     /// Reset on every scan, like the counters below. It used to accumulate, so
     /// one session that briefly reported `shell` kept being reported for the
@@ -50,9 +50,9 @@ public final class SessionsProvider: Provider {
     /// bring back exactly the skew that moved the stamp here.
     public private(set) var recordsMissingStatusUpdatedAt = 0
 
-    /// Session ids that are not the user's sessions but Evlat's own chats
-    /// (`011`). A `claude -p` turn writes a record like any other session
-    /// (measured, `011/phase-1`: `entrypoint: "sdk-cli"` and — misleadingly —
+    /// Session ids that are not the user's sessions but Evlat's own chats.
+    /// A `claude -p` turn writes a record like any other session
+    /// (measured: `entrypoint: "sdk-cli"` and — misleadingly —
     /// `kind: "interactive"`), and without this the chat would appear twice:
     /// as its job row and as a session row. Evlat picks the id with
     /// `--session-id`, so the set is known before the record exists; no rule
@@ -120,8 +120,8 @@ public final class SessionsProvider: Provider {
                 source: .claude,
                 fidelity: .derived,
                 rawStatus: record.status,
-                // The **status** stamp, not the record's. Measured in
-                // `phase-3`: the two disagree on 2 of 22 live records, by up
+                // The **status** stamp, not the record's. Measured:
+                // the two disagree on 2 of 22 live records, by up
                 // to 188 690 ms. `updatedAt` moves when anything in the file
                 // is written — a session being renamed, for one — so with that
                 // stamp a rename reads three minutes fresher than a live state.
@@ -194,7 +194,7 @@ public final class SessionsProvider: Provider {
             self.startedAt = startedAt
             // Millisecond epoch. A missing field must **not** fall back to 1970:
             // such a record would lose every dedup contest, sink to the bottom
-            // of the list, and be wiped by `002`'s stale-record pruning — so a
+            // of the list, and be wiped by the stale-record pruning — so a
             // renamed field in this undocumented format would fail invisibly.
             // Order: updatedAt → startedAt → the file's own modification date.
             if let ms = (json["updatedAt"] as? NSNumber)?.doubleValue, ms > 0 {

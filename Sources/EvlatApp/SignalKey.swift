@@ -1,7 +1,7 @@
 import Foundation
 import EvlatCore
 
-/// The key `/signal` asks for (`012`), on disk.
+/// The key `/signal` asks for, on disk.
 ///
 /// **The process that holds the port writes it**, once per launch, after the
 /// listener is bound (`HookListener`): a process that could not bind never
@@ -83,7 +83,7 @@ enum SignalKey {
 
     /// Removes the key file on quit, if it still holds `key`: a program that
     /// posts afterwards finds no key and stays silent rather than handing the
-    /// key and its command line to whatever takes the port next (`012` kapı).
+    /// key and its command line to whatever takes the port next.
     /// A crash leaves the file; the next launch replaces it.
     static func remove(_ key: String, at url: URL) {
         guard read(from: url) == key else { return }
@@ -110,7 +110,7 @@ enum SignalKey {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         // An existing directory keeps its mode otherwise — the chats' store
-        // makes it first at `0755` (`012` kapı). Stated, like the file's.
+        // makes it first at `0755`. Stated, like the file's.
         if chmod(directory.path, 0o700) != 0 { throw WriteError(step: "chmod directory", code: errno) }
         // Unique, so a temporary left by a crash never blocks `O_EXCL`.
         let temporary = directory.appendingPathComponent(

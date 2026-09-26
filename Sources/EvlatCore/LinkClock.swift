@@ -2,8 +2,8 @@ import Foundation
 
 /// When one remote machine's tunnel came up, and for each of its rows when it
 /// was last heard and lost. Shared by the two providers a machine has —
-/// `HooksProvider` (its sessions) and `SignalsProvider` (its outside rows,
-/// `013`) — so "no connection" means the same thing on both.
+/// `HooksProvider` (its sessions) and `SignalsProvider` (its outside
+/// rows) — so "no connection" means the same thing on both.
 ///
 /// A value, one per provider instance: each provider already learns of the
 /// tunnel from the shell (`setLink`), and a shared instance would be a second

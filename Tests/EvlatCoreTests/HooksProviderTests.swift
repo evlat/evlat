@@ -27,7 +27,7 @@ final class HooksProviderTests: XCTestCase {
                                          now: { [clock] in clock.now }))
     }
 
-    /// A body shaped like the ones measured on the wire (`phase-3`): the pid
+    /// A body shaped like the ones measured on the wire: the pid
     /// arrives as text, because the header it is written from is text.
     private func event(_ name: String, session: String? = "s-1", cwd: String? = "/tmp/project",
                        agent: String? = nil, notification: String? = nil,
@@ -55,7 +55,7 @@ final class HooksProviderTests: XCTestCase {
     // MARK: - Evlat's own errands
 
     /// A `claude -p` turn Evlat started runs the user's installed hooks too
-    /// (measured, `011/phase-1`: `--settings` merges with them), so the same
+    /// (measured: `--settings` merges with them), so the same
     /// chat would arrive a second time as a session row. Its events carry the
     /// errand's id (`X-Evlat-Task`); the chat's row is the stream's, not this.
     func testAnEventFromAnEvlatErrandOpensNoRow() {
@@ -71,7 +71,7 @@ final class HooksProviderTests: XCTestCase {
                        "an event without a task id is the user's own session, as before")
     }
 
-    /// A local id never enters another producer's namespace (`012` kapı).
+    /// A local id never enters another producer's namespace.
     func testALocalIdWithAColonOpensNoRow() {
         let provider = provider()
         provider.handle(event("UserPromptSubmit", session: "signal:build"))
@@ -165,7 +165,7 @@ final class HooksProviderTests: XCTestCase {
     }
 
     /// v1 gave an event with no id the placeholder `"unknown"`, which quietly
-    /// merged every such event onto one row. `phase-2` dropped the placeholder;
+    /// merged every such event onto one row. The placeholder is gone;
     /// the event is dropped with it.
     func testAnEventWithoutASessionIdIsDropped() {
         let hooks = provider()
@@ -173,9 +173,9 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertTrue(hooks.currentSignals().isEmpty)
     }
 
-    // MARK: - Subagents (Karar 8c)
+    // MARK: - Subagents
 
-    /// The filter is **gone**, and this is the tripwire. Measured in `phase-3`:
+    /// The filter is **gone**, and this is the tripwire. Measured:
     /// 43 of 53 events carried an `agent_id`, all of them tool events, and the
     /// subagent produced no `Stop` at all — `SubagentStop` is not installed. A
     /// subagent's event carries the **parent's** `session_id`, so `working` on
@@ -386,7 +386,7 @@ final class HooksProviderTests: XCTestCase {
     }
 
     /// Every hook installed on this machine sends `X-Evlat-Pid` (11 of 11
-    /// Claude, 8 of 8 Codex, measured in `phase-2`). An event without one
+    /// Claude, 8 of 8 Codex, measured). An event without one
     /// cannot be checked, and the repo's answer to an unprovable check is to
     /// trust it (`Platform.sameProcess`) — for a while. A remote machine's
     /// rows never have a pid, so "for ever" became a leak: the row stays for

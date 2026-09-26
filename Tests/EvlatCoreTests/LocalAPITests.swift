@@ -2,7 +2,7 @@ import XCTest
 @testable import EvlatCore
 
 /// The local endpoint's contract: which four routes exist, what a browser gets,
-/// and what a hook gets back. No socket is opened here — that is `phase-3`'s
+/// and what a hook gets back. No socket is opened here — that is the listener's
 /// transport, and none of the rules below need it.
 final class LocalAPITests: XCTestCase {
     /// Default arguments are what a hook's `curl` actually sends: no `Origin`,
@@ -24,7 +24,7 @@ final class LocalAPITests: XCTestCase {
     /// inside the command already installed in the user's settings file;
     /// `/hook/claude` is the synonym v1 accepted, and dropping it would change
     /// the contract silently. `/usage/claude` is the status line's relay,
-    /// `/signal` the way in for outside programs (`012`).
+    /// `/signal` the way in for outside programs.
     func testTheTableIsSevenRoutes() {
         XCTAssertEqual(dispatch("POST", "/hook"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/claude"), .hook(.claude))
@@ -133,7 +133,7 @@ final class LocalAPITests: XCTestCase {
     /// The installed command throws the answer away (`>/dev/null`), but `{}`
     /// is not a coincidence: were this body ever fed back to Claude Code, a
     /// stray JSON could allow or deny a permission on the user's behalf
-    /// (`proje.md` → tuzaklar).
+    /// (`AGENTS.md` → Pitfalls).
     func testAHookAnswersExactlyAnEmptyObject() {
         let outcome = post("/hook", body: #"{"hook_event_name":"Stop","session_id":"s-1"}"#)
         XCTAssertEqual(outcome.response?.status, .ok)
@@ -376,7 +376,7 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
     }
 
-    // MARK: - /signal (`012`)
+    // MARK: - /signal
 
     private let signalBody = #"{"id":"build","ttl":60,"phase":"working","label":"npm run build"}"#
     private let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -433,7 +433,7 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .notFound)
     }
 
-    /// A tunnel's listener with its machine's key (`013`) answers exactly as
+    /// A tunnel's listener with its machine's key answers exactly as
     /// the local one does: the key first, then the body.
     func testATunneledSignalWithTheMachinesKeyIsTheLocalRoute() {
         let delivered = signal(sent: key, listenerKey: key, origin: .tunneled)

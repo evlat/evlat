@@ -1,7 +1,7 @@
 import Foundation
 import EvlatCore
 
-/// One chat turn's `claude -p` process (`011`, Karar 2): stdin a pipe that
+/// One chat turn's `claude -p` process: stdin a pipe that
 /// carries the one user line, stdout read chunk by chunk and handed to the
 /// main queue, the tail of stderr kept for the failure.
 ///
@@ -102,7 +102,7 @@ final class ClaudeRunner {
     private let stdin = DispatchQueue(label: "dev.kalaomer.evlat.claude-stdin")
 
     /// Stdin closed. After the `result` this is what lets the process exit
-    /// (measured, `011/phase-1`: 0.8 s later).
+    /// (measured: 0.8 s later).
     func closeInput() {
         let writer = input.fileHandleForWriting
         stdin.async { try? writer.close() }
@@ -133,7 +133,7 @@ final class ClaudeRunner {
     }
 }
 
-/// Finds `claude` once (`011`, İşletme): `EVLAT_CLAUDE` first; else the login
+/// Finds `claude` once: `EVLAT_CLAUDE` first; else the login
 /// shell's `PATH`, read once with a time limit, because an app opened from
 /// Finder inherits a short `PATH` and would find neither `claude` nor the
 /// tools its turns run.
@@ -150,7 +150,7 @@ final class ClaudeLocator {
     private var found: Location?
     private var waiting: [(Location) -> Void] = []
     /// The login shell's `PATH` from the last lookup that read one — the
-    /// command link's row says when `~/.local/bin` is not on it (`014`).
+    /// command link's row says when `~/.local/bin` is not on it.
     private(set) var lastLoginPath: String?
 
     /// The markers around the `PATH` in the login shell's output: a profile

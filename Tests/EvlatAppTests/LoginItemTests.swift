@@ -2,7 +2,7 @@ import XCTest
 import ServiceManagement
 @testable import EvlatApp
 
-/// "Open at login" (`014`, R5) against an injected service: no test ever
+/// "Open at login" against an injected service: no test ever
 /// registers the real app.
 final class LoginItemTests: XCTestCase {
     private final class Recorder {

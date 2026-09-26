@@ -3,7 +3,7 @@ import AppKit
 import Carbon.HIToolbox
 @testable import EvlatApp
 
-/// The balloon's shortcut (`011/phase-2`): a Carbon hot key, which asks for
+/// The balloon's shortcut: a Carbon hot key, which asks for
 /// no permission, its stored switch and its menu entry.
 ///
 /// No test registers ⇧⌘Space itself: that would take the user's shortcut for
@@ -76,7 +76,7 @@ final class HotKeyTests: XCTestCase {
         }
     }
 
-    /// Measured (`phase-2`): another **process** holding the combination
+    /// Measured: another **process** holding the combination
     /// does not fail the call; the same one twice does. That second case is
     /// the one reproducible failure, and the menu's line is built for it.
     func testRegisteringTwiceIsRefusedAndUnregisteringFreesIt() {
@@ -185,7 +185,7 @@ final class HotKeyTests: XCTestCase {
         XCTAssertFalse(NSApp.isActive)
     }
 
-    /// A refused registration: one attention line (`014`), dim but live —
+    /// A refused registration: one attention line, dim but live —
     /// it opens the settings at the chat section — until a registration
     /// succeeds or the shortcut is turned off.
     func testARefusedRegistrationLeavesOneAttentionLine() throws {
@@ -271,7 +271,7 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(Set((0...200).map(SystemHotKeys.nameKey)), Set(SystemHotKeys.nameKeys))
     }
 
-    // MARK: - The recorder (Settings → Chat's row, `014/phase-2`)
+    // MARK: - The recorder (Settings → Chat's row)
 
     private func key(_ code: Int, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,

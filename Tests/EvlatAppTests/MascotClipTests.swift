@@ -48,26 +48,26 @@ final class MascotClipTests: XCTestCase {
         }
     }
 
-    /// **Karar 3a: clips burst, they do not run continuously.**
+    /// **Clips burst, they do not run continuously.**
     ///
-    /// This replaces `phase-1`'s "a burst no more often than every 4 s". That
-    /// rule was a proxy for the budget and it priced a 0.08 s eye flick the same
-    /// as a 1.3 s breath, so it could only be satisfied by making `working` as
-    /// slow as `idle` — which is R2 given up. What actually costs CPU is **time
-    /// in motion**, and now that every step carries its own, the guard can be
+    /// This replaces an earlier rule, "a burst no more often than every 4 s".
+    /// That rule was a proxy for the budget and it priced a 0.08 s eye flick the
+    /// same as a 1.3 s breath, so it could only be satisfied by making `working`
+    /// as slow as `idle` — which gives up telling the two apart at a glance.
+    /// What actually costs CPU is **time in motion**, and now that every step carries its own, the guard can be
     /// written in the currency the threshold is in.
     ///
     /// The ceiling is derived from measurement, not chosen. The most expensive
-    /// of the three `working` candidates measured in `003/phase-2` read **2.11%
+    /// of the three `working` candidates measured read **2.11%
     /// over 90 s at a duty cycle of 0.299**; the same shape stretched to this
     /// ceiling would cost 2.11 × 0.35 / 0.299 ≈ **2.47%**, against the **3.77%**
-    /// R5.2 allows while a clip is running. The clip that shipped reads 1.84%
+    /// threshold while a clip is running. The clip that shipped reads 1.84%
     /// at 0.215, and the idle foot 0.04%.
     ///
     /// It is a guard, not a proof: cost also tracks how often the step index
     /// changes, and the candidates' in-clip readings (5.16% / 9.16% / 7.68%)
     /// differed by more than their duty cycles did. The gate is the measured
-    /// 90 s leg, which `phase-4` re-runs against the threshold; this line is
+    /// 90 s leg, re-run against the threshold; this line is
     /// what stops a clip from drifting there between measurements.
     func testLoopingClipsStayInsideTheDutyCycleBudget() {
         for (name, rest, clip) in allClips() {
@@ -127,7 +127,7 @@ final class MascotClipTests: XCTestCase {
 
     /// The body does not change how much room it takes up — beyond a breath.
     ///
-    /// `phase-1` said this as "a breath scales both axes equally", which is true
+    /// An earlier version said this as "a breath scales both axes equally", which is true
     /// of the idle breath and false of a working body that **bobs** — stretching
     /// up while narrowing is the difference between drawing breath and growing.
     /// The rule underneath both is that the area is left alone: a mascot that
@@ -164,7 +164,7 @@ final class MascotClipTests: XCTestCase {
         }
     }
 
-    /// **`waiting` and `review` play once and hold** (`003/phase-3`). They are
+    /// **`waiting` and `review` play once and hold**. They are
     /// news, not states: the arrival is the signal, and a one-shot clip that
     /// has played out schedules nothing more, so however long you take to
     /// answer costs no frames. The pose they hold is the phase's resting pose —
@@ -197,7 +197,7 @@ final class MascotClipTests: XCTestCase {
     }
 
     /// **The channels a clip does not drive stay at rest — one writer per
-    /// channel** (R4, Karar 8).
+    /// channel**.
     ///
     /// The table below is each clip's declaration: a clip that starts writing
     /// a channel it is not listed for is a second writer on something another
@@ -207,9 +207,9 @@ final class MascotClipTests: XCTestCase {
     /// - **tilt and squint** say *which* phase this is, not what it is doing
     ///   inside it; they belong to `resting(for:)`. `review`'s tilt arrives on
     ///   step 0's spring, and its gesture is a nod instead.
-    /// - **`gazeMix`** is a phase constant (Karar 4). Animating it per step
+    /// - **`gazeMix`** is a phase constant. Animating it per step
     ///   would make the eyes drift between following and not following — a
-    ///   second gaze authority, the exact arrangement `003` exists to end.
+    ///   second gaze authority, the exact arrangement the clip layer exists to end.
     func testEachClipDrivesOnlyItsOwnChannels() {
         let driven: [Phase: Set<Channel>] = [
             .idle: [.eyeOpen, .scale],
@@ -295,7 +295,7 @@ private struct Motion: Equatable {
 }
 
 /// The `failed` shudder. **This is the first test it has ever had:** before
-/// `003`, `grep -rn "shake\|keyframe" Tests/` returned nothing, so the promise
+/// the clip layer, `grep -rn "shake\|keyframe" Tests/` returned nothing, so the promise
 /// that the clip layer preserves today's behaviour had no guard.
 final class MascotShakeTests: XCTestCase {
     /// The amplitude is what makes the shudder a shudder: the same

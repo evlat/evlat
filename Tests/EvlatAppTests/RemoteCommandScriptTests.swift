@@ -2,7 +2,7 @@ import XCTest
 import EvlatCore
 @testable import EvlatApp
 
-/// The server's `evlat` (`013/phase-3`): `RemoteCommand.script` written to a
+/// The server's `evlat`: `RemoteCommand.script` written to a
 /// temporary file and run as a user on a server runs it — under `/bin/sh`,
 /// `/bin/dash` and `/bin/bash` — against a tunnel's keyed listener this test
 /// opens, with a temporary `HOME` holding the key and `EVLAT_PORT` pointing
@@ -169,7 +169,7 @@ final class RemoteCommandScriptTests: XCTestCase {
     /// Waits until `pid` has a child called `name` — the watched command
     /// itself, which the wrapper starts only after its traps are set. The
     /// first `working` row goes out *before* the traps (`dash`'s pitfall), so
-    /// a signal sent on its arrival alone could beat them (`013` gate).
+    /// a signal sent on its arrival alone could beat them.
     private func awaitCommand(_ name: String, of pid: Int32) {
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {

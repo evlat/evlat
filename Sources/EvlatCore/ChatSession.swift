@@ -1,14 +1,14 @@
 import Foundation
 
-/// One chat's state machine (`011`): the user's prompts and the stream's
+/// One chat's state machine: the user's prompts and the stream's
 /// events in; the messages the balloon draws and the bar's `Signal` out.
 ///
-/// **The phase comes from the stream, not from hooks** (Karar 3): an Evlat on
+/// **The phase comes from the stream, not from hooks**: an Evlat on
 /// another port never hears the turn's hooks, it always hears its stdout.
 /// `working` from the prompt to the `result`; `review` when the turn
 /// finished (or the user stopped it); `failed` when it ended in an error,
 /// died without a result or never started; `waiting` while a permission
-/// card is open (`phase-3`), back to `working` when the last one is
+/// card is open, back to `working` when the last one is
 /// answered. No `Phase` value is added.
 ///
 /// Pure and a value: time is handed in, the process is the shell's.
@@ -28,7 +28,7 @@ public struct ChatSession: Equatable {
     public var folder: String
     /// Is `folder` Evlat's own `chats/<id>/` rather than the user's?
     public var isWorkspace: Bool
-    /// `nil` until the first reply gives one (its first sentence, `phase-5`);
+    /// `nil` until the first reply gives one (its first sentence);
     /// the row falls back to the first prompt.
     public var title: String?
     /// How much the next turn does without asking (`--permission-mode`).
@@ -51,7 +51,7 @@ public struct ChatSession: Equatable {
     public private(set) var lastTool: Signal.Activity.Tool?
     public private(set) var toolCount = 0
     public private(set) var lastReply: String?
-    /// Has the balloon shown this turn's end (`phase-5`)? A finished chat
+    /// Has the balloon shown this turn's end? A finished chat
     /// the user has seen has no row: it is in the history. A new turn
     /// clears it.
     public private(set) var seen = false
@@ -74,7 +74,7 @@ public struct ChatSession: Equatable {
         /// A permission request, open until answered.
         case permission(PermissionCard)
         /// A tool call Claude made and was denied without a card — auto
-        /// mode's classifier, a deny rule (`011/phase-3` ek).
+        /// mode's classifier, a deny rule.
         case notDone(NotDone)
     }
 
@@ -139,7 +139,7 @@ public struct ChatSession: Equatable {
     }
 
     /// Why a chat failed. Reasons, not text: the balloon words them from the
-    /// catalogue (`phase-2`). `detail` is the process's own line.
+    /// catalogue. `detail` is the process's own line.
     public enum Failure: Equatable {
         /// No `claude` was found (`EVLAT_CLAUDE`, then the login shell's `PATH`).
         case noBinary
@@ -170,7 +170,7 @@ public struct ChatSession: Equatable {
     }
 
     /// A prompt. Returns the turn to start, or `nil` while one is running.
-    /// The chat's granted directories and rules ride along (`phase-3`).
+    /// The chat's granted directories and rules ride along.
     public mutating func begin(prompt: String, attachments: [String], at now: Date,
                                addDirectories: [String] = [], allowedTools: [String] = []) -> ClaudeInvocation? {
         guard !isRunning else { return nil }
@@ -421,7 +421,7 @@ public struct ChatSession: Equatable {
         since = now
     }
 
-    // MARK: - Seen, and the row's life (`phase-5`)
+    // MARK: - Seen, and the row's life
 
     /// A finished chat nobody looked at keeps its row this long after it
     /// ended, then goes to the history on its own: the bar does not collect

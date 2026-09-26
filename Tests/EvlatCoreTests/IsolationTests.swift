@@ -1,7 +1,7 @@
 import XCTest
 @testable import EvlatCore
 
-/// `014`'s one isolation predicate and the setup's opening condition.
+/// The one isolation predicate and the setup's opening condition.
 final class IsolationTests: XCTestCase {
     func testAnyEvlatKeyIsolatesButTheTaskMarker() {
         XCTAssertFalse(Isolation.isIsolated([:]))

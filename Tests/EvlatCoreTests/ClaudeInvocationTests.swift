@@ -2,7 +2,7 @@ import XCTest
 @testable import EvlatCore
 
 /// The arguments and input one `claude -p` turn is started with. The flag
-/// set is the one measured on 2.1.281 (`011/phase-1`); `--verbose` is not
+/// set is the one measured on 2.1.281; `--verbose` is not
 /// optional there, stream-json output refuses to run without it.
 final class ClaudeInvocationTests: XCTestCase {
     func testTheFirstTurnNamesTheSession() {
@@ -83,7 +83,7 @@ final class ClaudeInvocationTests: XCTestCase {
     }
 
     /// A started turn asks through its own hook: nothing prompts, the
-    /// inline hook decides (`phase-3`).
+    /// inline hook decides.
     func testAStartedTurnAsksThroughItsHook() {
         let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: false,
                                          prompt: "hi", attachments: [], directory: "/tmp/p")

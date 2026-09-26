@@ -53,8 +53,8 @@ final class RemoteMachinesModel: ObservableObject {
         let hints: [String]
     }
 
-    /// The four fixed buttons. They do not read the server first (`plan.md` →
-    /// Kapsam Dışı): the result line says what was there.
+    /// The four fixed buttons. They do not read the server first: the result
+    /// line says what was there.
     enum Job: CaseIterable {
         case installHooks, removeHooks, installUsage, removeUsage
 
@@ -73,7 +73,7 @@ final class RemoteMachinesModel: ObservableObject {
         }
     }
 
-    /// The three rows under an open machine (`014`, R7).
+    /// The three rows under an open machine.
     enum Item: String, CaseIterable {
         case hooks, usage, command
     }

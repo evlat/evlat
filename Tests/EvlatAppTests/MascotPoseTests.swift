@@ -49,7 +49,7 @@ final class MascotPoseTests: XCTestCase {
         }
     }
 
-    /// **Contract change (`003/phase-1`).** This test used to be
+    /// **Contract change.** This test used to be
     /// `testRestingPosesCarryNoGaze` and it coded the rule "gaze is written over
     /// every phase, unconditionally" — `MascotView` did `p.yaw = gaze.width` and
     /// erased whatever the pose asked for, which made `yaw` and `pitch` the two
@@ -105,7 +105,7 @@ final class MascotPoseTests: XCTestCase {
         }
     }
 
-    /// **The order of the mixes is the contract** (`003/phase-3`): `waiting`
+    /// **The order of the mixes is the contract**: `waiting`
     /// takes the whole cursor, `idle` most of it, `working` the least of any
     /// phase. Strict, because the point of `waiting`'s lock is that it is a
     /// *change*: if idle already stared at full mix, the phase that blocks the
@@ -127,14 +127,14 @@ final class MascotPoseTests: XCTestCase {
     /// place so every phase feels the same; if it ever became a linear or
     /// zero-duration animation, v1's principle would be quietly lost.
     ///
-    /// **Karar 2 is settled by this line** (`003/phase-2`): the spring and an
-    /// exponential ease-out were looked at side by side and the user kept the
-    /// spring, so the assertion `001` wrote stands unchanged.
+    /// **This line was settled by eye**: the spring and an exponential
+    /// ease-out were looked at side by side and the user kept the spring, so
+    /// the original assertion stands unchanged.
     func testTransitionIsASpring() {
         XCTAssertEqual(MascotPose.transition, .spring(response: 0.38, dampingFraction: 0.72))
     }
 
-    /// The five phases' faces, field by field. `011/phase-4` added a pose
+    /// The five phases' faces, field by field. Dropped files added a pose
     /// that is not a phase (`catching`); the table it sits beside must not
     /// move with it.
     func testTheFivePhasesAreUnchanged() {
@@ -147,7 +147,7 @@ final class MascotPoseTests: XCTestCase {
                        MascotPose(eyeOpen: 0.55, eyeSquint: 0.5, scaleX: 1.07, scaleY: 0.9, gazeMix: 0.45))
     }
 
-    /// A file on its way to the bar (`011/phase-4`, Karar 9): the eyes open
+    /// A file on its way to the bar: the eyes open
     /// wider than any phase opens them — `waiting` included, or catching
     /// would read as one more "I need you" — the body reaches up a little,
     /// and the gaze is the file's entirely. No mouth: the face is the eyes.
@@ -198,8 +198,8 @@ final class MascotModelTests: XCTestCase {
     /// `AppController` writes only `override` when a phase is forced from the
     /// status menu, and the view branched on `hasLive` alone — so the one way to
     /// look at `waiting` or `failed` without hooks put a **motionless** cube on
-    /// screen. `003/phase-2` cannot compare candidate clips through a menu that
-    /// shows nothing moving.
+    /// screen. Candidate clips cannot be compared through a menu that shows
+    /// nothing moving.
     func testAForcedPhaseWakesTheMascotWithNothingLive() {
         let model = MascotModel()
         model.override = .failed

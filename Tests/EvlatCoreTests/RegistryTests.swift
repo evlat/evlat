@@ -63,7 +63,7 @@ final class RegistryTests: XCTestCase {
             (.working, .failed, .failed),
             // An idle session can be one that just finished, or failed.
             // `(.idle, .waiting)` stays a veto, and the reason is now narrower
-            // than it was. `phase-3` could not produce a real permission prompt
+            // than it was. Measurement could not produce a real permission prompt
             // (an autonomous agent blocks on one), so what the file says while
             // a prompt is on screen is still **unknown**. What was measured is
             // that the file is not written by tool events at all — 53 events,
@@ -266,7 +266,7 @@ final class RegistryTests: XCTestCase {
         XCTAssertEqual(rows.first?.provider, "codex")
     }
 
-    /// The single-provider world of `001`: nothing to reconcile, nothing
+    /// The single-provider world: nothing to reconcile, nothing
     /// changed.
     func testADerivedRowWithoutAnOfficialTwinPasses() {
         let rows = merged([signal("s-1", .working, .derived), signal("s-2", .idle, .derived)])
@@ -328,7 +328,7 @@ final class RegistryTests: XCTestCase {
     /// and "nothing could be read, so idle it is". The second kind vetoed
     /// reports it had no business vetoing — and it happens in a real window:
     /// a new session record exists for ~500 ms with **no `status` field at
-    /// all** (`phase-3`, measured). Worse, the day the field is renamed every
+    /// all** (measured). Worse, the day the field is renamed every
     /// row reads idle and no hook can ever correct it.
     ///
     /// The two are told apart without adding a field to `Signal`: a row whose
@@ -431,7 +431,7 @@ final class RegistryTests: XCTestCase {
         XCTAssertEqual(snapshot.usage.compactMap(\.usage?.group), ["Claude", "Codex", "Claude · devbox"])
     }
 
-    // MARK: - Outside rows (`012`)
+    // MARK: - Outside rows
 
     private func outside(_ id: String, _ phase: Phase, sender: String? = nil) -> Signal {
         Signal(provider: "signal", entity: "signal:\(id)", kind: .custom, phase: phase,

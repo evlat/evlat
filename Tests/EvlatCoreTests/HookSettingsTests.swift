@@ -3,7 +3,7 @@ import XCTest
 
 /// The hook settings writer's contract. Every test builds its own home under
 /// the temporary directory and removes it in `tearDown`: nothing here may reach
-/// the user's real `~/.claude` or `~/.codex` (`008` → R3).
+/// the user's real `~/.claude` or `~/.codex`.
 final class HookSettingsTests: XCTestCase {
     private var home: URL!
 

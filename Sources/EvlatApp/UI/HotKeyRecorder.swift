@@ -1,8 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// What one key means to the recorder, apart from any window (`014`,
-/// Karar 7): the rules `011` found, as a pure function a test calls with a
+/// What one key means to the recorder, apart from any window: the
+/// shortcut's rules, as a pure function a test calls with a
 /// key code and flags.
 ///
 /// Esc cancels; a key with ⌃, ⌥ or ⌘ is taken; ⇧ alone is not a shortcut
@@ -32,7 +32,7 @@ enum HotKeyVerdict: Equatable {
     }
 }
 
-/// The one shortcut recorder: Settings → Chat's row (`014`, Karar 7). The
+/// The one shortcut recorder: Settings → Chat's row. The
 /// settings window feeds it its keys (`AppKeyWindow.keyInterceptor`) — a
 /// window key of Evlat's own, so no Accessibility and no monitor; losing
 /// the keyboard cancels.
@@ -91,8 +91,8 @@ final class HotKeyRecorder: ObservableObject {
         return true
     }
 
-    /// Ends without an answer: Vazgeç, the window closing or losing the
-    /// keyboard.
+    /// Ends without an answer: Vazgeç (Cancel), the window closing or losing
+    /// the keyboard.
     func cancel() { finish(nil) }
 
     private func finish(_ combination: HotKeyCombination?) {

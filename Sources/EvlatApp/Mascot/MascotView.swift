@@ -6,7 +6,8 @@ import EvlatCore
 /// The form is a **cube** — an edged body reads with more character than a
 /// sphere when it turns, and it also moves away from the reference. Expression
 /// lives in the **eyes**, not the body; the body is a swappable shape
-/// (ROADMAP → expression is in the pose, the form is pluggable).
+/// (`AGENTS.md` → Architecture: expression is in the pose, the form is
+/// pluggable).
 ///
 /// `Canvas` is not used: drawing with plain shapes lets the springs attach
 /// directly to view modifiers, and the transitions come free.
@@ -44,10 +45,10 @@ struct MascotView: View {
             }
         }
         .frame(width: size, height: size)
-        // A caught file (`011/phase-4`) is drawn by whichever body is on
+        // A caught file is drawn by whichever body is on
         // screen, read from the environment — not handed to `ClipPlayer` as
-        // a stored value, whose scheduled steps close over a copy (AGENTS →
-        // Tuzaklar). The walk goes on underneath; the face is the file's.
+        // a stored value, whose scheduled steps close over a copy (AGENTS.md →
+        // Pitfalls). The walk goes on underneath; the face is the file's.
         .environment(\.caughtGaze, model.caughtGaze)
         .background { dropRing }
         .animation(MascotPose.transition, value: model.effectivePhase)
@@ -90,7 +91,7 @@ extension EnvironmentValues {
 ///
 /// Timing is ours, interpolation is SwiftUI's. Each step schedules the next one
 /// `hold` seconds out and then the view is completely still until it lands —
-/// which is the whole CPU argument. Measured in `001`: *any* continuous SwiftUI
+/// which is the whole CPU argument. Measured: *any* continuous SwiftUI
 /// animation costs ~7% on this machine whatever the technique (`PhaseAnimator`
 /// 11.5%, `repeatForever` 7.3%, plus `.drawingGroup()` 7.9%) against v1's 5.1%
 /// sprite sheet, and nothing at all costs 0.1%. Bursts cost what their duty
@@ -154,7 +155,7 @@ private struct ClipPlayer: View {
     /// Rescheduling here would put the full first hold between the phase change
     /// and the next blink, and the aggregate can flip faster than that while an
     /// agent works — so the mascot would go completely still exactly when it is
-    /// busiest. `001` shipped that bug once already, keyed on the cursor rather
+    /// busiest. An early version shipped that bug once already, keyed on the cursor rather
     /// than the phase: the note on the heartbeat it replaced read *"a moving
     /// cursor can no longer keep resetting the timer so the mascot never
     /// blinks"*. The step in flight keeps its own schedule and reads the new
@@ -211,7 +212,7 @@ private struct ClipPlayer: View {
 /// The cube itself. Draws a pose; decides nothing, and knows nothing about
 /// phases — the one thing a phase drives directly, the shudder, hangs above it
 /// in `MascotView`. The setup window draws its still face with it too
-/// (`SetupView`, `014/phase-3`).
+/// (`SetupView`).
 struct MascotBody: View {
     /// The pose it was handed; `drawn` is what it draws.
     let pose: MascotPose

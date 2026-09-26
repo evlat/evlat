@@ -2,13 +2,13 @@ import Foundation
 import ServiceManagement
 import EvlatCore
 
-/// "Open at login" (`014`, R5): `SMAppService.mainApp`, the only place
+/// "Open at login": `SMAppService.mainApp`, the only place
 /// `ServiceManagement` is imported.
 ///
-/// The registration belongs to the bundle id, not the path (context →
-/// Kanıt, measured): v1, `build/Evlat.app` and `/Applications/Evlat.app`
-/// all see — and can take away — the same item. Which copy macOS opens at
-/// login was not measured (it needs a login) and stays a hand check.
+/// The registration belongs to the bundle id, not the path (measured):
+/// v1, `build/Evlat.app` and `/Applications/Evlat.app` all see — and can
+/// take away — the same item. Which copy macOS opens at login was not
+/// measured (it needs a login) and stays a hand check.
 ///
 /// The service is handed in, like `defaults`: only `launch()` passes the
 /// real one (`service(environment:)`), and not even it in an isolated

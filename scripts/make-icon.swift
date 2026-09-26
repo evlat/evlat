@@ -1,5 +1,6 @@
-// Draws Evlat's app icon ("B2 · Çerçeve": the bar's black as a frame, the
-// mascot's two eyes looking toward the screen edge) into an .iconset.
+// Draws Evlat's app icon ("B2 · Çerçeve", "frame": the bar's black as a
+// frame, the mascot's two eyes looking toward the screen edge) into an
+// .iconset.
 //
 // The icon is code, not a checked-in image: this file is its only source, and
 // bundle-app.sh turns the iconset into AppIcon.icns with `iconutil`. No new

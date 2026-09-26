@@ -7,7 +7,7 @@ import EvlatCore
 /// The observation is **cut to the minute**. Claude's status line stamps
 /// every message it relays; carried to the second, that stamp would make two
 /// identical windows compare unequal and let every relay through the
-/// deadband in `UsageBlockModel.update` (`proje.md` → Tuzaklar, the
+/// deadband in `UsageBlockModel.update` (`AGENTS.md` → Pitfalls, the
 /// `@Published` trap). The percent is the drawn one for the same reason: a
 /// tenth of a percent moves nothing on screen.
 struct UsageWindow: Equatable, Identifiable {
@@ -59,7 +59,7 @@ enum UsageFreshness: Equatable {
 @MainActor
 final class UsageBlockModel: ObservableObject {
     /// The most lines the block draws: today's two sources and one remote
-    /// machine's Claude (`010`), each a heading and two windows. The envelope
+    /// machine's Claude, each a heading and two windows. The envelope
     /// is sized for this once (`AppController.envelopeSize`); a second
     /// machine falls off whole, like any group past the cap.
     nonisolated static let maxLines = 9
@@ -131,7 +131,7 @@ final class UsageBlockModel: ObservableObject {
     }
 
     /// Whether the number is Evlat's reading rather than the vendor's own:
-    /// drawn with a leading `~` (ROADMAP → Fidelity).
+    /// drawn with a leading `~` (`AGENTS.md` → Architecture).
     nonisolated static func isApproximate(_ fidelity: Signal.Fidelity) -> Bool {
         switch fidelity {
         case .official: return false

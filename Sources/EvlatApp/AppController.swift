@@ -30,7 +30,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
     /// The same for the status line relay's entry.
     private var usageFailure: SettingsFile.Failure?
-    /// The same for `~/.local/bin/evlat` (`014`).
+    /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
     /// row says it did not happen, System Settings says why).
@@ -45,7 +45,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var executable: URL? = Bundle.main.executableURL
     public let registry = Registry()
     /// Finds `claude` for the chats; its login `PATH` is also the command
-    /// link row's (`014`). Nothing runs until a chat or the row asks.
+    /// link row's. Nothing runs until a chat or the row asks.
     let claudeLocator = ClaudeLocator()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
@@ -57,13 +57,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The usage block's lines. Fed from the same snapshot in `refresh()`,
     /// observed by the open bar's block alone.
     let usageBlock = UsageBlockModel()
-    /// `phase-3`'s bucket: a counter and the last few lines. It feeds nothing
+    /// The diagnostics bucket: a counter and the last few lines. It feeds nothing
     /// into `registry` and never will — turning events into phases is the
     /// provider's job, one line below.
     ///
     /// `--capture` builds its own; this copy has no reader in-process, and
     /// giving it one needs either a read endpoint or a write under `~/`, both
-    /// of which `002` rules out (R6). It is kept because the alternative is
+    /// of which the local API's design rules out. It is kept because the alternative is
     /// having nothing at all to hand such a reader the day it exists.
     public let hookDiagnostics = HookDiagnostics()
     /// The second provider. It holds the phase of every session that has ever
@@ -75,20 +75,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     lazy var claudeUsage = ClaudeUsageProvider(now: { [unowned self] in
         MainActor.assumeIsolated { self.now() }
     })
-    /// Outside programs' rows, as `POST /signal` left them (`012`). Stamped
+    /// Outside programs' rows, as `POST /signal` left them. Stamped
     /// with this controller's clock, like the usage windows: a row's life is
     /// read against it.
     lazy var signals = SignalsProvider(now: { [unowned self] in
         MainActor.assumeIsolated { self.now() }
     })
     private var hookListener: HookListener?
-    /// The key file this process wrote, removed on quit (`012` kapı).
+    /// The key file this process wrote, removed on quit.
     private let signalKeyWritten = SignalKey.Written()
-    /// The chats (`011`) and their `claude -p` turns; `nil` until launch.
+    /// The chats and their `claude -p` turns; `nil` until launch.
     /// Registered in `registry` as the `evlat` provider. Internal so a test
     /// hands its own store (a fake `claude`, a temporary root).
     var chats: ChatStore?
-    /// The balloon (`011/phase-2`): what it draws and its window, built on
+    /// The balloon: what it draws and its window, built on
     /// first use.
     let chatModel = ChatModel()
     private(set) var chatPanel: ChatPanel?
@@ -99,7 +99,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// opened and closed balloon leaves no row.
     private(set) var currentChat: String?
     /// A folder picked from the balloon's label before the first prompt
-    /// (`011/phase-4`); it wins over the one the files suggest.
+    /// wins over the one the files suggest.
     private(set) var chosenFolder: String?
     /// The folder or save panel is up: the balloon is ordered out for it, and its
     /// losing the keyboard to the panel is not a close.
@@ -108,7 +108,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// until launch — a test hands a fake, and a controller without one
     /// registers nothing.
     var hotKey: HotKeyRegistration?
-    /// The one shortcut recorder: Settings → Chat's row (`014`, Karar 7).
+    /// The one shortcut recorder: Settings → Chat's row.
     /// While it records nothing is registered (`applyHotKey`).
     private(set) lazy var hotKeyRecorder: HotKeyRecorder = makeHotKeyRecorder()
     /// The system's own shortcuts, read as a recording starts; a test hands
@@ -123,16 +123,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The machines came from `EVLAT_MACHINES` (or none, because of
     /// `EVLAT_PORT`): then adding or removing one is not written back.
     private var remoteFromEnvironment = true
-    /// Each machine's `/signal` key (`013`), by machine id. Written back to
+    /// Each machine's `/signal` key, by machine id. Written back to
     /// `RemoteMachine.signalKeysStorageKey` under the list's own rule: only
     /// a stored list's, never the environment's.
     private var remoteSignalKeys: [String: String] = [:]
     /// The `ssh` the tunnels run, which the window's installer runs too.
     private var remoteSSHPath = AppController.sshPath()
-    /// The settings window (`014`, R6), once opened, and its model.
+    /// The settings window, once opened, and its model.
     private(set) var settingsWindow: AppWindow?
     private(set) var settings: SettingsModel?
-    /// The setup window (`014`, R8), once opened, and its model.
+    /// The setup window, once opened, and its model.
     private(set) var setupWindow: AppWindow?
     private(set) var setupFlow: SetupFlowModel?
     private var statusItem: NSStatusItem?
@@ -161,8 +161,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Is a coalesced refresh already on its way? See `scheduleRefresh`.
     private var refreshPending = false
 
-    /// The visible bar's width. It leaves here once `003` brings the geometry
-    /// abstraction; for now one constant in one place is enough.
+    /// The visible bar's width. One constant in one place is enough for now.
     public static let barWidth: CGFloat = 54
 
     /// Transparent margin on the inner side of the window.
@@ -232,7 +231,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public static var rowPitch: CGFloat { indicatorSize + indicatorSpacing }
 
     /// How many rows the open list shows at most. The half row is the sign
-    /// that more follow (`006`, user's decision) — there is no scroll bar,
+    /// that more follow (the user's decision) — there is no scroll bar,
     /// arrow or count.
     public static let visibleRows: CGFloat = 7.5
 
@@ -352,11 +351,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         x >= 0 && x <= width && y >= listTop && y < listTop + listHeight(rows: rows)
     }
 
-    /// The detail card beside the open list (`phase-4` draws it). Fixed here
+    /// The detail card beside the open list (`DetailCard` draws it). Fixed here
     /// because the window is sized for it once and never again.
     public static let detailCardWidth: CGFloat = 260
     /// Between the open body's inner edge and the card: the card stands
-    /// apart (`005`, user's decision). The gap is still "on the bar" for
+    /// apart (the user's decision). The gap is still "on the bar" for
     /// hover (`cardHoverRect`), so crossing it closes nothing.
     public static let detailCardGap: CGFloat = 8
 
@@ -388,15 +387,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `anchorLength`, so everything past the full bar hangs below it,
     /// transparent: clicks fall through, hover is only the drawn part.
     ///
-    /// Resizing at interaction time is what `004` could not make smooth — a
+    /// Resizing at interaction time is what could not be made smooth — a
     /// window growing leftward showed its old content one frame at the old
     /// origin — and a card that lengthened the window would repeat it downward.
     ///
-    /// The usage block (`009`) grew it once, downward: the longest open body
+    /// The usage block grew it once, downward: the longest open body
     /// is now seven and a half rows, the summary and a full block
     /// (`UsageBlockModel.maxLines`), with the shadow's room under it. What is
-    /// added is transparent and hangs below the head, like the rest. `010`
-    /// grew it by three lines more, for one remote machine's group.
+    /// added is transparent and hangs below the head, like the rest. It
+    /// grew by three lines more, for one remote machine's group.
     public static let envelopeSize = CGSize(
         width: expandedBarWidth + detailCardGap + detailCardWidth + shadowGutter,
         height: max(anchorLength,
@@ -422,7 +421,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// and a `PostToolUse` per tool call, and a subagent's land on the parent's
     /// session too. Refreshing per event would re-read the session directory
     /// that many times and hand `@Published` a write each time — the trap this
-    /// repo names outright (`proje.md` → tuzaklar). A tenth of a second is far
+    /// repo names outright (`AGENTS.md` → Pitfalls). A tenth of a second is far
     /// below anything the eye resolves and still an order of magnitude better
     /// than waiting out the poll above, which is what `PermissionRequest` used
     /// to do.
@@ -503,7 +502,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return FileManager.default.homeDirectoryForCurrentUser
     }
 
-    /// `excluding` names the sessions that are Evlat's own chats (`011`):
+    /// `excluding` names the sessions that are Evlat's own chats:
     /// their `claude -p` turns write records too.
     nonisolated public static func makeSessionsProvider(
         excluding: @escaping () -> Set<String> = { [] }
@@ -524,8 +523,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `EVLAT_PHASE=working` forces a phase at launch, the scriptable twin of
     /// the "Force state" menu item.
     ///
-    /// It is the other half of the measurement instrument `003/phase-2` needs
-    /// (`phase-2.md` → Ölçüm: *fix the phase, point `EVLAT_SESSIONS` at an empty
+    /// It is the other half of the measurement instrument needs
+    /// (`AGENTS.md` → Measuring: *fix the phase, point `EVLAT_SESSIONS` at an empty
     /// directory*). The menu reaches the same state, but a measurement has to
     /// be launched and torn down from a script, and a clip that has to be
     /// selected by hand cannot be put in a window beside another one.
@@ -590,7 +589,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// prefix keeps the two apart.
     nonisolated static let edgeKey = "bar.edge"
 
-    /// The setup was shown (`014`, R9): set the first time it opens, so it
+    /// The setup was shown: set the first time it opens, so it
     /// opens by itself once. Written only by a process that is not isolated.
     nonisolated static let setupSeenKey = "setup.seen"
 
@@ -616,7 +615,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The agents whose directory exists under `home`: an agent that is not
-    /// there has no entry and no row (`008`).
+    /// there has no entry and no row.
     nonisolated static func presentSources(home: URL) -> [AgentSource] {
         AgentSource.allCases.filter { source in
             var isDirectory: ObjCBool = false
@@ -656,8 +655,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Whether `argv[1]` asks for the diagnostics (`--list` or `--capture`).
     /// Only the first argument: anything later belongs to whatever else the
-    /// arguments say (`012`'s panel finding — `Evlat signal x -- cmd --capture 5`
-    /// must not print a capture).
+    /// arguments say (`Evlat signal x -- cmd --capture 5` must not print a
+    /// capture).
     nonisolated public static func isDiagnostics(_ arguments: [String]) -> Bool {
         LaunchMode.of(arguments) == .diagnostics
     }
@@ -684,8 +683,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// `Evlat --list`: print the signals and exit, opening no window.
-    /// This set's stand-in for v1's `GET /status`; the full local API lands in
-    /// `002`.
+    /// The stand-in for v1's `GET /status`, beside the local API.
     ///
     /// With `capturingFor`, it also **binds** the hook port for that many
     /// seconds and prints every event that arrives. Without it, the endpoint is
@@ -958,7 +956,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// from the running app for as long as it is held, and a hook that arrived
     /// in that window would be answered by a process about to exit. The body
     /// tells the two apps apart — v1 answers the bare word `ok`, v2 answers
-    /// `{"ok":true}` (`phase-2` corrected it).
+    /// `{"ok":true}`.
     ///
     /// **Only "cannot connect" means free.** Every other failure — a process
     /// that accepts the connection and never answers, or speaks something
@@ -1024,12 +1022,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                               onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         self.chats = chats
         registry.register(Self.makeSessionsProvider(excluding: { [weak chats] in chats?.sessionIDs ?? [] }))
-        // The undo switch for this whole set: with this one line gone the
+        // The undo switch for hooks: with this one line gone the
         // listener still binds and the events still parse, and the bar is
-        // exactly what `001` shipped.
+        // exactly what the session files alone show.
         registry.register(hooks)
         // Only with a home: a controller built without one (every test) must
-        // never fall through to the real `~/.codex` (`008`'s rule). Read when
+        // never fall through to the real `~/.codex`. Read when
         // the bar opens, not here.
         // Memory only, no file: safe without a home. Before Codex so the
         // block's order does not hang on registration (it sorts by group).
@@ -1216,7 +1214,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// (`ChatPanel`). The open list and its card close first: the balloon is
     /// the one thing talking.
     ///
-    /// Which chat it speaks for (`011/phase-5`): `chat` when one is asked
+    /// Which chat it speaks for: `chat` when one is asked
     /// for (`[Back to chat]`); none when `fresh` (files dropped on a closed
     /// balloon start their own); else a chat still on the bar — running
     /// first, then the latest unseen end — else none, and the empty
@@ -1370,7 +1368,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         refreshFolder()
     }
 
-    // MARK: - Dropped files (`011/phase-4`)
+    // MARK: - Dropped files
 
     /// The folder a chat made now would run in: the one picked from the
     /// label, else the one the files suggest, else (`nil`) its own
@@ -1438,7 +1436,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The label: before the first prompt it picks another folder, after
     /// it shows the chat's in Finder. Picking brings Evlat forward — the
-    /// user asked for a panel (Karar 7) — and hands the front back after.
+    /// user asked for a panel — and hands the front back after.
     private func folderTapped() {
         if let id = currentChat, let chat = chats?.chat(id) {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: chat.folder, isDirectory: true)])
@@ -1503,7 +1501,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     static let handBackWait: TimeInterval = 1
 
     /// The balloon's lines follow its chat. A finished chat on screen is
-    /// seen: its row leaves the bar for the history (`011/phase-5`). The
+    /// seen: its row leaves the bar for the history. The
     /// history and a workspace's files are written here too, each only
     /// when it changed.
     private func syncChat() {
@@ -1577,7 +1575,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         toggleChat()
     }
 
-    // MARK: - Permission mode (`011/phase-3` ek)
+    // MARK: - Permission mode
 
     /// A new chat's mode, stored by its CLI value; none stored is auto.
     nonisolated static let permissionModeKey = "chat.permissionMode"
@@ -1637,7 +1635,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         setDefaultMode(mode)
     }
 
-    /// The next chats' mode, and nothing else (`014`, R1): the open chat —
+    /// The next chats' mode, and nothing else: the open chat —
     /// and a mode picked in the balloon for a chat not made yet — keeps
     /// its own. Stored under `modeDefaults`' isolation.
     func setDefaultMode(_ mode: PermissionMode) {
@@ -1703,7 +1701,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         setHotKey(on: !isHotKeyOn)
     }
 
-    /// The shortcut's switch, stored, then applied (`014`, R1).
+    /// The shortcut's switch, stored, then applied.
     func setHotKey(on: Bool) {
         if let defaults {
             defaults.set(on, forKey: Self.hotKeyKey)
@@ -1714,8 +1712,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The shortcut's "Change…": Settings → Chat, recording. Evlat comes
-    /// forward with the window (`014`, Karar 7 — the bar's own recorder
-    /// panel is gone). The balloon closes first: one window has the
+    /// forward with the window (the bar's own recorder panel is gone). The balloon closes first: one window has the
     /// keyboard. A recorded combination is stored and turns the shortcut
     /// on; a cancel puts the old one back.
     @objc func recordHotKey(_ sender: Any?) {
@@ -1814,7 +1811,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
         }
         remoteFromEnvironment = configuration.fromEnvironment
-        // A machine kept from before `013` has no key yet: it gets one now,
+        // A machine kept from before per-machine keys has no key yet: it gets one now,
         // and a key whose machine is gone goes. The environment's machines'
         // keys are made fresh and live in memory only.
         let storedKeys = configuration.fromEnvironment
@@ -1861,7 +1858,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             signalKey: { [weak self] id in self?.remote?.signalKey(of: id) })
     }
 
-    /// The setup rows' way to the app (`014`): each closure is one of the
+    /// The setup rows' way to the app: each closure is one of the
     /// writers above or the state they keep.
     var setupHost: SetupModel.Host {
         SetupModel.Host(
@@ -1979,7 +1976,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The setup at `step` (the first unless one is named), built on first
     /// use. Opened again it starts over, every row read fresh: what was set
-    /// up shows a ✓ (R8).
+    /// up shows a ✓.
     func openSetup(step: SetupFlowModel.Step = .hello) {
         hover.closeNow()
         if barState.isOpen { closeBar() }
@@ -2045,8 +2042,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// Adds a machine by its `ssh` target, stores it and opens its tunnel.
-    /// A target already present answers with that machine. The window
-    /// (`phase-5`) is the caller.
+    /// A target already present answers with that machine. The settings
+    /// window is the caller.
     @discardableResult
     func addMachine(target: String) -> Result<RemoteMachine, RemoteMachine.TargetProblem> {
         if let problem = RemoteMachine.validate(target: target) { return .failure(problem) }
@@ -2176,8 +2173,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     ///
     /// A plain `async` would not do: the events of one turn arrive over
     /// seconds, each on its own run-loop turn, so there would be nothing to
-    /// coalesce with. This is not the timer `plan.md` rules out either — that
-    /// one was a scheduled **state change** (`review` → `idle` after 25 s),
+    /// coalesce with. Nor is this the ruled-out timer — that one was a
+    /// scheduled **state change** (`review` → `idle` after 25 s),
     /// which is derived at read time now. This schedules a read.
     private func scheduleRefresh() {
         guard !refreshPending else { return }
@@ -2385,8 +2382,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The bar takes two clicks: `[Go to session]`'s, and the mascot's,
-    /// which opens or closes the balloon (`011`). Rows and rings take none:
-    /// the card comes by hover (`005`, user's decision), and a click on a
+    /// which opens or closes the balloon. Rows and rings take none:
+    /// the card comes by hover (the user's decision), and a click on a
     /// row it already speaks for has nothing left to do.
     private func click(at point: CGPoint) -> Bool {
         if barState.selected != nil, let button = goButtonRect, button.contains(point) {
@@ -2504,7 +2501,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    /// The one menu (`014`, R10): the quick things — *Edge ▸*, *Shortcut ▸*
+    /// The one menu: the quick things — *Edge ▸*, *Shortcut ▸*
     /// —, a dim line for each thing that wants attention, *Settings… ⌘,*,
     /// *Setup…* and *Quit*. Setting things up is the settings window's. The
     /// tray's (`diagnostics`) adds *Force state ▸*.
@@ -2610,7 +2607,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         openSettings(section: attention.section)
     }
 
-    // MARK: - The writers (`014`, R1)
+    // MARK: - The writers
     //
     // The one place each setting is written. The settings window, the setup
     // and — for the edge and the shortcut — the menus only call these; the
@@ -2722,7 +2719,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         setEdge(raw == "left" ? .left : .right)
     }
 
-    /// The edge (`014`, R1), for every surface.
+    /// The edge, for every surface.
     func setEdge(_ edge: BarPanel.Edge) {
         defaults?.set(Self.storedValue(edge), forKey: Self.edgeKey)
         dock(edge)
@@ -2792,7 +2789,7 @@ enum BarMotion {
     static let length = Animation.easeOut(duration: 0.22)
     /// The card comes out of the bar's side: a few points of travel toward
     /// the screen, a touch of growth and a fade on one soft curve. A plain
-    /// 0.1 s fade made it pop in (user's feedback, `005`).
+    /// 0.1 s fade made it pop in (user's feedback).
     static let cardIn = Animation.smooth(duration: 0.26)
     /// It leaves quicker than it came, and more quietly.
     static let cardOut = Animation.easeIn(duration: 0.14)
@@ -2860,8 +2857,8 @@ struct BarBody: View {
         min(max(0, AppController.slotTop(slot) - offset - cardLead), cardTopLimit)
     }
 
-    /// The fourth slot's ring, where `006` put the floor. The window grew
-    /// for the usage block (`009`); the floor did not, so a card still
+    /// The fourth slot's ring, the card's floor. The window grew
+    /// for the usage block; the floor did not, so a card still
     /// hangs where it did.
     static var cardTopLimit: CGFloat {
         AppController.slotTop(SessionRowsModel.slotCount - 1)

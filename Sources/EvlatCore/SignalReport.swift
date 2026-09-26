@@ -1,6 +1,6 @@
 import Foundation
 
-/// The body of `POST /signal` (`012`): an outside program's row, read and
+/// The body of `POST /signal`: an outside program's row, read and
 /// cleaned. The sender is unknown, so everything here is a limit — on what
 /// it may name, how long its row lives and what its text may draw.
 ///
@@ -11,7 +11,7 @@ import Foundation
 /// The identity is **not** read from the body. `provider`, `entity`,
 /// `fidelity` and `kind` are written by `signal(phaseStart:machine:dim:)`
 /// alone — and the machine, for a report that came through a tunnel, is the
-/// listener's, never the sender's (`013`) — so a
+/// listener's, never the sender's — so a
 /// sender can neither take over a session's row nor claim an internal
 /// provider's name — by construction, not by a deny list.
 public struct SignalReport: Equatable {
@@ -127,7 +127,7 @@ public struct SignalReport: Equatable {
     /// else. `phaseStart` is the stamp: when this phase began, which the
     /// provider keeps across updates of the same phase (`SignalsProvider`).
     ///
-    /// `machine` is the remote computer the report came from (`013`): its
+    /// `machine` is the remote computer the report came from: its
     /// id namespaces the row — `signal:<machine>:<id>`, so the same id on two
     /// machines and on this Mac is three rows — and its name, with `dim`, is
     /// the row's `Signal.machine`. `nil` for this Mac's own port.
@@ -205,8 +205,8 @@ public struct SignalReport: Equatable {
     /// The limit counts characters as seen (`Character`, a grapheme), not
     /// bytes and not scalars: a flag is one. So a run of combining marks
     /// (`Mn`, `Me`) is cut to `markRun` first — hundreds on one letter are one
-    /// grapheme that passes any count and draws over the rows around it
-    /// (`012` kapı); a written script needs two or three, a keycap two.
+    /// grapheme that passes any count and draws over the rows around it;
+    /// a written script needs two or three, a keycap two.
     public static func clean(_ text: String, limit: Int) -> String {
         var scalars = String.UnicodeScalarView()
         var marks = 0

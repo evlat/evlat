@@ -2,7 +2,7 @@ import XCTest
 import EvlatCore
 @testable import EvlatApp
 
-/// The `/signal` key on disk (`012/phase-2`): who may write it, with what
+/// The `/signal` key on disk: who may write it, with what
 /// mode, and that a planted link is not followed. Every file here is under a
 /// temporary home; the user's `Application Support` is never touched.
 final class SignalKeyTests: XCTestCase {

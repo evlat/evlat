@@ -34,7 +34,7 @@ final class ChatIndexTests: XCTestCase {
         }
     }
 
-    /// An id is later turned into a path under `chats/` (pruning, `phase-5`),
+    /// An id is later turned into a path under `chats/` (pruning),
     /// so one that is not a UUID makes the whole file unreadable rather than
     /// a path someone else chose.
     func testAnEntryWhoseIdIsNotAUUIDIsAnError() throws {
@@ -78,7 +78,7 @@ final class ChatIndexTests: XCTestCase {
         XCTAssertEqual(index.orphans(platform: platform).interrupted, [id])
     }
 
-    // MARK: - History and pruning (`phase-5`)
+    // MARK: - History and pruning
 
     /// A file written before `unseen` existed still reads: the key is
     /// optional, and a missing one means "seen".

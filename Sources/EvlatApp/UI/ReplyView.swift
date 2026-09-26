@@ -1,7 +1,7 @@
 import SwiftUI
 import EvlatCore
 
-/// A reply drawn from its markdown (`011/phase-3`, after the gate): the
+/// A reply drawn from its markdown: the
 /// blocks from `MarkdownBlock`, each block's text through the inline reader.
 /// Headings a step up from the body, lists with their markers hung, code on
 /// a darker ground with `[Copy]`, tables scrolling sideways in the narrow
@@ -190,7 +190,7 @@ private struct CodeBlock: View {
             actions.copy(code)
             copied = true
             // `copied` is `@State`: read live when this fires, not the copy
-            // of the view it was scheduled from (AGENTS.md → Tuzaklar).
+            // of the view it was scheduled from (AGENTS.md → Pitfalls).
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
         } label: {
             HStack(spacing: 3) {

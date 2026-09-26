@@ -5,7 +5,7 @@ import SwiftUI
 import EvlatCore
 @testable import EvlatApp
 
-/// The balloon (`011/phase-2`): the machine-verifiable half of "it takes the
+/// The balloon: the machine-verifiable half of "it takes the
 /// keyboard and nothing else". The bar never takes focus and still does not;
 /// the balloon does, without making Evlat the active app, so the app in
 /// front never falls back and gets the keyboard again once the balloon goes.
@@ -66,7 +66,7 @@ final class ChatPanelTests: XCTestCase {
 
     /// "Evlat was not brought forward", as the system sees it.
     ///
-    /// **Not `NSApp.isActive`:** measured (`phase-2`), AppKit reports `true`
+    /// **Not `NSApp.isActive`:** measured, AppKit reports `true`
     /// for as long as a `.nonactivatingPanel` is key — the keys are this
     /// process's — while the system's frontmost app, the menu bar's owner
     /// and `NSRunningApplication.current.isActive` never move. The app in
@@ -379,14 +379,14 @@ final class ChatPanelTests: XCTestCase {
         settle("the retry ends")
         XCTAssertFalse(controller.chatModel.canRetry, "a chat that asks has nothing to retry into")
 
-        // The settings' default (`014`): the next chats', never the open one's.
+        // The settings' default: the next chats', never the open one's.
         controller.setDefaultMode(.acceptEdits)
         XCTAssertEqual(controller.defaultMode, .acceptEdits)
         XCTAssertEqual(controller.chats?.chat(id)?.mode, .ask, "the open chat keeps its mode")
         XCTAssertEqual(controller.chatModel.mode, .ask)
     }
 
-    /// The settings' default (`014`) leaves a mode picked in the balloon for
+    /// The settings' default leaves a mode picked in the balloon for
     /// a chat not made yet as it is.
     func testTheDefaultModeLeavesTheBalloonsPick() {
         let controller = controller()
@@ -431,7 +431,7 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertTrue(controller.chatModel.claudeMissing)
     }
 
-    // MARK: - Dropped files (`phase-4`)
+    // MARK: - Dropped files
 
     /// A point on the drawn bar, in the content view's coordinates.
     private func onBar(_ controller: AppController, fromEdge x: CGFloat, fromTop y: CGFloat) throws -> CGPoint {

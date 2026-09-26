@@ -1,7 +1,7 @@
 import Foundation
 import EvlatCore
 
-/// The chats (`011`): each one's running turn's process and the index file.
+/// The chats: each one's running turn's process and the index file.
 /// Their state machines live in `provider` (`ChatsProvider`, the core's),
 /// which is what the registry holds.
 ///
@@ -11,7 +11,7 @@ import EvlatCore
 /// **Main queue only**, like the provider it writes: actions arrive from the UI,
 /// the runner hops its output and exit here.
 ///
-/// Permission requests (`phase-3`) arrive from the listener's held
+/// Permission requests arrive from the listener's held
 /// connections, are matched to a running turn by their token, and are
 /// answered through `permissions` when the user presses a card's button.
 final class ChatStore {
@@ -92,8 +92,8 @@ final class ChatStore {
     /// How a pruned workspace leaves: the user's Trash, unless the store
     /// is an isolated one (`EVLAT_CHATS` or `EVLAT_PORT` set — a test, a
     /// measurement, a look by eye). Then it is set aside under the store's
-    /// own root, and the real Trash is never touched (`011` kapı: a look by
-    /// eye had left a `chats/<UUID>` there).
+    /// own root, and the real Trash is never touched (a look by eye had once
+    /// left a `chats/<UUID>` there).
     static func trash(environment: [String: String]) -> (URL) throws -> Void {
         isolated(environment) ? setAside : { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     }
@@ -351,7 +351,7 @@ final class ChatStore {
         onChange()
     }
 
-    // MARK: - Seen, history, pruning (`phase-5`)
+    // MARK: - Seen, history, pruning
 
     /// Where workspaces are made: the root, or a temporary directory for a
     /// store kept in memory.

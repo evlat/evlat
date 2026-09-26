@@ -2,15 +2,15 @@ import Foundation
 
 /// The local endpoint: which routes exist, who is allowed to reach them and
 /// what comes back. All of it is pure — `Data` and `String` in, a `Response`
-/// out — so the rules that matter can be tested without a socket. `phase-3`'s
-/// listener adds transport and nothing else.
+/// out — so the rules that matter can be tested without a socket. The
+/// listener (`EvlatApp`) adds transport and nothing else.
 public enum LocalAPI {
     /// The port the installed hook commands carry as **plain text**. That is
     /// the whole reason there is no stored setting for it: the command in the
     /// user's settings file says `48151`, so an app listening anywhere else
-    /// would simply never be spoken to, and neither side would report an error
-    /// (`plan.md` → Göç). An override exists for development only, and it is an
-    /// environment variable read on the app side (`EVLAT_PORT`, `phase-3`).
+    /// would simply never be spoken to, and neither side would report an error.
+    /// An override exists for development only, and it is an
+    /// environment variable read on the app side (`EVLAT_PORT`).
     public static let defaultPort: UInt16 = 48151
 
     // MARK: - Routing
@@ -26,9 +26,9 @@ public enum LocalAPI {
         case hook(AgentSource)
         /// A status line relaying its rate limits (`AgentSource.usagePath`).
         case usage(AgentSource)
-        /// A chat turn's permission hook (`PermissionHook`, `011`).
+        /// A chat turn's permission hook (`PermissionHook`).
         case permission
-        /// An outside program's row (`SignalReport`, `012`). Keyed: the
+        /// An outside program's row (`SignalReport`). Keyed: the
         /// listener's key decides, not the route (`Listener`).
         case signal
         case health
@@ -172,8 +172,8 @@ public enum LocalAPI {
     /// other.
     ///
     /// **The key belongs to the listener, not to the request.** The process
-    /// that holds the port writes it (`012/phase-2`); a tunnel's listener is
-    /// given its machine's key (`013`), so a key names the machine and the
+    /// that holds the port writes it; a tunnel's listener is
+    /// given its machine's key, so a key names the machine and the
     /// body never does. A local listener with no key — the file could not be
     /// written, an isolated process — refuses every `/signal`; a tunnel's
     /// listener with none does not have the route.
@@ -216,7 +216,7 @@ public enum LocalAPI {
             // A tunnel without its machine's key does not have the route, and
             // its existence is not shown to it (as `/permission`). With the
             // key, a tunnel is the local route exactly: the machine is the
-            // listener's, which the delivery's receiver knows (`013`).
+            // listener's, which the delivery's receiver knows.
             if origin == .tunneled, listener.signalKey == nil { return notFound }
             // The key before the body: a caller without it learns nothing
             // about what a valid body looks like.
@@ -270,7 +270,7 @@ public enum LocalAPI {
             // Exactly `{}`, and that is not incidental. The installed command
             // throws the answer away (`>/dev/null`), but if this body ever did
             // reach Claude Code, a stray JSON object would allow or deny a
-            // permission on the user's behalf (`proje.md` → tuzaklar).
+            // permission on the user's behalf.
             return Outcome(response: Response(status: .ok, body: "{}"),
                            delivery: .hook(HookEvent(json: source.canonical(json), source: source)))
         }

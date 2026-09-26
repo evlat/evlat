@@ -38,7 +38,7 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /hook HTTP/1.1\r\n\r\n"))).permissionToken)
     }
 
-    /// An outside program's key (`012`), in the `X-Evlat-*` family; empty
+    /// An outside program's key, in the `X-Evlat-*` family; empty
     /// counts as absent, so it can never match an empty listener key.
     func testReadsTheSignalKey() throws {
         let request = try XCTUnwrap(HTTPRequest.parse(raw(

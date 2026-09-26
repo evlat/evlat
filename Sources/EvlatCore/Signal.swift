@@ -2,7 +2,7 @@ import Foundation
 
 /// One thing a source has to say. The app knows nothing about "AI sessions";
 /// it knows `Signal`. Session tracking is the first provider behind this
-/// abstraction, not the only one (ROADMAP → the seam).
+/// abstraction, not the only one (`AGENTS.md` → Architecture).
 public struct Signal: Equatable {
     public let provider: String
     /// What is being described, and the key rows are merged on. It identifies
@@ -13,7 +13,7 @@ public struct Signal: Equatable {
     /// the same id on two computers is two sessions, and a namespaced entity
     /// can never merge with a local row.
     ///
-    /// **The namespace rule** (`012`): a local session is the bare
+    /// **The namespace rule**: a local session is the bare
     /// `sessionId`, and **every other producer prefixes its own name** —
     /// `evlat:` (a chat), `remote:` (a machine's session), `usage:` (a
     /// window), `signal:` (an outside program's row). Merging is by this
@@ -22,7 +22,7 @@ public struct Signal: Equatable {
     /// than of a deny list. The prefix is written by Evlat, never by a
     /// sender: `/signal` builds `signal:<id>` itself and its `id` cannot hold
     /// a `:` (`SignalReport`). A row that came through a machine's tunnel is
-    /// `signal:<machine id>:<id>` (`013`) — the machine is the listener's,
+    /// `signal:<machine id>:<id>` — the machine is the listener's,
     /// so a server can neither write this Mac's rows nor another server's.
     public let entity: String
     public let kind: Kind
@@ -294,8 +294,8 @@ public struct Signal: Equatable {
     ///
     /// - `session`: an agent's session, on this Mac or a remote one.
     /// - `usage`: a rate-limit window (`usage`), kept off the session line.
-    /// - `job`: Evlat's own chat (`011`).
-    /// - `custom`: an outside program's row (`012`, `POST /signal`). Evlat
+    /// - `job`: Evlat's own chat.
+    /// - `custom`: an outside program's row (`POST /signal`). Evlat
     ///   knows nothing about it but what the sender said: it has no
     ///   terminal, no chat and no face.
     public enum Kind: String, Equatable { case session, usage, job, custom }

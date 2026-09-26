@@ -649,8 +649,8 @@ extension StatusLine.Unit {
     }
 }
 
-/// One session's ring. The phase picks the look (ROADMAP → the indicator's
-/// language); the beat plays the gesture.
+/// One session's ring. The phase picks the look (`AGENTS.md` → Architecture:
+/// the indicator's language); the beat plays the gesture.
 ///
 /// **A dimmed row's ring** (`isLive == false`) keeps its phase's look at
 /// `SessionColumn.dimOpacity` and plays no gesture: not on the beat — it has
@@ -658,7 +658,7 @@ extension StatusLine.Unit {
 /// the trigger's beat to 0.
 ///
 /// **Beats, not loops.** A spinning arc under `TimelineView` or
-/// `repeatForever` is the ~7% floor `001` measured, and a working session runs
+/// `repeatForever` is the measured ~7% floor, and a working session runs
 /// for hours. So `working` turns once per beat and `waiting` pulses once per
 /// beat, still in between; `review` flares once on arrival and fades.
 struct SessionIndicator: View {
@@ -692,7 +692,7 @@ struct SessionIndicator: View {
             // branch: `keyframeAnimator` fires on a *change* of its trigger and
             // never on first appearance, so a host rebuilt by a phase change
             // would miss exactly the arrival it exists for (`AGENTS.md` →
-            // Tuzaklar). The trigger carries the phase so arriving at
+            // Pitfalls). The trigger carries the phase so arriving at
             // `review` flares, and the beat so a beating row gestures.
             .keyframeAnimator(initialValue: IndicatorGesture(),
                               trigger: IndicatorTrigger(phase: phase, beat: beat)) { view, g in
@@ -762,7 +762,8 @@ struct SessionIndicator: View {
 
     @ViewBuilder private var ring: some View {
         // Exhaustive on purpose: a new `Phase` must not compile until it has
-        // a look here (`proje.md` → Yayın etkisi, the three places).
+        // a look here — and `Phase.priority` and the mascot's expression
+        // table need it too.
         switch phase {
         case .idle:
             Circle().stroke(Color.white.opacity(0.28), lineWidth: line)

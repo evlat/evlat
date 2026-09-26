@@ -7,15 +7,15 @@ import Foundation
 /// The event → phase core is v1's `SessionStore.handle` with everything else
 /// removed — no bubbles, no voice lines, no motion, no subagent counters. What
 /// is left is the state machine, the two guards that keep it honest
-/// (`stop_hook_active`, liveness), and since `005` the detail card's facts
+/// (`stop_hook_active`, liveness), and the detail card's facts
 /// (`Signal.Activity`): the turn's last tool and tool count, the tool a block
 /// is about, and the last reply.
 ///
-/// **Subagent events are not filtered** (`discussion.md` → Karar 8c). v1 fed
+/// **Subagent events are not filtered**. v1 fed
 /// them to nothing at all; the rule was carried here as a trap ("the mascot
 /// would flicker between the main thread and its subagents") whose reason was a
 /// bubble that v2 does not draw. What settles it is measurement, not the
-/// reasoning: in `phase-3`'s window 43 of 53 events carried an `agent_id`,
+/// reasoning: in one measured window 43 of 53 events carried an `agent_id`,
 /// every one of them a tool event, and the subagent finished without ever
 /// sending a `Stop` — `SubagentStop` is not among the eleven events installed.
 /// A subagent's event carries the **parent's** `session_id` and the parent's
@@ -175,7 +175,7 @@ public final class HooksProvider: Provider {
     /// subagent that is gone, but the same event is claimed to fire mid-turn
     /// on auto-compaction, where it would clear a block the user is still
     /// looking at. The premise is unmeasured, so the reach stays as it is
-    /// (`phase-5` → `SessionStart` devri).
+    /// until it is measured.
     private static let sessionLevel: Set<String> = ["Stop", "UserPromptSubmit"]
 
     /// May this event move the session off the phase it is in?
@@ -251,15 +251,15 @@ public final class HooksProvider: Provider {
     /// One event. Called on the main queue.
     public func handle(_ event: HookEvent) {
         // No id, no row. v1 filed every anonymous event under the placeholder
-        // `"unknown"`, which merged them all onto a single line; `phase-2`
+        // `"unknown"`, which merged them all onto a single line; v2
         // dropped the placeholder and it is not coming back.
         guard let sessionID = event.sessionID else { return }
-        // An Evlat errand (`011`): a `claude -p` turn the chat store started
+        // An Evlat errand: a `claude -p` turn the chat store started
         // runs the user's installed hooks too — `--settings` merges with them
-        // (measured, `011/phase-1`) — and its row is the stream's, not this
+        // (measured) — and its row is the stream's, not this
         // one. `LocalAPI` writes the task only on local delivery.
         guard event.taskID == nil else { return }
-        // The namespace rule's other half (`Signal.entity`, `012` kapı): a
+        // The namespace rule's other half (`Signal.entity`): a
         // local id is bare, so one that holds a `:` would land in another
         // producer's space — a `/hook` body saying `signal:x` would replace
         // an outside program's row. Claude's and Codex's ids are UUIDs.
@@ -381,8 +381,8 @@ public final class HooksProvider: Provider {
     /// (`Platform.sameProcess`).
     ///
     /// Without a pid there is nothing to compare. Every hook installed on
-    /// this machine sends one (11 of 11 Claude, 8 of 8 Codex — measured in
-    /// `phase-2`), but a remote machine's rows never do. Such a row is trusted
+    /// this machine sends one (11 of 11 Claude, 8 of 8 Codex — measured),
+    /// but a remote machine's rows never do. Such a row is trusted
     /// for as long as it keeps talking, for the same reason the helper trusts
     /// an unreadable start time — losing a live session over a missing field
     /// is worse than the ghost it prevents — and dropped after

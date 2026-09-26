@@ -57,13 +57,13 @@ public struct MascotPose: Equatable {
         return p
     }
 
-    /// Phase → expression (ROADMAP → the state/expression table). This is the
+    /// Phase → expression (`AGENTS.md` → Architecture). This is the
     /// pose a phase **rests** at: `MascotClip` builds its steps on top of it and
     /// leaves every channel it does not drive sitting right here.
     ///
     /// The table aims straight ahead (`yaw`/`pitch` zero) and says through
     /// `gazeMix` how much of the cursor it wants on top of that. The mixes are
-    /// nailed per phase (`003/phase-3`) and their **order** is the contract,
+    /// nailed per phase and their **order** is the contract,
     /// held by `MascotPoseTests`: `waiting` takes all of it, `working` the least
     /// of anyone, `idle` in between. Idle gives up a little so that the lock
     /// `waiting` makes is a change you can see, not the same stare as before.
@@ -76,7 +76,7 @@ public struct MascotPose: Equatable {
         case .working:
             // Focus: the eyes narrow a little, and the face gives up most of the
             // cursor — a working agent is looking at its own work, not at you.
-            // 0.30 was nailed by eye in `003/phase-2`, where the user picked the
+            // 0.30 was nailed by eye when the user picked the
             // `busy` clip out of three: half-released, the gaze settles down
             // onto the work rather than away from you.
             return MascotPose(eyeOpen: 0.92, eyeSquint: 0.34, gazeMix: 0.30)
@@ -99,13 +99,13 @@ public struct MascotPose: Equatable {
         }
     }
 
-    /// A file on its way to the bar (`011/phase-4`, Karar 9). **Not a
+    /// A file on its way to the bar. **Not a
     /// phase**: nothing aggregates to it and the table above does not know
     /// it; the drop target raises it while a drag is over the bar and drops
     /// it when the drag leaves or lands.
     ///
     /// Built from the fields every phase already has, because the face is
-    /// the eyes (ROADMAP → no mouth): they open wider than `waiting` opens
+    /// the eyes (there is no mouth): they open wider than `waiting` opens
     /// them — otherwise catching would read as one more "I need you" — the
     /// body reaches up a little, taller rather than bigger, and the gaze is
     /// the file's entirely.
@@ -122,8 +122,8 @@ public struct MascotPose: Equatable {
     /// The transition spring. Kept in one place so every phase change feels the
     /// same.
     ///
-    /// Karar 2 asked whether a cube reads better with this or with an
-    /// exponential ease-out; `003/phase-2` put both side by side and the user
+    /// The question was whether a cube reads better with this or with an
+    /// exponential ease-out; seen side by side, the user
     /// kept the spring — interruptible, velocity-preserving, "never snaps" for
     /// free.
     public static let transition: Animation = .spring(response: 0.38, dampingFraction: 0.72)

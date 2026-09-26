@@ -3,10 +3,9 @@ import SwiftUI
 import EvlatCore
 @testable import EvlatApp
 
-/// The measurement instrument `003/phase-2` wrote for `plan.md` → Yaklaşım 6,
-/// and that `phase-3` and `phase-4` measure with: the duty cycle a clip
-/// reports, the continuous variant for the in-clip leg, and the two
-/// environment switches that let a script launch a measurement.
+/// The measurement instrument the mascot clips are measured with: the duty
+/// cycle a clip reports, the continuous variant for the in-clip leg, and the
+/// two environment switches that let a script launch a measurement.
 ///
 /// Resolution is a pure function over a dictionary — the shape
 /// `HookListener.resolvePort` uses — so the fallbacks can be tested without
@@ -42,7 +41,7 @@ final class MascotMeasurementTests: XCTestCase {
         XCTAssertEqual(AppController.forcedPhase(["EVLAT_PHASE": " Working "]), .working)
     }
 
-    /// **The clip the user picked in `003/phase-2`**, pinned by what it does
+    /// **The clip the user picked**, pinned by what it does
     /// rather than by its numbers: it is the composite — it moves both the aim
     /// and the body — and its aim goes **down**, onto the work, never up. That
     /// is the whole reason it was chosen over a body rhythm alone and a gaze

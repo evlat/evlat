@@ -1,7 +1,7 @@
 import XCTest
 @testable import EvlatCore
 
-/// The status line relay's contract (`009/phase-5`): the wrapper that lands in
+/// The status line relay's contract: the wrapper that lands in
 /// the user's `settings.json`, what it does when a shell runs it, and how it is
 /// put in and taken out. Every file lives under a temporary home removed in
 /// `tearDown`; the user's `~/.claude` is never read or written here.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The `evlat` command on a remote machine (`013`): `evlat watch …` and
+/// The `evlat` command on a remote machine: `evlat watch …` and
 /// `evlat signal …` on a server put a row on the bar of the Mac the server
 /// was added to, through the machine's `ssh -R` tunnel and with the
 /// machine's key (`RemoteTunnels`). Pure: a string, installed by the shell
@@ -14,8 +14,8 @@ import Foundation
 ///
 /// The script is POSIX `sh` plus `curl` and standard tools (`tr`, `sed`,
 /// `ls`, `sleep`), for Linux and macOS servers alike. What a shell cannot
-/// promise that `Evlat watch` does (`Watch`) is written in `013`'s
-/// `teslim.md`: a shell defers a trapped signal until its foreground command
+/// promise that `Evlat watch` does (`Watch`):
+/// a shell defers a trapped signal until its foreground command
 /// ends, so a `TERM` sent to the wrapper alone is not passed on.
 public enum RemoteCommand {
     /// Line 2 of the script: what makes `~/.local/bin/evlat` Evlat's own, so
@@ -50,7 +50,8 @@ public enum RemoteCommand {
     ///   environment is the one `evlat` was started with.
     /// - `watch` runs the command in the **foreground** — same process
     ///   group, streams and terminal untouched — because a background child
-    ///   of a POSIX shell ignores Ctrl-C for good (`013` context → Kanıt).
+    ///   of a POSIX shell ignores Ctrl-C for good (measured under
+    ///   `sh`, `dash` and `bash`).
     ///   The first `working` and the heartbeat run beside it with their
     ///   streams on `/dev/null`, so a `$(evlat watch …)` is not held open.
     public static let script = #"""

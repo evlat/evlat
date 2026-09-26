@@ -174,7 +174,7 @@ final class HookListenerTests: XCTestCase {
                        AppController.defaultCaptureWindow)
     }
 
-    /// Diagnostics are asked for by `argv[1]` alone (`012/phase-4`): a later
+    /// Diagnostics are asked for by `argv[1]` alone: a later
     /// `--list` or `--capture` is another command's argument.
     func testDiagnosticsAreAskedForByTheFirstArgumentOnly() {
         XCTAssertTrue(AppController.isDiagnostics(["Evlat", "--list"]))
@@ -205,21 +205,21 @@ final class HookListenerTests: XCTestCase {
                                        "agent_id": "a-1"]))
         XCTAssertEqual(bucket.total, 3)
         XCTAssertEqual(bucket.byName, ["PreToolUse": 2, "Stop": 1])
-        // The subagent question is counted, not eyeballed (`discussion.md` → Karar 8).
+        // The subagent question is counted, not eyeballed.
         XCTAssertEqual(bucket.fromSubagents, 1)
         XCTAssertEqual(bucket.recent.count, 2)
         XCTAssertEqual(bucket.recent.last?.agentID, "a-1")
     }
 
     /// The bucket is a dead end on purpose: turning events into signals is
-    /// `phase-4`'s job, and registering anything here would put a second row
+    /// the hooks provider's job, and registering anything here would put a second row
     /// next to the file record's for every live session.
     ///
     /// The real guard is the **compiler** — `HookDiagnostics` has no
     /// `currentSignals()`, so `registry.register(hookDiagnostics)` does not
     /// build. This adds the tripwire the compiler cannot give: the day someone
     /// makes an `EvlatApp` type conform to `Provider`, it stops being a
-    /// question of discipline. `phase-4`'s provider is pure and lives in
+    /// question of discipline. The hooks provider is pure and lives in
     /// `EvlatCore`, so this stays true after it lands.
     func testNoTypeInTheAppLayerIsAProvider() throws {
         let root = URL(fileURLWithPath: #filePath)
@@ -351,7 +351,7 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(send(permissionRequest(port: port)).status, 404)
     }
 
-    // MARK: - `/signal` and its key (`012/phase-2`)
+    // MARK: - `/signal` and its key
 
     private func temporaryHome() throws -> URL {
         let home = FileManager.default.temporaryDirectory
@@ -425,7 +425,7 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(postSignal(port: port, key: "anything", body: body).status, 404)
     }
 
-    /// With its machine's key (`013`) a tunnel's listener answers `/signal`
+    /// With its machine's key a tunnel's listener answers `/signal`
     /// as the local one does, over the wire: the key decides, and only the
     /// keyed request is delivered.
     func testAKeyedTunnelListenerAnswersSignalLikeTheLocalOne() throws {

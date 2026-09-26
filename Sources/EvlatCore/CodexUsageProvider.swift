@@ -102,7 +102,7 @@ public final class CodexUsageProvider: Provider, Reloadable {
         guard (try? handle.seek(toOffset: start)) != nil,
               let data = try? handle.readToEnd() else { return nil }
         guard start > 0 else { return data }
-        // `Data` indices stay absolute in a slice (proje.md → Tuzaklar):
+        // `Data` indices stay absolute in a slice (`AGENTS.md` → Pitfalls):
         // `startIndex`/`index(after:)`, never offsets from zero.
         guard let newline = data.firstIndex(of: 0x0A) else { return Data() }
         return data[data.index(after: newline)...]

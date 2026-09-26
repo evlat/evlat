@@ -121,7 +121,7 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertNil(store.indexError)
     }
 
-    // MARK: - Seen, history, pruning (`phase-5`)
+    // MARK: - Seen, history, pruning
 
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
     private let ids = ["0C9E7D1A-8E57-4B9B-8D0F-7F2B4E6A1C33", "5A8F2E10-3C4D-4E5F-8A9B-0C1D2E3F4A5B",

@@ -3,8 +3,8 @@ import XCTest
 
 /// Tests for the tripwire's **own scanner**.
 ///
-/// Each case corresponds to a leak or false positive `/code-review` found in
-/// phase-0: a guard that has never been tested for what it misses is not a
+/// Each case corresponds to a leak or false positive `/code-review` found: a
+/// guard that has never been tested for what it misses is not a
 /// guard worth trusting.
 final class ImportScannerTests: XCTestCase {
     private func modules(_ source: String) -> [String] {

@@ -4,7 +4,7 @@ import EvlatCore
 /// What a row of each kind can do, from one exhaustive `switch` on
 /// `Signal.Kind`: a new kind does not compile until it has a line here, and
 /// no view branches on the kind itself. Read from the kind, never from the
-/// provider's name (`011`'s rule).
+/// provider's name.
 struct RowTraits: Equatable {
     /// What sits inside the ring.
     enum Mark: Equatable { case tool, face, none }
@@ -15,7 +15,7 @@ struct RowTraits: Equatable {
         /// The small caps as drawn — **the one rule**: the row's tag, the
         /// card's header and the duplicate numbers' groups all read it.
         ///
-        /// An outside job's tag answers "where" first (`013`): a remote one
+        /// An outside job's tag answers "where" first: a remote one
         /// is tagged with its machine, since what it is already reads in its
         /// label; the card, with room for both, says the sender and then the
         /// machine. A name, never catalogue text.
@@ -23,7 +23,7 @@ struct RowTraits: Equatable {
             switch self {
             case .machine: return machine
             // The card has the mascot's face for "Evlat" and no machine to
-            // add (`011`): the row's tag only.
+            // add: the row's tag only.
             case .evlat: return inCard ? machine : SessionRow.jobTag
             case .sender:
                 guard inCard, let machine, let sender else { return machine ?? sender }
@@ -57,12 +57,12 @@ struct RowTraits: Equatable {
             return RowTraits(mark: .tool, tag: .machine, button: .goToSession, detail: .none,
                              stampIsPhaseStart: false, showsProgress: false)
         case .job:
-            // Evlat's own chat (`011`): the mascot's face, the "EVLAT" tag,
+            // Evlat's own chat: the mascot's face, the "EVLAT" tag,
             // `[Back to chat]`; its stamp is the chat's phase start.
             return RowTraits(mark: .face, tag: .evlat, button: .backToChat, detail: .folder,
                              stampIsPhaseStart: true, showsProgress: false)
         case .custom:
-            // A program outside (`012`): no tool, no terminal, nothing to go
+            // A program outside: no tool, no terminal, nothing to go
             // back to — the ring speaks the phase alone and its sender's name
             // is the tag. `SignalsProvider` keeps the stamp while the phase holds.
             return RowTraits(mark: .none, tag: .sender, button: .none, detail: .note,
@@ -201,18 +201,17 @@ public struct SessionRow: Equatable, Identifiable {
 ///
 /// **It also owns the beat clock, alone.** Indicators are not animated
 /// continuously — any continuous SwiftUI animation costs ~7% on this machine
-/// (`proje.md` → Tuzaklar) — they make one gesture per beat and are still in
-/// between, the same argument `003` made for the mascot's clips.
+/// (`AGENTS.md` → Pitfalls) — they make one gesture per beat and are still
+/// in between, the same argument the mascot's clips make.
 @MainActor
 public final class SessionRowsModel: ObservableObject {
     /// Slots under the mascot on the **closed** bar at most. Its length
     /// follows the slots in use (`AppController.barLength`); past this the
-    /// last slot becomes a count. The open list has no such cap (`006`).
+    /// last slot becomes a count. The open list has no such cap.
     public static let slotCount = 4
 
     /// Seconds between beats. Near the clips' own tempo (a `working` clip
-    /// changes pose every 0.5–2.3 s); the measured cost is in `004/phase-2`'s
-    /// notes.
+    /// changes pose every 0.5–2.3 s); its cost was measured at this value.
     public static let beatInterval: TimeInterval = 3.0
 
     /// Every live session, in the column's order: the open list draws all
@@ -235,7 +234,7 @@ public final class SessionRowsModel: ObservableObject {
     /// How many times a clock has been started. For the rhythm test: a list
     /// write that restarted the clock would push the next beat out every time
     /// a busy session writes — and a busy session writes constantly
-    /// (`AGENTS.md` → Tuzaklar, the rhythm trap).
+    /// (`AGENTS.md` → Pitfalls, the rhythm trap).
     private(set) var clockStarts = 0
 
     /// `now` is injected so the tests can move time by hand.
@@ -287,9 +286,9 @@ public final class SessionRowsModel: ObservableObject {
     /// two Codex sessions in one folder are both called after it. The same
     /// name in two tools needs none: the mark in the ring tells them apart;
     /// nor on two computers, nor from two senders on this Mac: the tag beside
-    /// it does. Two senders on one machine share its tag and are numbered
-    /// (`013`). Counted over every live row, not the visible ones, and in
-    /// entity order, so a number does not change when the rows reorder or
+    /// it does. Two senders on one machine share its tag and are numbered.
+    /// Counted over every live row, not the visible ones, and in entity
+    /// order, so a number does not change when the rows reorder or
     /// scroll into the count.
     nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
         // A struct, not a joined string: a sender may hold any separator.

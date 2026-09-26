@@ -80,7 +80,7 @@ public final class Registry {
     /// is not written at event rate. A report that has no `cwd` yet (it only
     /// learns one from an event that carries it) keeps the baseline's.
     ///
-    /// **`activity` is not admitted, it is carried** (`005`). The rule above
+    /// **`activity` is not admitted, it is carried**. The rule above
     /// is about the phase; a report whose phase is vetoed still knows which
     /// tool ran, and in practice that is most reports — a `working` hook next
     /// to a `busy` file is refused, and so is a `review` that decayed to
@@ -103,7 +103,7 @@ public final class Registry {
         // `.manual` has no row in the table, and that is the rule rather than
         // a debt: **a `.manual` row stands only where it is alone.** Beside a
         // `.derived` or an `.official` row of the same entity it wins nothing
-        // — not the phase, not the name. Its producer (`/signal`, `012`)
+        // — not the phase, not the name. Its producer (`/signal`)
         // never meets one anyway: its entities are `signal:`-prefixed, and
         // no other producer writes that prefix (`Signal.entity`).
         guard let baseline = newest(.derived) else { return newest(.official) ?? newest(.manual) }
@@ -163,7 +163,7 @@ public final class Registry {
     /// file says idle" and "nothing could be read, so idle it is" — and the
     /// second kind vetoed reports it had no business vetoing. It is not a
     /// hypothetical: a new session record exists for about 500 ms with no
-    /// `status` field at all (`phase-3`, measured), and the day that field is
+    /// `status` field at all (measured), and the day that field is
     /// renamed every row would read `idle` with no hook able to correct it.
     ///
     /// Telling the two apart needs no new `Signal` field: `rawStatus` is
@@ -206,7 +206,7 @@ public final class Registry {
         public let aggregate: Phase
         /// Is anything live? **Not a phase**, a render condition: the mascot's
         /// blink and breath loops check this and leave the view tree when it is
-        /// false (ROADMAP → Render yolu, idle drawing stops). A usage signal
+        /// false (idle drawing stops; `AGENTS.md` → Architecture). A usage signal
         /// never enters it: a limit being read is not something live, and
         /// letting it in would keep the mascot's loops running on an idle
         /// machine for as long as a window is known. A dimmed row does not

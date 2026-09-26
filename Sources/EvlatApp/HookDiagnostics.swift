@@ -1,12 +1,12 @@
 import Foundation
 import EvlatCore
 
-/// Where an incoming event lands in `phase-3`, and the whole of what happens to
+/// Where an incoming event lands for diagnostics, and the whole of what happens to
 /// it: a counter and the last few lines.
 ///
 /// It deliberately feeds **nothing** into `Registry`. The provider that turns
-/// events into phases is `phase-4`'s single line of wiring, and it is also that
-/// set's undo switch; registering anything here would put a second row next to
+/// events into phases is a single line of wiring in `AppController`, and it is
+/// also the hooks' undo switch; registering anything here would put a second row next to
 /// the file record's in the bar before the merge rule has ever been exercised
 /// against a real event.
 ///
@@ -45,7 +45,7 @@ public final class HookDiagnostics {
     public private(set) var total = 0
     public private(set) var byName: [String: Int] = [:]
     /// How many events carried an `agent_id` — the subagent question
-    /// (`discussion.md` → Karar 8) counted rather than eyeballed.
+    /// counted rather than eyeballed.
     public private(set) var fromSubagents = 0
     public private(set) var recent: [Line] = []
 

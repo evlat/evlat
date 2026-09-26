@@ -2,7 +2,7 @@ import XCTest
 @testable import EvlatCore
 
 /// `argv` → what the binary becomes. The bar dials every stored machine over
-/// `ssh`; `Evlat --help` used to open it (`013/phase-5`). Only no arguments,
+/// `ssh`; `Evlat --help` used to open it. Only no arguments,
 /// or what the system adds, may open it.
 final class LaunchModeTests: XCTestCase {
     func testOnlyNoArgumentsOrSystemArgumentsOpenTheApp() {
@@ -12,7 +12,7 @@ final class LaunchModeTests: XCTestCase {
         XCTAssertEqual(LaunchMode.of(["Evlat", "-NSDocumentRevisionsDebugMode", "YES", "-psn_0_1"]), .app)
     }
 
-    /// `~/.local/bin/evlat` (`014`): a bare `evlat` prints the usage and
+    /// `~/.local/bin/evlat`: a bare `evlat` prints the usage and
     /// exits 2; the bundle's `Evlat` still opens the bar.
     func testTheCommandLinksNameAloneIsAUsageError() {
         XCTAssertEqual(LaunchMode.of(["/x/evlat"]), .usageError("a command is needed"))

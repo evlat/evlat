@@ -1,10 +1,10 @@
 import Foundation
 
 /// Reads a `claude -p --output-format stream-json` stdout, line by line, into
-/// the few events a chat shows (`011`).
+/// the few events a chat shows.
 ///
-/// The shapes are the ones measured on Claude Code 2.1.281 (`011/phase-1`,
-/// `--verbose --include-partial-messages`): `system/init` names the session,
+/// The shapes are the ones measured on Claude Code 2.1.281
+/// (`--verbose --include-partial-messages`): `system/init` names the session,
 /// a partial message's `text_delta` streams the reply, an `assistant` message
 /// carries the finished text and tool calls, a `user` message carries tool
 /// results, `result` ends the turn.
@@ -30,8 +30,8 @@ public struct ChatStream {
         case result(Result)
         /// `system/permission_denied`: a tool call denied without a prompt —
         /// auto mode's classifier, a deny rule — or by a `PermissionRequest`
-        /// hook (`reason` `hook`: a card's answer). Measured on 2.1.281
-        /// (`011/phase-3` ek): `tool_name`, `tool_use_id`,
+        /// hook (`reason` `hook`: a card's answer). Measured on 2.1.281:
+        /// `tool_name`, `tool_use_id`,
         /// `decision_reason_type` (`subcommandResults` for a rule on a
         /// compound command; `classifier`, `rule`, `mode`, `hook`, … in the
         /// schema) and `message`, the text the tool's result carries too.
@@ -94,7 +94,7 @@ public struct ChatStream {
     /// not pass; it is listed so a measurement run reads the same.
     private static let quietSystem: Set<String> = [
         "status", "hook_started", "hook_progress", "hook_response", "compact_boundary",
-        // A thinking model's token count, seen in a real turn (`phase-3`).
+        // A thinking model's token count, seen in a real turn.
         "thinking_tokens",
     ]
 
@@ -102,7 +102,7 @@ public struct ChatStream {
 
     /// Takes one chunk as read from the pipe and returns the events of every
     /// line it completed. The chunk may be a slice: indices are taken from
-    /// `startIndex`, never from zero (`proje.md` → Tuzaklar).
+    /// `startIndex`, never from zero (`AGENTS.md` → Pitfalls).
     public mutating func feed(_ chunk: Data) -> [Event] {
         buffer.append(chunk)
         var events: [Event] = []

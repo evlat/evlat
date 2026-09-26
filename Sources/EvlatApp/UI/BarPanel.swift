@@ -26,7 +26,7 @@ public final class BarPanel: NSPanel {
     }
     /// The two sizes the window can take. The panel is their only owner: the
     /// hosting view never resizes the window (see `sizingOptions` below). The
-    /// app builds both at the envelope's size and never resizes (`005`); the
+    /// app builds both at the envelope's size and never resizes; the
     /// body's length along the edge is drawn, not the window's.
     public private(set) var collapsedSize: CGSize
     public private(set) var expandedSize: CGSize
@@ -68,7 +68,7 @@ public final class BarPanel: NSPanel {
         set { hosting.onMenu = newValue }
     }
 
-    /// A file drag over the bar (`011/phase-4`), in the content view's
+    /// A file drag over the bar, in the content view's
     /// (flipped) coordinates. `true` takes it; see `BarHostingView.Drag`.
     public var onDrag: ((BarHostingView.Drag) -> Bool)? {
         get { hosting.onDrag }
@@ -243,7 +243,7 @@ public final class BarHostingView: NSHostingView<AnyView> {
         case moved(CGPoint)
     }
 
-    /// A drag carrying files (`011/phase-4`). Other drags are not reported.
+    /// A drag carrying files. Other drags are not reported.
     public enum Drag {
         /// Over the window at `point` (content view, flipped); `screen` is
         /// the same point in the gaze monitor's space. Answer: is it taken
@@ -479,7 +479,7 @@ public final class BarHostingView: NSHostingView<AnyView> {
     var onScroll: ((CGPoint, CGFloat, Bool) -> Bool)?
 
     /// The wheel reaches this panel although it is never key and the app is
-    /// never active (`006`, context.md → Kanıt), and taking it activates
+    /// never active (measured), and taking it activates
     /// nothing. Where it counts — over the open list — is decided from
     /// geometry by the controller, like a click.
     public override func scrollWheel(with event: NSEvent) {
@@ -539,7 +539,7 @@ extension BarPanel.Edge {
     }
 }
 
-/// Files on a drag's pasteboard (`011/phase-4`): file URLs only — a file
+/// Files on a drag's pasteboard: file URLs only — a file
 /// promise (Mail, Photos) is not a path yet and is not taken.
 enum FileDrop {
     private static let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
@@ -553,7 +553,7 @@ enum FileDrop {
     ///
     /// A dropped link is named by what it points at: `ChatFolder`'s "never
     /// the home or above" reads paths only, and a link to the home would
-    /// otherwise pass it and become a turn's folder (`011` kapı).
+    /// otherwise pass it and become a turn's folder.
     static func items(from pasteboard: NSPasteboard) -> [ChatFolder.Item] {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
         return urls.filter(\.isFileURL).map { dropped in

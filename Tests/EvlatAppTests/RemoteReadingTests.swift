@@ -3,7 +3,7 @@ import AppKit
 @testable import EvlatCore
 @testable import EvlatApp
 
-/// A machine's state read over `ssh` (`014/phase-1b`): one script, one call,
+/// A machine's state read over `ssh`: one script, one call,
 /// the two settings files and the `evlat` command, reading only — and the
 /// one block that sets all three up by hand from that reading.
 ///

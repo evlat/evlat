@@ -5,7 +5,7 @@ import AppKit
 /// **Permission boundary:** the global monitor listens for mouse movement only.
 /// Accessibility permission is required for keyboard events, not for the cursor
 /// position. If this ever starts asking for one, that is an architectural
-/// decision — `proje.md` → permission-free design.
+/// decision — `AGENTS.md` → Architecture (permission-free design).
 @MainActor
 final class GazeTracker {
     private var monitor: Any?

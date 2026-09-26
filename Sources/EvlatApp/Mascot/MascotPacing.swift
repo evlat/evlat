@@ -3,7 +3,7 @@ import EvlatCore
 
 /// The measurement instrument's switch.
 ///
-/// `plan.md` → Yaklaşım 6 wants three legs, and the first one — *what the clip
+/// A measurement has three legs, and the first one — *what the clip
 /// costs while it is actually running* — cannot be read off a burst: a 90 s
 /// window over a bursting clip measures `in-clip cost × duty cycle`, and
 /// stretching the window buys any number you like. `continuous` removes the
@@ -11,10 +11,9 @@ import EvlatCore
 /// end to end and the reading is the cost of the motion itself.
 ///
 /// It is a measuring tool, not a mode anyone should run the app in — the
-/// mascot never stops moving under it, which is precisely the ~7% floor `001`
-/// measured and `003` exists to stay off. `003/phase-2` wrote it and `phase-3`
-/// and `phase-4` measure with it, together with `EVLAT_PHASE`
-/// (`AppController.forcedPhase`).
+/// mascot never stops moving under it, which is precisely the measured ~7% floor
+/// the bursting clips exist to stay off. The mascot's measurements run with
+/// it, together with `EVLAT_PHASE` (`AppController.forcedPhase`).
 ///
 /// **Why the environment and not a menu item.** It is not a choice a user
 /// makes, and a menu entry would be user-visible text with no catalogue to live

@@ -46,7 +46,7 @@ final class SessionsDirectoryTests: XCTestCase {
     func testDefaultsToTheClaudeSessionsDirectory() throws {
         // Skipped rather than failed when the override is set: it exists
         // precisely so someone can point the app at an empty directory to take
-        // the idle measurement, and running `make hepsi` in that shell must not
+        // the idle measurement, and running `make all` in that shell must not
         // turn an environment precondition into a red suite.
         try XCTSkipIf(ProcessInfo.processInfo.environment["EVLAT_SESSIONS"] != nil,
                       "EVLAT_SESSIONS is set; this test covers the default path")

@@ -57,12 +57,12 @@ enum ChatPalette {
     static let quoteBar = Color(.sRGB, red: 70 / 255, green: 73 / 255, blue: 79 / 255)
 }
 
-/// The balloon (`011`, Karar 7): out of the mascot, its tail on the bar.
+/// The balloon: out of the mascot, its tail on the bar.
 /// First a single line, three suggestions and a hint; once something is
 /// sent, the exchange above the line: short messages, the reply as it
 /// streams, a tool call as one dim line that opens on a click, a permission
 /// request as an amber card with its buttons, and a stop button in the line
-/// while a turn runs (`phase-3`).
+/// while a turn runs.
 struct ChatView: View {
     @ObservedObject var model: ChatModel
     @FocusState private var focused: Bool
@@ -192,7 +192,8 @@ struct ChatView: View {
     /// the folder the chat works in and its permission mode. One line when
     /// all of it fits whole; else the corner goes under the hint, rather than
     /// both being cut (Turkish, seen by eye: "Dosya bırakabilirsin · Esc
-    /// kapatır" beside "K…rü · otom…").
+    /// kapatır" — "You can drop files · Esc closes" — beside "K…rü · otom…",
+    /// "own folder · auto" cut short).
     private var footer: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -236,7 +237,7 @@ struct ChatView: View {
         .fixedSize()
     }
 
-    /// The history (`011/phase-5`): a few quiet rows — what, where, when —
+    /// The history: a few quiet rows — what, where, when —
     /// each opening its chat; pin and × on the pointer; "Clear history"
     /// dim under them. Old chats leave by themselves after a week, so the
     /// list never asks to be tidied.
@@ -514,7 +515,7 @@ private struct FileChip: View {
 
 /// The folder the chat works in, in the balloon's corner: its name, or
 /// "own folder" for the workspace. Before the first prompt a click
-/// chooses another; after it, it shows the folder in Finder (Karar 8).
+/// chooses another; after it, it shows the folder in Finder.
 private struct FolderLabel: View {
     let folder: String?
     let locked: Bool
@@ -569,7 +570,8 @@ private struct ModeLabel: View {
                     .opacity(hovered ? 1 : 0.6)
             }
             .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
-            // Whole, always: the longest ("düzenlemeleri kabul et", ~125 pt)
+            // Whole, always: the longest (Turkish "düzenlemeleri kabul et",
+            // "accept edits", ~125 pt)
             // fits the footer's own line when the hint leaves no room.
             .fixedSize()
             .contentShape(Rectangle())

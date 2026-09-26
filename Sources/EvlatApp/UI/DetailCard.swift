@@ -13,9 +13,9 @@ import EvlatCore
 /// the terminal nor the button: its terminal is on another computer, and a
 /// dimmed one says why in its footer, as its status line does.
 ///
-/// An outside job's card (`012`) is read, not pressed: its sender in the
-/// header's small caps (sender · machine for one elsewhere, `013`), the status title, the sender's own line (what it is
-/// on, or how it ended), its progress as a percent over a thin bar, and the
+/// An outside job's card is read, not pressed: its sender in the header's
+/// small caps (sender · machine for one elsewhere), the status title, the
+/// sender's own line (what it is on, or how it ended), its progress as a percent over a thin bar, and the
 /// time in the phase. No mark, no terminal, no button.
 ///
 /// It observes `DetailModel` alone, and it is in the tree only while a
@@ -26,7 +26,7 @@ struct DetailCard: View {
     /// from geometry by the panel (`AppController.click`), like the hovered row.
     var onButtonFrame: (CGRect?) -> Void = { _ in }
 
-    /// A card of its own, apart from the body (`005`, user's decision): all
+    /// A card of its own, apart from the body (the user's decision): all
     /// four corners round, its own edge line and shadow. The body's shape
     /// does not change while it is up.
     static let corner: CGFloat = 14
@@ -53,10 +53,10 @@ struct DetailCard: View {
     static let goKey = "card.go"
     static let closedKey = "card.closed"
     static let notFoundKey = "card.notFound"
-    /// Evlat's own chat (`011/phase-5`): its header's kind and its button.
+    /// Evlat's own chat: its header's kind and its button.
     static let taskKey = "card.task"
     static let returnKey = "card.return"
-    /// An outside job (`012`): its header's kind and its progress row's name.
+    /// An outside job: its header's kind and its progress row's name.
     static let outsideKey = "card.outside"
     static let progressKey = "card.progress"
     static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
@@ -210,7 +210,7 @@ struct DetailCard: View {
     }
 
     /// A chat's button: back to it in the balloon, always there to press —
-    /// it has no terminal to be missing (`011/phase-5`).
+    /// it has no terminal to be missing.
     static func returnButton(in lang: String = L10n.language) -> ButtonState {
         ButtonState(title: L10n.t(returnKey, in: lang), enabled: true)
     }
