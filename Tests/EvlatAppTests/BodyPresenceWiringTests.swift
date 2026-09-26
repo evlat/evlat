@@ -38,6 +38,15 @@ final class BodyPresenceWiringTests: XCTestCase {
             controller.refresh()
         }
 
+        /// Several rows at once, by entity.
+        func set(_ rows: [(String, Phase)]) {
+            provider.signals = rows.map {
+                Signal(provider: "stub", entity: $0.0, phase: $0.1, label: $0.0,
+                       fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))
+            }
+            controller.refresh()
+        }
+
         /// The body's hover area as AppKit holds it.
         func bodyRect() throws -> NSRect {
             let view = try XCTUnwrap(panel.contentView)
@@ -128,14 +137,15 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
     }
 
-    // MARK: - Latch and peek
+    // MARK: - Peek
 
-    func testAFinishLatchesUntilTheBarOpens() throws {
+    /// A finish peeks, then the sliver shows what the open bar would: once
+    /// the phase is back to idle, nothing of the finish is left.
+    func testAFinishPeeksAndLeavesNothingBehind() throws {
         let rig = rig(.smart)
         defer { rig.panel.close() }
         let controller = rig.controller
         rig.set(.review)
-        XCTAssertEqual(controller.latch, .review)
         XCTAssertEqual(controller.peekPhase, .review)
         XCTAssertEqual(controller.barState.presence.level, .peek)
         XCTAssertEqual(try rig.bodyRect().width, BodyPresence.peekWidth, accuracy: 0.5)
@@ -145,15 +155,10 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.set(.idle)
         XCTAssertNil(controller.peekPhase, "a new phase ends the peek")
         XCTAssertEqual(controller.barState.presence.level, .sliver)
-        XCTAssertEqual(controller.barState.presence.dot, .review, "the latch outlives the phase")
+        XCTAssertNil(controller.barState.presence.dot, "no finish outlives the phase")
 
         controller.refresh()
         XCTAssertEqual(rig.timers.pending.count, 1, "the poll sets nothing up again")
-
-        controller.openBar()
-        XCTAssertNil(controller.latch)
-        controller.closeBar()
-        XCTAssertNil(controller.barState.presence.dot)
     }
 
     func testThePeekEndsOnItsTimer() {
@@ -179,7 +184,7 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertEqual(rig.controller.peekPhase, .failed, "the review's timer is stale")
         rig.timers.fire(1)
         XCTAssertNil(rig.controller.peekPhase)
-        XCTAssertEqual(rig.controller.latch, .failed)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .failed)
     }
 
     func testAForcedFailurePeeksToo() {
@@ -198,7 +203,6 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.set(.working)
         rig.controller.openBar()
         rig.set(.review)
-        XCTAssertNil(rig.controller.latch)
         XCTAssertNil(rig.controller.peekPhase)
         XCTAssertTrue(rig.timers.pending.isEmpty)
         rig.set(.idle)
@@ -216,7 +220,6 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.provider.signals = [Signal(provider: "stub", entity: "s", phase: .review, label: "s",
                                        fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))]
         rig.controller.openBar()
-        XCTAssertNil(rig.controller.latch)
         XCTAssertNil(rig.controller.peekPhase)
         rig.controller.closeBar()
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver, "no peek for a finish just seen")
@@ -224,24 +227,14 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver, "the stale timer changes nothing")
     }
 
-    /// Only Smart's sliver shows a latch: a finish in Always is not saved
-    /// up for later, and a mode change drops what another mode latched.
-    func testTheLatchBelongsToSmart() {
+    /// A switch to Smart brings no finish from before it.
+    func testASwitchToSmartBringsNoOldFinish() {
         let rig = rig(.always)
         defer { rig.panel.close() }
         rig.set(.failed)
         rig.set(.idle)
-        XCTAssertNil(rig.controller.latch, "the face told it")
         rig.controller.bodyMode = .smart
         XCTAssertNil(rig.controller.barState.presence.dot)
-
-        rig.set(.review)
-        rig.set(.idle)
-        XCTAssertEqual(rig.controller.latch, .review)
-        rig.controller.bodyMode = .hidden
-        XCTAssertNil(rig.controller.latch)
-        rig.controller.bodyMode = .smart
-        XCTAssertNil(rig.controller.barState.presence.dot, "no finish from before the switch")
     }
 
     func testWaitingPeeksUntilAnswered() {
@@ -254,5 +247,48 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.set(.working)
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
         XCTAssertEqual(rig.controller.barState.presence.dot, .working)
+    }
+
+    // MARK: - One row's finish
+
+    /// A job done beside sessions still working leaves the aggregate at
+    /// `working`; the finish is told anyway, briefly.
+    func testOneRowFinishingPeeksWhileTheAggregateStaysWorking() throws {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("a", .working), ("job", .working)])
+        rig.set([("a", .working), ("job", .review)])
+        XCTAssertEqual(rig.controller.mascot.phase, .working, "the aggregate is unchanged")
+        XCTAssertEqual(rig.controller.peekPhase, .review)
+        XCTAssertEqual(rig.controller.barState.presence.level, .peek)
+        XCTAssertEqual(rig.timers.pending.last?.delay, AppController.reviewPeek)
+        rig.timers.fire(rig.timers.pending.count - 1)
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .working)
+    }
+
+    /// With the peek off, the dot takes the finish's colour for the same while.
+    func testWithoutThePeekTheDotTellsARowFinish() throws {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.controller.bodyToggles.peekDone = false
+        rig.set([("a", .working), ("job", .working)])
+        rig.set([("a", .working), ("job", .review)])
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .review)
+        XCTAssertEqual(rig.timers.pending.last?.delay, AppController.reviewPeek)
+        rig.timers.fire(rig.timers.pending.count - 1)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .working)
+    }
+
+    /// A row first seen already finished tells nothing: after a launch every
+    /// old finish would otherwise peek at once.
+    func testARowFirstSeenFinishedIsNotAnnounced() throws {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set([("a", .working)])
+        rig.set([("a", .working), ("old", .review)])
+        XCTAssertNil(rig.controller.peekPhase)
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
     }
 }

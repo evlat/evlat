@@ -162,9 +162,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var bodyMode: BodyPresence.Mode = .always {
         didSet {
             guard bodyMode != oldValue else { return }
-            // A latch is only ever shown on Smart's sliver; one carried over
-            // from another mode is a finish from before the choice.
-            latch = nil
             applyPresence()
         }
     }
@@ -178,14 +175,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Whether the menu-bar icon is the amber one (`TrayIcon.isAmber`).
     /// Written by `applyPresence` alone.
     private(set) var trayAmber = false
-    /// The finish that outlives its phase and colours the sliver's dot until
-    /// the bar is opened once (`BodyPresence.latch`).
-    private(set) var latch: Phase?
     /// The finish whose short peek is running; its timer clears it.
     private(set) var peekPhase: Phase?
+    /// Each row's phase at the last refresh: a single row's finish is told
+    /// even when the aggregate does not move (`announcePieceFinishes`).
+    private var rowPhases: [String: Phase] = [:]
     /// A file drag is over the body's area.
     private var isDragging = false
-    /// The effective phase the last derivation saw: a finish latches and
+    /// The effective phase the last derivation saw: a finish
     /// peeks on the way **into** it, so the poll re-reading the same phase
     /// sets nothing up again.
     private var presencePhase: Phase = .idle
@@ -205,7 +202,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var refreshPending = false
 
     /// The visible bar's width. One constant in one place is enough for now.
-    public static let barWidth: CGFloat = 54
+    nonisolated public static let barWidth: CGFloat = 54
 
     /// Transparent margin on the inner side of the window.
     ///
@@ -224,21 +221,21 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public static let expandedBarWidth = SessionColumn.openWidth(namesWidth: SessionColumn.nameMaxWidth)
 
     /// The mascot sits at the head of the bar.
-    public static let mascotSize: CGFloat = 34
+    nonisolated public static let mascotSize: CGFloat = 34
 
     /// The shape's inner corner radius and the inverse curve at its ends.
     /// The flare takes `barFlare` off each end of the body: the window's top
     /// is not the body's top.
     public static let barCorner: CGFloat = 18
-    public static let barFlare: CGFloat = 20
+    nonisolated public static let barFlare: CGFloat = 20
     /// Room between the body's end and what it holds, the same at both ends.
     /// Measured from the **body**, not the window: counted from the window,
     /// the flare ate 20 of 26 points and left the mascot 6 points under the
     /// body's top edge, closer than the 10 at its sides.
-    public static let bodyMargin: CGFloat = 14
+    nonisolated public static let bodyMargin: CGFloat = 14
     /// Distance from the top of the window to the top of the mascot. Shared
     /// with the gaze anchor, which otherwise drifts whenever the layout changes.
-    public static let mascotTopInset: CGFloat = barFlare + bodyMargin
+    nonisolated public static let mascotTopInset: CGFloat = barFlare + bodyMargin
 
     /// The session rings under the mascot. Large enough that the tool's mark
     /// inside reads: at 12 pt the two marks were only a texture, and 16 still
@@ -2381,6 +2378,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The lengths, the width and the phase are all read now; the hover
         // area follows them from here. It writes nothing that did not change.
         applyPresence()
+        announcePieceFinishes(in: snapshot.ordered)
         if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
@@ -2551,11 +2549,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // is what brings the new reading onto the body being opened.
         registry.reload()
         refresh()
-        // After the scan: a finish it brings in has been seen by opening —
-        // its latch and its peek both. `refresh()` ran with the bar still
-        // closed, so a finish it moved into started a peek that would come
-        // out again on close; bumping the generation idles that timer.
-        latch = nil
+        // After the scan: a finish it brings in has been seen by opening.
+        // `refresh()` ran with the bar still closed, so a finish it moved
+        // into started a peek that would come out again on close; bumping
+        // the generation idles that timer.
         peekPhase = nil
         peekGeneration &+= 1
         sessionRows.setOpen(true)
@@ -2580,7 +2577,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The rule, read from what is true now.
     var presence: BodyPresence {
         BodyPresence(mode: bodyMode, toggles: bodyToggles, phase: mascot.effectivePhase,
-                     latch: latch, peekPhase: peekPhase, isOpen: barState.isOpen,
+                     peekPhase: peekPhase, isOpen: barState.isOpen,
                      chatOpen: isChatOpen, dragging: isDragging,
                      closedLength: barState.length, openWidth: barState.openWidth,
                      openLength: barState.openLength)
@@ -2633,30 +2630,54 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = toggles
     }
 
-    /// The way into a new effective phase: a finish latches and starts its
-    /// peek, anything else ends a running one. One timer at a time.
-    /// A finish seen on the open bar or with the balloon out is not news:
-    /// it neither latches nor peeks.
+    /// The way into a new effective phase: a finish starts its peek,
+    /// anything else ends a running one. One timer at a time. A finish seen
+    /// on the open bar or with the balloon out is not news: it does not peek.
+    ///
+    /// Nothing outlives the phase. A dot that remembered a finish after its
+    /// row had gone back to idle opened onto a bar with nothing finished on
+    /// it; the sliver shows what the open bar would.
     private func phaseMoved(to phase: Phase) {
         peekGeneration &+= 1
         let watched = barState.isOpen || isChatOpen
-        // Only Smart has a sliver to show a latch on: in Always the face
-        // told the finish, in Hidden nothing does, and either would surface
-        // as a stale dot after a switch to Smart.
-        if !watched, bodyMode == .smart { latch = BodyPresence.latch(latch, on: phase) }
         guard !watched, phase == .review || phase == .failed else {
             peekPhase = nil
             return
         }
-        peekPhase = phase
+        announce(phase)
+    }
+
+    /// A finish told for a while: the peek, or with the peek off the dot,
+    /// in its colour. Its timer ends it unless something newer did.
+    private func announce(_ finish: Phase) {
+        peekPhase = finish
         let mine = peekGeneration
-        peekSchedule(phase == .failed ? Self.failedPeek : Self.reviewPeek, DispatchWorkItem { [weak self] in
+        peekSchedule(finish == .failed ? Self.failedPeek : Self.reviewPeek, DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, self.peekGeneration == mine else { return }
                 self.peekPhase = nil
                 self.applyPresence()
             }
         })
+    }
+
+    /// One row finishing while the aggregate stays where it was — a job done
+    /// beside sessions still working. The aggregate is right to stay
+    /// `working`, but the finish would then be told nowhere, so it is told
+    /// briefly: the same peek, because the steady state is the aggregate's. A row seen for the first time finishes nothing; the
+    /// first refresh after launch would otherwise announce every old finish.
+    private func announcePieceFinishes(in rows: [Signal]) {
+        let before = rowPhases
+        rowPhases = Dictionary(rows.map { ($0.entity, $0.phase) }, uniquingKeysWith: { a, _ in a })
+        // The aggregate's own finish is already being told.
+        guard peekPhase == nil, !barState.isOpen, !isChatOpen else { return }
+        let finishes = rows.filter { row in
+            guard row.phase == .review || row.phase == .failed, let old = before[row.entity] else { return false }
+            return old != .review && old != .failed
+        }
+        guard !finishes.isEmpty else { return }
+        announce(finishes.contains { $0.phase == .failed } ? .failed : .review)
+        applyPresence()
     }
 
     /// Menu-bar entry. Its menu is rebuilt each time it opens
@@ -3189,10 +3210,11 @@ struct BarBody: View {
     static let peekLength: CGFloat = AppController.mascotSize + 2 * peekFlare + 8
     static let peekTop: CGFloat = mascotMiddle - peekLength / 2
     /// The sliver keeps the flare, small, so it reads as the bezel's own
-    /// bump rather than a stick laid on the screen.
-    static let sliverCorner: CGFloat = 1.5
-    static let sliverFlare: CGFloat = 3.5
-    static let dotSize: CGFloat = 3
+    /// bump rather than a stick laid on the screen. Corner plus flare fill
+    /// the whole width, so the inner end is round, not a squared-off stick.
+    static let sliverCorner: CGFloat = 4
+    static let sliverFlare: CGFloat = 4
+    static let dotSize: CGFloat = 4
     /// How far the mascot's centre stands in from the edge in a peek: its
     /// half with one eye looks out.
     static let peekMascotInset: CGFloat = 3
@@ -3278,8 +3300,8 @@ struct BarBody: View {
             // that lies on the screen edge: stroking the closed path put a
             // hairline on the screen's outermost pixel column. On the sliver it
             // is the whole of the bump's relief.
-            .overlay(shape.outline.stroke(Color.white.opacity(sliver ? 0.12 : 0.10),
-                                          lineWidth: sliver ? 0.5 : 1))
+            .overlay(shape.outline.stroke(Color.white.opacity(sliver ? 0.18 : 0.10),
+                                          lineWidth: sliver ? 0.75 : 1))
             // The shadow deepens the curve; it is what sells "growing out of the
             // bezel". It needs the gutter above to render at all.
             // Cast into the screen, away from the docked edge.

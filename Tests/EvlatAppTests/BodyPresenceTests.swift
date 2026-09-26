@@ -32,10 +32,10 @@ final class BodyPresenceTests: XCTestCase {
 
     private func presence(_ mode: BodyPresence.Mode, _ phase: Phase,
                           toggles: BodyPresence.Toggles = .init(),
-                          latch: Phase? = nil, peekPhase: Phase? = nil,
+                          peekPhase: Phase? = nil,
                           isOpen: Bool = false, chatOpen: Bool = false,
                           dragging: Bool = false) -> BodyPresence {
-        BodyPresence(mode: mode, toggles: toggles, phase: phase, latch: latch,
+        BodyPresence(mode: mode, toggles: toggles, phase: phase,
                      peekPhase: peekPhase, isOpen: isOpen, chatOpen: chatOpen,
                      dragging: dragging, closedLength: Self.closedLength,
                      openWidth: Self.openWidth, openLength: Self.openLength)
@@ -55,7 +55,7 @@ final class BodyPresenceTests: XCTestCase {
         for phase in Phase.allCases {
             for toggles in Self.allToggles {
                 for peek in [nil, Phase.review, .failed] {
-                    let p = presence(.always, phase, toggles: toggles, latch: peek, peekPhase: peek)
+                    let p = presence(.always, phase, toggles: toggles, peekPhase: peek)
                     XCTAssertEqual(p.level, .full, "always · \(phase) · \(toggles)")
                     XCTAssertNil(p.dot, "the full body carries no dot")
                 }
@@ -67,7 +67,7 @@ final class BodyPresenceTests: XCTestCase {
     /// waiting the peek, review and failed a peek while it lasts and a dot after.
     func testSmartFollowsThePhaseTable() {
         XCTAssertEqual(presence(.smart, .idle).level, .sliver)
-        XCTAssertNil(presence(.smart, .idle).dot, "nothing stopped, nothing latched: no dot")
+        XCTAssertNil(presence(.smart, .idle).dot, "nothing stopped: no dot")
 
         XCTAssertEqual(presence(.smart, .working).level, .sliver, "working never comes out")
         XCTAssertEqual(presence(.smart, .working).dot, .working)
@@ -75,33 +75,29 @@ final class BodyPresenceTests: XCTestCase {
         XCTAssertEqual(presence(.smart, .waiting).level, .peek, "waiting comes out until answered")
 
         for done in [Phase.review, .failed] {
-            let peeking = presence(.smart, done, latch: done, peekPhase: done)
+            let peeking = presence(.smart, done, peekPhase: done)
             XCTAssertEqual(peeking.level, .peek, "\(done) peeks while its peek lasts")
-            let after = presence(.smart, done, latch: done)
+            let after = presence(.smart, done)
             XCTAssertEqual(after.level, .sliver, "\(done) goes back in when the peek ends")
             XCTAssertEqual(after.dot, done)
         }
     }
 
-    /// R3.2: the latch outlives the phase — the review dot stays after the
-    /// phase decays to idle, until the controller drops the latch.
-    func testTheLatchedDotOutlivesThePhase() {
-        XCTAssertEqual(presence(.smart, .idle, latch: .review).dot, .review)
-        XCTAssertEqual(presence(.smart, .idle, latch: .failed).dot, .failed)
-        XCTAssertEqual(presence(.smart, .idle, latch: .failed).level, .sliver)
+    /// The dot is what the open bar would show: once the phase has gone
+    /// back to idle, no finish is remembered.
+    func testNoDotOutlivesThePhase() {
+        XCTAssertNil(presence(.smart, .idle).dot)
+        XCTAssertEqual(presence(.smart, .review).dot, .review)
+        XCTAssertEqual(presence(.smart, .failed).dot, .failed)
     }
 
-    /// The dot's colour is the Aggregator's priority between the phase and
-    /// the latch: a latched review waits under working, a latched failure
-    /// is above everything.
-    func testTheDotTakesTheHigherPriorityOfPhaseAndLatch() {
+    /// A finish being told takes the dot over a higher phase for as long as
+    /// it lasts — the peek switched off, a job done beside working sessions.
+    func testAFinishBeingToldTakesTheDot() {
         let off = BodyPresence.Toggles(sliver: true, peekWaiting: false, peekDone: false)
-        XCTAssertEqual(presence(.smart, .working, latch: .review).dot, .working)
-        XCTAssertEqual(presence(.smart, .working, latch: .failed).dot, .failed)
-        XCTAssertEqual(presence(.smart, .waiting, toggles: off, latch: .review).dot, .waiting)
-        XCTAssertEqual(presence(.smart, .waiting, toggles: off, latch: .failed).dot, .failed)
-        XCTAssertEqual(presence(.smart, .review, latch: nil).dot, .review,
-                       "a review with no latch still colours the dot")
+        XCTAssertEqual(presence(.smart, .working, toggles: off, peekPhase: .review).dot, .review)
+        XCTAssertEqual(presence(.smart, .waiting, toggles: off, peekPhase: .failed).dot, .failed)
+        XCTAssertEqual(presence(.smart, .working, toggles: off).dot, .working, "and only while it lasts")
     }
 
     /// R3.3: an open bar, the balloon or a file drag is the full body in
@@ -134,7 +130,7 @@ final class BodyPresenceTests: XCTestCase {
 
         let noDonePeek = BodyPresence.Toggles(sliver: true, peekWaiting: true, peekDone: false)
         for done in [Phase.review, .failed] {
-            let p = presence(.smart, done, toggles: noDonePeek, latch: done, peekPhase: done)
+            let p = presence(.smart, done, toggles: noDonePeek, peekPhase: done)
             XCTAssertEqual(p.level, .sliver, "\(done) with its peek off is the dot alone")
             XCTAssertEqual(p.dot, done)
         }
@@ -156,7 +152,7 @@ final class BodyPresenceTests: XCTestCase {
         for phase in Phase.allCases {
             for toggles in Self.allToggles {
                 for peek in [nil, Phase.review, .failed] {
-                    let p = presence(.hidden, phase, toggles: toggles, latch: peek, peekPhase: peek)
+                    let p = presence(.hidden, phase, toggles: toggles, peekPhase: peek)
                     XCTAssertEqual(p.level, .none, "hidden · \(phase) · \(toggles)")
                     XCTAssertNil(p.dot)
                 }
@@ -213,8 +209,8 @@ final class BodyPresenceTests: XCTestCase {
     func testTheSliverAndTheTriggerHangFromTheMascot() {
         let centre = AppController.mascotTopInset + AppController.mascotSize / 2
         XCTAssertEqual(BodyPresence.sliverTop + BodyPresence.sliverLength / 2, centre)
-        XCTAssertEqual(BodyPresence.sliverWidth, 5)
-        XCTAssertEqual(BodyPresence.sliverLength, 40)
+        XCTAssertEqual(BodyPresence.sliverWidth, 8)
+        XCTAssertEqual(BodyPresence.sliverLength, 72)
         XCTAssertEqual(BodyPresence.triggerLength,
                        BodyPresence.sliverTop + BodyPresence.sliverLength + 60)
     }
@@ -250,14 +246,14 @@ final class BodyPresenceTests: XCTestCase {
         XCTAssertLessThan(short, BodyPresence.triggerLength, "precondition")
         for mode in [BodyPresence.Mode.smart, .hidden] {
             for isOpen in [false, true] {
-                let p = BodyPresence(mode: mode, toggles: .init(), phase: .idle, latch: nil,
+                let p = BodyPresence(mode: mode, toggles: .init(), phase: .idle,
                                      peekPhase: nil, isOpen: isOpen, chatOpen: false, dragging: true,
                                      closedLength: short, openWidth: Self.openWidth, openLength: short)
                 XCTAssertEqual(p.area.length, BodyPresence.triggerLength, "\(mode) open \(isOpen)")
                 XCTAssertEqual(p.trigger, p.area)
             }
         }
-        let today = BodyPresence(mode: .always, toggles: .init(), phase: .idle, latch: nil,
+        let today = BodyPresence(mode: .always, toggles: .init(), phase: .idle,
                                  peekPhase: nil, isOpen: false, chatOpen: false, dragging: false,
                                  closedLength: short, openWidth: Self.openWidth, openLength: short)
         XCTAssertEqual(today.area.length, short, "today's bar is not lengthened")
@@ -279,19 +275,6 @@ final class BodyPresenceTests: XCTestCase {
             XCTAssertEqual(left.minY, right.minY)
             XCTAssertEqual(left.height, right.height)
             XCTAssertEqual(left.minY, bounds.minY, "from the window's top (flipped)")
-        }
-    }
-
-    // MARK: Latch
-
-    func testAFailureOverridesALatchedReviewButNotTheOtherWay() {
-        XCTAssertEqual(BodyPresence.latch(nil, on: .review), .review)
-        XCTAssertEqual(BodyPresence.latch(nil, on: .failed), .failed)
-        XCTAssertEqual(BodyPresence.latch(.review, on: .failed), .failed)
-        XCTAssertEqual(BodyPresence.latch(.failed, on: .review), .failed)
-        for other in [Phase.idle, .working, .waiting] {
-            XCTAssertEqual(BodyPresence.latch(.review, on: other), .review, "\(other) latches nothing")
-            XCTAssertNil(BodyPresence.latch(nil, on: other))
         }
     }
 

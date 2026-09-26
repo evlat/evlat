@@ -371,13 +371,13 @@
 "settings.general.body.smart" = "Smart hide";
 "settings.general.body.hidden" = "Hidden";
 "settings.general.body.sliver" = "Show the sliver";
-"settings.general.body.sliver.detail" = "A 5 pt mark on the edge and a status dot.";
+"settings.general.body.sliver.detail" = "A small mark on the edge and a status dot.";
 "settings.general.body.peekWaiting" = "Peek out while waiting";
 "settings.general.body.peekWaiting.detail" = "On a permission or a question the mascot peeks out.";
 "settings.general.body.peekWaiting.off" = "While this is off, waiting is shown only by the sliver's amber dot.";
 "settings.general.body.peekWaiting.off.bare" = "While this and the sliver are off, nothing on the edge shows waiting: the mascot comes out only when you reach for the edge.";
 "settings.general.body.peekDone" = "Peek briefly when done";
-"settings.general.body.peekDone.detail" = "Out for a few seconds when a session stops or fails.";
+"settings.general.body.peekDone.detail" = "Out for a few seconds when a session or a job finishes or fails.";
 "settings.sessions.agents" = "Agents";
 "settings.sessions.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Open Claude sessions load the change with /hooks.";
 "settings.sessions.usage" = "Usage";

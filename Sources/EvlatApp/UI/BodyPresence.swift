@@ -60,7 +60,7 @@ struct BodyPresence: Equatable {
     enum Level: Equatable {
         /// Nothing drawn; only the trigger strip listens.
         case none
-        /// The 5 pt sliver at the mascot's height, with its dot.
+        /// The sliver at the mascot's height, with its dot.
         case sliver
         /// Half the mascot looks out of the edge.
         case peek
@@ -87,10 +87,10 @@ struct BodyPresence: Equatable {
 
     // MARK: Geometry constants
 
-    /// The sliver: 5 × 40 pt, centred on the mascot, so the body opens from
+    /// The sliver: 8 × 72 pt, centred on the mascot, so the body opens from
     /// the very place the eye has learned to look.
-    static let sliverWidth: CGFloat = 5
-    static let sliverLength: CGFloat = 40
+    static let sliverWidth: CGFloat = 8
+    static let sliverLength: CGFloat = 72
     static let sliverTop: CGFloat =
         AppController.mascotTopInset + AppController.mascotSize / 2 - sliverLength / 2
     /// How far under the sliver the trigger reaches. Above it the window
@@ -108,9 +108,6 @@ struct BodyPresence: Equatable {
     /// `MascotModel.effectivePhase`, not the aggregate: a forced phase
     /// (`EVLAT_PHASE`, "Force state") must peek like a real one.
     var phase: Phase
-    /// The finish that outlives the phase: set on the way into review or
-    /// failed (`latch(_:on:)`), dropped when the bar opens. Only colours the dot.
-    var latch: Phase?
     /// The finish whose peek is running; the shell clears it when it ends.
     var peekPhase: Phase?
     var isOpen: Bool
@@ -132,13 +129,15 @@ struct BodyPresence: Equatable {
         return toggles.sliver ? .sliver : .none
     }
 
-    /// The sliver's dot: the higher priority of the phase and the latch, as
-    /// the `Aggregator` ranks them. No dot when that is idle, and none
-    /// anywhere but on the sliver.
+    /// The sliver's dot: a finish being told, else the phase — what the open
+    /// bar would show. No dot when that is idle, and none anywhere but on
+    /// the sliver.
     var dot: Phase? {
         guard level == .sliver else { return nil }
-        let top = [phase, latch].compactMap { $0 }.max { $0.priority < $1.priority } ?? .idle
-        return top == .idle ? nil : top
+        // A finish being told, with its peek switched off: the dot tells it
+        // for as long as the peek would have, over a higher aggregate.
+        if let peekPhase, Self.isFinish(peekPhase) { return peekPhase }
+        return phase == .idle ? nil : phase
     }
 
     /// Whether the mascot is on screen. When it is not, no clip plays and
@@ -171,17 +170,6 @@ struct BodyPresence: Equatable {
     /// The area drawn with the near-transparent fill, so hover and drops are
     /// heard on it; `nil` on today's bar, whose body is its own area.
     var trigger: Area? { mode == .always ? nil : area }
-
-    // MARK: Latch
-
-    /// The latch after the phase moves to `phase`: a review or a failure
-    /// latches, a failure overrides a latched review, never the other way;
-    /// anything else leaves it as it is.
-    static func latch(_ current: Phase?, on phase: Phase) -> Phase? {
-        guard isFinish(phase) else { return current }
-        if current == .failed { return .failed }
-        return phase
-    }
 
     private static func isFinish(_ phase: Phase) -> Bool {
         phase == .review || phase == .failed

@@ -314,13 +314,13 @@
 "settings.general.body.smart" = "Akıllı saklan";
 "settings.general.body.hidden" = "Tam gizli";
 "settings.general.body.sliver" = "Kabartmayı göster";
-"settings.general.body.sliver.detail" = "Kenarda 5 pt'lik iz ve durum noktası.";
+"settings.general.body.sliver.detail" = "Kenarda küçük bir iz ve durum noktası.";
 "settings.general.body.peekWaiting" = "Beklerken dışarı çık";
 "settings.general.body.peekWaiting.detail" = "İzin ya da soru varsa maskot göz ucuyla görünür.";
 "settings.general.body.peekWaiting.off" = "Bu kapalıyken bekleme yalnızca kabartmadaki amber noktayla anlatılır.";
 "settings.general.body.peekWaiting.off.bare" = "Bu ve kabartma kapalıyken kenarda beklemeyi gösteren hiçbir şey kalmaz: maskot yalnızca kenara uzandığında çıkar.";
 "settings.general.body.peekDone" = "Bitince kısaca göster";
-"settings.general.body.peekDone.detail" = "Oturum bitince ya da hata verince birkaç saniye görünür.";
+"settings.general.body.peekDone.detail" = "Bir oturum ya da iş bitince veya hata verince birkaç saniye görünür.";
 "settings.sessions.agents" = "Ajanlar";
 "settings.sessions.agents.note" = "İlk yazımdan önce dosyanın yanına .evlat.bak yedeği alınır. Açık Claude oturumlarında değişiklik /hooks ile yüklenir.";
 "settings.sessions.usage" = "Kullanım";
