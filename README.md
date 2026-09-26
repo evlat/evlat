@@ -90,6 +90,12 @@ Read [`AGENTS.md`](AGENTS.md) before changing code. It holds the architecture's
 reasons, the contracts installed on users' machines that must not change, how
 to verify a change, and a list of pitfalls that have already been hit.
 
+Contributions are accepted under the
+[Contributor License Agreement](CLA.md). You keep the copyright to your work;
+the agreement lets the project license it under the terms in
+[License](#license), and under other terms (for example, a commercial license).
+You will be asked to accept it on your first pull request.
+
 ## License
 
 [Functional Source License 1.1, Apache 2.0 Future License](LICENSE.md)
