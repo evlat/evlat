@@ -296,6 +296,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` |
 | `EVLAT_CHATS` | temporary chat root |
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
+| `EVLAT_BODY` | force the body's mode (`always`, `smart`, `hidden`) at launch; the stored mode is never written |
 | `EVLAT_CLAUDE` | `claude` to run (tests use `Tests/Fixtures/fake-claude`) |
 
 Run the binary directly for these — `open` does not carry the environment.

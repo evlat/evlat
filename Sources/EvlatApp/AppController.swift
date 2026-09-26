@@ -636,6 +636,51 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
+    /// The body's mode and its three switches (`BodyPresence`). New keys
+    /// beside `bar.edge`; nothing stored is `always` with every switch on,
+    /// so an upgrading user's bar does not change.
+    nonisolated static let bodyModeKey = "bar.body"
+    nonisolated static let bodySliverKey = "bar.body.sliver"
+    nonisolated static let bodyPeekWaitingKey = "bar.body.peekWaiting"
+    nonisolated static let bodyPeekDoneKey = "bar.body.peekDone"
+
+    /// The stored mode; nothing stored or an unknown value is `always`.
+    /// Reading writes nothing.
+    nonisolated static func storedBodyMode(_ defaults: UserDefaults?) -> BodyPresence.Mode {
+        BodyPresence.Mode(stored: defaults?.string(forKey: bodyModeKey)) ?? .always
+    }
+
+    /// The stored switches. `bool(forKey:)` reads a missing key as `false`,
+    /// so absence is asked first: a switch never stored is on.
+    nonisolated static func storedBodyToggles(_ defaults: UserDefaults?) -> BodyPresence.Toggles {
+        func on(_ key: String) -> Bool {
+            guard let defaults, defaults.object(forKey: key) != nil else { return true }
+            return defaults.bool(forKey: key)
+        }
+        return BodyPresence.Toggles(sliver: on(bodySliverKey),
+                                    peekWaiting: on(bodyPeekWaitingKey),
+                                    peekDone: on(bodyPeekDoneKey))
+    }
+
+    /// `EVLAT_BODY=always|smart|hidden` forces the mode over what is stored —
+    /// for looking at and measuring one mode (`EVLAT_PHASE × EVLAT_BODY`)
+    /// without touching the user's choice, the same pattern as `EVLAT_EDGE`.
+    /// Read, never written. Any other value is ignored.
+    nonisolated static func forcedBodyMode(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BodyPresence.Mode? {
+        BodyPresence.Mode(stored: environment["EVLAT_BODY"]?
+            .trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
+    /// The mode in force: `EVLAT_BODY`, then the stored one.
+    nonisolated static func bodyMode(
+        _ defaults: UserDefaults?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BodyPresence.Mode {
+        forcedBodyMode(environment) ?? storedBodyMode(defaults)
+    }
+
     /// The stored form of an edge the menu offers.
     private nonisolated static func storedValue(_ edge: BarPanel.Edge) -> String {
         edge.isLeft ? "left" : "right"
