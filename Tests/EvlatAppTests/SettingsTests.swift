@@ -191,8 +191,12 @@ final class SettingsTests: XCTestCase {
         model.setBodyToggle(\.peekWaiting, on: false)
         XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: true, peekWaiting: false, peekDone: true))
         XCTAssertTrue(model.showsPeekWarning)
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off", "the amber dot is still there")
         model.setBodyToggle(\.sliver, on: false)
         XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: false, peekWaiting: false, peekDone: true))
+        XCTAssertTrue(model.showsPeekWarning)
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.bare",
+                       "no sliver, no peek: the warning says nothing is left on the edge")
         model.setBodyMode(.hidden)
         XCTAssertFalse(model.showsBodyToggles, "hidden has neither sliver nor peek")
         XCTAssertFalse(model.showsPeekWarning)

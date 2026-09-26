@@ -125,8 +125,16 @@ final class SettingsModel: ObservableObject {
     var showsBodyToggles: Bool { bodyMode == .smart }
 
     /// Without the waiting peek, waiting is told only by the sliver's amber
-    /// dot — said beside the switch, so the loss is chosen, not stumbled on.
+    /// dot, or with the sliver off by nothing on the edge — said beside the
+    /// switch, so the loss is chosen, not stumbled on.
     var showsPeekWarning: Bool { showsBodyToggles && !bodyToggles.peekWaiting }
+
+    /// With the sliver off too there is no amber dot to fall back on, and
+    /// Smart leaves the tray icon plain: the warning must say nothing is left.
+    var peekWarningKey: String {
+        bodyToggles.sliver ? "settings.general.body.peekWaiting.off"
+                           : "settings.general.body.peekWaiting.off.bare"
+    }
 
     // MARK: - Chat
 
@@ -221,7 +229,7 @@ final class SettingsModel: ObservableObject {
         "settings.general.body.smart", "settings.general.body.hidden",
         "settings.general.body.sliver", "settings.general.body.sliver.detail",
         "settings.general.body.peekWaiting", "settings.general.body.peekWaiting.detail",
-        "settings.general.body.peekWaiting.off",
+        "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.bare",
         "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
         "settings.sessions.agents", "settings.sessions.agents.note", "settings.sessions.usage",
         "settings.sessions.none",

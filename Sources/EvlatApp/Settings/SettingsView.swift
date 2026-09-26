@@ -173,7 +173,7 @@ private struct BodyRows: View {
                     .accessibilityLabel(model.t(key))
             }
             if path == \.peekWaiting && model.showsPeekWarning {
-                Text(model.t("settings.general.body.peekWaiting.off"))
+                Text(model.t(model.peekWarningKey))
                     .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
                     .fixedSize(horizontal: false, vertical: true)
             }

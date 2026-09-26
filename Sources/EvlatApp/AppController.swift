@@ -160,7 +160,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// launch (`EVLAT_BODY`, then the stored choice); a controller built
     /// without one — every test that does not set it — is today's bar.
     var bodyMode: BodyPresence.Mode = .always {
-        didSet { if bodyMode != oldValue { applyPresence() } }
+        didSet {
+            guard bodyMode != oldValue else { return }
+            // A latch is only ever shown on Smart's sliver; one carried over
+            // from another mode is a finish from before the choice.
+            latch = nil
+            applyPresence()
+        }
     }
     var bodyToggles = BodyPresence.Toggles() {
         didSet { if bodyToggles != oldValue { applyPresence() } }
@@ -2545,8 +2551,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // is what brings the new reading onto the body being opened.
         registry.reload()
         refresh()
-        // After the scan: a finish it brings in has been seen by opening.
+        // After the scan: a finish it brings in has been seen by opening —
+        // its latch and its peek both. `refresh()` ran with the bar still
+        // closed, so a finish it moved into started a peek that would come
+        // out again on close; bumping the generation idles that timer.
         latch = nil
+        peekPhase = nil
+        peekGeneration &+= 1
         sessionRows.setOpen(true)
         barState.isOpen = true
         applyPresence()
@@ -2629,7 +2640,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func phaseMoved(to phase: Phase) {
         peekGeneration &+= 1
         let watched = barState.isOpen || isChatOpen
-        if !watched { latch = BodyPresence.latch(latch, on: phase) }
+        // Only Smart has a sliver to show a latch on: in Always the face
+        // told the finish, in Hidden nothing does, and either would surface
+        // as a stale dot after a switch to Smart.
+        if !watched, bodyMode == .smart { latch = BodyPresence.latch(latch, on: phase) }
         guard !watched, phase == .review || phase == .failed else {
             peekPhase = nil
             return

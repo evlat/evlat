@@ -318,6 +318,7 @@
 "settings.general.body.peekWaiting" = "Beklerken dışarı çık";
 "settings.general.body.peekWaiting.detail" = "İzin ya da soru varsa maskot göz ucuyla görünür.";
 "settings.general.body.peekWaiting.off" = "Bu kapalıyken bekleme yalnızca kabartmadaki amber noktayla anlatılır.";
+"settings.general.body.peekWaiting.off.bare" = "Bu ve kabartma kapalıyken kenarda beklemeyi gösteren hiçbir şey kalmaz: maskot yalnızca kenara uzandığında çıkar.";
 "settings.general.body.peekDone" = "Bitince kısaca göster";
 "settings.general.body.peekDone.detail" = "Oturum bitince ya da hata verince birkaç saniye görünür.";
 "settings.sessions.agents" = "Ajanlar";

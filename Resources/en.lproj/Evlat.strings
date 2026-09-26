@@ -375,6 +375,7 @@
 "settings.general.body.peekWaiting" = "Peek out while waiting";
 "settings.general.body.peekWaiting.detail" = "On a permission or a question the mascot peeks out.";
 "settings.general.body.peekWaiting.off" = "While this is off, waiting is shown only by the sliver's amber dot.";
+"settings.general.body.peekWaiting.off.bare" = "While this and the sliver are off, nothing on the edge shows waiting: the mascot comes out only when you reach for the edge.";
 "settings.general.body.peekDone" = "Peek briefly when done";
 "settings.general.body.peekDone.detail" = "Out for a few seconds when a session stops or fails.";
 "settings.sessions.agents" = "Agents";

@@ -207,6 +207,43 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertNil(rig.controller.barState.presence.dot)
     }
 
+    /// Opening's own scan can be what brings the finish in: seen by opening,
+    /// it must not peek out again when the bar closes.
+    func testAFinishTheOpeningScanBringsInDoesNotPeekOnClose() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.set(.working)
+        rig.provider.signals = [Signal(provider: "stub", entity: "s", phase: .review, label: "s",
+                                       fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0))]
+        rig.controller.openBar()
+        XCTAssertNil(rig.controller.latch)
+        XCTAssertNil(rig.controller.peekPhase)
+        rig.controller.closeBar()
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver, "no peek for a finish just seen")
+        for index in rig.timers.pending.indices { rig.timers.fire(index) }
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver, "the stale timer changes nothing")
+    }
+
+    /// Only Smart's sliver shows a latch: a finish in Always is not saved
+    /// up for later, and a mode change drops what another mode latched.
+    func testTheLatchBelongsToSmart() {
+        let rig = rig(.always)
+        defer { rig.panel.close() }
+        rig.set(.failed)
+        rig.set(.idle)
+        XCTAssertNil(rig.controller.latch, "the face told it")
+        rig.controller.bodyMode = .smart
+        XCTAssertNil(rig.controller.barState.presence.dot)
+
+        rig.set(.review)
+        rig.set(.idle)
+        XCTAssertEqual(rig.controller.latch, .review)
+        rig.controller.bodyMode = .hidden
+        XCTAssertNil(rig.controller.latch)
+        rig.controller.bodyMode = .smart
+        XCTAssertNil(rig.controller.barState.presence.dot, "no finish from before the switch")
+    }
+
     func testWaitingPeeksUntilAnswered() {
         let rig = rig(.smart)
         defer { rig.panel.close() }
