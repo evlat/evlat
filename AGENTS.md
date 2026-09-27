@@ -180,9 +180,12 @@ merge that holds a finish back for a while neither retells nor revives it):
   colour. News that came while either was open, or with the first scan, enters
   silently. A forced phase ("Force state") still peeks on its own.
 
-A seen `job`/`custom` row stays through the close it was seen at and is let go
-at the next one: an outside row through `Registry.release`, a chat through
-`ChatStore.markSeen` (which writes it down). A passive session stays listed.
+A seen chat (`job`) stays through the close it was seen at and goes to the
+balloon's history at the next one (`ChatStore.markSeen`, which writes it
+down). A seen outside row (`custom`) is the recent past and stays, passive:
+the newest `AppController.keptPassive` (5) that ended within the last
+`keptPassiveAge` (1 h); older ones leave through `Registry.release`, on a
+closed bar only. A passive session stays listed.
 
 A restart is asymmetric: a chat's finish not yet let go — unseen, or seen but
 awaiting the next close — is persisted and comes back as news (old, so not

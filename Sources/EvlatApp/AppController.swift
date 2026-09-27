@@ -2418,6 +2418,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
         if let settingsWindow, settingsWindow.isVisible { settings?.follow() }
+        // A seen row that has aged out, or been pushed out by newer ones,
+        // leaves on the closed bar; the scan after it draws the list without.
+        if !barState.isOpen, release(from: snapshot) { scheduleRefresh() }
     }
 
     /// The card follows the selected session through the same snapshot: its
@@ -2618,9 +2621,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Seeing is applied here and only here: nothing moves on the open bar
         // because it was seen. A close with no opening sees nothing.
         guard let opened, let snapshot = lastSnapshot else { return }
-        // First what was seen before this close: an outside row or a chat
-        // stays through the close it was seen at, and goes at the next.
-        release(from: snapshot)
+        // First what was seen before this close: a chat or an outside row
+        // seen at this close stays at least until the next.
+        release(from: snapshot, atClose: true)
         if now().timeIntervalSince(opened) >= Self.seenAfter {
             // A dimmed finish is on the open bar too, if at the bottom: seen
             // there, it is not news when its machine is heard again. So the
@@ -2632,23 +2635,50 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         refresh()
     }
 
-    /// Lets go of the seen, passive rows that are not sessions: an outside
-    /// row leaves its provider (`Registry.release`), a chat goes to the
-    /// history the way it always has (`ChatStore.markSeen`, which writes it
-    /// down). A session stays; its row is the session, not the finish.
-    private func release(from snapshot: Registry.Snapshot) {
+    /// Lets go of the seen, passive rows that are not sessions: a chat goes
+    /// to the history at the close after it was seen, the way it always has
+    /// (`ChatStore.markSeen`, which writes it down); an outside row leaves
+    /// its provider (`Registry.release`) only past what the bar keeps of
+    /// them. A session stays; its row is the session, not the finish.
+    /// `true` when anything went.
+    ///
+    /// Seen is not gone for an outside row: the newest `keptPassive` stay
+    /// as long as they ended within `keptPassiveAge`, so a build seen a
+    /// minute ago can still be looked up. A chat needs no such past on the
+    /// bar — the balloon keeps its history. Only the closed bar lets go.
+    @discardableResult
+    private func release(from snapshot: Registry.Snapshot, atClose: Bool = false) -> Bool {
+        let seenRows = snapshot.ordered.filter { signal in
+            guard signal.kind == .job || signal.kind == .custom,
+                  let finish = Finish(signal) else { return false }
+            return seen.contains(finish)
+        }
+        let cutoff = now().addingTimeInterval(-Self.keptPassiveAge)
+        let kept = Set(seenRows.filter { $0.kind == .custom && $0.updatedAt > cutoff }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(Self.keptPassive).map(\.entity))
         var finishes: Set<Finish> = []
-        for signal in snapshot.ordered where signal.kind == .job || signal.kind == .custom {
-            guard let finish = Finish(signal), seen.contains(finish) else { continue }
+        var chatWent = false
+        for signal in seenRows where !kept.contains(signal.entity) {
+            guard let finish = Finish(signal) else { continue }
             if let id = ChatSession.chatID(fromEntity: signal.entity) {
-                // Only the finish that was seen: a turn since then is new.
-                if chats?.chat(id)?.signal(at: now()).flatMap(Finish.init) == finish { chats?.markSeen(id) }
+                // At a close only, as before; and only the finish that was
+                // seen: a turn since then is new.
+                guard atClose, chats?.chat(id)?.signal(at: now()).flatMap(Finish.init) == finish else { continue }
+                chats?.markSeen(id)
+                chatWent = true
             } else {
                 finishes.insert(finish)
             }
         }
         registry.release(finishes)
+        return chatWent || !finishes.isEmpty
     }
+
+    /// How many seen outside rows the bar keeps, newest first, and
+    /// for how long after they ended: a short recent past, not a history.
+    static let keptPassive = 5
+    static let keptPassiveAge: TimeInterval = 3600
 
     // MARK: - Presence
 

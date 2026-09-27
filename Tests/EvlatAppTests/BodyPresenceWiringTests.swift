@@ -455,9 +455,9 @@ final class BodyPresenceWiringTests: XCTestCase {
 
     // MARK: - Release
 
-    /// A seen outside row stays through the close it was seen at and goes
-    /// at the next; a seen session stays.
-    func testASeenSignalRowGoesAtTheNextClose() {
+    /// A seen outside row stays on the bar, passive, for an hour after it
+    /// ended, then goes at a closed bar's scan; a seen session stays.
+    func testASeenSignalRowStaysAnHourThenGoes() {
         let rig = rig(.smart)
         defer { rig.panel.close() }
         let controller = rig.controller
@@ -470,8 +470,36 @@ final class BodyPresenceWiringTests: XCTestCase {
         rig.look(for: 2)
         XCTAssertEqual(Set(controller.sessionRows.rows.map(\.entity)), ["s", "signal:job"])
         rig.look(for: 0.2)
+        XCTAssertEqual(Set(controller.sessionRows.rows.map(\.entity)), ["s", "signal:job"],
+                       "seen is not gone: the recent past stays")
+        rig.clock.now += AppController.keptPassiveAge
+        controller.refresh()
+        controller.refresh()
         XCTAssertEqual(controller.sessionRows.rows.map(\.entity), ["s"], "the session stays")
         XCTAssertEqual(controller.signals.count, 0)
+    }
+
+    /// Only the newest seen outside rows are kept: an older one is pushed
+    /// out once more than `keptPassive` have been seen.
+    func testOnlyTheNewestSeenRowsAreKept() {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        let controller = rig.controller
+        controller.registry.register(controller.signals)
+        for index in 0...AppController.keptPassive {
+            guard case .success(let done) = SignalReport.parse(json: ["id": "job\(index)", "ttl": 60,
+                                                                      "phase": "done"]) else {
+                return XCTFail("fixture refused")
+            }
+            _ = controller.signals.apply(done)
+            rig.clock.now += 1
+        }
+        controller.refresh()
+        rig.look(for: 2)
+        controller.refresh()
+        let left = controller.sessionRows.rows.map(\.entity)
+        XCTAssertEqual(left.count, AppController.keptPassive)
+        XCTAssertFalse(left.contains("signal:job0"), "the oldest went")
     }
 
     // MARK: - A chat's finish
@@ -505,7 +533,7 @@ final class BodyPresenceWiringTests: XCTestCase {
 
     /// The store is loaded before the first scan: an old unseen chat is
     /// active but not told. Seen at one close, it goes at the next, and the
-    /// index forgets it was unseen.
+    /// index forgets it was unseen — a chat keeps no recent past on the bar.
     func testASeenChatGoesAtTheNextCloseAndIsWrittenDown() throws {
         let directory = try temporaryDirectory()
         let id = "0C9E7D1A-8E57-4B9B-8D0F-7F2B4E6A1C33"
@@ -515,6 +543,7 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertNil(rig.controller.peekPhase, "an old finish is not told at launch")
         XCTAssertEqual(rig.controller.mascot.phase, .review)
         rig.look(for: 2)
+        rig.controller.refresh()
         XCTAssertEqual(rig.controller.sessionRows.rows.map(\.entity), [entity], "kept at the close it was seen")
         XCTAssertEqual(try unseen(id, in: directory), .review)
         rig.look(for: 0.2)
