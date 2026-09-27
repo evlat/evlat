@@ -303,14 +303,18 @@ public final class Registry {
             // A session's stamp stays out of the order: the hook refreshes it
             // on every `PostToolUse`, so sorting by it reshuffled the rows at
             // event rate. A finish's stamp is the moment it finished and holds
-            // still, so news alone is ordered by it. Liveness is read from
+            // still, so news and the passive rows — seen finishes and quiet
+            // sessions, which no event moves — are ordered by it, newest
+            // first. Liveness is read from
             // `isLive` and nothing else, never from the provider's name: the
             // rules below agree by reading the same derived value.
             ordered = sessionLine.sorted {
                 if $0.isLive != $1.isLive { return $0.isLive }
                 let a = layers[$0.entity] ?? .passive, b = layers[$1.entity] ?? .passive
                 if a != b { return a < b }
-                if a == .news, $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+                if a == .news || a == .passive, $0.updatedAt != $1.updatedAt {
+                    return $0.updatedAt > $1.updatedAt
+                }
                 return $0.entity < $1.entity
             }
             let active = ordered.filter { $0.isLive && layers[$0.entity]?.isActive == true }

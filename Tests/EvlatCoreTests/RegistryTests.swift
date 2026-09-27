@@ -561,7 +561,8 @@ final class RegistryTests: XCTestCase {
         XCTAssertTrue(snapshot.news.isEmpty)
     }
 
-    /// The list: waiting, working, news (newest on top), passive, dimmed.
+    /// The list: waiting, working, news (newest on top), passive (newest on
+    /// top too), dimmed.
     func testTheListOrder() {
         let snapshot = Registry.Snapshot(signals: [
             row("a-idle", .idle),
@@ -573,7 +574,15 @@ final class RegistryTests: XCTestCase {
             row("g-dim", .waiting, reachable: false),
         ], seen: [Finish(row("c-seen", .review, at: 5))!])
         XCTAssertEqual(snapshot.ordered.map(\.entity),
-                       ["f-wait", "e-work", "d-new-news", "b-old-news", "a-idle", "c-seen", "g-dim"])
+                       ["f-wait", "e-work", "d-new-news", "b-old-news", "c-seen", "a-idle", "g-dim"])
+    }
+
+    /// Seen finishes stay in the order they ended, newest on top — not by
+    /// their ids, which for an outside job read as noise.
+    func testPassiveRowsAreNewestFirst() {
+        let rows = [row("a", .review, at: 1), row("z", .failed, at: 3), row("m", .review, at: 2)]
+        let snapshot = Registry.Snapshot(signals: rows, seen: Set(rows.compactMap(Finish.init)))
+        XCTAssertEqual(snapshot.ordered.map(\.entity), ["z", "m", "a"])
     }
 
     /// The key survives the merge: a veto in between and the file coming
