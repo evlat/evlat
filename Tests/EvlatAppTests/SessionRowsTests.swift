@@ -209,6 +209,86 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.entity), ["b", "a", "c"], "a seen finish is passive")
     }
 
+    // MARK: - Passive rows
+
+    /// A seen finish on a session is drawn idle: the status line and the card
+    /// say "idle", the outcome is kept for the small dot in the grey ring, and
+    /// the row is still.
+    func testASeenReviewSessionIsDrawnIdleWithItsOutcome() {
+        let model = SessionRowsModel()
+        let done = signal("a", .review, stamp: 10)
+        model.update(from: Registry.Snapshot(signals: [done], seen: [Finish(done)!]))
+        let row = model.rows[0]
+        XCTAssertTrue(row.passive)
+        XCTAssertEqual(row.phase, .idle, "a seen session reads idle")
+        XCTAssertEqual(row.outcome, .review, "what it ended with stays readable")
+        XCTAssertFalse(row.beats)
+        XCTAssertFalse(model.isBeating)
+    }
+
+    /// Unseen, the same finish is news: its own phase, active, no outcome dot.
+    func testAnUnseenFinishIsActive() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("a", .failed, stamp: 10)])
+        XCTAssertFalse(model.rows[0].passive)
+        XCTAssertEqual(model.rows[0].phase, .failed)
+        XCTAssertNil(model.rows[0].outcome)
+    }
+
+    /// An idle session is passive with nothing to tell: today's idle ring.
+    func testAnIdleSessionIsPassiveWithoutAnOutcome() {
+        let model = SessionRowsModel()
+        model.update(from: [signal("a", .idle)])
+        XCTAssertTrue(model.rows[0].passive)
+        XCTAssertNil(model.rows[0].outcome)
+    }
+
+    /// An outside job keeps its word when seen: "failed" is what it is, not
+    /// "idle" — it has no idle to fall back to.
+    func testASeenFailedOutsideJobKeepsItsWord() {
+        let model = SessionRowsModel()
+        let job = Signal(provider: "signal", entity: "signal:render", kind: .custom, phase: .failed,
+                         label: "Render", fidelity: .manual,
+                         updatedAt: Date(timeIntervalSince1970: 1_790_000_010))
+        model.update(from: Registry.Snapshot(signals: [job], seen: [Finish(job)!]))
+        let row = model.rows[0]
+        XCTAssertTrue(row.passive)
+        XCTAssertEqual(row.phase, .failed)
+        XCTAssertEqual(row.outcome, .failed)
+        XCTAssertFalse(row.beats)
+    }
+
+    /// Dim and passive are two facts and a row can carry both: dim lowers the
+    /// opacity (nobody can hear it), passive greys the ring (already seen).
+    func testADimmedPassiveRowCarriesBoth() {
+        let model = SessionRowsModel()
+        let far = Signal(provider: "stub", entity: "far", phase: .review, label: "name-far",
+                         source: .claude, fidelity: .official,
+                         updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+                         machine: Signal.Machine(name: "devbox", dim: Signal.Machine.Dim(
+                             reason: .quiet, since: Date(timeIntervalSince1970: 1_790_000_000))))
+        model.update(from: Registry.Snapshot(signals: [far], seen: [Finish(far)!]))
+        let row = model.rows[0]
+        XCTAssertFalse(row.isLive)
+        XCTAssertTrue(row.passive)
+        XCTAssertEqual(row.outcome, .review)
+        XCTAssertNotNil(row.dim)
+    }
+
+    /// Being seen rewrites the row (the ring changes) even though no phase
+    /// moved; seeing it again does not.
+    func testBeingSeenRewritesTheRowOnce() {
+        let model = SessionRowsModel()
+        let done = signal("a", .review, stamp: 10)
+        model.update(from: [done])
+        var writes = 0
+        let sub = model.$rows.dropFirst().sink { _ in writes += 1 }
+        model.update(from: Registry.Snapshot(signals: [done], seen: [Finish(done)!]))
+        model.update(from: Registry.Snapshot(signals: [done], seen: [Finish(done)!]))
+        sub.cancel()
+        XCTAssertEqual(writes, 1)
+    }
+
     func testNothingToBeatMeansNoClock() {
         let model = SessionRowsModel()
         model.update(from: [])
@@ -541,11 +621,14 @@ final class SessionRowsTests: XCTestCase {
     /// exhaustive, so a new kind does not compile until it has a line here.
     func testEveryKindHasItsTraits() {
         XCTAssertEqual(RowTraits.of(.session), RowTraits(mark: .tool, tag: .machine, button: .goToSession, detail: .none,
-                                                         stampIsPhaseStart: false, showsProgress: false))
+                                                         stampIsPhaseStart: false, showsProgress: false,
+                                                         passiveReadsIdle: true))
         XCTAssertEqual(RowTraits.of(.job), RowTraits(mark: .face, tag: .evlat, button: .backToChat, detail: .folder,
-                                                     stampIsPhaseStart: true, showsProgress: false))
+                                                     stampIsPhaseStart: true, showsProgress: false,
+                                                     passiveReadsIdle: false))
         XCTAssertEqual(RowTraits.of(.custom), RowTraits(mark: .none, tag: .sender, button: .none, detail: .note,
-                                                        stampIsPhaseStart: true, showsProgress: true))
+                                                        stampIsPhaseStart: true, showsProgress: true,
+                                                        passiveReadsIdle: false))
         XCTAssertEqual(RowTraits.of(.usage).button, .none)
         XCTAssertTrue(SessionRow(signal("l", .working)).hasTerminal)
         XCTAssertFalse(SessionRow(remote("r")).hasTerminal, "a remote session's terminal is elsewhere")

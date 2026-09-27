@@ -357,6 +357,20 @@ final class SelectionTests: XCTestCase {
         XCTAssertEqual(CardBody.pick(A(pid: 42)), .none)
     }
 
+    /// A seen session's card says "idle", the row's word; a seen outside
+    /// job's keeps its own ("failed").
+    func testAPassiveSessionsCardSaysIdleAndAJobsKeepsItsWord() {
+        let model = DetailModel()
+        model.resolveHost = { _ in .notFound }
+        model.update(row: SessionRow(entity: "s", label: "api", phase: .review, source: .claude,
+                                     passive: true), signal: nil)
+        XCTAssertEqual(model.detail?.phase, .idle)
+        XCTAssertEqual(StatusLine.statusKey(phase: model.detail!.phase, waitKind: nil), "status.idle")
+        model.update(row: SessionRow(entity: "signal:x", label: "x", phase: .failed, kind: .custom,
+                                     passive: true), signal: nil)
+        XCTAssertEqual(model.detail?.phase, .failed)
+    }
+
     func testTheFooterSaysTimeAndAPartialCount() {
         let now = Date(timeIntervalSince1970: 10_000)
         let entered = now.addingTimeInterval(-125)

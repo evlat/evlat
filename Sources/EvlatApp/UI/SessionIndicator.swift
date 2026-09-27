@@ -246,7 +246,8 @@ struct SessionColumn: View {
                                  // still row's trigger never changes on the
                                  // beat, so it plays nothing and draws nothing.
                                  beat: row.beats ? model.beat : 0,
-                                 isLive: row.isLive)
+                                 isLive: row.isLive, passive: row.passive,
+                                 outcome: row.outcome)
                     .frame(width: AppController.barWidth)
                     .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
                         ground(selected: showsNames && row.entity == selected,
@@ -313,7 +314,7 @@ struct SessionColumn: View {
     private func label(_ row: SessionRow) -> some View {
         VStack(alignment: docked, spacing: 1) {
             name(row.label, duplicate: row.duplicate, machine: row.tag,
-                 color: row.phase == .idle || !row.isLive
+                 color: row.phase == .idle || row.passive || !row.isLive
                  ? BarPalette.textSecondary : BarPalette.textPrimary)
             if showsNames {
                 // Once a minute, and only while open. The date comes from the
@@ -657,6 +658,12 @@ extension StatusLine.Unit {
 /// none — and not on the change into or out of dimness either, which moves
 /// the trigger's beat to 0.
 ///
+/// **A passive row's ring** (`passive`, `Registry.Layer.passive`) is the other
+/// look: a grey ring — idle's — and, if it ended with something, a small dot
+/// of that outcome's colour where the mark would be. It changes the colour,
+/// never the opacity, so it cannot be mistaken for a dimmed row; a row that
+/// is both is grey and faint. It plays no gesture: it has been heard.
+///
 /// **Beats, not loops.** A spinning arc under `TimelineView` or
 /// `repeatForever` is the measured ~7% floor, and a working session runs
 /// for hours. So `working` turns once per beat and `waiting` pulses once per
@@ -675,11 +682,14 @@ struct SessionIndicator: View {
     var progress: Int? = nil
     let beat: Int
     var isLive = true
+    var passive = false
+    /// A passive row's finish (`SessionRow.outcome`), drawn as the dot.
+    var outcome: Phase? = nil
 
     private var size: CGFloat { AppController.indicatorSize }
 
     /// The phase whose gesture plays; `nil` plays none.
-    private var gesture: Phase? { isLive ? phase : nil }
+    private var gesture: Phase? { isLive && !passive ? phase : nil }
     /// The turn is `working`'s "how far is not known": a ring whose progress
     /// is known never turns, not even on arriving at `working`.
     private var spinGesture: Phase? { progress == nil ? gesture : nil }
@@ -688,6 +698,7 @@ struct SessionIndicator: View {
         ring
             .frame(width: size, height: size)
             .animation(MascotPose.transition, value: phase)
+            .animation(MascotPose.transition, value: passive)
             // Hung **above** the phase-dependent drawing, never inside a
             // branch: `keyframeAnimator` fires on a *change* of its trigger and
             // never on first appearance, so a host rebuilt by a phase change
@@ -732,6 +743,22 @@ struct SessionIndicator: View {
     /// same state, the mark alone says where the session runs. An outside
     /// job has no mark; its progress, if it gave one, fills the inside.
     @ViewBuilder private var inside: some View {
+        if passive, let outcome {
+            // The mark gives way: a dot and a glyph do not both fit in a
+            // 20 pt ring, and what it ended with is what a passive row says.
+            Circle()
+                .fill(Self.color(outcome).opacity(0.85))
+                .frame(width: size * Self.outcomeDot, height: size * Self.outcomeDot)
+        } else {
+            mark(markColor)
+        }
+    }
+
+    /// The outcome dot's diameter, as a share of the ring's (`aktif-pasif.html`:
+    /// r 2 in a r 8 ring).
+    static let outcomeDot: CGFloat = 0.25
+
+    @ViewBuilder private func mark(_ markColor: Color) -> some View {
         switch mark {
         case .face:
             MascotFaceMark(eye: markColor == BarPalette.textPrimary ? .black : markColor)
@@ -750,23 +777,37 @@ struct SessionIndicator: View {
         }
     }
 
-    private var markColor: Color {
+    private var markColor: Color { passive ? BarPalette.textSecondary : Self.color(phase) }
+
+    /// The phase's colour, for the mark and the outcome dot.
+    static func color(_ phase: Phase) -> Color {
         switch phase {
         case .idle: return BarPalette.textSecondary
         case .working: return BarPalette.textPrimary
-        case .waiting: return Self.amber
-        case .review: return Self.green
-        case .failed: return Self.red
+        case .waiting: return amber
+        case .review: return green
+        case .failed: return red
         }
     }
 
     @ViewBuilder private var ring: some View {
+        if passive {
+            Circle().stroke(Self.passiveGrey, lineWidth: line)
+        } else {
+            phaseRing
+        }
+    }
+
+    /// Idle's grey: a passive ring is one with nothing left to say.
+    static let passiveGrey = Color.white.opacity(0.28)
+
+    @ViewBuilder private var phaseRing: some View {
         // Exhaustive on purpose: a new `Phase` must not compile until it has
         // a look here — and `Phase.priority` and the mascot's expression
         // table need it too.
         switch phase {
         case .idle:
-            Circle().stroke(Color.white.opacity(0.28), lineWidth: line)
+            Circle().stroke(Self.passiveGrey, lineWidth: line)
         case .working:
             if progress != nil {
                 // Known progress: no turning arc — a still one would read as
@@ -797,6 +838,7 @@ struct SessionIndicator: View {
     }
 
     private var glowColor: Color {
+        if passive { return .clear }
         switch phase {
         case .waiting: return Self.amber
         case .review: return Self.green

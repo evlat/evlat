@@ -50,28 +50,32 @@ struct RowTraits: Equatable {
     /// Whether `Signal.progress` is drawn: the sender's own claim of how far
     /// it is. A usage window's progress is its own block's.
     let showsProgress: Bool
+    /// Whether a seen finish reads `idle`. A session goes on after its turn,
+    /// so once seen it is idle again; an outside job or a chat turn has
+    /// nothing after its end and keeps its word ("done", "failed").
+    let passiveReadsIdle: Bool
 
     static func of(_ kind: Signal.Kind) -> RowTraits {
         switch kind {
         case .session:
             return RowTraits(mark: .tool, tag: .machine, button: .goToSession, detail: .none,
-                             stampIsPhaseStart: false, showsProgress: false)
+                             stampIsPhaseStart: false, showsProgress: false, passiveReadsIdle: true)
         case .job:
             // Evlat's own chat: the mascot's face, the "EVLAT" tag,
             // `[Back to chat]`; its stamp is the chat's phase start.
             return RowTraits(mark: .face, tag: .evlat, button: .backToChat, detail: .folder,
-                             stampIsPhaseStart: true, showsProgress: false)
+                             stampIsPhaseStart: true, showsProgress: false, passiveReadsIdle: false)
         case .custom:
             // A program outside: no tool, no terminal, nothing to go
             // back to — the ring speaks the phase alone and its sender's name
             // is the tag. `SignalsProvider` keeps the stamp while the phase holds.
             return RowTraits(mark: .none, tag: .sender, button: .none, detail: .note,
-                             stampIsPhaseStart: true, showsProgress: true)
+                             stampIsPhaseStart: true, showsProgress: true, passiveReadsIdle: false)
         case .usage:
             // Never in the column (`Registry.Snapshot` splits it off); the
             // line is here so the switch stays exhaustive.
             return RowTraits(mark: .none, tag: .machine, button: .none, detail: .none,
-                             stampIsPhaseStart: false, showsProgress: false)
+                             stampIsPhaseStart: false, showsProgress: false, passiveReadsIdle: true)
         }
     }
 }
@@ -119,6 +123,15 @@ public struct SessionRow: Equatable, Identifiable {
     /// The outside program's own name for itself (`Signal.sender`): drawn as
     /// the tag, never branched on.
     public let sender: String?
+    /// The snapshot's layer is `passive` (`Registry.Layer`): a finish already
+    /// seen, or a row with nothing to say. Drawn as a grey ring, still — a
+    /// look, not an opacity: dimness is `dim`'s, and a row can be both.
+    public let passive: Bool
+    /// How a passive row ended, for the small dot inside its grey ring:
+    /// `review` or `failed`; `nil` on an active row and on one that is just
+    /// idle. A passive session's `phase` is `idle` — that is what it is now —
+    /// so this is the only place its last finish is still read.
+    public let outcome: Phase?
 
     var traits: RowTraits { .of(kind) }
 
@@ -141,8 +154,14 @@ public struct SessionRow: Equatable, Identifiable {
                 source: AgentSource? = nil, duplicate: Int = 0,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
                 machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session,
-                progress: Int? = nil, sender: String? = nil) {
+                progress: Int? = nil, sender: String? = nil, passive: Bool = false) {
         self.entity = entity
+        let finished = phase == .review || phase == .failed
+        self.passive = passive
+        self.outcome = passive && finished ? phase : nil
+        // What the row says now: a seen session is idle again; an outside
+        // job or a chat turn keeps its last word (`RowTraits.passiveReadsIdle`).
+        let phase = passive && finished && RowTraits.of(kind).passiveReadsIdle ? .idle : phase
         self.kind = kind
         self.progress = RowTraits.of(kind).showsProgress ? progress.map { min(100, max(0, $0)) } : nil
         self.sender = sender
@@ -159,12 +178,13 @@ public struct SessionRow: Equatable, Identifiable {
         self.dim = dim
     }
 
-    public init(_ signal: Signal, duplicate: Int = 0, enteredAt: Date? = nil) {
+    public init(_ signal: Signal, duplicate: Int = 0, enteredAt: Date? = nil, passive: Bool = false) {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
                   machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind,
-                  progress: signal.progress.flatMap(Self.percent), sender: signal.sender)
+                  progress: signal.progress.flatMap(Self.percent), sender: signal.sender,
+                  passive: passive)
     }
 
     /// 0…1 to whole percents. `SignalReport` already holds the value to a
@@ -182,8 +202,9 @@ public struct SessionRow: Equatable, Identifiable {
     /// A dimmed row never beats: its phase is the last thing a silent
     /// machine said, and a clock kept running for it would spend the idle
     /// budget on nobody.
+    /// A passive row never beats either: it has already been heard.
     public var beats: Bool {
-        guard isLive else { return false }
+        guard isLive, !passive else { return false }
         switch phase {
         case .working: return progress == nil
         case .waiting: return true
@@ -368,7 +389,8 @@ public final class SessionRowsModel: ObservableObject {
             // it — one read back at launch.
             SessionRow($0, duplicate: numbers[$0.entity] ?? 0,
                        enteredAt: enteredAt[$0.entity]
-                           ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil))
+                           ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil),
+                       passive: layers[$0.entity] == .passive)
         }
         if rows != next { rows = next }
         setBeating(drawnRows.contains(where: \.beats))
