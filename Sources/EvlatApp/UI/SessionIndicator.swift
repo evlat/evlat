@@ -659,8 +659,8 @@ extension StatusLine.Unit {
 /// the trigger's beat to 0.
 ///
 /// **A passive row's ring** (`passive`, `Registry.Layer.passive`) is the other
-/// look: a grey ring — idle's — and, if it ended with something, a small dot
-/// of that outcome's colour where the mark would be. It changes the colour,
+/// look: a grey ring — idle's — with its mark in grey; a row with no mark
+/// (an outside job) shows instead a small dot of the outcome's colour. It changes the colour,
 /// never the opacity, so it cannot be mistaken for a dimmed row; a row that
 /// is both is grey and faint. It plays no gesture: it has been heard.
 ///
@@ -743,14 +743,25 @@ struct SessionIndicator: View {
     /// same state, the mark alone says where the session runs. An outside
     /// job has no mark; its progress, if it gave one, fills the inside.
     @ViewBuilder private var inside: some View {
-        if passive, let outcome {
-            // The mark gives way: a dot and a glyph do not both fit in a
-            // 20 pt ring, and what it ended with is what a passive row says.
+        if passive, let outcome, !drawsMark {
+            // Only where no mark is drawn: a dot and a glyph do not both fit
+            // in a 20 pt ring, and the tool's mark stays — which tool ran is
+            // still worth reading on a passive row; the grey says the rest.
             Circle()
                 .fill(Self.color(outcome).opacity(0.85))
                 .frame(width: size * Self.outcomeDot, height: size * Self.outcomeDot)
         } else {
             mark(markColor)
+        }
+    }
+
+    /// Whether `mark(_:)` draws anything: the tool's glyph, the chat's face
+    /// or a job's progress.
+    private var drawsMark: Bool {
+        switch mark {
+        case .face: return true
+        case .tool: return source != nil
+        case .none: return progress != nil
         }
     }
 

@@ -127,9 +127,9 @@ public struct SessionRow: Equatable, Identifiable {
     /// seen, or a row with nothing to say. Drawn as a grey ring, still — a
     /// look, not an opacity: dimness is `dim`'s, and a row can be both.
     public let passive: Bool
-    /// How a passive row ended, for the small dot inside its grey ring:
-    /// `review` or `failed`; `nil` on an active row and on one that is just
-    /// idle. A passive session's `phase` is `idle` — that is what it is now —
+    /// How a passive row ended, for the small dot inside its grey ring when
+    /// it has no mark to draw (an outside job): `review` or `failed`; `nil`
+    /// on an active row and on one that is just idle. A passive session's `phase` is `idle` — that is what it is now —
     /// so this is the only place its last finish is still read.
     public let outcome: Phase?
 
