@@ -50,7 +50,7 @@ Two layers, one hard seam. In one sentence: **the core does not import UI.**
                        │  seam: Signal ↓  /  Action ↑
 ┌──────────────────────┴───────────────────────────────┐
 │  EvlatCore  (Foundation + Dispatch only)             │
-│  Provider · Signal · Registry · Aggregator           │
+│  Provider · Signal · Registry · Snapshot             │
 │  local HTTP API (routing, parsing, defenses)         │
 └──────────────────────────────────────────────────────┘
 ```
@@ -89,8 +89,8 @@ Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
   stamp — the user has not seen) and `passive` (a seen finish, or `idle`). The
   first three are active. The list sorts by layer, news newest finish first;
   dimmed rows stay at the bottom and paint nothing.
-- `Aggregator` reduces the live, active rows to the mascot's one face,
-  `Phase.priority`: `waiting > news (newest) > working > idle`. With no active
+- `Registry.Snapshot.aggregate` reduces the live, active rows to the
+  mascot's one face, by `Phase.priority`: `waiting > news (newest) > working > idle`. With no active
   row the face is `idle`. The seen set is the snapshot's pure input; the core
   keeps no clock and no seen state.
 - An unrecognised source word stays **visible** in `rawStatus` and lands in the
@@ -184,8 +184,9 @@ A seen `job`/`custom` row stays through the close it was seen at and is let go
 at the next one: an outside row through `Registry.release`, a chat through
 `ChatStore.markSeen` (which writes it down). A passive session stays listed.
 
-A restart is asymmetric: an unseen chat's finish is persisted and comes back
-as news (old, so not told), while hook and `/signal` news lives in memory and
+A restart is asymmetric: a chat's finish not yet let go — unseen, or seen but
+awaiting the next close — is persisted and comes back as news (old, so not
+told), while hook and `/signal` news lives in memory and
 is lost with the process.
 
 ### Rendering and CPU

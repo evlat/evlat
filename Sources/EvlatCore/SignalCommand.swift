@@ -33,8 +33,11 @@ public enum SignalCommand {
     public static let watchTTL = 180
     /// How often `watch` sends its row again.
     public static let heartbeat: TimeInterval = 60
-    /// `signal`'s default lifetimes: a live row is expected to be refreshed
-    /// by whoever sent it; a finished one is read and goes.
+    /// `signal`'s default ttls: a live row is expected to be refreshed by
+    /// whoever sent it. On a finish the ttl is only validated: the row stays
+    /// until it is seen (`SignalsProvider.finishLifetime`). The help's "600 s"
+    /// is left as it is because the remote script prints the same text, and
+    /// changing it would bump the script's version.
     public static let liveTTL = 900
     public static let finishedTTL = 600
 

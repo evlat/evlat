@@ -51,9 +51,9 @@ public struct ChatSession: Equatable {
     public private(set) var lastTool: Signal.Activity.Tool?
     public private(set) var toolCount = 0
     public private(set) var lastReply: String?
-    /// Has the balloon shown this turn's end? A finished chat
-    /// the user has seen has no row: it is in the history. A new turn
-    /// clears it.
+    /// Has this turn's end been seen and let go? The shell lets it go at the
+    /// close of the bar after it was seen (on the bar or in the balloon); a
+    /// chat let go has no row: it is in the history. A new turn clears it.
     public private(set) var seen = false
     /// Did this turn's `result` arrive? An exit without one is a crash.
     private var resultSeen = false
@@ -431,7 +431,8 @@ public struct ChatSession: Equatable {
     /// Has the turn ended — answered, stopped or failed — with nothing running?
     public var isFinished: Bool { !isRunning && (phase == .review || phase == .failed) }
 
-    /// The balloon drew this chat's end. `true` when that changed anything.
+    /// This chat's seen end is let go (the shell's release at a close of the
+    /// bar). `true` when that changed anything.
     @discardableResult
     public mutating func markSeen() -> Bool {
         guard isFinished, !seen else { return false }

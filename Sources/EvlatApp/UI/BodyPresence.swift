@@ -3,7 +3,7 @@ import EvlatCore
 
 /// How much of the body is out of the screen's edge, and the geometry that
 /// follows from it — one pure rule, read the way `MascotModel.isAwake` and
-/// the `Aggregator` are: a function of its inputs, the same answer wherever
+/// `Registry.Snapshot` are: a function of its inputs, the same answer wherever
 /// it is asked. The controller derives it after every input changes and is
 /// the only one to write what it says; no call site sets a level by hand, so
 /// hover, balloon, drag and phase can never race to be the last writer.
