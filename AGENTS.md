@@ -22,6 +22,8 @@ chat jobs and external commands enter the same way.
 
 ```
 Package.swift
+CHANGELOG.md         release notes, `## x.y.z` per version; shown on the release
+                     page and in the update window
 Sources/EvlatCore/   pure core: Foundation + Dispatch only
 Sources/EvlatApp/    AppKit + SwiftUI shell; the NWListener transport lives here
 Sources/Evlat/       main.swift — classifies argv (app, `watch`, `signal`, help)
@@ -33,6 +35,7 @@ scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist an
                         of the signature (ad-hoc, or EVLAT_SIGN_IDENTITY) and
                         the version (EVLAT_VERSION, EVLAT_BUILD)
 scripts/make-appcast.sh writes Sparkle's one-item appcast for a release
+scripts/release-notes.sh prints one version's section of CHANGELOG.md
 scripts/make-icon.swift draws the app icon; no image is checked in
 Makefile
 ```

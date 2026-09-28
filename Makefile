@@ -103,6 +103,10 @@ install: bundle
 # root, which breaks its seal — Gatekeeper then calls the app damaged. The
 # notarization ticket is a file inside the bundle, not an attribute.
 #
+# Notes come from CHANGELOG.md's `## x.y.z` section (scripts/release-notes.sh),
+# read from the built commit, so they are committed before `release` runs. No
+# section, no notes: the release page and the update window say nothing.
+#
 # Installed copies update from FEED_URL: GitHub serves the newest release's
 # appcast.xml there, so publishing a release is publishing the update.
 RELEASE_IDENTITY ?= $(shell security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
@@ -114,6 +118,7 @@ RELEASE_DIR = build/release/$(VERSION)
 RELEASE_ZIP = $(RELEASE_DIR)/Evlat-$(VERSION).zip
 RELEASE_COMMIT = $(RELEASE_DIR)/commit
 RELEASE_DMG = $(RELEASE_DIR)/Evlat.dmg
+RELEASE_NOTES = $(RELEASE_DIR)/notes.md
 RELEASE_URL = https://github.com/$(REPO)/releases/download/v$(VERSION)/Evlat-$(VERSION).zip
 
 # Fails unless VERSION is x.y.z and v$(VERSION) is unused, locally and on origin.
@@ -139,7 +144,8 @@ release:
 	xcrun stapler staple build/Evlat.app
 	spctl -a -vv -t exec build/Evlat.app
 	ditto -c -k --norsrc --noextattr --keepParent build/Evlat.app '$(RELEASE_ZIP)'
-	./scripts/make-appcast.sh build/Evlat.app '$(RELEASE_ZIP)' '$(RELEASE_URL)' '$(RELEASE_DIR)/appcast.xml'
+	./scripts/release-notes.sh '$(VERSION)' > '$(RELEASE_NOTES)'
+	./scripts/make-appcast.sh build/Evlat.app '$(RELEASE_ZIP)' '$(RELEASE_URL)' '$(RELEASE_DIR)/appcast.xml' '$(RELEASE_NOTES)'
 	mkdir -p '$(RELEASE_DIR)/dmg'
 	ditto build/Evlat.app '$(RELEASE_DIR)/dmg/Evlat.app'
 	ln -s /Applications '$(RELEASE_DIR)/dmg/Applications'
@@ -157,13 +163,13 @@ release:
 # publish a commit no branch holds.
 publish:
 	$(call check_version)
-	@test -f '$(RELEASE_ZIP)' -a -f '$(RELEASE_DMG)' -a -f '$(RELEASE_DIR)/appcast.xml' -a -f '$(RELEASE_COMMIT)' || { echo "No $(RELEASE_DIR); run make release VERSION=$(VERSION) first"; exit 1; }
+	@test -f '$(RELEASE_ZIP)' -a -f '$(RELEASE_DMG)' -a -f '$(RELEASE_DIR)/appcast.xml' -a -f '$(RELEASE_NOTES)' -a -f '$(RELEASE_COMMIT)' || { echo "No $(RELEASE_DIR); run make release VERSION=$(VERSION) first"; exit 1; }
 	git fetch -q origin main
 	@git merge-base --is-ancestor "$$(cat '$(RELEASE_COMMIT)')" origin/main || { echo "The built commit is not on origin/main; push main first"; exit 1; }
 	git tag -a 'v$(VERSION)' -m 'Evlat $(VERSION)' "$$(cat '$(RELEASE_COMMIT)')"
 	git push origin 'v$(VERSION)'
 	gh release create 'v$(VERSION)' '$(RELEASE_DMG)' '$(RELEASE_ZIP)' '$(RELEASE_DIR)/appcast.xml' \
-		--repo '$(REPO)' --verify-tag --latest --title 'Evlat $(VERSION)' --generate-notes
+		--repo '$(REPO)' --verify-tag --latest --title 'Evlat $(VERSION)' --notes-file '$(RELEASE_NOTES)'
 	@echo "Published: v$(VERSION)"
 
 # Refuses off main before the notarization wait, not after: `publish` needs
