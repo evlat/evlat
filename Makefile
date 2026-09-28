@@ -97,6 +97,12 @@ install: bundle
 # `releases/latest/download/Evlat.dmg` is a link that never goes stale. It is
 # signed and notarized on its own, a second wait, so it opens offline too.
 #
+# Zips carry no extended attributes (`--norsrc --noextattr`): ditto would
+# store them as `._` files beside each item, and an unzipper that cannot put
+# them back on a symlink (Sparkle.framework's) leaves them in the framework's
+# root, which breaks its seal — Gatekeeper then calls the app damaged. The
+# notarization ticket is a file inside the bundle, not an attribute.
+#
 # Installed copies update from FEED_URL: GitHub serves the newest release's
 # appcast.xml there, so publishing a release is publishing the update.
 RELEASE_IDENTITY ?= $(shell security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
@@ -127,12 +133,12 @@ release:
 		EVLAT_FEED_URL='$(FEED_URL)' EVLAT_ED_KEY='$(SPARKLE_KEY)' ./scripts/bundle-app.sh
 	codesign --verify --deep --strict --verbose=2 build/Evlat.app
 	rm -rf '$(RELEASE_DIR)' && mkdir -p '$(RELEASE_DIR)'
-	ditto -c -k --keepParent build/Evlat.app '$(RELEASE_DIR)/notarize.zip'
+	ditto -c -k --norsrc --noextattr --keepParent build/Evlat.app '$(RELEASE_DIR)/notarize.zip'
 	xcrun notarytool submit '$(RELEASE_DIR)/notarize.zip' --keychain-profile '$(NOTARY_PROFILE)' --wait
 	rm -f '$(RELEASE_DIR)/notarize.zip'
 	xcrun stapler staple build/Evlat.app
 	spctl -a -vv -t exec build/Evlat.app
-	ditto -c -k --keepParent build/Evlat.app '$(RELEASE_ZIP)'
+	ditto -c -k --norsrc --noextattr --keepParent build/Evlat.app '$(RELEASE_ZIP)'
 	./scripts/make-appcast.sh build/Evlat.app '$(RELEASE_ZIP)' '$(RELEASE_URL)' '$(RELEASE_DIR)/appcast.xml'
 	mkdir -p '$(RELEASE_DIR)/dmg'
 	ditto build/Evlat.app '$(RELEASE_DIR)/dmg/Evlat.app'

@@ -525,6 +525,14 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **`dash` runs the parent's trap in a subshell until the subshell sets its
   own.** Start background jobs **before** installing traps.
 
+- **`ditto -c -k` keeps extended attributes as `._` files in the zip.**
+  The framework's symlinks carry `com.apple.provenance`, which cannot be
+  removed; a browser's unzip left `._Autoupdate` and friends in
+  `Sparkle.framework`'s root and Gatekeeper rejected the notarized 0.1.0
+  ("unsealed contents present in the root directory of an embedded
+  framework"). `ditto -x -k` puts them back, so a test that extracts with it
+  passes. Zip with `--norsrc --noextattr`.
+
 ### Measuring and running
 
 - **Measure a binary started by absolute path.** A relative path is invisible
