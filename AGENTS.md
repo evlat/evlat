@@ -338,6 +338,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | window, bar, mascot or menu touched | `make bundle && make run`, then look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
+| ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |
 | release build | `make release VERSION=x.y.z` — clean tree; Developer ID, hardened runtime, notarized and stapled zip and its appcast in `build/release/x.y.z/`; needs the keychain identity, the `evlat` notarytool profile and Sparkle's EdDSA key (`SPARKLE_KEY` is its public half) |
 | publish | `make publish VERSION=x.y.z` — the user's call: tags the built commit, pushes the tag, creates the GitHub release with the zip and `appcast.xml` — every installed copy updates from it |
 

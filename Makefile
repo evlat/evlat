@@ -1,4 +1,4 @@
-.PHONY: build test all bundle run install release publish clean
+.PHONY: build test all bundle run install release publish ship clean
 
 build:
 	swift build
@@ -63,7 +63,12 @@ install: bundle
 	open '$(APP_DIR)/Evlat.app' || { sleep 1; open '$(APP_DIR)/Evlat.app'; }
 	@echo "Installed: $(APP_DIR)/Evlat.app"
 
-# Releasing is two steps, both run on this machine:
+# Shipping a version is one command, run on this machine:
+#
+#   make ship VERSION=0.2.0      release, push main, publish — the whole way
+#
+# It is the two steps below plus the push between them; they stay callable on
+# their own for when the zip should be tried before anything is public.
 #
 #   make release VERSION=0.2.0   build, sign, notarize, staple, write the
 #                                appcast → build/release/0.2.0/; nothing leaves
@@ -134,6 +139,14 @@ publish:
 	gh release create 'v$(VERSION)' '$(RELEASE_ZIP)' '$(RELEASE_DIR)/appcast.xml' \
 		--repo '$(REPO)' --verify-tag --latest --title 'Evlat $(VERSION)' --generate-notes
 	@echo "Published: v$(VERSION)"
+
+# Refuses off main before the notarization wait, not after: `publish` needs
+# the built commit on origin/main, and only main is pushed here.
+ship:
+	@test "$$(git branch --show-current)" = main || { echo "make ship runs on main"; exit 1; }
+	$(MAKE) release VERSION='$(VERSION)'
+	git push origin main
+	$(MAKE) publish VERSION='$(VERSION)'
 
 clean:
 	rm -rf .build build
