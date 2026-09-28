@@ -29,7 +29,9 @@ Tests/EvlatCoreTests/
 Tests/EvlatAppTests/
 Tests/Fixtures/      fake `claude`, fake `ssh`
 Resources/{en,tr}.lproj/Evlat.strings
-scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist
+scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
+                        of the signature (ad-hoc, or EVLAT_SIGN_IDENTITY) and
+                        the version (EVLAT_VERSION, EVLAT_BUILD)
 scripts/make-icon.swift draws the app icon; no image is checked in
 Makefile
 ```
@@ -333,6 +335,8 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | window, bar, mascot or menu touched | `make bundle && make run`, then look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
+| release build | `make release VERSION=x.y.z` — clean tree; Developer ID, hardened runtime, notarized and stapled `build/Evlat-x.y.z.zip`; needs the keychain identity and the `evlat` notarytool profile |
+| publish | `make publish VERSION=x.y.z` — the user's call: tags the built commit, pushes the tag, creates the GitHub release |
 
 `make run` and `make install` stop **both** copies (`build/` and
 `/Applications/`) first: two Evlats race for port 48151 and the loser's hooks go
