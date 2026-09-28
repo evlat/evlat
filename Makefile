@@ -71,10 +71,12 @@ install: bundle
 # their own for when the zip should be tried before anything is public.
 #
 #   make release VERSION=0.2.0   build, sign, notarize, staple, write the
-#                                appcast → build/release/0.2.0/; nothing leaves
-#                                the machine except the notarization upload
+#                                appcast and the disk image →
+#                                build/release/0.2.0/; nothing leaves the
+#                                machine except the notarization uploads
 #   make publish VERSION=0.2.0   tag the built commit, push the tag, create the
-#                                GitHub release with the zip and the appcast
+#                                GitHub release with the zip, the appcast and
+#                                the disk image
 #
 # The split is the point: the zip is tried on this machine before anything is
 # public. `release` requires a clean tree and records the commit it built;
@@ -87,6 +89,14 @@ install: bundle
 # zip sent to Apple is not stapled; the one left behind is rebuilt from the
 # stapled app, and only that one is signed for Sparkle.
 #
+# Two archives of the same stapled app, for two readers. The zip is Sparkle's:
+# the appcast names it by version. The disk image is a person's first install:
+# the app beside an Applications link, so it is dragged there — Sparkle cannot
+# replace an app run from Downloads (App Translocation), and the login item
+# and ~/.local/bin/evlat point into /Applications. Its name has no version so
+# `releases/latest/download/Evlat.dmg` is a link that never goes stale. It is
+# signed and notarized on its own, a second wait, so it opens offline too.
+#
 # Installed copies update from FEED_URL: GitHub serves the newest release's
 # appcast.xml there, so publishing a release is publishing the update.
 RELEASE_IDENTITY ?= $(shell security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
@@ -97,6 +107,7 @@ FEED_URL = https://github.com/$(REPO)/releases/latest/download/appcast.xml
 RELEASE_DIR = build/release/$(VERSION)
 RELEASE_ZIP = $(RELEASE_DIR)/Evlat-$(VERSION).zip
 RELEASE_COMMIT = $(RELEASE_DIR)/commit
+RELEASE_DMG = $(RELEASE_DIR)/Evlat.dmg
 RELEASE_URL = https://github.com/$(REPO)/releases/download/v$(VERSION)/Evlat-$(VERSION).zip
 
 # Fails unless VERSION is x.y.z and v$(VERSION) is unused, locally and on origin.
@@ -123,6 +134,15 @@ release:
 	spctl -a -vv -t exec build/Evlat.app
 	ditto -c -k --keepParent build/Evlat.app '$(RELEASE_ZIP)'
 	./scripts/make-appcast.sh build/Evlat.app '$(RELEASE_ZIP)' '$(RELEASE_URL)' '$(RELEASE_DIR)/appcast.xml'
+	mkdir -p '$(RELEASE_DIR)/dmg'
+	ditto build/Evlat.app '$(RELEASE_DIR)/dmg/Evlat.app'
+	ln -s /Applications '$(RELEASE_DIR)/dmg/Applications'
+	hdiutil create -quiet -volname Evlat -srcfolder '$(RELEASE_DIR)/dmg' -fs HFS+ -format UDZO '$(RELEASE_DMG)'
+	rm -rf '$(RELEASE_DIR)/dmg'
+	codesign --sign '$(RELEASE_IDENTITY)' --timestamp '$(RELEASE_DMG)'
+	xcrun notarytool submit '$(RELEASE_DMG)' --keychain-profile '$(NOTARY_PROFILE)' --wait
+	xcrun stapler staple '$(RELEASE_DMG)'
+	spctl -a -vv -t open --context context:primary-signature '$(RELEASE_DMG)'
 	git rev-parse HEAD > '$(RELEASE_COMMIT)'
 	@echo "Released: $(RELEASE_DIR) ($$(cat '$(RELEASE_COMMIT)'))"
 	@echo "Try build/Evlat.app, then: make publish VERSION=$(VERSION)"
@@ -131,12 +151,12 @@ release:
 # publish a commit no branch holds.
 publish:
 	$(call check_version)
-	@test -f '$(RELEASE_ZIP)' -a -f '$(RELEASE_DIR)/appcast.xml' -a -f '$(RELEASE_COMMIT)' || { echo "No $(RELEASE_DIR); run make release VERSION=$(VERSION) first"; exit 1; }
+	@test -f '$(RELEASE_ZIP)' -a -f '$(RELEASE_DMG)' -a -f '$(RELEASE_DIR)/appcast.xml' -a -f '$(RELEASE_COMMIT)' || { echo "No $(RELEASE_DIR); run make release VERSION=$(VERSION) first"; exit 1; }
 	git fetch -q origin main
 	@git merge-base --is-ancestor "$$(cat '$(RELEASE_COMMIT)')" origin/main || { echo "The built commit is not on origin/main; push main first"; exit 1; }
 	git tag -a 'v$(VERSION)' -m 'Evlat $(VERSION)' "$$(cat '$(RELEASE_COMMIT)')"
 	git push origin 'v$(VERSION)'
-	gh release create 'v$(VERSION)' '$(RELEASE_ZIP)' '$(RELEASE_DIR)/appcast.xml' \
+	gh release create 'v$(VERSION)' '$(RELEASE_DMG)' '$(RELEASE_ZIP)' '$(RELEASE_DIR)/appcast.xml' \
 		--repo '$(REPO)' --verify-tag --latest --title 'Evlat $(VERSION)' --generate-notes
 	@echo "Published: v$(VERSION)"
 

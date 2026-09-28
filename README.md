@@ -33,7 +33,13 @@ Evlat asks for no macOS permissions. Its local API listens only on loopback.
 - Optional: [Claude Code](https://docs.claude.com/en/docs/claude-code) and/or
   Codex CLI; the chat bubble needs `claude` on your `PATH`
 
-## Build and install
+## Install
+
+Download [**Evlat.dmg**](https://github.com/evlat/evlat/releases/latest/download/Evlat.dmg),
+open it and drag Evlat into Applications. It is signed and notarized, and
+updates itself (**Check for Updates…** in its menu; it also checks daily).
+
+## Build from source
 
 ```sh
 git clone https://github.com/evlat/evlat.git && cd evlat
@@ -45,9 +51,9 @@ session hooks, chat and optional extras. Everything it installs can also be
 changed later in **Settings** (⌘,), and every button that writes a file shows
 which file it writes and offers a copy-paste alternative.
 
-> **Signing.** The bundle is ad-hoc signed. It runs on the machine that built
-> it; a copy downloaded from elsewhere will be stopped by Gatekeeper. Build
-> from source for now.
+> **Signing.** A build from source is ad-hoc signed and has no updater: it
+> runs on the machine that built it and never replaces itself. Releases are
+> made with `make ship VERSION=x.y.z` (Developer ID, notarized, Sparkle).
 
 Other targets:
 
