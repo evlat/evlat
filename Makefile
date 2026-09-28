@@ -86,7 +86,7 @@ install: bundle
 # appcast.xml there, so publishing a release is publishing the update.
 RELEASE_IDENTITY ?= $(shell security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)
 NOTARY_PROFILE ?= evlat
-SPARKLE_KEY =
+SPARKLE_KEY = WC9PPr7SL5v2LvmQShrOYVEawDoB5wWngrinpVZE6Tw=
 REPO = evlat/evlat
 FEED_URL = https://github.com/$(REPO)/releases/latest/download/appcast.xml
 RELEASE_DIR = build/release/$(VERSION)
