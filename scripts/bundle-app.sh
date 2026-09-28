@@ -8,6 +8,11 @@
 # No entitlements: the app is not sandboxed, uses no JIT, and the hardened
 # runtime does not restrict spawning `claude`, `ssh` or `curl`.
 #
+# Updates: EVLAT_FEED_URL and EVLAT_ED_KEY (Sparkle's public key) go into
+# Info.plist together or not at all. `make release` passes both; a bundle
+# without them has no updater (`Updater.feed`), so a development build never
+# offers to replace itself with the release.
+#
 # Version: EVLAT_VERSION (x.y.z) and EVLAT_BUILD (an integer) are written into
 # Info.plist; `make release` passes them. Without them the bundle says 0.0.0
 # (0), so a development build can never be mistaken for a release.
@@ -42,6 +47,18 @@ APP="build/Evlat.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Evlat"
+
+# Sparkle. `ditto` keeps the framework's Versions/Current symlinks. The XPC
+# services are only for sandboxed hosts, and Evlat is not one: removed, they
+# are two fewer things to sign and notarize. SwiftPM links the binary against
+# @rpath but only looks next to it (@loader_path); in the bundle the framework
+# is in ../Frameworks. install_name_tool breaks the linker's signature — the
+# signing below replaces it.
+FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework"
+mkdir -p "$APP/Contents/Frameworks"
+ditto ".build/release/Sparkle.framework" "$FRAMEWORK"
+rm -rf "$FRAMEWORK/XPCServices" "$FRAMEWORK/Versions/B/XPCServices"
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Evlat"
 for l in Resources/*.lproj; do [ -d "$l" ] && cp -R "$l" "$APP/Contents/Resources/"; done
 
 # The app icon is drawn by scripts/make-icon.swift — its only source; no image
@@ -60,6 +77,16 @@ find "$APP" -name '.DS_Store' -delete
 
 VERSION="${EVLAT_VERSION:-0.0.0}"
 BUILD="${EVLAT_BUILD:-0}"
+UPDATES=""
+if [ -n "${EVLAT_FEED_URL:-}" ] || [ -n "${EVLAT_ED_KEY:-}" ]; then
+  if [ -z "${EVLAT_FEED_URL:-}" ] || [ -z "${EVLAT_ED_KEY:-}" ]; then
+    echo "EVLAT_FEED_URL and EVLAT_ED_KEY go together" >&2
+    exit 1
+  fi
+  UPDATES="  <key>SUFeedURL</key><string>$EVLAT_FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$EVLAT_ED_KEY</string>
+  <key>SUEnableAutomaticChecks</key><true/>"
+fi
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -78,6 +105,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Evlat</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
+$UPDATES
 </dict>
 </plist>
 PLIST
@@ -93,6 +121,12 @@ if [ "$IDENTITY" = "-" ]; then
 else
   SIGN=(codesign --force --sign "$IDENTITY" --options runtime --timestamp)
 fi
+# Inside out: each nested executable before what contains it, the app last.
+# `--deep` would sign them all with the app's options, which Apple advises
+# against for anything that is shipped.
+for item in "$FRAMEWORK/Versions/B/Autoupdate" "$FRAMEWORK/Versions/B/Updater.app" "$FRAMEWORK"; do
+  "${SIGN[@]}" "$item" || { echo "codesign failed on $item" >&2; exit 1; }
+done
 if ! "${SIGN[@]}" "$APP"; then
   echo "codesign failed; the bundle is not sealed" >&2
   exit 1

@@ -32,12 +32,15 @@ Resources/{en,tr}.lproj/Evlat.strings
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
                         of the signature (ad-hoc, or EVLAT_SIGN_IDENTITY) and
                         the version (EVLAT_VERSION, EVLAT_BUILD)
+scripts/make-appcast.sh writes Sparkle's one-item appcast for a release
 scripts/make-icon.swift draws the app icon; no image is checked in
 Makefile
 ```
 
 Swift 5 language mode, macOS 14 minimum (`PhaseAnimator` and
-`KeyframeAnimator` come from there). No third-party dependencies.
+`KeyframeAnimator` come from there). One third-party dependency: Sparkle, the
+shell's updater (`Updater.swift`, the only file that imports it); the core
+never sees it.
 
 ## Architecture
 
@@ -335,8 +338,8 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | window, bar, mascot or menu touched | `make bundle && make run`, then look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
-| release build | `make release VERSION=x.y.z` — clean tree; Developer ID, hardened runtime, notarized and stapled `build/Evlat-x.y.z.zip`; needs the keychain identity and the `evlat` notarytool profile |
-| publish | `make publish VERSION=x.y.z` — the user's call: tags the built commit, pushes the tag, creates the GitHub release |
+| release build | `make release VERSION=x.y.z` — clean tree; Developer ID, hardened runtime, notarized and stapled zip and its appcast in `build/release/x.y.z/`; needs the keychain identity, the `evlat` notarytool profile and Sparkle's EdDSA key (`SPARKLE_KEY` is its public half) |
+| publish | `make publish VERSION=x.y.z` — the user's call: tags the built commit, pushes the tag, creates the GitHub release with the zip and `appcast.xml` — every installed copy updates from it |
 
 `make run` and `make install` stop **both** copies (`build/` and
 `/Applications/`) first: two Evlats race for port 48151 and the loser's hooks go
@@ -366,6 +369,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
 | `EVLAT_BODY` | force the body's mode (`always`, `smart`, `hidden`) at launch; the stored mode is never written |
 | `EVLAT_CLAUDE` | `claude` to run (tests use `Tests/Fixtures/fake-claude`) |
+| `EVLAT_FEED` | the appcast to check; the only way an isolated launch gets an updater (a release bundle otherwise checks its `SUFeedURL`, a development bundle nothing) |
 
 Run the binary directly for these — `open` does not carry the environment.
 

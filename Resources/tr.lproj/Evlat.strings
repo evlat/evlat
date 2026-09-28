@@ -379,6 +379,7 @@
 
 /* Kurulum penceresi (014/phase-3) */
 "menu.setup" = "Kurulum…";
+"menu.update" = "Güncellemeleri Denetle…";
 "settings.general.setup" = "Kurulum";
 "settings.general.setup.detail" = "İlk açılıştaki adımları yeniden gez.";
 "settings.general.setup.open" = "Kurulumu aç…";

@@ -437,6 +437,7 @@
 
 /* The setup window (014/phase-3) */
 "menu.setup" = "Setup…";
+"menu.update" = "Check for Updates…";
 "settings.general.setup" = "Setup";
 "settings.general.setup.detail" = "Walk through the first launch's steps again.";
 "settings.general.setup.open" = "Open Setup…";

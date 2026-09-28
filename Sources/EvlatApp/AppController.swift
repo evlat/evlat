@@ -40,6 +40,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// (`LoginItem.service(environment:)`). `nil` — every test that does not
     /// hand one — has no row and never calls it.
     let loginItem: LoginItem?
+    /// "Check for Updates…". Handed in like `loginItem`: only `launch()`
+    /// builds one, and only for a bundle with a feed (`Updater.feed`). `nil`
+    /// — every test that does not hand one, every development build — has no
+    /// menu line.
+    let updater: Updater?
     /// This process's binary, what `~/.local/bin/evlat` points at. A test
     /// points it at a bundle of its own.
     var executable: URL? = Bundle.main.executableURL
@@ -1107,10 +1112,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         self.init(defaults: defaults, home: home, loginItem: nil)
     }
 
-    init(defaults: UserDefaults?, home: URL?, loginItem: LoginItem?) {
+    init(defaults: UserDefaults?, home: URL?, loginItem: LoginItem?, updater: Updater? = nil) {
         self.defaults = defaults
         self.home = home
         self.loginItem = loginItem
+        self.updater = updater
         super.init()
     }
 
@@ -2152,6 +2158,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The menus' "Setup…".
     @objc func openSetupFromMenu(_ sender: Any?) { openSetup() }
 
+    @objc func checkForUpdates(_ sender: Any?) { updater?.check() }
+
     /// At launch: `EVLAT_SETUP` opens the setup at its step for looking,
     /// writing nothing; otherwise it opens once, by itself, for someone who
     /// has set nothing up (`SetupTrigger`) — and is marked shown as it
@@ -2242,7 +2250,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             let environment = ProcessInfo.processInfo.environment
             let controller = AppController(
                 defaults: .standard, home: resolvedHome(),
-                loginItem: LoginItem(service: LoginItem.service(environment: environment)))
+                loginItem: LoginItem(service: LoginItem.service(environment: environment)),
+                updater: Updater.feed(info: Bundle.main.infoDictionary ?? [:], environment: environment)
+                    .map { Updater.sparkle(feed: $0) })
             app.delegate = controller
             app.run()
         }
@@ -2889,6 +2899,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let setup = menu.addItem(withTitle: L10n.t("menu.setup", in: lang),
                                  action: #selector(openSetupFromMenu(_:)), keyEquivalent: "")
         setup.target = self
+        if updater != nil {
+            let update = menu.addItem(withTitle: L10n.t("menu.update", in: lang),
+                                      action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+            update.target = self
+        }
         let quit = menu.addItem(withTitle: L10n.t("menu.quit", in: lang),
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
