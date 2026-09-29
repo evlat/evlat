@@ -150,7 +150,7 @@ enum SessionHost: Equatable {
     @discardableResult
     static func activate(_ app: App) -> Bool {
         guard let running = NSRunningApplication(processIdentifier: app.pid),
-              !running.isTerminated else { return false }
+              !running.isTerminated, !WindowStage.isOffstage else { return false }
         if let tab = app.tab, let bundle = running.bundleURL {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
