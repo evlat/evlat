@@ -528,6 +528,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   animator proxy as `self`; `super.alphaValue` then crashed
   (`EXC_BAD_ACCESS` in `-[NSWindow setAlphaValue:]`). Clamp the value at
   the call site instead (`WindowStage.alpha`).
+- **A view can be looked at without the screen.** `ImageRenderer` draws a
+  SwiftUI view to a PNG offscreen (no window, no Screen Recording). It draws
+  a `ScrollView`'s content as nothing and an AppKit control (`Toggle`'s
+  switch) as a yellow placeholder: judge the layout, not those. A greedy
+  `ScrollView` also pushed the setup's chapter to the top; content that fits
+  goes unscrolled (`ViewThatFits`).
 - **`NSLog` is unreadable in the unified log for this app** (`<private>`;
   `%{public}@` is an `os_log` specifier, not a fix). Read stderr by running the
   binary in the foreground.

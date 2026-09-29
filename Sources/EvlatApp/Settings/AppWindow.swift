@@ -105,7 +105,12 @@ final class AppWindow: NSObject, NSWindowDelegate {
 /// hosted field's Cut, Copy, Paste, Select All and Undo arrive through the
 /// main menu's key equivalents — without these a field would take no pasted
 /// `user@host`. Esc and ⌘W go the same way.
-final class AppKeyWindow: NSWindow {
+class AppKeyWindow: NSWindow {
+    /// A borderless window takes no keyboard by default; the setup's
+    /// full-screen stage does (`SetupWindow`).
+    var acceptsKey = false
+    override var canBecomeKey: Bool { acceptsKey || super.canBecomeKey }
+
     var onCancel: () -> Void = {}
     var onResignKey: () -> Void = {}
     /// Sees each key first: the shortcut recorder takes every key while it
@@ -146,7 +151,10 @@ final class AppKeyWindow: NSWindow {
         }
         let action: Selector?
         switch (key, flags == .command) {
-        case ("w", true): performClose(nil); return true
+        case ("w", true):
+            // Without a close button `performClose` only beeps.
+            if styleMask.contains(.closable) { performClose(nil) } else { close() }
+            return true
         case ("x", true): action = #selector(NSText.cut(_:))
         case ("c", true): action = #selector(NSText.copy(_:))
         case ("v", true): action = #selector(NSText.paste(_:))
