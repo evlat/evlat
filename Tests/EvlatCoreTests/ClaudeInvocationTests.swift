@@ -33,8 +33,8 @@ final class ClaudeInvocationTests: XCTestCase {
 
     func testEveryTurnNamesItsMode() {
         XCTAssertEqual(PermissionMode.standard, .auto)
-        XCTAssertEqual(PermissionMode.allCases.map(\.rawValue), ["default", "auto", "acceptEdits"],
-                       "the CLI's values; no bypassPermissions, no dontAsk")
+        XCTAssertEqual(PermissionMode.allCases.map(\.rawValue), ["default", "auto", "acceptEdits", "bypassPermissions"],
+                       "the CLI's values; no dontAsk")
         for mode in PermissionMode.allCases {
             for resume in [false, true] {
                 let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: resume, prompt: "hi",
@@ -44,9 +44,36 @@ final class ClaudeInvocationTests: XCTestCase {
                 XCTAssertEqual(call.arguments.filter { $0 == "--permission-mode" }.count, 1)
             }
         }
-        XCTAssertNil(PermissionMode(stored: "bypassPermissions"))
+        XCTAssertEqual(PermissionMode(stored: "bypassPermissions"), .bypass)
+        XCTAssertNil(PermissionMode(stored: "dontAsk"), "a mode this build does not offer falls back")
         XCTAssertNil(PermissionMode(stored: nil))
         XCTAssertEqual(PermissionMode(stored: "default"), .ask)
+    }
+
+    /// Bypass is only ever the chat's own mode flag, by its mode name — never
+    /// `--dangerously-skip-permissions` — and a started bypass turn still
+    /// carries the ask rules and the hook that turns them into cards.
+    func testABypassTurnKeepsTheAskRulesAndItsHook() throws {
+        let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: false, prompt: "hi",
+                                         attachments: [], directory: "/tmp/p", mode: .bypass)
+        let at = try XCTUnwrap(call.arguments.firstIndex(of: "--permission-mode"))
+        XCTAssertEqual(call.arguments[at + 1], "bypassPermissions")
+        XCTAssertFalse(call.arguments.contains { $0.hasPrefix("--dangerously") || $0.hasPrefix("--allow-dangerously") })
+        let endpoint = PermissionHook.Endpoint(port: 48999, token: "T")
+        let asking = call.asking(endpoint)
+        XCTAssertEqual(Array(asking.arguments.suffix(4)), ["--permission-prompts", "none", "--settings", endpoint.settings])
+        let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(endpoint.settings.utf8)) as? [String: Any])
+        XCTAssertEqual((settings["permissions"] as? [String: Any])?["ask"] as? [String], PermissionHook.askRules)
+    }
+
+    /// Only bypass asks before it is picked; the lists show it last, after
+    /// the recommended mode, and show every mode.
+    func testOnlyBypassAsksBeforeItIsPicked() {
+        XCTAssertEqual(PermissionMode.allCases.filter(\.asksBeforePicking), [.bypass])
+        XCTAssertEqual(PermissionMode.offered.first, .standard)
+        XCTAssertEqual(PermissionMode.offered.last, .bypass)
+        XCTAssertEqual(Set(PermissionMode.offered), Set(PermissionMode.allCases))
+        XCTAssertEqual(PermissionMode.offered.count, PermissionMode.allCases.count)
     }
 
     func testALaterTurnResumes() {

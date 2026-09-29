@@ -283,5 +283,5 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.summary.chat", "setup.flow.summary.chat.mode",
         "setup.flow.summary.login", "setup.flow.summary.command", "setup.flow.summary.command.manual",
         "settings.general.setup", "settings.general.setup.detail", "settings.general.setup.open",
-    ] + [PermissionMode.auto, .acceptEdits, .ask].map(modeSummaryKey)
+    ] + PermissionMode.offered.map(modeSummaryKey)
 }
