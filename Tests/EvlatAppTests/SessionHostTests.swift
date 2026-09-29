@@ -23,13 +23,15 @@ final class SessionHostTests: XCTestCase {
     private func probe(_ table: [Int32: Proc],
                        bundles: [String: (bundleID: String, name: String)] = [:],
                        running: [String: SessionHost.App] = [:],
-                       environment: [Int32: [String]] = [:]) -> SessionHost.Probe {
+                       environment: [Int32: [String]] = [:],
+                       directories: [Int32: String] = [:]) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
                           regularApp: { table[$0]?.app },
                           executablePath: { table[$0]?.path },
                           bundle: { bundles[$0] },
                           running: { running[$0] },
-                          environment: { environment[$0] ?? [] })
+                          environment: { environment[$0] ?? [] },
+                          workingDirectory: { directories[$0] })
     }
 
     func testADirectTerminal() {
@@ -216,6 +218,44 @@ final class SessionHostTests: XCTestCase {
         guard case .app(let app) = host else { return XCTFail("\(host)") }
         XCTAssertEqual(app.tab, URL(string: "metalterm://tab/12cc2c67c4d3a305"))
         XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table)), .app(metalterm), "no variable, no tab")
+    }
+
+    /// Ghostty publishes no tab link: the agent's own folder rides on the
+    /// app instead (`GhosttyFocus`), not the shell's or the terminal's.
+    func testTheAgentsFolderRidesOnGhostty() {
+        let ghostty = SessionHost.App(bundleID: GhosttyFocus.bundleID, name: "Ghostty", pid: 500)
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 700, path: "/bin/zsh"),
+            700: Proc(parent: 500, path: "/usr/bin/login"),
+            500: Proc(parent: 1, path: "/Applications/Ghostty.app/Contents/MacOS/ghostty", app: ghostty),
+        ]
+        let host = SessionHost.resolve(pid: 900, probe(table, environment: [900: [Self.metaltermTab]],
+                                                       directories: [900: "/Users/u/evlat", 800: "/Users/u"]))
+        guard case .app(let app) = host else { return XCTFail("\(host)") }
+        XCTAssertEqual(app.directory, "/Users/u/evlat")
+        XCTAssertNil(app.tab, "no tab link for Ghostty, whatever the environment holds")
+    }
+
+    /// Any other app never has the agent's folder read.
+    func testOnlyGhosttyHasTheFolderRead() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 600, path: "/Users/u/.local/bin/claude"),
+            600: Proc(parent: 1, path: "/Applications/Code.app/Contents/MacOS/Code", app: code),
+        ]
+        var read: [Int32] = []
+        var lookups = probe(table)
+        lookups.workingDirectory = { read.append($0); return "/x" }
+        XCTAssertEqual(SessionHost.resolve(pid: 900, lookups), .app(code))
+        XCTAssertEqual(read, [])
+    }
+
+    /// The live lookup reads this process's own folder.
+    func testTheLiveFolderLookup() {
+        XCTAssertEqual(SessionHost.workingDirectory(getpid()).map { ($0 as NSString).resolvingSymlinksInPath },
+                       (FileManager.default.currentDirectoryPath as NSString).resolvingSymlinksInPath)
+        XCTAssertNil(SessionHost.workingDirectory(0))
+        XCTAssertNil(SessionHost.workingDirectory(-1))
     }
 
     /// An app with no tab link never has the agent's environment read.

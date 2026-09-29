@@ -10,7 +10,9 @@ import Darwin
 /// `proc_pidpath`, `Bundle` and `NSRunningApplication` read what any process
 /// may read of its user's own. Choosing the tab inside the app would need
 /// one (Accessibility, Apple Events) — except where the app publishes its own
-/// link to the tab: see `TabLink`.
+/// link to the tab: see `TabLink`. Ghostty publishes none; there the
+/// terminal is found and focused over Apple Events, asked for at the click
+/// (`GhosttyFocus`).
 ///
 /// **Not cached.** It is resolved when the card comes up and again on the
 /// click: the app may have quit or come back in between.
@@ -30,6 +32,12 @@ enum SessionHost: Equatable {
         /// The session's own tab in that app, when the app publishes a link
         /// to it (`TabLink`); activation then opens it instead.
         var tab: URL? = nil
+        /// The agent's working directory, read only for Ghostty: what its
+        /// terminal is found by (`GhosttyFocus`).
+        var directory: String? = nil
+        /// The session's name, written at the click: tells two Ghostty
+        /// terminals in the same folder apart by their titles.
+        var label: String? = nil
     }
 
     /// The lookups the walk makes, injected so the walk has no Darwin in it.
@@ -47,6 +55,8 @@ enum SessionHost: Equatable {
         var running: (String) -> App?
         /// A process's environment as it was at `exec`, `NAME=value` lines.
         var environment: (Int32) -> [String] = { _ in [] }
+        /// A process's current working directory.
+        var workingDirectory: (Int32) -> String? = { _ in nil }
     }
 
     /// A guard against a broken chain; real chains are under ten.
@@ -72,6 +82,10 @@ enum SessionHost: Equatable {
             // tab link, and only its one variable is kept.
             if TabLink.of(app.bundleID) != nil {
                 app.tab = TabLink.url(bundleID: app.bundleID, environment: probe.environment(agent))
+            }
+            // Likewise the working directory, only for Ghostty.
+            if app.bundleID == GhosttyFocus.bundleID {
+                app.directory = probe.workingDirectory(agent)
             }
             return .app(app)
         case let other:
@@ -134,7 +148,7 @@ enum SessionHost: Equatable {
 
     static let live = Probe(parent: parentPID, regularApp: regularApp,
                             executablePath: executablePath, bundle: bundle, running: runningApp,
-                            environment: environment)
+                            environment: environment, workingDirectory: workingDirectory)
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }
 
@@ -160,7 +174,34 @@ enum SessionHost: Equatable {
             }
             return true
         }
+        if app.bundleID == GhosttyFocus.bundleID, let directory = app.directory {
+            // Off the main thread: the first time, the event waits on the
+            // permission prompt. Focused, Ghostty is brought forward without
+            // its other windows, so the focused one stays in front; not
+            // focused, as before.
+            let label = app.label
+            DispatchQueue.global(qos: .userInitiated).async {
+                let focused = GhosttyFocus.focus(directory: directory, label: label)
+                DispatchQueue.main.async {
+                    running.activate(options: focused ? [] : [.activateAllWindows])
+                }
+            }
+            return true
+        }
         return running.activate(options: [.activateAllWindows])
+    }
+
+    /// The process's current directory (`PROC_PIDVNODEPATHINFO`), readable
+    /// without a permission for the user's own processes.
+    static func workingDirectory(_ pid: Int32) -> String? {
+        guard pid > 0 else { return nil }
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { raw in
+            String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
+        }
+        return path.hasPrefix("/") ? path : nil
     }
 
     /// `sysctl` answers an unknown pid with success and an empty result, so

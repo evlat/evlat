@@ -15,6 +15,13 @@ final class GoToSessionTests: XCTestCase {
     }
 
     private let term = SessionHost.App(bundleID: "dev.metalterm.Metalterm", name: "Metalterm", pid: 500)
+    /// What the click hands on: the app with the session's name for its
+    /// terminal lookup (`GhosttyFocus`).
+    private func labelled(_ app: SessionHost.App, _ label: String = "a") -> SessionHost.App {
+        var app = app
+        app.label = label
+        return app
+    }
     private var resolved: [Int32?] = []
     private var activated: [SessionHost.App] = []
 
@@ -71,7 +78,7 @@ final class GoToSessionTests: XCTestCase {
         defer { controller.panel?.close() }
         controller.select("a")
         controller.goToSession()
-        XCTAssertEqual(activated, [term])
+        XCTAssertEqual(activated, [labelled(term)])
         XCTAssertEqual(resolved.count, 2, "looked up again at the click")
         XCTAssertFalse(controller.barState.isOpen)
         XCTAssertNil(controller.barState.selected)
@@ -120,7 +127,7 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertFalse(onClick(CGPoint(x: 40 - 1, y: 310)), "beside it: not ours")
         XCTAssertEqual(activated, [])
         XCTAssertTrue(onClick(CGPoint(x: 60, y: 310)))
-        XCTAssertEqual(activated, [term])
+        XCTAssertEqual(activated, [labelled(term)])
 
         controller.goButtonFrameChanged(nil)
         XCTAssertFalse(onClick(CGPoint(x: 60, y: 310)), "no card, no button")

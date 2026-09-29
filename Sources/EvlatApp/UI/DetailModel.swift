@@ -131,7 +131,8 @@ public final class DetailModel: ObservableObject {
             current.host = host
             detail = current
         }
-        guard case .app(let app) = host else { return false }
+        guard case .app(var app) = host else { return false }
+        app.label = current.label
         return activate(app)
     }
 }

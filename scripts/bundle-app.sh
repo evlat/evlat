@@ -5,8 +5,9 @@
 # never touch the keychain. EVLAT_SIGN_IDENTITY (e.g. "Developer ID
 # Application: …") signs with that identity instead, with the hardened runtime
 # and a secure timestamp — both are required by notarization (`make release`).
-# No entitlements: the app is not sandboxed, uses no JIT, and the hardened
-# runtime does not restrict spawning `claude`, `ssh` or `curl`.
+# One entitlement, on the app only: Apple Events (`GhosttyFocus` — the hardened
+# runtime refuses them without it). The app is not sandboxed, uses no JIT, and
+# the hardened runtime does not restrict spawning `claude`, `ssh` or `curl`.
 #
 # Updates: EVLAT_FEED_URL and EVLAT_ED_KEY (Sparkle's public key) go into
 # Info.plist together or not at all. `make release` passes both; a bundle
@@ -19,7 +20,9 @@
 #
 # Ported from v1's script. DROPPED, and why:
 #   - the Resources/pets copy and the tools/ pruning — v2 has no pets.
-#   - five *UsageDescription plist keys — v2 asks for no permissions.
+#   - five *UsageDescription plist keys — v2 asks for one permission only:
+#     NSAppleEventsUsageDescription, for Ghostty's terminal (`GhosttyFocus`),
+#     localized in Resources/*.lproj/InfoPlist.strings.
 #   - the stable signing-identity block — its only reason was TCC folder
 #     permissions resetting on every build, and v2 has no such surface. Dropping
 #     it also removes the risk of codesign hanging forever on the keychain
@@ -105,6 +108,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Evlat</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>NSAppleEventsUsageDescription</key><string>Evlat opens the Ghostty window your session runs in.</string>
 $UPDATES
 </dict>
 </plist>
@@ -127,7 +131,19 @@ fi
 for item in "$FRAMEWORK/Versions/B/Autoupdate" "$FRAMEWORK/Versions/B/Updater.app" "$FRAMEWORK"; do
   "${SIGN[@]}" "$item" || { echo "codesign failed on $item" >&2; exit 1; }
 done
-if ! "${SIGN[@]}" "$APP"; then
+# The app alone carries the entitlement; Sparkle's pieces above send no events.
+ENTITLEMENTS="$(mktemp)"
+trap 'rm -f "$ENTITLEMENTS"' EXIT
+cat > "$ENTITLEMENTS" <<ENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>
+ENT
+if ! "${SIGN[@]}" --entitlements "$ENTITLEMENTS" "$APP"; then
   echo "codesign failed; the bundle is not sealed" >&2
   exit 1
 fi

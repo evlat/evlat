@@ -228,10 +228,15 @@ is lost with the process.
   gives its shells (`BATERI_TAB_URL`, `METALTERM_TAB_URL`, `WARP_FOCUS_URL`);
   in iTerm as `iterm2:reveal?sessionid=` the whole `ITERM_SESSION_ID`; in
   Claude's desktop app as `claude://code/continue?session=` its
-  `CLAUDE_CODE_HOST_SESSION_ID`. Terminal and Ghostty publish no link: their
-  tab would take Apple Events. All are read from the agent's exec-time
+  `CLAUDE_CODE_HOST_SESSION_ID`. All are read from the agent's exec-time
   environment (`KERN_PROCARGS2`) — no permission. The value is checked
-  (`TabLink`): `metalterm://tab/restart` is an action, not a tab.
+  (`TabLink`): `metalterm://tab/restart` is an action, not a tab. Terminal
+  publishes no link and only comes forward. Ghostty publishes none either
+  (1.3.1: no surface id in its shells' environment), so its terminal is
+  found over Apple Events (`GhosttyFocus`): the agent's working directory
+  (`proc_pidinfo`) against every terminal's `working directory`, the
+  session's name against the title when two share a folder, then `focus`.
+  No single match, or the permission refused: Ghostty only comes forward.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
   the effective phase, the finish latch, the peek, the open bar, the balloon
@@ -248,9 +253,12 @@ is lost with the process.
 
 ### Permissions
 
-**No macOS permission is requested.** Any path that needs Accessibility, Screen
-Recording, Apple Events or notifications is an architecture decision, not an
-implementation detail.
+**One macOS permission, and only when used:** Apple Events to Ghostty, asked
+the first time `[Go to session]` goes to a Ghostty session (`GhosttyFocus`,
+`NSAppleEventsUsageDescription`, the `automation.apple-events` entitlement in
+`scripts/bundle-app.sh`). Nothing else is requested. Any other path that needs
+Accessibility, Screen Recording, Apple Events or notifications is an
+architecture decision, not an implementation detail.
 
 ## Contracts
 

@@ -496,7 +496,9 @@ final class SelectionTests: XCTestCase {
         let button = CGRect(x: 40, y: AppController.slotTop(1) + 120, width: 230, height: 28)
         controller.goButtonFrameChanged(button)
         try click(NSPoint(x: button.midX, y: button.midY))
-        XCTAssertEqual(activated, [target])
+        var labelled = target
+        labelled.label = "b"
+        XCTAssertEqual(activated, [labelled], "the app, with the session's name for its terminal lookup")
         XCTAssertFalse(controller.barState.isOpen, "gone to the session: the list and card close")
         XCTAssertEqual(app.isActive, wasActive, "the click must not activate the app")
         XCTAssertFalse(panel.isKeyWindow)
