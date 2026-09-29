@@ -119,6 +119,12 @@ final class SetupFlowModel: ObservableObject {
         }
     }
 
+    /// The stage's close button: the setup goes, whatever step it is on,
+    /// with nothing more written.
+    func dismiss() {
+        close()
+    }
+
     /// "Not now": the next step, nothing written.
     func skip() {
         guard showsSkip else { return }
@@ -283,5 +289,7 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.summary.chat", "setup.flow.summary.chat.mode",
         "setup.flow.summary.login", "setup.flow.summary.command", "setup.flow.summary.command.manual",
         "settings.general.setup", "settings.general.setup.detail", "settings.general.setup.open",
+        "setup.story.close", "setup.story.demo.1", "setup.story.demo.2", "setup.story.demo.3",
+        "setup.story.chat.file", "setup.story.chat.prompt",
     ] + [PermissionMode.auto, .acceptEdits, .ask].map(modeSummaryKey)
 }

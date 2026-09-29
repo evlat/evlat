@@ -331,21 +331,23 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertTrue(window.isVisible)
         XCTAssertTrue(window.canBecomeKey)
         XCTAssertFalse(window.styleMask.contains(.resizable), "a fixed size")
-        XCTAssertEqual(window.contentLayoutRect.width, SetupWindow.width, accuracy: 0.5)
+        XCTAssertTrue(window.styleMask.contains(.borderless), "the whole screen, no title bar")
+        if let screen = NSScreen.main {
+            XCTAssertEqual(window.frame, screen.frame, "the stage covers the screen")
+        }
+        XCTAssertLessThan(window.level, try XCTUnwrap(controller.panel).level, "the bar stays above the stage")
+        XCTAssertGreaterThan(window.level, .normal)
         XCTAssertFalse(try XCTUnwrap(controller.panel).canBecomeKey, "the bar stays a non-activating panel")
     }
 
     // MARK: - Size, keys
 
-    func testTheHeightIsCappedAndFitsSmallScreens() {
-        XCTAssertEqual(SetupWindow.height(visible: 1200), 468)
-        XCTAssertEqual(SetupWindow.height(visible: 585), 468)
-        XCTAssertEqual(SetupWindow.height(visible: 500), 400)
-        for visible in stride(from: 200.0, through: 1600, by: 37) {
-            let height = SetupWindow.height(visible: visible)
-            XCTAssertLessThanOrEqual(height, 468)
-            XCTAssertLessThanOrEqual(height, visible * 0.8)
-        }
+    /// The story is set in a column that fits a small screen and never
+    /// grows past a comfortable line.
+    func testTheColumnFitsTheScreen() {
+        XCTAssertEqual(SetupView.columnWidth(screen: 1440), 560)
+        XCTAssertEqual(SetupView.columnWidth(screen: 600), 504)
+        XCTAssertEqual(SetupView.columnWidth(screen: 300), 360, "never narrower than its rows")
     }
 
     func testEveryKeyIsInBothTables() {

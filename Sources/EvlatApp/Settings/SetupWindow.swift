@@ -1,41 +1,73 @@
 import AppKit
 import SwiftUI
 
-/// The setup's window: `AppWindow`'s focus pattern at a fixed
-/// size. The steps scroll inside it and the footer stays put, so a long
-/// step never grows the window and the buttons never move.
+/// The setup's stage: the whole screen, the desktop behind it blurred and
+/// dimmed, the story in the middle (`SetupView`). One level under the bar,
+/// so the real bar stays in sight above it — the edge chapter moves it —
+/// and over everything else, the menu bar and the Dock included.
+///
+/// Borderless, so it takes the keyboard by `acceptsKey`; the focus comes
+/// and goes through `AppWindow` as any Evlat window's.
 enum SetupWindow {
-    /// The design's window size.
-    static let width: CGFloat = 392
-    static let maxHeight: CGFloat = 468
+    /// Just under the bar's `.statusBar`.
+    static let level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue - 1)
+    /// The backdrop and the content come in together over this long.
+    static let entrance: TimeInterval = 0.5
 
-    /// At most 468 pt, and on a small screen 80 % of what is visible — the
-    /// window never reaches the menu bar or the Dock.
-    static func height(visible: CGFloat) -> CGFloat {
-        min(maxHeight, (visible * 0.8).rounded(.down))
-    }
-
-    /// Titled for the keyboard and the close button; not resizable, and
-    /// without the zoom and minimise buttons a fixed window has no use for.
-    /// The title bar is see-through: the mascot sits at the top as drawn.
     @MainActor
     static func make(model: SetupFlowModel, screen: NSScreen?) -> AppKeyWindow {
-        let visible = (screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-        let size = NSSize(width: width, height: height(visible: visible))
-        let window = AppKeyWindow(contentRect: NSRect(origin: .zero, size: size),
-                                  styleMask: [.titled, .closable, .fullSizeContentView],
-                                  backing: .buffered, defer: false)
+        let frame = (screen ?? NSScreen.main)?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let window = SetupStageWindow(contentRect: frame, styleMask: [.borderless, .fullSizeContentView],
+                                      backing: .buffered, defer: false)
+        window.acceptsKey = true
         window.title = model.t("setup.window.title")
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.contentViewController = NSHostingController(rootView: SetupView(model: model))
-        window.setContentSize(size)
+        window.level = level
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        // The story is told in the bar's own dark, whatever the system's.
+        window.appearance = NSAppearance(named: .darkAqua)
+
+        // The desktop, blurred: AppKit's own material behind the window.
+        let backdrop = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
+        backdrop.material = .fullScreenUI
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+        backdrop.autoresizingMask = [.width, .height]
+        let hosting = NSHostingView(rootView: SetupView(model: model))
+        hosting.frame = backdrop.bounds
+        hosting.autoresizingMask = [.width, .height]
+        backdrop.addSubview(hosting)
+        window.contentView = backdrop
+        window.setFrame(frame, display: false)
         return window
     }
+}
 
+/// The stage fades in when it comes up: the blur arrives with it, the
+/// content lands from blurred to sharp (`SetupView`).
+final class SetupStageWindow: AppKeyWindow {
+    /// Already the whole screen. `AppWindow` centres every window it builds,
+    /// which set the stage 30 pt low — centred in the visible area, under
+    /// the menu bar (measured in `SetupFlowTests`).
+    override func center() {}
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        guard !isVisible else { return super.makeKeyAndOrderFront(sender) }
+        alphaValue = 0
+        super.makeKeyAndOrderFront(sender)
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = still ? 0.2 : SetupWindow.entrance
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            // Offstage it stays at none (`WindowStage`).
+            animator().alphaValue = WindowStage.alpha(1)
+        }
+    }
+}
+
+extension SetupWindow {
     /// "Close" on the last step: the window shrinks into the bar's mascot
     /// and fades. The window
     /// itself closes at once — the focus goes back to the app before it
@@ -59,6 +91,7 @@ enum SetupWindow {
         ghost.hasShadow = true
         ghost.ignoresMouseEvents = true
         ghost.level = window.level
+        WindowStage.stage(ghost)
         let view = NSImageView(image: image)
         view.imageScaling = .scaleAxesIndependently
         ghost.contentView = view

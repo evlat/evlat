@@ -348,6 +348,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | every change | `make all` (`swift build` + `swift test`) |
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
+| the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
 | window, bar, mascot or menu touched | `make bundle && make run`, then look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
 | ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |
@@ -383,6 +384,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_BODY` | force the body's mode (`always`, `smart`, `hidden`) at launch; the stored mode is never written |
 | `EVLAT_CLAUDE` | `claude` to run (tests use `Tests/Fixtures/fake-claude`) |
 | `EVLAT_FEED` | the appcast to check; the only way an isolated launch gets an updater (a release bundle otherwise checks its `SUFeedURL`, a development bundle nothing) |
+| `EVLAT_TEST_DESKTOP=1` | tests only: windows go on the real desktop instead of offstage (`WindowStage`); `make test-desktop` |
 
 Run the binary directly for these — `open` does not carry the environment.
 
@@ -513,6 +515,25 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **A preference sent out of a `ScrollView` arrives once, empty.** Read
   positions inside with `GeometryReader` +
   `onChange(of: frame(in: .named…), initial: true)`.
+- **A test run's windows land on the user's screen and keyboard.**
+  `EvlatAppTests` build real windows: a left-docked bar flashed opaque at
+  `.statusBar` over the user's work, and the key balloon (a
+  `.nonactivatingPanel`) took the keys being typed in another app, whose
+  frontmost status never changed. Under XCTest every window is offstage
+  (`WindowStage`): transparent, click-through, the balloon's key status
+  kept in a flag, no activation. A new window or activation goes through
+  `WindowStage` too.
+- **An `NSWindow` subclass must not override `alphaValue`.**
+  `window.animator().alphaValue = 1` called the Swift override with the
+  animator proxy as `self`; `super.alphaValue` then crashed
+  (`EXC_BAD_ACCESS` in `-[NSWindow setAlphaValue:]`). Clamp the value at
+  the call site instead (`WindowStage.alpha`).
+- **A view can be looked at without the screen.** `ImageRenderer` draws a
+  SwiftUI view to a PNG offscreen (no window, no Screen Recording). It draws
+  a `ScrollView`'s content as nothing and an AppKit control (`Toggle`'s
+  switch) as a yellow placeholder: judge the layout, not those. A greedy
+  `ScrollView` also pushed the setup's chapter to the top; content that fits
+  goes unscrolled (`ViewThatFits`).
 - **`NSLog` is unreadable in the unified log for this app** (`<private>`;
   `%{public}@` is an `os_log` specifier, not a fix). Read stderr by running the
   binary in the foreground.

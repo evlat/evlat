@@ -81,9 +81,30 @@ final class ChatPanel: NSPanel {
             container.addSubview(layer)
         }
         contentView = container
+        WindowStage.stage(self)
     }
 
     override var canBecomeKey: Bool { true }
+
+    /// Offstage the keyboard is this flag rather than the window server's:
+    /// a real key balloon in a test run took the keys the user was typing.
+    private var stagedKey = false
+
+    override var isKeyWindow: Bool { WindowStage.isOffstage ? stagedKey : super.isKeyWindow }
+
+    override func makeKey() {
+        guard WindowStage.isOffstage else { return super.makeKey() }
+        stagedKey = true
+    }
+
+    /// On the screen, ordering a key window out resigns it; offstage the
+    /// flag does the same, down the same path.
+    override func orderOut(_ sender: Any?) {
+        super.orderOut(sender)
+        guard WindowStage.isOffstage, stagedKey else { return }
+        stagedKey = false
+        keyWentElsewhere()
+    }
     override var canBecomeMain: Bool { false }
 
     /// Esc on its way to the text field: taken here, because a field editor
@@ -108,6 +129,10 @@ final class ChatPanel: NSPanel {
     /// the controller ignores a balloon that is already closed.
     override func resignKey() {
         super.resignKey()
+        keyWentElsewhere()
+    }
+
+    private func keyWentElsewhere() {
         if isVisible { onClose?() }
     }
 

@@ -2,50 +2,116 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-/// The setup window: the mascot at
-/// the top, the step under it — both scroll inside the fixed window, the
-/// scrolled edge fading — and the footer that never moves: "‹ Back", the
-/// dots, "Not now", the primary button.
+/// The setup as a short story the mascot tells, on the whole screen
+/// (`SetupWindow`): the chapter's stage — the mascot, and what it shows —
+/// in the middle, its line under it, what the chapter asks for under that,
+/// and the footer that never moves: "‹ Back", the chapters, "Not now", the
+/// primary button.
+///
+/// Motion answers the story, and only it: the entrance lands once from
+/// blurred to sharp; a new chapter comes in the same way; the sessions
+/// chapter plays its short loop while it is on screen. A still chapter
+/// draws nothing. With reduced motion everything only fades.
 struct SetupView: View {
     @ObservedObject var model: SetupFlowModel
     @ObservedObject var setup: SetupModel
+    @State private var arrived = false
+    @Environment(\.accessibilityReduceMotion) private var still
 
-    init(model: SetupFlowModel) {
+    /// `arrived`: already in, without the entrance — a picture of a
+    /// chapter rather than its opening.
+    init(model: SetupFlowModel, arrived: Bool = false) {
         self.model = model
         self.setup = model.setup
+        _arrived = State(initialValue: arrived)
     }
 
+    /// The column the story is set in: a comfortable line, narrower on a
+    /// small screen.
+    static func columnWidth(screen: CGFloat) -> CGFloat { max(360, min(560, screen - 96)) }
+
     var body: some View {
-        VStack(spacing: 0) {
-            FadingScroll(resetOn: model.step) {
-                VStack(alignment: .leading, spacing: 0) {
-                    SetupMascot(mascot: model.mascot, blinks: model.blinks)
-                        .padding(.bottom, 12)
-                    // The old step fades out where it stood as the new one
-                    // fades in.
-                    ZStack(alignment: .topLeading) {
-                        step
-                            .id(model.step)
-                            .transition(.opacity.combined(with: .offset(y: 6)))
-                    }
-                    .animation(.easeOut(duration: 0.16), value: model.step)
+        GeometryReader { geometry in
+            ZStack {
+                // A dim over the blurred desktop, heavier at the edges: the
+                // story is read in the middle.
+                RadialGradient(colors: [Color.black.opacity(0.28), Color.black.opacity(0.62)],
+                               center: .center, startRadius: 80,
+                               endRadius: max(geometry.size.width, geometry.size.height) * 0.7)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 32)
+                    chapter
+                        .frame(width: Self.columnWidth(screen: geometry.size.width))
+                    Spacer(minLength: 24)
+                    SetupFooter(model: model)
+                        .frame(width: Self.columnWidth(screen: geometry.size.width))
+                        .padding(.bottom, 40)
                 }
-                .padding(.top, 34)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 18)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .blur(radius: arrived || still ? 0 : 24)
+                .scaleEffect(arrived || still ? 1 : 1.04)
+                .opacity(arrived ? 1 : 0)
+                CloseButton(model: model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(28)
+                    .opacity(arrived ? 1 : 0)
             }
-            // What the primary button writes stays in sight right above it
-            // (R3), whatever the step's length.
-            consent
-                .padding(.horizontal, 24)
-                .padding(.bottom, 12)
-            Rectangle().fill(SettingsPalette.paneLine).frame(height: 1)
-            SetupFooter(model: model)
         }
-        .background(SettingsPalette.pane)
-        .ignoresSafeArea()
-        .frame(width: SetupWindow.width)
+        .environment(\.colorScheme, .dark)
+        .onAppear {
+            withAnimation(still ? .easeOut(duration: 0.2) : .smooth(duration: 0.8).delay(0.12)) { arrived = true }
+        }
+    }
+
+    /// One chapter: its stage, its line, what it asks. The old one leaves
+    /// blurred as the new one comes in sharp.
+    private var chapter: some View {
+        ZStack {
+            VStack(spacing: 0) {
+                SetupStage(model: model)
+                    .frame(minHeight: 140)
+                    .padding(.bottom, 28)
+                StoryLine(title: model.t(SetupFlowModel.titleKey(model.step)), text: body(of: model.step))
+                    .padding(.bottom, 24)
+                // Whole where it fits, which is everywhere but a small
+                // screen: the chapter then sits in the middle as a group.
+                ViewThatFits(in: .vertical) {
+                    asks
+                    ScrollView(.vertical) { asks }
+                        .scrollIndicators(.never)
+                        .scrollBounceBehavior(.basedOnSize)
+                }
+            }
+            .id(model.step)
+            .transition(still ? .opacity : .asymmetric(
+                insertion: .modifier(active: ChapterBlur(amount: 1), identity: ChapterBlur(amount: 0)),
+                removal: .modifier(active: ChapterBlur(amount: 1, rising: true), identity: ChapterBlur(amount: 0)))
+            )
+        }
+        .animation(still ? .easeOut(duration: 0.15) : .smooth(duration: 0.45), value: model.step)
+    }
+
+    /// What the chapter asks, narrower than its line.
+    private var asks: some View {
+        VStack(spacing: 14) {
+            step
+            consent
+        }
+        .frame(maxWidth: 460)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The line under the title; the done chapter has its summary instead.
+    private func body(of step: SetupFlowModel.Step) -> String? {
+        switch step {
+        case .hello: return model.t("setup.flow.hello.body")
+        case .edge: return model.t("setup.flow.edge.body")
+        case .sessions: return model.t("setup.flow.sessions.body")
+        case .chat: return model.t("setup.flow.chat.body")
+        case .optional, .done: return nil
+        }
     }
 
     @ViewBuilder private var consent: some View {
@@ -75,106 +141,285 @@ struct SetupView: View {
     }
 }
 
-// MARK: - Frame
+/// A chapter coming in or going: blurred, faded and a little off where it
+/// settles — below on the way in, above on the way out.
+private struct ChapterBlur: ViewModifier {
+    let amount: Double
+    var rising = false
 
-/// A scroll view whose scrolled-away edges fade (`.inner.ft`/`.fb`): 22 pt
-/// at the top, 28 at the bottom, each only while there is more that way.
-/// Its offset is read from the content's frame, which changes only on a
-/// scroll or a new step: a still window draws nothing.
-private struct FadingScroll<Content: View>: View {
-    let resetOn: SetupFlowModel.Step
-    @ViewBuilder let content: Content
-    @State private var fadesTop = false
-    @State private var fadesBottom = false
-    @State private var viewportHeight: CGFloat = 0
-    @State private var contentFrame: CGRect = .zero
-
-    private static var space: String { "setup.scroll" }
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                content
-                    .id(Self.space)
-                    // Read where it is from inside: a preference sent out of
-                    // the scroll view arrived once, empty, and never again.
-                    .background(GeometryReader { inner in
-                        Color.clear.onChange(of: inner.frame(in: .named(Self.space)), initial: true) { _, frame in
-                            contentFrame = frame
-                            updateFades()
-                        }
-                    })
-            }
-            .coordinateSpace(name: Self.space)
-            .background(GeometryReader { viewport in
-                Color.clear.onChange(of: viewport.size.height, initial: true) { _, height in
-                    viewportHeight = height
-                    updateFades()
-                }
-            })
-            .onChange(of: resetOn) { _, _ in proxy.scrollTo(Self.space, anchor: .top) }
-            // Over the edges: the window's ground is one flat colour, so
-            // fading into it reads as the content fading.
-            .overlay(alignment: .top) { fade(from: .top).frame(height: 22).opacity(fadesTop ? 1 : 0) }
-            .overlay(alignment: .bottom) { fade(from: .bottom).frame(height: 28).opacity(fadesBottom ? 1 : 0) }
-        }
-    }
-
-    private func updateFades() {
-        let top = contentFrame.minY < -2
-        let bottom = viewportHeight > 0 && contentFrame.maxY > viewportHeight + 2
-        if top != fadesTop { fadesTop = top }
-        if bottom != fadesBottom { fadesBottom = bottom }
-    }
-
-    private func fade(from edge: UnitPoint) -> some View {
-        LinearGradient(colors: [SettingsPalette.pane, SettingsPalette.pane.opacity(0)],
-                       startPoint: edge, endPoint: edge == .top ? .bottom : .top)
-            .allowsHitTesting(false)
-            .animation(.easeOut(duration: 0.15), value: fadesTop)
-            .animation(.easeOut(duration: 0.15), value: fadesBottom)
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: 14 * amount)
+            .opacity(1 - amount)
+            .offset(y: (rising ? -14 : 18) * amount)
     }
 }
 
-/// The footer: always there, whatever the step's length.
+// MARK: - The stage
+
+/// What each chapter shows above its line. The mascot is the teller; its
+/// size and face follow the story.
+private struct SetupStage: View {
+    @ObservedObject var model: SetupFlowModel
+    @ObservedObject var mascot: MascotModel
+
+    init(model: SetupFlowModel) {
+        self.model = model
+        self.mascot = model.mascot
+    }
+
+    var body: some View {
+        switch model.step {
+        case .hello:
+            StoryMascot(pose: .resting(for: .idle), gaze: mascot.gaze, blinks: model.blinks, size: 116)
+        case .edge:
+            // It looks at the edge it is about to live on; the real bar
+            // moves there, above this stage.
+            StoryMascot(pose: .resting(for: .idle), gaze: mascot.gaze, blinks: model.blinks, size: 96)
+        case .sessions:
+            SessionsDemo(model: model)
+        case .chat:
+            ChatDemo(model: model, gaze: mascot.gaze)
+        case .optional:
+            StoryMascot(pose: .resting(for: .idle), gaze: mascot.gaze, blinks: model.blinks, size: 84)
+        case .done:
+            StoryMascot(pose: .resting(for: .review), gaze: mascot.gaze, blinks: model.blinks, size: 116)
+        }
+    }
+}
+
+/// The bar's face, large, in its black tile. It blinks when `blinks`
+/// changes — a `KeyframeAnimator` does not fire on its first appearance,
+/// and nothing else moves it.
+private struct StoryMascot: View {
+    let pose: MascotPose
+    let gaze: CGSize
+    let blinks: Int
+    let size: CGFloat
+
+    var body: some View {
+        KeyframeAnimator(initialValue: 1.0, trigger: blinks) { open in
+            MascotBody(pose: Self.pose(pose, gaze: gaze, open: open), size: size)
+                .frame(width: size, height: size)
+                .padding(size * 0.1)
+                .background(RoundedRectangle(cornerRadius: size * 0.36, style: .continuous)
+                    .fill(Color.black))
+                .shadow(color: .black.opacity(0.45), radius: size * 0.3, y: size * 0.1)
+        } keyframes: { _ in
+            CubicKeyframe(0.06, duration: 0.09)
+            CubicKeyframe(0.06, duration: 0.06)
+            CubicKeyframe(1.0, duration: 0.12)
+        }
+        .animation(MascotPose.transition, value: gaze)
+        .animation(MascotPose.transition, value: pose)
+        .accessibilityHidden(true)
+    }
+
+    /// `pose` turned to `gaze`, its eyes `open` of the way.
+    static func pose(_ pose: MascotPose, gaze: CGSize, open: Double) -> MascotPose {
+        var pose = pose.blending(gaze: gaze)
+        pose.eyeOpen *= open
+        return pose
+    }
+}
+
+/// The sessions chapter's stage: a small bar — the mascot at its head, three
+/// sessions under it — playing what Evlat will show. One session starts,
+/// one stops for the user, one finishes; the mascot's face is the bar's
+/// aggregate. It moves in beats while it is on screen, and holds still with
+/// reduced motion.
+private struct SessionsDemo: View {
+    let model: SetupFlowModel
+    @State private var scene = 0
+    @Environment(\.accessibilityReduceMotion) private var still
+
+    /// Each beat's three sessions.
+    static let scenes: [[Phase]] = [
+        [.working, .idle, .idle],
+        [.working, .working, .idle],
+        [.working, .waiting, .idle],
+        [.review, .working, .idle],
+    ]
+
+    static func face(_ phases: [Phase]) -> Phase {
+        phases.max { $0.priority < $1.priority } ?? .idle
+    }
+
+    private var phases: [Phase] { Self.scenes[still ? 2 : scene % Self.scenes.count] }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 18) {
+            VStack(spacing: 14) {
+                StoryMascot(pose: .resting(for: Self.face(phases)), gaze: .zero, blinks: scene, size: 52)
+                ForEach(Array(phases.enumerated()), id: \.offset) { _, phase in
+                    Circle()
+                        .strokeBorder(Self.ring(phase), lineWidth: 3)
+                        .frame(width: 22, height: 22)
+                }
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 8)
+            .background(Capsule().fill(Color.black))
+            .shadow(color: .black.opacity(0.45), radius: 18, y: 6)
+            VStack(alignment: .leading, spacing: 0) {
+                Color.clear.frame(height: 14 + 52 * 1.2 + 14 - 11)
+                ForEach(Array(phases.enumerated()), id: \.offset) { index, phase in
+                    HStack(spacing: 8) {
+                        Text(model.t("setup.story.demo.\(index + 1)"))
+                            .foregroundStyle(.white.opacity(0.9))
+                        Text(model.t(StatusLine.statusKey(phase: phase, waitKind: nil)))
+                            .foregroundStyle(Self.word(phase))
+                    }
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .frame(height: 36, alignment: .center)
+                }
+            }
+            .frame(width: 190, alignment: .leading)
+        }
+        .animation(.smooth(duration: 0.35), value: scene)
+        .task {
+            guard !still else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1.7))
+                scene += 1
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// The bar's own ring colours (`SessionIndicator.color`).
+    static func ring(_ phase: Phase) -> Color {
+        phase == .idle ? Color.white.opacity(0.18) : SessionIndicator.color(phase)
+    }
+
+    static func word(_ phase: Phase) -> Color {
+        phase == .idle || phase == .working ? Color.white.opacity(0.45) : SessionIndicator.color(phase)
+    }
+}
+
+/// The chat chapter's stage: the mascot, and a balloon with a file dropped
+/// on it and a question.
+private struct ChatDemo: View {
+    let model: SetupFlowModel
+    let gaze: CGSize
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            StoryMascot(pose: .resting(for: .idle), gaze: CGSize(width: 0.6, height: 0), blinks: model.blinks,
+                        size: 76)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 11))
+                    Text(model.t("setup.story.chat.file"))
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+                .padding(.vertical, 5)
+                .padding(.horizontal, 9)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
+                Text(model.t("setup.story.chat.prompt"))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+            .padding(16)
+            .frame(width: 250, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(ChatPalette.ground))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(ChatPalette.edge))
+            .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Frame
+
+/// The chapter's title, in the mascot's voice, and its line.
+private struct StoryLine: View {
+    let title: String
+    let text: String?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 38, weight: .semibold, design: .rounded))
+                .tracking(-0.6)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            if let text {
+                Text(text)
+                    .font(.system(size: 15))
+                    .lineSpacing(4)
+                    .foregroundStyle(.white.opacity(0.68))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 480)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// The stage's way out, at the screen's corner: the setup goes to the bar,
+/// nothing more written.
+private struct CloseButton: View {
+    let model: SetupFlowModel
+    @State private var hovered = false
+
+    var body: some View {
+        Button { model.dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(hovered ? 0.95 : 0.6))
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.white.opacity(hovered ? 0.16 : 0.08)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(model.t("setup.story.close"))
+        .accessibilityLabel(model.t("setup.story.close"))
+    }
+}
+
+/// The footer: always there, whatever the chapter.
 private struct SetupFooter: View {
     @ObservedObject var model: SetupFlowModel
 
     var body: some View {
-        HStack(spacing: 10) {
-            if model.showsBack {
-                Button(model.t("setup.flow.back")) { model.back() }
-                    .buttonStyle(GhostButtonStyle())
-                    .padding(.leading, -4)
-            }
+        ZStack {
             StepDots(model: model)
-            Spacer(minLength: 0)
-            if model.showsSkip {
-                Button(model.t("setup.flow.skip")) { model.skip() }
-                    .buttonStyle(GhostButtonStyle())
+            HStack(spacing: 10) {
+                if model.showsBack {
+                    Button(model.t("setup.flow.back")) { model.back() }
+                        .buttonStyle(GhostButtonStyle())
+                        .padding(.leading, -6)
+                }
+                Spacer(minLength: 0)
+                if model.showsSkip {
+                    Button(model.t("setup.flow.skip")) { model.skip() }
+                        .buttonStyle(GhostButtonStyle())
+                }
+                Button(model.t(model.primaryKey)) { model.primary() }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .keyboardShortcut(.defaultAction)
             }
-            Button(model.t(model.primaryKey)) { model.primary() }
-                .buttonStyle(PrimaryButtonStyle())
-                .keyboardShortcut(.defaultAction)
         }
-        .padding(.top, 12)
-        .padding(.bottom, 16)
-        .padding(.horizontal, 24)
     }
 }
 
-/// Six dots, the current one long; a passed one goes back to its step.
+/// The six chapters, the current one long; a passed one goes back to it.
 private struct StepDots: View {
     @ObservedObject var model: SetupFlowModel
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             ForEach(SetupFlowModel.Step.allCases, id: \.self) { step in
                 let on = step == model.step
                 Capsule()
-                    .fill(on ? SettingsPalette.ink : SettingsPalette.dotOff)
-                    .frame(width: on ? 16 : 6, height: 6)
-                    .contentShape(Rectangle().inset(by: -4))
+                    .fill(Color.white.opacity(on ? 0.92 : step < model.step ? 0.4 : 0.18))
+                    .frame(width: on ? 22 : 6, height: 6)
+                    .contentShape(Rectangle().inset(by: -5))
                     .onTapGesture { model.go(to: step) }
                     .accessibilityElement()
                     .accessibilityLabel(model.t("setup.flow.step", ["number": String(step.index + 1),
@@ -182,62 +427,11 @@ private struct StepDots: View {
                     .accessibilityAddTraits(on ? .isSelected : model.canGo(to: step) ? .isButton : [])
             }
         }
-        .animation(.easeOut(duration: 0.3), value: model.step)
-    }
-}
-
-/// The setup's mascot: the bar's face, still, looking at the chosen edge.
-/// It blinks only when `blinks` changes — a `KeyframeAnimator` does not
-/// fire on its first appearance, and nothing else moves it.
-private struct SetupMascot: View {
-    @ObservedObject var mascot: MascotModel
-    let blinks: Int
-
-    var body: some View {
-        KeyframeAnimator(initialValue: 1.0, trigger: blinks) { open in
-            MascotBody(pose: Self.pose(gaze: mascot.gaze, open: open), size: 38)
-                .frame(width: 38, height: 38)
-                .padding(3)
-                .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(white: 0.35), Color(white: 0.11)],
-                                         startPoint: .top, endPoint: .bottom)))
-        } keyframes: { _ in
-            CubicKeyframe(0.06, duration: 0.09)
-            CubicKeyframe(0.06, duration: 0.06)
-            CubicKeyframe(1.0, duration: 0.12)
-        }
-        .animation(MascotPose.transition, value: mascot.gaze)
-        .accessibilityHidden(true)
-    }
-
-    /// The bar's resting face, turned to `gaze`, its eyes `open` of the way.
-    static func pose(gaze: CGSize, open: Double) -> MascotPose {
-        var pose = MascotPose.resting(for: .idle).blending(gaze: gaze)
-        pose.eyeOpen *= open
-        return pose
+        .animation(.smooth(duration: 0.35), value: model.step)
     }
 }
 
 // MARK: - Steps
-
-/// A step's title and its first paragraph.
-private struct StepHead: View {
-    let title: String
-    var text: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 17, weight: .semibold))
-                .tracking(-0.17)
-                .foregroundStyle(SettingsPalette.ink)
-                .accessibilityAddTraits(.isHeader)
-            if let text {
-                Paragraph(text: text)
-            }
-        }
-    }
-}
 
 private struct Paragraph: View {
     let text: String
@@ -245,11 +439,12 @@ private struct Paragraph: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: small ? 12 : 13))
+            .font(.system(size: small ? 12.5 : 13.5))
             .lineSpacing(small ? 2 : 3)
-            .foregroundStyle(small ? SettingsPalette.muted : SettingsPalette.body)
+            .foregroundStyle(.white.opacity(small ? 0.5 : 0.68))
+            .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 460)
     }
 }
 
@@ -257,10 +452,7 @@ private struct HelloStep: View {
     let model: SetupFlowModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHead(title: model.t(SetupFlowModel.titleKey(.hello)), text: model.t("setup.flow.hello.body"))
-            Paragraph(text: model.t("setup.flow.hello.note"), small: true)
-        }
+        Paragraph(text: model.t("setup.flow.hello.note"), small: true)
     }
 }
 
@@ -268,18 +460,15 @@ private struct EdgeStep: View {
     @ObservedObject var model: SetupFlowModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHead(title: model.t(SetupFlowModel.titleKey(.edge)), text: model.t("setup.flow.edge.body"))
-            HStack(spacing: 10) {
-                EdgeBox(edge: .left, title: model.t("setup.flow.edge.left"), selected: model.edge.isLeft) {
-                    model.chooseEdge(.left)
-                }
-                EdgeBox(edge: .right, title: model.t("setup.flow.edge.right"), selected: !model.edge.isLeft) {
-                    model.chooseEdge(.right)
-                }
+        HStack(spacing: 14) {
+            EdgeBox(edge: .left, title: model.t("setup.flow.edge.left"), selected: model.edge.isLeft) {
+                model.chooseEdge(.left)
             }
-            .padding(.top, 2)
+            EdgeBox(edge: .right, title: model.t("setup.flow.edge.right"), selected: !model.edge.isLeft) {
+                model.chooseEdge(.right)
+            }
         }
+        .frame(width: 380)
     }
 }
 
@@ -295,13 +484,15 @@ private struct EdgeBox: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 ZStack(alignment: edge.isLeft ? .leading : .trailing) {
+                    // A desktop, lighter than the stage, so the black bar
+                    // on it reads.
                     RoundedRectangle(cornerRadius: 5)
-                        .fill(LinearGradient(colors: [SettingsPalette.screenTop, SettingsPalette.screenBottom],
+                        .fill(LinearGradient(colors: [Color.white.opacity(0.30), Color.white.opacity(0.14)],
                                              startPoint: .top, endPoint: .bottom))
                     UnevenRoundedRectangle(topLeadingRadius: edge.isLeft ? 0 : 4, bottomLeadingRadius: edge.isLeft ? 0 : 4,
                                            bottomTrailingRadius: edge.isLeft ? 4 : 0, topTrailingRadius: edge.isLeft ? 4 : 0)
-                        .fill(Color(white: 0.04))
-                        .frame(width: 7)
+                        .fill(Color.black)
+                        .frame(width: 8)
                         .frame(maxHeight: .infinity)
                         .padding(.vertical, 28 * 0.44)
                 }
@@ -329,8 +520,7 @@ private struct SessionsStep: View {
     @ObservedObject var setup: SetupModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHead(title: model.t(SetupFlowModel.titleKey(.sessions)), text: model.t("setup.flow.sessions.body"))
+        VStack(spacing: 12) {
             let rows = model.sessionRows
             if rows.isEmpty {
                 Paragraph(text: model.t("setup.flow.sessions.none"), small: true)
@@ -392,8 +582,7 @@ private struct ChatStep: View {
     @ObservedObject var recorder: HotKeyRecorder
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            StepHead(title: model.t(SetupFlowModel.titleKey(.chat)), text: model.t("setup.flow.chat.body"))
+        VStack(spacing: 10) {
             SettingsRows {
                 RowBox {
                     HStack(spacing: 10) {
@@ -440,8 +629,7 @@ private struct OptionalStep: View {
     @ObservedObject var setup: SetupModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StepHead(title: model.t(SetupFlowModel.titleKey(.optional)))
+        VStack(spacing: 12) {
             SettingsRows {
                 if let login = setup.row(.loginItem) {
                     SetupRowView(row: login, model: setup, showsButton: false, monospaced: false,
@@ -471,9 +659,8 @@ private struct DoneStep: View {
     @ObservedObject var setup: SetupModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            StepHead(title: model.t(SetupFlowModel.titleKey(.done)))
-            VStack(alignment: .leading, spacing: 5) {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 7) {
                 ForEach(model.summary, id: \.self) { line in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(Self.mark(line.mark))
@@ -481,8 +668,8 @@ private struct DoneStep: View {
                             .foregroundStyle(Self.color(line.mark))
                             .frame(width: 14)
                         Text(line.text)
-                            .font(.system(size: 13))
-                            .foregroundStyle(SettingsPalette.ink)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.85))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -510,18 +697,17 @@ private struct DoneStep: View {
 
 // MARK: - Buttons
 
-/// `.btn.pri`: the step's one dark button.
+/// The chapter's one button: the mascot's white on the stage's dark.
 private struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(SettingsPalette.selectedInk)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 14)
-            .background(RoundedRectangle(cornerRadius: 7)
-                .fill(SettingsPalette.selected.opacity(configuration.isPressed ? 0.8 : 1)))
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color.black)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 20)
+            .background(Capsule().fill(Color.white.opacity(configuration.isPressed ? 0.75 : 0.95)))
             .opacity(isEnabled ? 1 : 0.5)
             .fixedSize()
             .contentShape(Rectangle())
@@ -532,8 +718,8 @@ private struct PrimaryButtonStyle: ButtonStyle {
 private struct GhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(SettingsPalette.ghost.opacity(configuration.isPressed ? 0.6 : 1))
+            .font(.system(size: 14, weight: .medium, design: .rounded))
+            .foregroundStyle(Color.white.opacity(configuration.isPressed ? 0.4 : 0.62))
             .padding(.vertical, 8)
             .padding(.horizontal, 6)
             .fixedSize()
