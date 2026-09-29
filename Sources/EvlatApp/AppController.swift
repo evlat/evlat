@@ -1380,7 +1380,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         balloon.present(beside: bar, edge: bar.edge)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.14
-            balloon.animator().alphaValue = 1
+            // Offstage it fades to none (`WindowStage`).
+            balloon.animator().alphaValue = WindowStage.alpha(1)
         }
     }
 
@@ -1589,7 +1590,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let previous = NSWorkspace.shared.frontmostApplication
         choosingInPanel = true
         chatPanel?.orderOut(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if !WindowStage.isOffstage { NSApp.activate(ignoringOtherApps: true) }
         open.begin { [weak self] response in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -1627,7 +1628,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                                        object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { reopen() }
         }
-        let handedBack = previous.map { $0 != NSRunningApplication.current && $0.activate() } ?? false
+        let handedBack = previous.map { $0 != NSRunningApplication.current && WindowStage.activate($0) } ?? false
         if !handedBack { NSApp.deactivate() }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.handBackWait) { reopen() }
     }
@@ -1681,7 +1682,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let previous = NSWorkspace.shared.frontmostApplication
         choosingInPanel = true
         chatPanel?.orderOut(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if !WindowStage.isOffstage { NSApp.activate(ignoringOtherApps: true) }
         save.begin { [weak self] response in
             MainActor.assumeIsolated {
                 if response == .OK, let target = save.url {
@@ -2057,7 +2058,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The window's focus call on open; a test holds it still so the runner
     /// is never activated.
-    var settingsActivation: () -> Void = { NSApp.activate() }
+    var settingsActivation: () -> Void = { WindowStage.activate() }
 
     /// The settings window at `section`, built on first use. Like the menus'
     /// entries the open list closes first; unlike them, Evlat comes forward —
@@ -2117,7 +2118,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     // MARK: - Setup
 
     /// The window's focus call on open; a test holds it still.
-    var setupActivation: () -> Void = { NSApp.activate() }
+    var setupActivation: () -> Void = { WindowStage.activate() }
 
     /// The setup at `step` (the first unless one is named), built on first
     /// use. Opened again it starts over, every row read fresh: what was set

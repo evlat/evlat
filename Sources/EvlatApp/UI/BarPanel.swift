@@ -116,6 +116,7 @@ public final class BarPanel: NSPanel {
         // same wall.
         hosting.sizingOptions = []
         contentView = hosting
+        WindowStage.stage(self)
 
         reposition()
     }

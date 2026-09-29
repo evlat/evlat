@@ -1,10 +1,17 @@
-.PHONY: build test all bundle run install release publish ship clean
+.PHONY: build test test-desktop all bundle run install release publish ship clean
 
 build:
 	swift build
 
 test:
 	swift test
+
+# The app tests with their windows on the real desktop (`WindowStage`): the
+# bar, the balloon and Settings show on the screen, and the balloon takes
+# the keyboard for real. Run it when the window server's side is the point,
+# and not while typing elsewhere.
+test-desktop:
+	EVLAT_TEST_DESKTOP=1 swift test --filter EvlatAppTests
 
 all: build test
 

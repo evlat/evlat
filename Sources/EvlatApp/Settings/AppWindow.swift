@@ -41,9 +41,9 @@ final class AppWindow: NSObject, NSWindowDelegate {
     /// is active — when nothing took the focus, there is nothing to give back.
     init(make: @escaping @MainActor () -> AppKeyWindow,
          frontmost: @escaping () -> NSRunningApplication? = { NSWorkspace.shared.frontmostApplication },
-         activate: @escaping @MainActor () -> Void = { NSApp.activate() },
+         activate: @escaping @MainActor () -> Void = { WindowStage.activate() },
          restore: @escaping @MainActor (NSRunningApplication) -> Void = { app in
-             if NSApp.isActive { app.activate() }
+             if NSApp.isActive { WindowStage.activate(app) }
          }) {
         self.make = make
         self.frontmost = frontmost
@@ -75,6 +75,7 @@ final class AppWindow: NSObject, NSWindowDelegate {
     func build() -> AppKeyWindow {
         if let window { return window }
         let window = make()
+        WindowStage.stage(window)
         // Kept for the next open; released, a second open would reach a
         // freed window.
         window.isReleasedWhenClosed = false

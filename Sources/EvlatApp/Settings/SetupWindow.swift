@@ -59,6 +59,7 @@ enum SetupWindow {
         ghost.hasShadow = true
         ghost.ignoresMouseEvents = true
         ghost.level = window.level
+        WindowStage.stage(ghost)
         let view = NSImageView(image: image)
         view.imageScaling = .scaleAxesIndependently
         ghost.contentView = view
