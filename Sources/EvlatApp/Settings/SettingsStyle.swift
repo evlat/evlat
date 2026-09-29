@@ -295,6 +295,8 @@ struct ChoiceRow: View {
     var badge: String?
     let detail: String
     let selected: Bool
+    /// A choice that removes a safeguard (bypass mode): its title in red.
+    var danger = false
     let action: () -> Void
 
     var body: some View {
@@ -308,7 +310,8 @@ struct ChoiceRow: View {
                 .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 0) {
-                        Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(SettingsPalette.ink)
+                        Text(title).font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(danger ? SettingsPalette.warnInk : SettingsPalette.ink)
                         if let badge {
                             Text(" · " + badge).font(.system(size: 13)).foregroundStyle(SettingsPalette.muted)
                         }

@@ -552,7 +552,8 @@ private struct FolderLabel: View {
 }
 
 /// The chat's permission mode beside the folder, in the same quiet type:
-/// a click offers the three (`PermissionMode`), for the next turn on.
+/// a click offers the modes (`PermissionMode`), for the next turn on.
+/// Bypass stays red while it is in force, hovered or not.
 private struct ModeLabel: View {
     let mode: PermissionMode
     let action: () -> Void
@@ -569,7 +570,8 @@ private struct ModeLabel: View {
                     .font(.system(size: 7, weight: .semibold))
                     .opacity(hovered ? 1 : 0.6)
             }
-            .foregroundStyle(hovered ? ChatPalette.chipText : ChatPalette.faint)
+            .foregroundStyle(mode.asksBeforePicking ? ChatPalette.failure
+                             : hovered ? ChatPalette.chipText : ChatPalette.faint)
             // Whole, always: the longest (Turkish "düzenlemeleri kabul et",
             // "accept edits", ~125 pt)
             // fits the footer's own line when the hint leaves no room.

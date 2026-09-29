@@ -386,6 +386,52 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertEqual(controller.chatModel.mode, .ask)
     }
 
+    /// Bypass is switched on only after a yes, from the balloon and from
+    /// the settings' default alike; a no leaves everything as it was, and
+    /// no other pick asks.
+    func testBypassIsPickedOnlyAfterAYes() {
+        let controller = controller()
+        defer { close(controller) }
+        var asked = 0
+        var answer = false
+        controller.confirmBypass = { asked += 1; return answer }
+        controller.openChat()
+
+        controller.choose(.acceptEdits)
+        controller.choose(.ask)
+        XCTAssertEqual(asked, 0, "only bypass asks")
+
+        controller.choose(.bypass)
+        XCTAssertEqual(asked, 1)
+        XCTAssertEqual(controller.chatModel.mode, .ask, "a no keeps the balloon's mode")
+        XCTAssertEqual(controller.defaultMode, .ask, "and the default")
+
+        answer = true
+        controller.choose(.bypass)
+        XCTAssertEqual(asked, 2)
+        XCTAssertEqual(controller.chatModel.mode, .bypass)
+        XCTAssertEqual(controller.defaultMode, .bypass)
+
+        controller.choose(.bypass)
+        XCTAssertEqual(asked, 2, "picking bypass where it is in force asks nothing")
+        controller.choose(.auto)
+        XCTAssertEqual(asked, 2, "leaving bypass asks nothing")
+        XCTAssertEqual(controller.chatModel.mode, .auto)
+
+        // Settings and Setup go through the host.
+        answer = false
+        controller.settingsHost.setDefaultMode(.bypass)
+        XCTAssertEqual(asked, 3)
+        XCTAssertEqual(controller.defaultMode, .auto, "a no keeps the default")
+        answer = true
+        controller.settingsHost.setDefaultMode(.bypass)
+        XCTAssertEqual(asked, 4)
+        XCTAssertEqual(controller.defaultMode, .bypass)
+        XCTAssertEqual(controller.chatModel.mode, .auto, "the balloon's pick stays")
+        controller.settingsHost.setDefaultMode(.bypass)
+        XCTAssertEqual(asked, 4, "already the default: nothing to ask")
+    }
+
     /// The settings' default leaves a mode picked in the balloon for
     /// a chat not made yet as it is.
     func testTheDefaultModeLeavesTheBalloonsPick() {

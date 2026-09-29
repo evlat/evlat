@@ -128,7 +128,7 @@ final class ChatModel: ObservableObject {
                        "chat.file.show", "chat.code.copy", "chat.code.copied",
                        "chat.mode.help", "chat.notDone", "chat.notDone.auto", "chat.notDone.retry",
                        "chat.notDone.prompt"]
-        + modeKeys + modeDetailKeys + suggestionKeys + fileSuggestionKeys + outcomeKeys
+        + modeKeys + modeDetailKeys + BypassConfirmation.keys + suggestionKeys + fileSuggestionKeys + outcomeKeys
 
     /// What the balloon offers now.
     var suggestions: [String] { Self.suggestionKeys(for: attachments) }
@@ -148,6 +148,7 @@ final class ChatModel: ObservableObject {
         case .ask: return "chat.mode.ask"
         case .auto: return "chat.mode.auto"
         case .acceptEdits: return "chat.mode.acceptEdits"
+        case .bypass: return "chat.mode.bypass"
         }
     }
 

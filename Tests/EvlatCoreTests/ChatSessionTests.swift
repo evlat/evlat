@@ -450,6 +450,8 @@ final class ChatSessionLifeTests: XCTestCase {
         asking.permissionMode = "default"
         XCTAssertEqual(ChatSession.restored(asking, mode: .acceptEdits).mode, .ask)
         asking.permissionMode = "bypassPermissions"
+        XCTAssertEqual(ChatSession.restored(asking).mode, .bypass, "a chat confirmed into bypass stays there")
+        asking.permissionMode = "dontAsk"
         XCTAssertEqual(ChatSession.restored(asking).mode, .auto)
     }
 

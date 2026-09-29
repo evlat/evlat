@@ -1745,8 +1745,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    /// The label's menu at the pointer: the three modes, the current one
-    /// ticked, each with what it does as its tooltip.
+    /// The label's menu at the pointer: the modes, the current one
+    /// ticked, each with what it does as its tooltip; bypass in red.
     private func showModes() {
         let menu = NSMenu()
         for mode in PermissionMode.allCases {
@@ -1755,6 +1755,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             item.representedObject = mode.rawValue
             item.toolTip = L10n.t(ChatModel.modeDetailKey(mode))
             item.state = chatModel.mode == mode ? .on : .off
+            if mode.asksBeforePicking {
+                item.attributedTitle = NSAttributedString(string: item.title,
+                                                          attributes: [.foregroundColor: NSColor.systemRed])
+            }
             item.target = self
         }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
@@ -1768,6 +1772,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     func choose(_ mode: PermissionMode) {
+        guard mayPick(mode, over: chatModel.mode) else { return }
         if let id = currentChat, chats?.chat(id) != nil {
             chats?.setMode(id, mode)
         } else {
@@ -1782,6 +1787,25 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func setDefaultMode(_ mode: PermissionMode) {
         if let modeDefaults { modeDefaults.set(mode.rawValue, forKey: Self.permissionModeKey) } else { modeUnstored = mode }
         refreshMode()
+    }
+
+    /// The default picked in Settings or Setup: the same question as the
+    /// balloon's before bypass becomes every new chat's mode.
+    func pickDefaultMode(_ mode: PermissionMode) {
+        guard mayPick(mode, over: defaultMode) else { return }
+        setDefaultMode(mode)
+    }
+
+    /// Asks the user before bypass is switched on (`BypassConfirmation`).
+    /// A property so tests answer without a modal alert.
+    var confirmBypass: () -> Bool = { BypassConfirmation.run() }
+
+    /// Whether `mode` may replace `current`: every pick may, except a
+    /// switch *to* bypass, which takes a yes. Picking bypass where it is
+    /// already in force asks nothing.
+    func mayPick(_ mode: PermissionMode, over current: PermissionMode) -> Bool {
+        guard mode.asksBeforePicking, mode != current else { return true }
+        return confirmBypass()
     }
 
     /// `[Retry in Ask mode]` on a "not done" line: this chat asks from now
@@ -2034,7 +2058,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
             defaultMode: { [weak self] in self?.defaultMode ?? .standard },
-            setDefaultMode: { [weak self] in self?.setDefaultMode($0) },
+            setDefaultMode: { [weak self] in self?.pickDefaultMode($0) },
             locateClaude: { [weak self] completion in
                 guard let self else { return completion(nil) }
                 self.claudeLocator.locate { completion($0.executable) }
