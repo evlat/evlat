@@ -223,6 +223,15 @@ is lost with the process.
   never take focus from the front app.**
 - Windows that do take keyboard focus (Settings, Setup, the chat bubble) return
   focus to the previous app when they close.
+- `[Go to session]` brings the session's app forward (`SessionHost`). In
+  Bateri, Metalterm and Warp it opens the tab itself, through the link each
+  gives its shells (`BATERI_TAB_URL`, `METALTERM_TAB_URL`, `WARP_FOCUS_URL`);
+  in iTerm as `iterm2:reveal?sessionid=` the whole `ITERM_SESSION_ID`; in
+  Claude's desktop app as `claude://code/continue?session=` its
+  `CLAUDE_CODE_HOST_SESSION_ID`. Terminal and Ghostty publish no link: their
+  tab would take Apple Events. All are read from the agent's exec-time
+  environment (`KERN_PROCARGS2`) — no permission. The value is checked
+  (`TabLink`): `metalterm://tab/restart` is an action, not a tab.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
   the effective phase, the finish latch, the peek, the open bar, the balloon
@@ -453,6 +462,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   (`ENOENT`). The launch path is in the argument area (`KERN_PROCARGS2`). Being
   inside a `.app` does not make a path a terminal — `claude` itself runs from
   one.
+- **iTerm's sessions hang off a server outside its bundle**
+  (`~/Library/Application Support/iTerm2/iTermServer-<version>`, parented to
+  launchd): no path in the chain names `iTerm.app`, and the walk found no
+  host until `SessionHost.helperBundle` named it. Its `reveal` link wants the
+  whole `ITERM_SESSION_ID` (`w0t0p0:<UUID>`); the UUID alone only brought
+  the app forward.
 
 ### SwiftUI and AppKit
 

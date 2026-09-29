@@ -22,12 +22,14 @@ final class SessionHostTests: XCTestCase {
 
     private func probe(_ table: [Int32: Proc],
                        bundles: [String: (bundleID: String, name: String)] = [:],
-                       running: [String: SessionHost.App] = [:]) -> SessionHost.Probe {
+                       running: [String: SessionHost.App] = [:],
+                       environment: [Int32: [String]] = [:]) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
                           regularApp: { table[$0]?.app },
                           executablePath: { table[$0]?.path },
                           bundle: { bundles[$0] },
-                          running: { running[$0] })
+                          running: { running[$0] },
+                          environment: { environment[$0] ?? [] })
     }
 
     func testADirectTerminal() {
@@ -192,5 +194,176 @@ final class SessionHostTests: XCTestCase {
                        (path as NSString).lastPathComponent,
                        "the fallback reads the same executable from the argument area")
         XCTAssertNil(live.regularApp(Int32.max))
+    }
+
+    // MARK: - Tab links
+
+    private static let metaltermTab = "METALTERM_TAB_URL=metalterm://tab/12cc2c67c4d3a305"
+    private static let bateriTab = "BATERI_TAB_URL=bateri://tab/85353B2C-0564-41A3-9E4A-52DC53B00316"
+
+    /// The tab comes from the agent's own environment, and only for the app
+    /// the walk found: the shell's and the terminal's are not asked.
+    func testTheAgentsTabLinkRidesOnItsApp() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 500, path: "/bin/zsh"),
+            500: Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm),
+        ]
+        let host = SessionHost.resolve(pid: 900, probe(table, environment: [
+            900: ["HOME=/Users/u", Self.metaltermTab],
+            800: ["METALTERM_TAB_URL=metalterm://tab/ffffffffffffffff"],
+        ]))
+        guard case .app(let app) = host else { return XCTFail("\(host)") }
+        XCTAssertEqual(app.tab, URL(string: "metalterm://tab/12cc2c67c4d3a305"))
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table)), .app(metalterm), "no variable, no tab")
+    }
+
+    /// An app with no tab link never has the agent's environment read.
+    func testAnAppWithoutATabLinkDoesNotReadTheEnvironment() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 600, path: "/Users/u/.local/bin/claude"),
+            600: Proc(parent: 1, path: "/Applications/Code.app/Contents/MacOS/Code", app: code),
+        ]
+        var read: [Int32] = []
+        var lookups = probe(table)
+        lookups.environment = { read.append($0); return [Self.metaltermTab] }
+        XCTAssertEqual(SessionHost.resolve(pid: 900, lookups), .app(code))
+        XCTAssertEqual(read, [])
+    }
+
+    func testTabLinksAreCheckedNotTrusted() {
+        let metal = "dev.metalterm.Metalterm", bateri = "io.github.bateri.bateri"
+        XCTAssertEqual(TabLink.url(bundleID: metal, environment: [Self.metaltermTab]),
+                       URL(string: "metalterm://tab/12cc2c67c4d3a305"))
+        XCTAssertEqual(TabLink.url(bundleID: bateri, environment: [Self.bateriTab]),
+                       URL(string: "bateri://tab/85353B2C-0564-41A3-9E4A-52DC53B00316"))
+        let refused = [
+            "METALTERM_TAB_URL=metalterm://tab/restart",
+            "METALTERM_TAB_URL=metalterm://tab/",
+            "METALTERM_TAB_URL=metalterm://tab/12cc/../restart",
+            "METALTERM_TAB_URL=metalterm://tab/12cc2c67c4d3a305?x=1",
+            "METALTERM_TAB_URL=metalterm://tab/12cc2c67c4d3a305#x",
+            "METALTERM_TAB_URL=metalterm://block/12cc2c67c4d3a305",
+            "METALTERM_TAB_URL=bateri://tab/12cc2c67c4d3a305",
+            "METALTERM_TAB_URL=metalterm://tab/\u{FF11}\u{FF12}",
+            "METALTERM_TAB_URL=metalterm://tab/" + String(repeating: "a", count: 65),
+            "METALTERM_TAB_URLX=metalterm://tab/12cc2c67c4d3a305",
+            Self.bateriTab,
+        ]
+        for line in refused {
+            XCTAssertNil(TabLink.url(bundleID: metal, environment: [line]), line)
+        }
+        XCTAssertNil(TabLink.url(bundleID: "com.microsoft.VSCode", environment: [Self.metaltermTab]))
+        XCTAssertEqual(TabLink.url(bundleID: metal, environment: [
+            Self.metaltermTab, "METALTERM_TAB_URL=metalterm://tab/ffffffffffffffff",
+        ]), URL(string: "metalterm://tab/12cc2c67c4d3a305"), "the first, as getenv reads it")
+    }
+
+    func testAWarpSessionOpensByItsFocusLink() {
+        let warp = "dev.warp.Warp-Stable"
+        XCTAssertEqual(TabLink.url(bundleID: warp, environment: [
+            "WARP_FOCUS_URL=warp://session/64c22618f0fb408d8aaa5cf750cd3845",
+        ]), URL(string: "warp://session/64c22618f0fb408d8aaa5cf750cd3845"))
+        for value in ["warp://session/", "warp://linear", "warp://session/64c2/x", "warp://action/64c2"] {
+            XCTAssertNil(TabLink.url(bundleID: warp, environment: ["WARP_FOCUS_URL=\(value)"]), value)
+        }
+    }
+
+    /// iTerm's link takes the whole `ITERM_SESSION_ID`: it splits it at the
+    /// `:` itself, and the UUID alone was seen to find no session.
+    func testAnITermSessionRevealsByItsWholeID() {
+        let iterm = "com.googlecode.iterm2"
+        let id = "w0t0p0:C898A315-42EC-4D5E-93D7-7D34D4AD1C6C"
+        XCTAssertEqual(TabLink.url(bundleID: iterm, environment: ["ITERM_SESSION_ID=\(id)"]),
+                       URL(string: "iterm2:reveal?sessionid=\(id)"))
+        let refused = [
+            "C898A315-42EC-4D5E-93D7-7D34D4AD1C6C",
+            "w0t0p0:",
+            ":C898A315",
+            "w0t0p0:C898&c=ls",
+            "w0t0p0:C898#x",
+            "w0/t0:C898",
+            "w0t0p0:C898:x",
+        ]
+        for value in refused {
+            XCTAssertNil(TabLink.url(bundleID: iterm, environment: ["ITERM_SESSION_ID=\(value)"]), value)
+        }
+    }
+
+    /// iTerm's sessions hang off a server copied out of its bundle and
+    /// parented to launchd: the server's own path names iTerm.
+    func testAnITermSessionIsFoundThroughItsServer() {
+        let iterm = SessionHost.App(bundleID: "com.googlecode.iterm2", name: "iTerm2", pid: 400)
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 700, path: "/bin/zsh"),
+            700: Proc(parent: 600, path: "/usr/bin/login"),
+            600: Proc(parent: 1, path: "/Users/u/Library/Application Support/iTerm2/iTermServer-3.4.23"),
+        ]
+        let id = "ITERM_SESSION_ID=w0t0p0:C898A315-42EC-4D5E-93D7-7D34D4AD1C6C"
+        var expected = iterm
+        expected.tab = URL(string: "iterm2:reveal?sessionid=w0t0p0:C898A315-42EC-4D5E-93D7-7D34D4AD1C6C")
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table, running: ["com.googlecode.iterm2": iterm],
+                                                           environment: [900: [id]])), .app(expected))
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table)), .closed(name: "iTerm2"))
+        for path in ["/tmp/iTerm2/iTermServer-1", "/Users/u/Library/Application Support/iTerm2/other",
+                     "/Users/u/Library/Application Support/iTerm2/x/iTermServer-1"] {
+            XCTAssertNil(SessionHost.helperBundle(path), path)
+        }
+    }
+
+    /// Claude's desktop app gives the session's id, not a link: the link is
+    /// built here, and only from an id of the shape the app accepts.
+    func testAClaudeDesktopSessionOpensByItsID() {
+        let claude = "com.anthropic.claudefordesktop"
+        let id = "local_36be0359-4c18-44c6-889d-380645800298"
+        XCTAssertEqual(TabLink.url(bundleID: claude, environment: ["CLAUDE_CODE_HOST_SESSION_ID=\(id)"]),
+                       URL(string: "claude://code/continue?session=\(id)"))
+        let refused = [
+            "local_",
+            "36be0359-4c18-44c6-889d-380645800298",
+            "session_abc",
+            "local_abc&session=last",
+            "local_abc#x",
+            "local_abc/../x",
+            "local_ab c",
+            "local_\u{00E7}",
+            "local_" + String(repeating: "a", count: 65),
+        ]
+        for value in refused {
+            XCTAssertNil(TabLink.url(bundleID: claude, environment: ["CLAUDE_CODE_HOST_SESSION_ID=\(value)"]),
+                         value)
+        }
+        XCTAssertNil(TabLink.url(bundleID: "dev.metalterm.Metalterm",
+                                 environment: ["CLAUDE_CODE_HOST_SESSION_ID=\(id)"]),
+                     "a terminal started from a desktop session is not that session")
+    }
+
+    /// `KERN_PROCARGS2`: argc, the path, padding, the arguments, then the
+    /// environment up to an empty string. Arguments are never taken for it.
+    func testTheEnvironmentIsReadPastTheArguments() {
+        func buffer(argc: UInt32, _ parts: [String], padding: Int = 3, tail: [UInt8] = [0, 0]) -> [UInt8] {
+            var bytes = withUnsafeBytes(of: argc.littleEndian, Array.init)
+            bytes += Array(parts[0].utf8) + [UInt8](repeating: 0, count: padding)
+            for part in parts.dropFirst() { bytes += Array(part.utf8) + [0] }
+            return bytes + tail
+        }
+        let full = buffer(argc: 2, ["/bin/claude", "claude", "A=argument", "HOME=/u", Self.metaltermTab])
+        XCTAssertEqual(SessionHost.environment(procArgs: full), ["HOME=/u", Self.metaltermTab])
+        XCTAssertEqual(SessionHost.environment(procArgs: buffer(argc: 5, ["/bin/claude", "claude"])), [])
+        XCTAssertEqual(SessionHost.environment(procArgs: Array(full.prefix(30))), [])
+        XCTAssertEqual(SessionHost.environment(procArgs: buffer(argc: 0, ["/p", "X=1"], tail: [])), ["X=1"],
+                       "a buffer cut without its final NUL still gives what it holds")
+        XCTAssertEqual(SessionHost.environment(procArgs: [1, 0]), [])
+        XCTAssertEqual(SessionHost.environment(procArgs: []), [])
+    }
+
+    /// The real read: this process's environment, as `exec` gave it.
+    func testTheRealEnvironmentIsThisProcesss() {
+        let me = ProcessInfo.processInfo.processIdentifier
+        let read = SessionHost.environment(me)
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        XCTAssertTrue(read.contains("PATH=\(path)"), "\(read.count) variables")
+        XCTAssertEqual(SessionHost.environment(Int32.max), [])
     }
 }
