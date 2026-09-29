@@ -23,20 +23,27 @@ public enum PermissionMode: String, CaseIterable, Codable, Equatable {
     /// File edits in the working folder go through; commands still ask.
     case acceptEdits
     /// Every other check is skipped: `--dangerously-skip-permissions` by
-    /// its mode name. Only the ask rules above still ask. The shell asks the
-    /// user before it is picked (`asksBeforePicking`).
+    /// its mode name. Only the ask rules above still ask, and they match a
+    /// command's first words: `find -delete` or `git clean` runs unasked.
+    /// The shell asks the user before it is picked (`asksBeforePicking`),
+    /// for one chat: it is never a default (`mayBeDefault`).
     case bypass = "bypassPermissions"
 
     /// A new chat's mode when nothing was chosen.
     public static let standard: PermissionMode = .auto
 
-    /// The order Settings and Setup list the modes in: the recommended one
-    /// first, the one that skips every check last.
-    public static let offered: [PermissionMode] = [.auto, .acceptEdits, .ask, .bypass]
+    /// The new chats' defaults Settings and Setup list, the recommended one
+    /// first. Bypass is not among them (`mayBeDefault`).
+    public static let offered: [PermissionMode] = [.auto, .acceptEdits, .ask]
 
     /// Picking it takes the user's explicit yes, every time it is switched
     /// on: nothing but the ask rules stands between Claude and the machine.
     public var asksBeforePicking: Bool { self == .bypass }
+
+    /// Whether it may be the new chats' mode. Bypass is not: one yes in one
+    /// chat would otherwise start every later chat — after a restart too —
+    /// with nothing but the ask rules, and no question.
+    public var mayBeDefault: Bool { self != .bypass }
 
     /// A stored value read back; anything else — an old file, a mode this
     /// build does not offer — is `nil`, and the caller's default applies.

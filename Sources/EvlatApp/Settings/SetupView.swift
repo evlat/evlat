@@ -419,8 +419,7 @@ private struct ChatStep: View {
                         ChoiceRow(title: model.t(ChatModel.modeKey(mode)),
                                   badge: mode == .standard ? model.t("settings.chat.modes.recommended") : nil,
                                   detail: model.t(ChatModel.modeDetailKey(mode)),
-                                  selected: model.mode == mode,
-                              danger: mode.asksBeforePicking) { model.setMode(mode) }
+                                  selected: model.mode == mode) { model.setMode(mode) }
                     }
                 }
             }
