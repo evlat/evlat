@@ -66,14 +66,14 @@ final class ClaudeInvocationTests: XCTestCase {
         XCTAssertEqual((settings["permissions"] as? [String: Any])?["ask"] as? [String], PermissionHook.askRules)
     }
 
-    /// Only bypass asks before it is picked; the lists show it last, after
-    /// the recommended mode, and show every mode.
-    func testOnlyBypassAsksBeforeItIsPicked() {
+    /// Only bypass asks before it is picked, and only bypass is never a
+    /// default: Settings and Setup offer every other mode, recommended first.
+    func testOnlyBypassAsksAndIsNeverADefault() {
         XCTAssertEqual(PermissionMode.allCases.filter(\.asksBeforePicking), [.bypass])
+        XCTAssertEqual(PermissionMode.allCases.filter { !$0.mayBeDefault }, [.bypass])
         XCTAssertEqual(PermissionMode.offered.first, .standard)
-        XCTAssertEqual(PermissionMode.offered.last, .bypass)
-        XCTAssertEqual(Set(PermissionMode.offered), Set(PermissionMode.allCases))
-        XCTAssertEqual(PermissionMode.offered.count, PermissionMode.allCases.count)
+        XCTAssertEqual(Set(PermissionMode.offered), Set(PermissionMode.allCases.filter(\.mayBeDefault)))
+        XCTAssertEqual(PermissionMode.offered.count, PermissionMode.allCases.count - 1)
     }
 
     func testALaterTurnResumes() {

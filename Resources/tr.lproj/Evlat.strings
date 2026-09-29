@@ -169,9 +169,9 @@
 "chat.mode.auto.detail" = "Her adımı senin yerine bir sınıflandırıcı denetler. Silme, sudo, git push gibileri yine sorar.";
 "chat.mode.acceptEdits.detail" = "Bu klasördeki dosyaları sormadan düzenler; komutlar yine sorar.";
 "chat.mode.bypass" = "İzinleri atla";
-"chat.mode.bypass.detail" = "Tüm izin denetimlerini atlar: dosyaları düzenler ve komutları sormadan çalıştırır. Silme, sudo, git push gibileri yine sorar.";
+"chat.mode.bypass.detail" = "Yalnız bu sohbet. Dosyaları düzenler ve komutları sormadan çalıştırır. Yalnız rm, sudo, git push, chmod ya da kill ile başlayan komutlar yine sorar.";
 "chat.mode.bypass.confirm.title" = "İzinleri atla kipi açılsın mı?";
-"chat.mode.bypass.confirm.message" = "Claude dosyaları düzenleyip komutları sana sormadan çalıştıracak. Yalnız silme, sudo, git push gibileri yine sorar. Yalnız bir hatanın kolayca geri alınabileceği yerde kullan.";
+"chat.mode.bypass.confirm.message" = "Bu sohbette Claude dosyaları düzenleyip komutları sana sormadan çalıştıracak. Yalnız rm, sudo, git push, chmod ya da kill ile başlayan komutlar yine sorar; başka yoldan silmek — find -delete, git clean, bir betik — sormaz. Yeni sohbetler yine varsayılan kipinle açılır. Yalnız bir hatanın kolayca geri alınabileceği yerde kullan.";
 "chat.mode.bypass.confirm.confirm" = "İzinleri atla";
 "chat.mode.bypass.confirm.cancel" = "Vazgeç";
 "chat.notDone.auto" = "Otomatik kip bunu yapmadı:";
@@ -431,7 +431,6 @@
 "setup.flow.summary.mode.auto" = "otomatik izin";
 "setup.flow.summary.mode.acceptEdits" = "düzenlemeler kabul";
 "setup.flow.summary.mode.default" = "her adımda sor";
-"setup.flow.summary.mode.bypassPermissions" = "tüm denetimler atlanır";
 "setup.flow.summary.login" = "Oturum açınca başlar";
 "setup.flow.summary.command" = "evlat komutu ~/.local/bin'de";
 "setup.flow.summary.command.manual" = "evlat komutu elle kurulacak";

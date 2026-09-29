@@ -386,10 +386,10 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertEqual(controller.chatModel.mode, .ask)
     }
 
-    /// Bypass is switched on only after a yes, from the balloon and from
-    /// the settings' default alike; a no leaves everything as it was, and
-    /// no other pick asks.
-    func testBypassIsPickedOnlyAfterAYes() {
+    /// Bypass is switched on only after a yes, and only for the chat it
+    /// was picked in: it never becomes the next chats' default, from the
+    /// balloon, Settings, Setup or storage. No other pick asks.
+    func testBypassIsOneChatsAfterAYes() {
         let controller = controller()
         defer { close(controller) }
         var asked = 0
@@ -409,27 +409,31 @@ final class ChatPanelTests: XCTestCase {
         answer = true
         controller.choose(.bypass)
         XCTAssertEqual(asked, 2)
-        XCTAssertEqual(controller.chatModel.mode, .bypass)
-        XCTAssertEqual(controller.defaultMode, .bypass)
+        XCTAssertEqual(controller.chatModel.mode, .bypass, "this chat is in bypass")
+        XCTAssertEqual(controller.defaultMode, .ask, "the next chats are not")
 
         controller.choose(.bypass)
         XCTAssertEqual(asked, 2, "picking bypass where it is in force asks nothing")
         controller.choose(.auto)
         XCTAssertEqual(asked, 2, "leaving bypass asks nothing")
         XCTAssertEqual(controller.chatModel.mode, .auto)
+        XCTAssertEqual(controller.defaultMode, .auto, "any other pick is still the default")
 
-        // Settings and Setup go through the host.
-        answer = false
+        // Settings and Setup go through the host: bypass is not a default.
         controller.settingsHost.setDefaultMode(.bypass)
-        XCTAssertEqual(asked, 3)
-        XCTAssertEqual(controller.defaultMode, .auto, "a no keeps the default")
-        answer = true
-        controller.settingsHost.setDefaultMode(.bypass)
-        XCTAssertEqual(asked, 4)
-        XCTAssertEqual(controller.defaultMode, .bypass)
-        XCTAssertEqual(controller.chatModel.mode, .auto, "the balloon's pick stays")
-        controller.settingsHost.setDefaultMode(.bypass)
-        XCTAssertEqual(asked, 4, "already the default: nothing to ask")
+        XCTAssertEqual(controller.defaultMode, .auto)
+        XCTAssertEqual(asked, 2)
+    }
+
+    /// A bypass default stored by some other build reads as none.
+    func testAStoredBypassDefaultIsNotADefault() throws {
+        let suite = "evlat.tests.bypass.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("bypassPermissions", forKey: AppController.permissionModeKey)
+        XCTAssertEqual(AppController.storedMode(defaults), .standard)
+        defaults.set("acceptEdits", forKey: AppController.permissionModeKey)
+        XCTAssertEqual(AppController.storedMode(defaults), .acceptEdits)
     }
 
     /// The settings' default leaves a mode picked in the balloon for

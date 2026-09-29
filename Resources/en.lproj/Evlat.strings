@@ -226,9 +226,9 @@
 "chat.mode.auto.detail" = "A classifier checks each step instead of you. Deleting, sudo, git push and the like still ask.";
 "chat.mode.acceptEdits.detail" = "Edits files in this folder without asking; commands still ask.";
 "chat.mode.bypass" = "Bypass";
-"chat.mode.bypass.detail" = "Skips every permission check: edits files and runs commands without asking. Deleting, sudo, git push and the like still ask.";
+"chat.mode.bypass.detail" = "This chat only. Edits files and runs commands without asking. Only commands that start with rm, sudo, git push, chmod or kill still ask.";
 "chat.mode.bypass.confirm.title" = "Turn on Bypass mode?";
-"chat.mode.bypass.confirm.message" = "Claude will edit files and run commands without asking you. Only deleting, sudo, git push and the like still ask. Use it only where a mistake is cheap to undo.";
+"chat.mode.bypass.confirm.message" = "In this chat Claude will edit files and run commands without asking you. Only commands that start with rm, sudo, git push, chmod or kill still ask; deleting another way — find -delete, git clean, a script — does not. New chats start in your default mode again. Use it only where a mistake is cheap to undo.";
 "chat.mode.bypass.confirm.confirm" = "Turn On Bypass";
 "chat.mode.bypass.confirm.cancel" = "Cancel";
 "chat.notDone.auto" = "Auto mode didn't do this:";
@@ -489,7 +489,6 @@
 "setup.flow.summary.mode.auto" = "automatic permissions";
 "setup.flow.summary.mode.acceptEdits" = "edits accepted";
 "setup.flow.summary.mode.default" = "asks at every step";
-"setup.flow.summary.mode.bypassPermissions" = "every check skipped";
 "setup.flow.summary.login" = "Opens at login";
 "setup.flow.summary.command" = "evlat command in ~/.local/bin";
 "setup.flow.summary.command.manual" = "evlat command: to be added by hand";

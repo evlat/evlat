@@ -1721,8 +1721,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// A new chat's mode, stored by its CLI value; none stored is auto.
     nonisolated static let permissionModeKey = "chat.permissionMode"
 
+    /// A stored mode that may not be a default (bypass) reads as none.
     nonisolated static func storedMode(_ defaults: UserDefaults?) -> PermissionMode {
-        PermissionMode(stored: defaults?.string(forKey: permissionModeKey)) ?? .standard
+        PermissionMode(stored: defaults?.string(forKey: permissionModeKey))
+            .flatMap { $0.mayBeDefault ? $0 : nil } ?? .standard
     }
 
     /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
@@ -1765,7 +1767,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// A mode picked from the label: the chat's from its next turn, and
-    /// the default for the chats after it.
+    /// the default for the chats after it — except bypass, which is this
+    /// chat's alone (`PermissionMode.mayBeDefault`).
     @objc private func chooseMode(_ sender: NSMenuItem) {
         guard let mode = (sender.representedObject as? String).flatMap(PermissionMode.init(rawValue:)) else { return }
         choose(mode)
@@ -1778,22 +1781,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         } else {
             chosenMode = mode
         }
-        setDefaultMode(mode)
+        if mode.mayBeDefault { setDefaultMode(mode) } else { refreshMode() }
     }
 
     /// The next chats' mode, and nothing else: the open chat —
     /// and a mode picked in the balloon for a chat not made yet — keeps
     /// its own. Stored under `modeDefaults`' isolation.
     func setDefaultMode(_ mode: PermissionMode) {
+        guard mode.mayBeDefault else { return }
         if let modeDefaults { modeDefaults.set(mode.rawValue, forKey: Self.permissionModeKey) } else { modeUnstored = mode }
         refreshMode()
-    }
-
-    /// The default picked in Settings or Setup: the same question as the
-    /// balloon's before bypass becomes every new chat's mode.
-    func pickDefaultMode(_ mode: PermissionMode) {
-        guard mayPick(mode, over: defaultMode) else { return }
-        setDefaultMode(mode)
     }
 
     /// Asks the user before bypass is switched on (`BypassConfirmation`).
@@ -2058,7 +2055,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
             defaultMode: { [weak self] in self?.defaultMode ?? .standard },
-            setDefaultMode: { [weak self] in self?.pickDefaultMode($0) },
+            setDefaultMode: { [weak self] in self?.setDefaultMode($0) },
             locateClaude: { [weak self] completion in
                 guard let self else { return completion(nil) }
                 self.claudeLocator.locate { completion($0.executable) }
