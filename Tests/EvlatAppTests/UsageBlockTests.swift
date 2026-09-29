@@ -275,7 +275,7 @@ final class UsageBlockTests: XCTestCase {
         }
         XCTAssertEqual(UsageBlock.minWidth(lines: [], in: "en"), 0)
         XCTAssertEqual(AppController.openWidth(rows: [], usage: [], in: "en"),
-                       SessionColumn.openWidth(rows: [], in: "en"), accuracy: 0.5)
+                       AppController.barWidth, "nothing to hold: the body hugs the mascot")
     }
 
     /// The window is built once for the longest open body: seven and a half

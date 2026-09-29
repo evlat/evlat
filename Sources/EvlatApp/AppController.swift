@@ -353,10 +353,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The open body's width: the names' (a remote row's with its machine),
     /// the summary's or the block's (a machine's heading included),
-    /// whichever needs most, within the window's room.
+    /// whichever needs most, within the window's room. With neither a row
+    /// nor a block there is nothing to open for: the body keeps the closed
+    /// width and hugs the mascot, as it does beside the chat balloon.
     static func openWidth(rows: [SessionRow], usage: [UsageLine],
                           in lang: String = L10n.language) -> CGFloat {
-        min(max(SessionColumn.openWidth(rows: rows, in: lang), UsageBlock.minWidth(lines: usage, in: lang)),
+        guard !rows.isEmpty || !usage.isEmpty else { return barWidth }
+        return min(max(SessionColumn.openWidth(rows: rows, in: lang), UsageBlock.minWidth(lines: usage, in: lang)),
             expandedBarWidth)
     }
 
@@ -3112,8 +3115,9 @@ final class BarState: ObservableObject {
     @Published var edge: BarPanel.Edge = .right
     @Published var isOpen = false
     /// How far the body opens: as wide as the names or the summary line
-    /// need, within `SessionColumn`'s bounds (`SessionColumn.openWidth(rows:)`).
-    @Published var openWidth = SessionColumn.openWidth(namesWidth: 0)
+    /// need, within `SessionColumn`'s bounds (`SessionColumn.openWidth(rows:)`);
+    /// with nothing to hold, the closed width (`AppController.openWidth`).
+    @Published var openWidth = AppController.barWidth
     /// How long the closed body is drawn along the edge, from the head. The
     /// window is longer; this is the part that is bar.
     @Published var length = AppController.barLength(slots: 0)
