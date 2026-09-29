@@ -349,7 +349,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
-| window, bar, mascot or menu touched | `make bundle && make run`, then look at it |
+| window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
 | ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |
 | release build | `make release VERSION=x.y.z` — clean tree; Developer ID, hardened runtime, notarized and stapled zip (Sparkle's), its appcast and `Evlat.dmg` (a first install's) in `build/release/x.y.z/`; needs the keychain identity, the `evlat` notarytool profile and Sparkle's EdDSA key (`SPARKLE_KEY` is its public half) |
