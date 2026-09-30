@@ -9,9 +9,27 @@ import EvlatCore
 
 /// What the user can have Evlat set up here.
 enum SetupItem: String, CaseIterable, Identifiable {
-    case claudeHooks, codexHooks, usageRelay, commandLink, loginItem
+    case claudeHooks, codexHooks, antigravityHooks, usageRelay, commandLink, loginItem
 
     var id: String { rawValue }
+
+    /// The agent whose hooks the row installs; `nil` for the others.
+    var agent: AgentSource? {
+        switch self {
+        case .claudeHooks: return .claude
+        case .codexHooks: return .codex
+        case .antigravityHooks: return .antigravity
+        case .usageRelay, .commandLink, .loginItem: return nil
+        }
+    }
+
+    static func hooks(for source: AgentSource) -> SetupItem {
+        switch source {
+        case .claude: return .claudeHooks
+        case .codex: return .codexHooks
+        case .antigravity: return .antigravityHooks
+        }
+    }
 
     var nameKey: String { "setup.item.\(rawValue)" }
 }
@@ -112,7 +130,7 @@ enum SetupAttention: Equatable {
         case .hooksOutdated, .usageModified: return .sessions
         case .refused(let item):
             switch item {
-            case .claudeHooks, .codexHooks, .usageRelay: return .sessions
+            case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay: return .sessions
             case .commandLink: return .commandLine
             case .loginItem: return .general
             }
@@ -185,7 +203,7 @@ final class SetupModel: ObservableObject {
         linkState = nil
         if let home {
             for source in AppController.presentSources(home: home) {
-                let item: SetupItem = source == .claude ? .claudeHooks : .codexHooks
+                let item = SetupItem.hooks(for: source)
                 let status: SetupStatus
                 switch try? LocalHooks.state(at: source.settingsFile(home: home), for: source) {
                 case .current?: status = .installed
@@ -303,8 +321,8 @@ final class SetupModel: ObservableObject {
     /// is written before the press; nothing but these lines is.
     func consent(_ item: SetupItem, _ action: SetupAction) -> [String] {
         switch item {
-        case .claudeHooks, .codexHooks, .usageRelay:
-            let file = item == .codexHooks ? AgentSource.codex.settingsPath : AgentSource.claude.settingsPath
+        case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay:
+            let file = (item.agent ?? .claude).settingsPath
             return [L10n.t("setup.consent.line", ["file": "~/" + file, "what": what(item, action)], in: lang)]
         case .commandLink:
             guard action.installs else {
@@ -365,7 +383,7 @@ final class SetupModel: ObservableObject {
     /// Whether a line about the `.evlat.bak` copy belongs under the consent:
     /// only a settings file is backed up.
     func backsUp(_ items: [SetupItem]) -> Bool {
-        items.contains { [.claudeHooks, .codexHooks, .usageRelay].contains($0) }
+        items.contains { [.claudeHooks, .codexHooks, .antigravityHooks, .usageRelay].contains($0) }
     }
 
     // MARK: - Writing
@@ -390,6 +408,7 @@ final class SetupModel: ObservableObject {
         switch item {
         case .claudeHooks: host.setHooks(.claude, action.installs)
         case .codexHooks: host.setHooks(.codex, action.installs)
+        case .antigravityHooks: host.setHooks(.antigravity, action.installs)
         case .usageRelay: host.setUsageRelay(action.installs)
         case .commandLink:
             let replacing: Bool
@@ -423,6 +442,9 @@ final class SetupModel: ObservableObject {
         // server's (`RemoteSettings.manual`) never do.
         case .claudeHooks: return SetupManual(text: LocalHooks.manual(for: .claude), wrapping: nil, removal: hooksRemoval)
         case .codexHooks: return SetupManual(text: LocalHooks.manual(for: .codex), wrapping: nil, removal: hooksRemoval)
+        case .antigravityHooks:
+            return SetupManual(text: LocalHooks.manual(for: .antigravity), wrapping: nil,
+                               removal: L10n.t("setup.manual.remove.antigravity", in: lang))
         case .usageRelay:
             return SetupManual(text: manual.statusLine, wrapping: manual.wrapping,
                                removal: L10n.t("setup.manual.remove.usage", in: lang))
@@ -466,7 +488,8 @@ final class SetupModel: ObservableObject {
            "setup.consent.command.remove", "setup.consent.login.on", "setup.consent.login.off",
            "setup.manual.open", "setup.manual.copy", "setup.manual.copied", "setup.manual.check",
            "setup.manual.auto", "setup.manual.wrapping",
-           "setup.manual.remove.hooks", "setup.manual.remove.usage", "setup.manual.remove.command",
+           "setup.manual.remove.hooks", "setup.manual.remove.antigravity", "setup.manual.remove.usage",
+           "setup.manual.remove.command",
            "setup.attention.hooksOutdated", "setup.attention.refused", "setup.attention.hotKey",
            "setup.attention.machine", "setup.attention.commandLink", "menu.usage.modified"]
         + [HookSettings.Failure.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]

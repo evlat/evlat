@@ -588,8 +588,11 @@ extension RemoteReadingTests {
             .success(RemoteSettings.Snapshot(bytes: bytes, checksum: bytes == nil ? RemoteSettings.absent : "1 1"))
         }
         func hooks(_ claude: Result<RemoteSettings.Snapshot, SettingsFile.Failure>,
-                   _ codex: Result<RemoteSettings.Snapshot, SettingsFile.Failure>) -> SetupStatus {
-            RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex], command: .missing)).hooks
+                   _ codex: Result<RemoteSettings.Snapshot, SettingsFile.Failure>,
+                   _ antigravity: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory))
+            -> SetupStatus {
+            RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex, .antigravity: antigravity],
+                                            command: .missing)).hooks
         }
         XCTAssertEqual(hooks(file(installed), .failure(.noDirectory)), .installed, "Codex is not on the server")
         XCTAssertEqual(hooks(file(installed), file(codex)), .installed)
@@ -597,6 +600,10 @@ extension RemoteReadingTests {
         XCTAssertEqual(hooks(file(nil), file(nil)), .missing)
         XCTAssertEqual(hooks(.failure(.noDirectory), .failure(.noDirectory)), .missing)
         XCTAssertEqual(hooks(file(Data("{".utf8)), file(codex)), .unknown)
+        let antigravity = try SettingsFile.encode(AntigravityHooks.installing(into: [:]))
+        XCTAssertEqual(hooks(file(installed), file(codex), file(antigravity)), .installed)
+        XCTAssertEqual(hooks(file(installed), file(codex), file(nil)), .outdated,
+                       "Antigravity on the server without hooks: one install brings them")
     }
 }
 

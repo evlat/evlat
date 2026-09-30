@@ -52,8 +52,10 @@ public struct HookEvent: Equatable {
     /// value among `subjectKeys` in `tool_input`, first line only, trimmed and
     /// capped at `subjectLimit`. `nil` when the input has none of them.
     public let toolSubject: String?
-    /// `last_assistant_message` (on `Stop`), reduced to its first paragraph and
-    /// capped at `replyLimit`. The transcript is never read for it.
+    /// `last_assistant_message` (on `Stop`), reduced to a one-line preview and
+    /// capped at `replyLimit`. Claude's transcript is never read for it;
+    /// Antigravity sends no reply, and this Mac's server reads its one from
+    /// the transcript's tail (`AntigravityTranscript`).
     public let lastReply: String?
 
     /// Where a tool's subject is looked for, in order. One list rather than a
@@ -87,7 +89,7 @@ public struct HookEvent: Equatable {
         taskID = Self.text(json[Self.taskKey])
         toolName = Self.text(json["tool_name"])
         toolSubject = Self.subject(of: json["tool_input"] as? [String: Any])
-        lastReply = Self.firstParagraph(json["last_assistant_message"] as? String)
+        lastReply = Self.replyPreview(json["last_assistant_message"] as? String)
         // The pid arrives as text, because the header it comes from is text.
         // Anything that is not a plausible process is ignored: a session's
         // whereabouts are resolved by walking up from this pid, and `1`
@@ -149,15 +151,16 @@ public struct HookEvent: Equatable {
         return joined
     }
 
-    /// A reply cut to its first paragraph and `replyLimit`. Public for the
-    /// same reason as `subject(of:)`: a chat's last reply keeps the same
-    /// privacy promise as a session's.
-    public static func firstParagraph(_ text: String?) -> String? {
+    /// A reply as the card previews it: its paragraphs run together on one
+    /// line, cut at `replyLimit`. The first paragraph alone was often a
+    /// greeting ("Done!") with the substance behind it. Public for the same
+    /// reason as `subject(of:)`: a chat's last reply keeps the same privacy
+    /// promise as a session's.
+    public static func replyPreview(_ text: String?) -> String? {
         guard let text else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let paragraph = trimmed.components(separatedBy: "\n\n").first ?? trimmed
-        return capped(paragraph.trimmingCharacters(in: .whitespacesAndNewlines), at: replyLimit)
+        let words = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        guard !words.isEmpty else { return nil }
+        return capped(words, at: replyLimit)
     }
 
     /// A cut text says it was cut.

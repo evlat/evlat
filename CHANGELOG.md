@@ -8,6 +8,20 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.1.6
+
+- **Antigravity** sessions now show in the bar, from the app, the IDE and
+  the `agy` CLI alike. Install its hooks in Settings → Sessions. Antigravity
+  tells Evlat nothing when it waits for your approval, so such a session
+  shows as working rather than waiting.
+- An Antigravity session's card shows its last reply, as Claude's does.
+- **Go to session** opens the session's own tab in current Bateri builds
+  again; it only brought the app forward.
+- A card's last reply no longer stops at its first paragraph: it previews
+  the whole reply, up to about four lines.
+- Remote machines get Antigravity's hooks too, with Claude's and Codex's.
+  There the card has no reply: the conversation stays on the server.
+
 ## 0.1.5
 
 - Approving from the bar is no longer a separate setting: it comes with

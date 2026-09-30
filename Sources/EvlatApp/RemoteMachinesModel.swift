@@ -338,7 +338,10 @@ final class RemoteMachinesModel: ObservableObject {
             case (.hooks(.codex), .install): key = "menu.hooks.hint.codex"
             case (.hooks(.codex), .remove): key = "menu.hooks.hint.remove"
             case (.statusLine, .install): key = "menu.usage.hint"
-            case (.hooks(.claude), .remove), (.statusLine, .remove), (.pathLine, _): key = nil
+            // Whether a running `agy` picks up new hooks was not measured, so
+            // Antigravity has no hint.
+            case (.hooks(.claude), .remove), (.hooks(.antigravity), _), (.statusLine, .remove), (.pathLine, _):
+                key = nil
             }
             if let key { hints.append(L10n.t(key, in: lang)) }
         }
@@ -604,6 +607,7 @@ final class RemoteMachinesModel: ObservableObject {
         return [
             Block(id: "claude", captionKey: "remote.manual.claude", text: manual.claudeHooks),
             Block(id: "codex", captionKey: "remote.manual.codex", text: manual.codexHooks),
+            Block(id: "antigravity", captionKey: "remote.manual.antigravity", text: manual.antigravityHooks),
             Block(id: "statusLine", captionKey: "remote.manual.statusLine", text: manual.statusLine),
             Block(id: "wrapping", captionKey: "remote.manual.wrapping", text: wrapping),
         ]

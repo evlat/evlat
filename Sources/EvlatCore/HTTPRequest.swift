@@ -36,11 +36,14 @@ public struct HTTPRequest: Equatable {
     /// Compared against the listener's own on the server queue
     /// (`LocalAPI.Listener`); empty counts as absent, so it can never match.
     public let signalKey: String?
+    /// `X-Evlat-Event`: the hook's event name, for an agent whose body does
+    /// not carry one (Antigravity). Used only where the body has none.
+    public let event: String?
 
     public init(method: String, target: String, body: Data = Data(),
                 taskID: String? = nil, pid: String? = nil,
                 origin: String? = nil, host: String? = nil, permissionToken: String? = nil,
-                signalKey: String? = nil) {
+                signalKey: String? = nil, event: String? = nil) {
         self.method = method
         self.target = target
         self.body = body
@@ -50,6 +53,7 @@ public struct HTTPRequest: Equatable {
         self.host = host
         self.permissionToken = permissionToken
         self.signalKey = signalKey
+        self.event = event
     }
 
     /// `nil` means "not yet": either the header block has not arrived or the
@@ -83,6 +87,7 @@ public struct HTTPRequest: Equatable {
         var host: String?
         var permissionToken: String?
         var signalKey: String?
+        var event: String?
         for line in lines.dropFirst() {
             // Empty pieces are kept: a valueless `Origin:` line is a browser's
             // mark too, and dropping it let the defence be walked past.
@@ -102,6 +107,7 @@ public struct HTTPRequest: Equatable {
             case "host": host = value
             case "x-evlat-permission": permissionToken = value.isEmpty ? nil : value
             case "x-evlat-key": signalKey = value.isEmpty ? nil : value
+            case "x-evlat-event": event = value.isEmpty ? nil : value
             default: continue
             }
         }
@@ -113,6 +119,6 @@ public struct HTTPRequest: Equatable {
                            // belongs to the next request on the connection.
                            body: data.subdata(in: bodyStart..<(bodyStart + contentLength)),
                            taskID: taskID, pid: pid, origin: origin, host: host,
-                           permissionToken: permissionToken, signalKey: signalKey)
+                           permissionToken: permissionToken, signalKey: signalKey, event: event)
     }
 }

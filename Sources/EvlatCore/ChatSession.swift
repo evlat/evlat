@@ -231,7 +231,7 @@ public struct ChatSession: Equatable {
         case .result(let result):
             resultSeen = true
             replyOpen = false
-            lastReply = HookEvent.firstParagraph(result.text)
+            lastReply = HookEvent.replyPreview(result.text)
             if title == nil, !result.isError, result.subtype == "success" {
                 title = Self.title(fromReply: result.text ?? lastReplyText)
             }

@@ -139,10 +139,10 @@ final class HookEventTests: XCTestCase {
 
     /// `Stop`'s `last_assistant_message` is documented and was measured. Only
     /// its first paragraph is kept, and that is capped at a named limit.
-    func testTheLastReplyIsItsFirstParagraphCapped() {
+    func testTheLastReplyIsAOneLinePreviewCapped() {
         let short = HookEvent(json: ["hook_event_name": "Stop",
                                      "last_assistant_message": "  Done: tests pass.\n\nDetails follow."])
-        XCTAssertEqual(short.lastReply, "Done: tests pass.")
+        XCTAssertEqual(short.lastReply, "Done: tests pass. Details follow.", "what follows the first line stays")
 
         let long = String(repeating: "word ", count: HookEvent.replyLimit)
         let reply = HookEvent(json: ["hook_event_name": "Stop", "last_assistant_message": long]).lastReply

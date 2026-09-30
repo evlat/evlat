@@ -119,7 +119,7 @@ prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
 
 | provider | role | source | fidelity |
 |---|---|---|---|
-| `hooks` | backbone | the HTTP hook server; Claude Code and Codex flow into the **same** provider (`AgentSource`, `CodexHookAdapter`) | official |
+| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (`AgentSource`, `CodexHookAdapter`, `AntigravityHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
 | `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid | derived |
 | `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept | official |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens | derived |
@@ -260,9 +260,13 @@ The fixed point is the command already **installed** in the user's
 `~/.claude/settings.json` / `~/.codex/hooks.json`. Hooks installed by earlier
 versions must keep talking to this one unchanged.
 
-- The only author of the command is `LocalAPI.installedHookCommand(for:)`;
-  the writer (`HookSettings`) installs nothing else and never touches other
-  tools' hook groups.
+- The only author of the command is `LocalAPI.installedHookCommand(for:event:)`;
+  the writers (`HookSettings`, and `AntigravityHooks` for Antigravity's
+  name-keyed file, both behind `LocalHooks`) install nothing else and never
+  touch other tools' hook groups. Antigravity's body names no event, so its
+  command is one per event and sends it as `X-Evlat-Event`; the server uses
+  the header only when the body has no `hook_event_name`. Claude's and
+  Codex's bytes do not carry it.
 - The command **fails silently** (`curl -m 2 … || true`) and **writes nothing
   to stdout**. The server's reply never reaches Claude Code — if it did, a
   stray JSON on `PermissionRequest` could grant or deny. `POST /hook` always
@@ -349,7 +353,8 @@ the script bumps its version.
 ### User files
 
 `~/.claude/settings.json`, `~/.claude/statusline-*.sh`, `~/.codex/hooks.json`,
-`~/.codex/config.toml`, `~/.local/bin/evlat` and login items belong to the
+`~/.codex/config.toml`, `~/.gemini/config/hooks.json`, `~/.local/bin/evlat`
+and login items belong to the
 user. **Agents do not write them.** Writers are tested against a temporary root
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
 
@@ -480,6 +485,32 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   turn's end. A decision sent after the terminal answered is ignored.
   Requests are serialized per session. Measured with a pty-driven
   `claude --settings` and a stand-in server on 48999.
+- **Antigravity's hooks carry less than Claude's** (CLI 1.2.14, app 2.18.1).
+  Five events, none of them a permission or a notification: a tool waiting
+  for approval has had its `PreToolUse` and nothing more, so the row reads
+  `working`. The body is camelCase and **names no event**. It has no pid
+  either, but the hook's parent is the agent's process, so `$PPID` works as
+  it does for Claude. `invocationNum` restarts at 0 each turn, so
+  `PreInvocation` with 0 is the turn's start. The docs call `PreToolUse`'s
+  `decision` output required; an empty reply let the tool run. In the app
+  every conversation's hooks come from one `language_server`, so its rows
+  live until the app quits: a passive row stays listed, and nothing ends
+  them sooner. Workspace hooks (`.agents/hooks.json`) ran without a trust
+  prompt, which is how this was measured without touching the user's file.
+- **Antigravity's `Stop` has no reply, only `transcriptPath`.** The one
+  transcript Evlat reads: at a local `Stop`, the last 64 KB, for the last
+  `MODEL`/`PLANNER_RESPONSE` with text (`AntigravityTranscript`). The path
+  comes from a loopback body, so only a file under the app's, the CLI's or
+  the IDE's `brain` folder is read, after `..` and links are resolved; a
+  tunneled path names a file on the server and is never read, so a remote
+  Antigravity row has no reply. Its hooks folder (`~/.gemini/config`) is
+  not the one that says Antigravity is installed, and the install makes it.
+- **The Codex app runs no hooks.** In the app's own sessions (ChatGPT.app,
+  `com.openai.codex`, bundled codex 0.154.0-alpha), four turns and an `exec`
+  sent nothing to a `--capture` on 48151. Its settings listed the hooks as
+  on, and a restart did not change it. The same `~/.codex/hooks.json` fired
+  every event from the CLI and from the bundled binary's `exec`. Only Codex
+  CLI sessions are tracked.
 - **Codex's `rollout-*.jsonl` is undocumented and grows** (62 MB seen). Read
   the last 256 KB. `codex-usage` is derived: if the format breaks it goes
   quiet and keeps the last good reading; it never falls back to an older file.

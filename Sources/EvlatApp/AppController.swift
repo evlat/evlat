@@ -687,11 +687,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The agents whose directory exists under `home`: an agent that is not
     /// there has no entry and no row.
     nonisolated static func presentSources(home: URL) -> [AgentSource] {
-        AgentSource.allCases.filter { source in
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: source.configDirectory(home: home).path,
-                                                  isDirectory: &isDirectory) && isDirectory.boolValue
-        }
+        AgentSource.allCases.filter { $0.isPresent(home: home) }
     }
 
     /// The edge the user chose, `right` or `left`; anything else — nothing
@@ -1926,6 +1922,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         let listener = HookListener(
             port: choice.port,
+            // Antigravity's last reply is read from its own folders under
+            // this home, and from nowhere without one.
+            transcriptRoots: home.map(AntigravityTranscript.roots) ?? [],
             // Written once bound, under this controller's home: a controller
             // built without one (every test) has no key and refuses `/signal`.
             signalKey: Self.signalKeyWriter(home: home, written: signalKeyWritten),

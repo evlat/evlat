@@ -9,7 +9,7 @@ import Foundation
 /// name; anything source-specific stays inside `canonical(_:)`. A rule that
 /// branches on the source is a finding in this repo (`AGENTS.md` → Pitfalls).
 public enum AgentSource: String, CaseIterable {
-    case claude, codex
+    case claude, codex, antigravity
 
     /// Claude's path is `/hook` and it cannot move: it is written into the
     /// command already installed in the user's settings file. Every other
@@ -40,6 +40,26 @@ public enum AgentSource: String, CaseIterable {
         case .codex:
             return ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
                     "PermissionRequest", "Stop", "Interrupt"]
+        // All five Antigravity has (measured, CLI 1.2.14 and app 2.18.1).
+        // None asks the user anything, so an Antigravity row never waits.
+        case .antigravity:
+            return ["PreInvocation", "PreToolUse", "PostToolUse", "PostInvocation", "Stop"]
+        }
+    }
+
+    /// Whether the agent is on this Mac: a directory only it creates. For
+    /// Antigravity that is not the hooks file's directory — `~/.gemini`
+    /// belongs to Gemini CLI as well — but the app's or the CLI's own.
+    public func isPresent(home: URL) -> Bool {
+        let directories: [String]
+        switch self {
+        case .claude, .codex: directories = [configDirectoryName]
+        case .antigravity: directories = [".gemini/antigravity", ".gemini/antigravity-cli"]
+        }
+        return directories.contains { name in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: home.appendingPathComponent(name).path,
+                                                  isDirectory: &isDirectory) && isDirectory.boolValue
         }
     }
 
@@ -59,7 +79,14 @@ public enum AgentSource: String, CaseIterable {
     /// server's shell knows (`RemoteSettings`).
     public var settingsPath: String { configDirectoryName + "/" + settingsFileName }
 
-    private var configDirectoryName: String { self == .claude ? ".claude" : ".codex" }
+    private var configDirectoryName: String {
+        switch self {
+        case .claude: return ".claude"
+        case .codex: return ".codex"
+        // Shared by Antigravity's app, IDE and CLI (documented; seen as `{}`).
+        case .antigravity: return ".gemini/config"
+        }
+    }
     private var settingsFileName: String { self == .claude ? "settings.json" : "hooks.json" }
 
     /// Translates a source's hook body into the canonical vocabulary. An event
@@ -74,6 +101,7 @@ public enum AgentSource: String, CaseIterable {
         switch self {
         case .claude: return json
         case .codex: return CodexHookAdapter.canonical(json)
+        case .antigravity: return AntigravityHookAdapter.canonical(json)
         }
     }
 }

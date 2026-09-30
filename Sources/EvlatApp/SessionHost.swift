@@ -306,6 +306,9 @@ struct TabLink {
     let link: (Substring) -> URL?
 
     static let known: [String: TabLink] = [
+        // Bateri ships as `dev.bateri.bateri` (seen installed); the older
+        // id stays for copies built before the change.
+        "dev.bateri.bateri": ready(variable: "BATERI_TAB_URL", prefix: "bateri://tab/"),
         "io.github.bateri.bateri": ready(variable: "BATERI_TAB_URL", prefix: "bateri://tab/"),
         "dev.metalterm.Metalterm": ready(variable: "METALTERM_TAB_URL", prefix: "metalterm://tab/"),
         "dev.warp.Warp-Stable": ready(variable: "WARP_FOCUS_URL", prefix: "warp://session/"),

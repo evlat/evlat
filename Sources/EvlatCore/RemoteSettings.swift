@@ -149,6 +149,23 @@ public enum RemoteSettings {
         return try SettingsFile.encode(changed)
     }
 
+    /// A server's hooks: each agent's command alone — never the approval
+    /// hook, whose route a tunnel answers `404` — in the agent's own file
+    /// shape (Antigravity's is `AntigravityHooks`').
+    static func hooksState(of settings: [String: Any], for source: AgentSource) -> HookSettings.State {
+        source == .antigravity ? AntigravityHooks.state(of: settings) : HookSettings.state(of: settings, for: source)
+    }
+
+    static func hooksInstalling(into settings: [String: Any], for source: AgentSource) -> [String: Any] {
+        source == .antigravity ? AntigravityHooks.installing(into: settings)
+            : HookSettings.installing(into: settings, for: source)
+    }
+
+    static func hooksRemoving(from settings: [String: Any], for source: AgentSource) -> [String: Any] {
+        source == .antigravity ? AntigravityHooks.removing(from: settings)
+            : HookSettings.removing(from: settings, for: source)
+    }
+
     /// The local writers' `install`/`remove`, on bytes. A refusal is
     /// `malformed`, decided here from the bytes just read, as the local
     /// writers decide it from the file.
@@ -160,14 +177,14 @@ public enum RemoteSettings {
             let settings = try SettingsFile.parse(original)
             switch (change, action) {
             case (.hooks(let source), .install):
-                guard let data = try plan(original: original, { HookSettings.installing(into: $0, for: source) })
+                guard let data = try plan(original: original, { hooksInstalling(into: $0, for: source) })
                 else {
-                    if HookSettings.state(of: settings, for: source) != .current { throw SettingsFile.Failure.malformed }
+                    if hooksState(of: settings, for: source) != .current { throw SettingsFile.Failure.malformed }
                     return nil
                 }
                 return Write(contents: data, backup: nil)
             case (.hooks(let source), .remove):
-                return try plan(original: original, { HookSettings.removing(from: $0, for: source) })
+                return try plan(original: original, { hooksRemoving(from: $0, for: source) })
                     .map { Write(contents: $0, backup: nil) }
             case (.statusLine, .install):
                 guard let data = try plan(original: original, { StatusLineRelay.installing(into: $0) ?? $0 }) else {
@@ -265,7 +282,7 @@ public enum RemoteSettings {
 
         /// The local reader's state, from the bytes read.
         public func hooks(_ source: AgentSource) -> Found<HookSettings.State> {
-            found(source) { HookSettings.state(of: $0, for: source) }
+            found(source) { RemoteSettings.hooksState(of: $0, for: source) }
         }
 
         public var statusLine: Found<StatusLineRelay.State> {
@@ -470,6 +487,8 @@ public enum RemoteSettings {
         public let claudeHooks: String
         /// `~/.codex/hooks.json`, as a whole file's JSON.
         public let codexHooks: String
+        /// `~/.gemini/config/hooks.json`, as a whole file's JSON.
+        public let antigravityHooks: String
         /// The `statusLine` for a file that has none.
         public let statusLine: String
         /// The wrapper around an existing command, `placeholder` in its place.
@@ -487,6 +506,7 @@ public enum RemoteSettings {
         return Manual(
             claudeHooks: text(HookSettings.installing(into: [:], for: .claude)),
             codexHooks: text(HookSettings.installing(into: [:], for: .codex)),
+            antigravityHooks: text(AntigravityHooks.installing(into: [:])),
             statusLine: text(StatusLineRelay.installing(into: [:]) ?? [:]),
             wrapping: StatusLineRelay.command(wrapping: Manual.placeholder),
             marker: "127.0.0.1:\(LocalAPI.defaultPort)")

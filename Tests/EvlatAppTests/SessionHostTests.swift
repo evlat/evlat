@@ -237,6 +237,9 @@ final class SessionHostTests: XCTestCase {
                        URL(string: "metalterm://tab/12cc2c67c4d3a305"))
         XCTAssertEqual(TabLink.url(bundleID: bateri, environment: [Self.bateriTab]),
                        URL(string: "bateri://tab/85353B2C-0564-41A3-9E4A-52DC53B00316"))
+        XCTAssertEqual(TabLink.url(bundleID: "dev.bateri.bateri", environment: [Self.bateriTab]),
+                       URL(string: "bateri://tab/85353B2C-0564-41A3-9E4A-52DC53B00316"),
+                       "the id Bateri ships under today")
         let refused = [
             "METALTERM_TAB_URL=metalterm://tab/restart",
             "METALTERM_TAB_URL=metalterm://tab/",

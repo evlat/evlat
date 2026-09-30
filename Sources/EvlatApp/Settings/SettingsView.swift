@@ -220,7 +220,7 @@ private struct SessionsSection: View {
     @ObservedObject var setup: SetupModel
 
     var body: some View {
-        let agents = setup.rows.filter { $0.item == .claudeHooks || $0.item == .codexHooks }
+        let agents = setup.rows.filter { $0.item.agent != nil }
         if agents.isEmpty {
             Text(model.t("settings.sessions.none"))
                 .font(.system(size: 12.5))

@@ -353,7 +353,7 @@ private struct ServerItemRow: View {
     private var detail: String {
         switch item {
         case .hooks:
-            return [AgentSource.claude.settingsPath, AgentSource.codex.settingsPath].map(path).joined(separator: "\n")
+            return AgentSource.allCases.map { path($0.settingsPath) }.joined(separator: "\n")
         case .usage:
             return model.t("settings.remote.usage.detail", ["file": path(AgentSource.claude.settingsPath)])
         case .command:
@@ -373,7 +373,7 @@ private struct ServerItemRow: View {
         switch item {
         case .hooks:
             let what = install ? "setup.consent.what.hooks" : "setup.consent.what.hooks.remove"
-            return [line(AgentSource.claude.settingsPath, what), line(AgentSource.codex.settingsPath, what)]
+            return AgentSource.allCases.map { line($0.settingsPath, what) }
         case .usage:
             return [line(AgentSource.claude.settingsPath,
                          install ? "setup.consent.what.usage" : "setup.consent.what.usage.remove")]

@@ -487,13 +487,14 @@ final class RemoteMachinesTests: XCTestCase {
     func testTheBlocksToPasteAreTheWritersOwn() throws {
         let manual = RemoteSettings.manual
         let blocks = RemoteMachinesModel.blocks
-        XCTAssertEqual(blocks.map(\.id), ["claude", "codex", "statusLine", "wrapping"])
+        XCTAssertEqual(blocks.map(\.id), ["claude", "codex", "antigravity", "statusLine", "wrapping"])
         XCTAssertEqual(blocks[0].text, manual.claudeHooks)
         XCTAssertEqual(blocks[1].text, manual.codexHooks)
-        XCTAssertEqual(blocks[2].text, manual.statusLine)
+        XCTAssertEqual(blocks[2].text, manual.antigravityHooks)
+        XCTAssertEqual(blocks[3].text, manual.statusLine)
         // The wrapper goes inside a JSON string: shown as one, it decodes to
         // the writer's command byte for byte.
-        let decoded = try JSONSerialization.jsonObject(with: Data(blocks[3].text.utf8), options: .fragmentsAllowed)
+        let decoded = try JSONSerialization.jsonObject(with: Data(blocks[4].text.utf8), options: .fragmentsAllowed)
         XCTAssertEqual(decoded as? String, manual.wrapping)
     }
 

@@ -34,7 +34,7 @@ final class SetupFlowModel: ObservableObject {
 
     /// The sessions step's items, and the optional step's: what "Install"
     /// and "Finish" may write.
-    static let sessionItems: Set<SetupItem> = [.claudeHooks, .usageRelay, .codexHooks]
+    static let sessionItems: Set<SetupItem> = [.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks]
     static let optionalItems: Set<SetupItem> = [.commandLink, .loginItem]
 
     @Published private(set) var step: Step = .hello
@@ -215,7 +215,7 @@ final class SetupFlowModel: ObservableObject {
     /// What the setup leaves behind, read from the rows as they are now.
     var summary: [SummaryLine] {
         var lines = [SummaryLine(mark: .done, text: t(edge.isLeft ? "setup.flow.summary.left" : "setup.flow.summary.right"))]
-        for item in [SetupItem.claudeHooks, .usageRelay, .codexHooks] {
+        for item in [SetupItem.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks] {
             guard let row = setup.row(item) else { continue }
             let name = t("setup.flow.summary.\(item.rawValue)")
             if row.status == .installed || row.status == .outdated {
@@ -279,6 +279,7 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.done.note",
         "setup.flow.summary.left", "setup.flow.summary.right",
         "setup.flow.summary.claudeHooks", "setup.flow.summary.usageRelay", "setup.flow.summary.codexHooks",
+        "setup.flow.summary.antigravityHooks",
         "setup.flow.summary.manual", "setup.flow.summary.skipped",
         "setup.flow.summary.chat", "setup.flow.summary.chat.mode",
         "setup.flow.summary.login", "setup.flow.summary.command", "setup.flow.summary.command.manual",

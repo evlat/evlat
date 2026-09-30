@@ -69,6 +69,7 @@ public enum LocalAPI {
         // silently for anyone whose hooks spell it that way.
         case ("POST", AgentSource.claude.hookPath), ("POST", "/hook/claude"): return .hook(.claude)
         case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
+        case ("POST", AgentSource.antigravity.hookPath): return .hook(.antigravity)
         case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
         case ("POST", PermissionHook.path): return .permission
         case ("POST", ApprovalHook.path): return .approval
@@ -187,10 +188,14 @@ public enum LocalAPI {
     public struct Listener: Equatable {
         public let origin: Origin
         public let signalKey: String?
+        /// Where an Antigravity transcript may be read from
+        /// (`AntigravityTranscript`); none, and no reply is read.
+        public let transcriptRoots: [URL]
 
-        public init(origin: Origin = .local, signalKey: String? = nil) {
+        public init(origin: Origin = .local, signalKey: String? = nil, transcriptRoots: [URL] = []) {
             self.origin = origin
             self.signalKey = signalKey
+            self.transcriptRoots = transcriptRoots
         }
     }
 
@@ -285,6 +290,20 @@ public enum LocalAPI {
             else { json.removeValue(forKey: HookEvent.taskKey) }
             if trusted, let pid = request.pid { json[HookEvent.pidKey] = pid }
             else { json.removeValue(forKey: HookEvent.pidKey) }
+            // Antigravity's body has no event name; its command sends it as a
+            // header. A body that names its own event keeps it.
+            if json["hook_event_name"] == nil, let event = request.event { json["hook_event_name"] = event }
+            // Antigravity's finish names no reply, only its transcript: this
+            // Mac's is read, a tunneled one names a file elsewhere and never
+            // is. Its body never supplies the reply itself.
+            if source == .antigravity {
+                json.removeValue(forKey: "last_assistant_message")
+                if trusted, json["hook_event_name"] as? String == "Stop",
+                   let path = json["transcriptPath"] as? String,
+                   let reply = AntigravityTranscript.lastReply(at: path, roots: listener.transcriptRoots) {
+                    json["last_assistant_message"] = reply
+                }
+            }
             // Exactly `{}`, and that is not incidental. The installed command
             // throws the answer away (`>/dev/null`), but if this body ever did
             // reach Claude Code, a stray JSON object would allow or deny a
@@ -365,8 +384,13 @@ public enum LocalAPI {
     /// Code, and `|| true` so a hook never fails over Evlat. `$PPID` and
     /// `${EVLAT_TASK:-}` are plain text — they resolve when the hook runs, not
     /// when it is installed.
-    public static func installedHookCommand(for source: AgentSource) -> String {
-        "curl -s -m 2 -X POST -H 'Content-Type: application/json'"
+    ///
+    /// Antigravity's body does not name its event (measured), so its command
+    /// is one per event and says it in `X-Evlat-Event`; Claude's and Codex's
+    /// bytes do not change.
+    public static func installedHookCommand(for source: AgentSource, event: String? = nil) -> String {
+        let named = source == .antigravity ? event.map { " -H 'X-Evlat-Event: \($0)'" } ?? "" : ""
+        return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
             + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
             + " --data-binary @- http://127.0.0.1:\(defaultPort)\(source.hookPath) >/dev/null 2>&1 || true"
     }

@@ -30,7 +30,7 @@ public struct ChatIndex: Equatable, Codable {
         public var createdAt: Date
         public var lastActivity: Date
         public var pinned: Bool
-        /// The last reply, already cut (`HookEvent.firstParagraph`).
+        /// The last reply, already cut (`HookEvent.replyPreview`).
         public var lastReply: String?
         /// "Always for this folder" rules, handed back as `--allowedTools`.
         public var allowedRules: [String]

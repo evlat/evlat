@@ -57,6 +57,8 @@ public final class HookListener {
     /// never calls it — and never overwrites the key of the Evlat that holds
     /// the port.
     private let makeSignalKey: (UInt16) -> String?
+    /// Where an Antigravity transcript may be read (`LocalAPI.Listener`).
+    private let transcriptRoots: [URL]
     /// What `LocalAPI` is told about this listener. The key is filled in when
     /// the port is bound; until then `/signal` is refused. Touched on `queue`
     /// only.
@@ -106,6 +108,7 @@ public final class HookListener {
     /// answers as the local one does (`LocalAPI.handle`).
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
+                transcriptRoots: [URL] = [],
                 signalKey: @escaping (UInt16) -> String? = { _ in nil },
                 onStatus: ((Status) -> Void)? = nil,
                 onAbandoned: ((String) -> Void)? = nil,
@@ -113,7 +116,8 @@ public final class HookListener {
         self.requestedPort = port
         self.origin = origin
         self.makeSignalKey = signalKey
-        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil)
+        self.transcriptRoots = transcriptRoots
+        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, transcriptRoots: transcriptRoots)
         self.onStatus = onStatus
         self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
@@ -188,7 +192,8 @@ public final class HookListener {
                 // programs that read the first.
                 if !self.keyMade {
                     self.keyMade = true
-                    self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port))
+                    self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port),
+                                                      transcriptRoots: self.transcriptRoots)
                 }
                 self.setStatus(.listening(port))
             case .failed(let error):

@@ -31,6 +31,10 @@
 /* The detail card's header: the tool the session runs in. */
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
+"source.antigravity" = "Antigravity";
+"setup.item.antigravityHooks" = "Antigravity";
+"setup.flow.summary.antigravityHooks" = "Antigravity hooks";
+"setup.manual.remove.antigravity" = "To remove, delete the \"evlat\" entry.";
 /* The card's footer: tools started in this turn. A count that began mid-turn
    is shown with a leading "~". */
 "card.tools.one" = "1 tool";
@@ -159,6 +163,7 @@
    {placeholder} is the word to replace with your own command. */
 "remote.manual.claude" = "~/.claude/settings.json — merge this “hooks” block into the file, next to any hooks you already have:";
 "remote.manual.codex" = "~/.codex/hooks.json — the same for Codex, if it is on the server:";
+"remote.manual.antigravity" = "~/.gemini/config/hooks.json — for Antigravity (app or agy), if it is on the server:";
 "remote.manual.statusLine" = "The usage line — if settings.json has no “statusLine” yet, add this:";
 "remote.manual.wrapping" = "If it already has one, keep it and set its “command” to this, with your command in place of {placeholder} (a ' inside it is written '\\''):";
 "remote.manual.remove" = "To remove: delete every entry whose command contains {marker}, and put your statusLine command back. If the automatic setup changed a file, its first version is in the same folder with .evlat.bak added to the name.";
