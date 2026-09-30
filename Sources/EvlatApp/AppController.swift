@@ -456,8 +456,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// subject or a few lines of the last reply, the footer and the button —
     /// about 180 pt at the card's type sizes. A held permission
     /// (`ApprovalHook`) adds its command box and two buttons: about 285 pt.
-    /// The card caps its text lines and the box scrolls to stay inside it.
-    public static let detailCardMaxHeight: CGFloat = 290
+    /// A question (`AskQuestion`) with four options, their description and
+    /// `[Go to session]` is the tallest. The card caps its text lines and
+    /// the box scrolls to stay inside it. At 326 the card hung from the
+    /// fourth slot ends where the longest open body does: the window did
+    /// not grow for it (`PanelConfigTests`).
+    public static let detailCardMaxHeight: CGFloat = 326
 
     /// The window, built once and never resized: as wide as the widest open
     /// list with the card beside it (and the gap between) and the card's
@@ -1292,8 +1296,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                               onGoButtonFrame: { [weak self] rect in
                                                   self?.goButtonFrameChanged(rect)
                                               },
-                                              onApprovalFrame: { [weak self] allow, rect in
-                                                  self?.approvalFrameChanged(allow: allow, rect)
+                                              onApprovalFrame: { [weak self] button, rect in
+                                                  self?.approvalFrameChanged(button, rect)
                                               }))
         panel.onClick = { [weak self] point in
             self?.click(at: point) ?? false
@@ -1336,6 +1340,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func pointer(_ pointer: BarHostingView.Pointer) {
         switch pointer {
         case .entered:
+            exitHeld = false
             guard !isChatOpen else { return }
             hover.pointerEntered()
         case .exited:
@@ -1343,6 +1348,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // would otherwise select after the cursor has gone.
             rowSwitch.cancel()
             if barState.hovered != nil { barState.hovered = nil }
+            // The answer line lies over the card: going into it is not
+            // leaving. Told when it closes (`closeAnswer`).
+            guard answering == nil else {
+                exitHeld = true
+                return
+            }
             hover.pointerExited()
         case .moved(let point):
             // An unseen mascot looks at nothing.
@@ -2589,9 +2600,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// coordinates, as a click's). A faint approval button is none.
     private func cardButton(at point: CGPoint) -> DetailModel.Button? {
         guard barState.selected != nil else { return nil }
-        if let approval = detail.detail?.approval, approval.armed {
-            if approvalRects[true]?.contains(point) == true { return .allow }
-            if approvalRects[false]?.contains(point) == true { return .deny }
+        if let approval = detail.detail?.approval, let button = approvalButton(at: point), approval.takes(button) {
+            return button
         }
         if goButtonRect?.contains(point) == true, detail.detail.map(DetailCard.showsButton) == true { return .go }
         return nil
@@ -2661,14 +2671,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// row it already speaks for has nothing left to do.
     private func click(at point: CGPoint) -> Bool {
         if barState.selected != nil, let approval = detail.detail?.approval,
-           let allow = [true, false].first(where: { approvalRects[$0]?.contains(point) == true }) {
+           let button = approvalButton(at: point) {
             // Faint buttons take the click and do nothing with it; a press
             // on a request no longer held sends nothing (`ApprovalStore`).
-            if approval.armed, approval.id == shownApproval {
+            if approval.takes(button), approval.key == shownApproval {
                 let id = approval.id
-                // Checked again after the press is drawn: `answer` sends
+                // Checked again after the press is drawn: the store sends
                 // nothing for a request no longer held.
-                press(allow ? .allow : .deny) { [weak self] in self?.approvals.answer(id, allow: allow) }
+                press(button) { [weak self] in self?.pressed(button, on: id) }
             }
             return true
         }
@@ -2688,6 +2698,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The card's drawn rectangle, from the view: with the gap, the second
     /// hover area.
     private func cardFrameChanged(_ rect: CGRect?) {
+        cardRect = barState.selected == nil ? nil : rect
         panel?.setCardRect(barState.selected == nil ? nil
                            : rect.map { Self.cardHoverRect($0, edge: barState.edge) })
     }
@@ -2710,14 +2721,84 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// an answer. The same pause browsers put on their permission prompts.
     static let approvalArmDelay: TimeInterval = 0.6
 
-    /// Allow's (`true`) and Deny's drawn rectangles, like `goButtonRect`.
-    private var approvalRects: [Bool: CGRect] = [:]
-    /// The request the card shows, and the one whose buttons are live.
+    /// The held request's buttons' drawn rectangles, like `goButtonRect`.
+    private var approvalRects: [DetailModel.Button: CGRect] = [:]
+    /// The card's `ApprovalCard.key` it shows, and the one whose buttons
+    /// are live.
     private var shownApproval: String?
     private var armedApproval: String?
+    /// The card's drawn rectangle, where the answer line is laid.
+    private var cardRect: CGRect?
 
-    func approvalFrameChanged(allow: Bool, _ rect: CGRect?) {
-        approvalRects[allow] = barState.selected == nil ? nil : rect
+    func approvalFrameChanged(_ button: DetailModel.Button, _ rect: CGRect?) {
+        approvalRects[button] = barState.selected == nil ? nil : rect
+    }
+
+    private func approvalButton(at point: CGPoint) -> DetailModel.Button? {
+        approvalRects.first { $0.value.contains(point) }?.key
+    }
+
+    /// What a live button on a held request's card does.
+    private func pressed(_ button: DetailModel.Button, on id: String) {
+        switch button {
+        case .allow, .deny: approvals.answer(id, allow: button == .allow)
+        case .option(let index): approvals.choose(id, option: index)
+        case .send: approvals.commit(id)
+        case .back: approvals.back(id)
+        case .other: openAnswer(id)
+        case .go: break
+        }
+    }
+
+    // MARK: - The answer line
+
+    /// "Other…" (`AnswerPanel`): the request it writes for, while it is up.
+    private var answering: String?
+    /// The bar's leave, held back while the line was up.
+    private var exitHeld = false
+    private var answerPanel: AnswerPanel?
+    private let answerModel = AnswerModel()
+
+    /// Laid over the card, the question's written answer so far in it.
+    private func openAnswer(_ id: String) {
+        guard let draft = approvals.draft(id), let question = draft.current,
+              let bar = panel, let view = bar.contentView, let card = cardRect else { return }
+        let line = answerPanel ?? makeAnswerPanel()
+        answering = id
+        exitHeld = false
+        answerModel.open(question: question.text, text: draft.written ?? "")
+        let onScreen = bar.convertToScreen(view.convert(card, to: nil))
+        line.present(atTopLeft: NSPoint(x: onScreen.minX, y: onScreen.maxY))
+    }
+
+    private func makeAnswerPanel() -> AnswerPanel {
+        let line = AnswerPanel(content: AnswerView(model: answerModel))
+        line.onClose = { [weak self] in self?.closeAnswer() }
+        answerModel.onSubmit = { [weak self] text in
+            guard let self, let id = self.answering else { return }
+            self.closeAnswer()
+            self.approvals.write(id, text)
+        }
+        answerPanel = line
+        return line
+    }
+
+    /// Ordered out; the keyboard is the front app's again, which never
+    /// stopped being active. A leave held back while it was up is told now,
+    /// unless the cursor is back over the bar or the card.
+    private func closeAnswer() {
+        guard answering != nil else { return }
+        answering = nil
+        answerPanel?.orderOut(nil)
+        guard exitHeld else { return }
+        exitHeld = false
+        if let bar = panel, let view = bar.contentView {
+            let point = view.convert(bar.convertPoint(fromScreen: mouseLocation()), from: nil)
+            if isOverDrawnBar(point) || cardRect.map({ Self.cardHoverRect($0, edge: barState.edge) })?.contains(point) == true {
+                return
+            }
+        }
+        hover.pointerExited()
     }
 
     /// The selected session's card for its held request, arming it after
@@ -2727,10 +2808,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             shownApproval = nil
             return nil
         }
-        if shownApproval != request.id {
-            shownApproval = request.id
+        var card = SessionDetail.ApprovalCard(request, draft: approvals.draft(request.id), armed: false)
+        if shownApproval != card.key {
+            shownApproval = card.key
             armedApproval = nil
-            let id = request.id
+            let id = card.key
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.approvalArmDelay) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.shownApproval == id else { return }
@@ -2739,11 +2821,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 }
             }
         }
-        return SessionDetail.ApprovalCard(request, armed: armedApproval == request.id)
+        card.armed = armedApproval == card.key
+        return card
     }
 
-    /// A request came, went or was answered: the card follows at once.
+    /// A request came, went or was answered: the card follows at once, and
+    /// an answer line for one no longer held goes.
     private func approvalsChanged() {
+        if let id = answering, approvals.draft(id) == nil { closeAnswer() }
         if let snapshot = lastSnapshot { syncSelection(snapshot.ordered) }
     }
 
@@ -2797,6 +2882,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Closing: the body narrows back to the edge and the hover area with it.
     func closeBar() {
+        closeAnswer()
         let opened = openedAt
         openedAt = nil
         // The list and the card close together; the selection does not
@@ -3433,8 +3519,8 @@ struct BarBody: View {
     var onCardFrame: (CGRect?) -> Void = { _ in }
     /// `[Go to session]`'s drawn rectangle, for the click.
     var onGoButtonFrame: (CGRect?) -> Void = { _ in }
-    /// Allow's and Deny's, for the click (`DetailCard.onApprovalFrame`).
-    var onApprovalFrame: (Bool, CGRect?) -> Void = { _, _ in }
+    /// A held request's buttons, for the click (`DetailCard.onApprovalFrame`).
+    var onApprovalFrame: (DetailModel.Button, CGRect?) -> Void = { _, _ in }
     /// The card's top above its row's ring: its header lines up with the
     /// row's name.
     static let cardLead: CGFloat = 16

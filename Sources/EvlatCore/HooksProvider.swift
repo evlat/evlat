@@ -210,10 +210,13 @@ public final class HooksProvider: Provider {
                              keep: Signal.Activity.Tool?) -> (Signal.Activity.Tool?, Signal.Activity.WaitKind?) {
         guard phase == .waiting else { return (nil, nil) }
         switch event.name {
+        // `AskUserQuestion` comes through the permission path, but what it
+        // waits for is an answer.
         case "PermissionRequest":
-            return (tool(of: event), .approval)
+            let asked = tool(of: event)
+            return (asked, asked?.name == AskQuestion.tool ? .answer : .approval)
         case "Notification" where event.notificationType == "permission_prompt":
-            return (keep, .approval)
+            return (keep, keep?.name == AskQuestion.tool ? .answer : .approval)
         default:
             return (keep, .answer)
         }

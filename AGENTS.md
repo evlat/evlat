@@ -309,7 +309,10 @@ before it is offered the update. A server's hooks never include it
 (`RemoteSettings` writes `HookSettings`' bytes). It is the one hook
 whose answer reaches Claude Code, so Evlat answers it only with the user's
 press on the card — Allow once or Deny, never a rule, a folder or a mode —
-or `{}`, which is no decision. It authenticates no server: while Evlat is
+or `{}`, which is no decision. An `AskUserQuestion` comes through it too;
+its card offers the question's options, "Other…" (a line of its own,
+`AnswerPanel`, since the bar never takes keys) and Deny, never a bare
+Allow, and answers with `updatedInput` + `answers` (`AskQuestion`). It authenticates no server: while Evlat is
 closed, whoever holds the port could answer it. Accepted for now; the
 realistic case is another user's process on a shared Mac.
 
@@ -500,6 +503,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   turn's end. A decision sent after the terminal answered is ignored.
   Requests are serialized per session. Measured with a pty-driven
   `claude --settings` and a stand-in server on 48999.
+- **A bare `allow` does not answer `AskUserQuestion`.** The terminal's
+  dialog stayed up (a user's report, measured on 2.1.285). `allow` with
+  `updatedInput` — the input as it came plus `answers`, text → answer —
+  closed it at 5 s and at 30 s; a written text and a multi-select's
+  `"A, B"` went through as sent. A question missing from `answers` raised
+  nothing and reached Claude as unanswered: send every answer at once.
 - **Antigravity's hooks carry less than Claude's** (CLI 1.2.14, app 2.18.1).
   Five events, none of them a permission or a notification: a tool waiting
   for approval has had its `PreToolUse` and nothing more, so the row reads

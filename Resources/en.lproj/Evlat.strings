@@ -296,6 +296,12 @@
 "card.approval.subagent" = "A subagent wants to use {tool}.";
 "card.approval.allow" = "Allow";
 "card.approval.deny" = "Deny";
+"card.question.other" = "Other…";
+"card.question.written" = "Other: {text}";
+"card.question.next" = "Next";
+"card.question.send" = "Send";
+"answer.placeholder" = "Your answer";
+"answer.hint" = "Return to answer · Esc to cancel";
 "chat.new" = "New";
 "chat.history" = "History";
 "chat.history.pin" = "Pin — kept past the week";

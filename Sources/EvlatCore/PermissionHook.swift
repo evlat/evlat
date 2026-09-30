@@ -152,7 +152,8 @@ public enum PermissionHook {
         public let token: String?
         public let tool: String
         /// `HookEvent.subject(of:)` over the input: the one line a card says.
-        /// The input itself is not kept (`Write` carries a whole file).
+        /// The input itself is not kept (`Write` carries a whole file) —
+        /// except a question's, which its answer sends back (`input`).
         public let subject: String?
         /// A `Bash` command whole (`HookEvent.fullCommand(of:)`): what the
         /// card shows in place of the subject, so nothing runs unseen.
@@ -167,10 +168,18 @@ public enum PermissionHook {
         /// `agent_id`: a subagent's request carries its parent's session, so
         /// what answers it is told apart by the actor (`ApprovalHook.resolves`).
         public let agentID: String?
+        /// An `AskUserQuestion`'s questions, when the card can answer them;
+        /// `nil` for every other tool.
+        public let questions: [AskQuestion.Question]?
+        /// That tool's input as it came, sorted-keys JSON: `updatedInput`
+        /// replaces the whole input, so the answer carries every field of
+        /// it, modelled or not. Kept only beside `questions`.
+        public let input: Data?
 
         public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
                     rules: [Rule] = [], directories: [String] = [], sessionID: String? = nil,
-                    cwd: String? = nil, agentID: String? = nil) {
+                    cwd: String? = nil, agentID: String? = nil,
+                    questions: [AskQuestion.Question]? = nil, input: Data? = nil) {
             self.id = id
             self.token = token
             self.tool = tool
@@ -181,6 +190,8 @@ public enum PermissionHook {
             self.sessionID = sessionID
             self.cwd = cwd
             self.agentID = agentID
+            self.questions = input == nil ? nil : questions
+            self.input = questions == nil ? nil : input
         }
 
         /// The hook's body. `nil` when it is not a `PermissionRequest` with a
@@ -210,11 +221,16 @@ public enum PermissionHook {
                 }
             }
             let input = json["tool_input"] as? [String: Any]
+            let questions = tool == AskQuestion.tool ? AskQuestion.questions(in: input) : nil
+            let kept = questions == nil ? nil : input.flatMap {
+                try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])
+            }
             self.init(id: id, token: token, tool: tool,
                       subject: HookEvent.subject(of: input), command: HookEvent.fullCommand(of: input),
                       rules: rules, directories: directories,
                       sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String,
-                      agentID: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                      agentID: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                      questions: questions, input: kept)
         }
     }
 
@@ -225,6 +241,9 @@ public enum PermissionHook {
         case allow(rules: [Rule], directories: [String])
         /// `interrupt` ends the turn with it: the user pressed Stop.
         case deny(interrupt: Bool)
+        /// An `AskUserQuestion` answered: allowed with `input` (the request's)
+        /// plus `answers`, each question's text to its answer.
+        case answer(input: Data, answers: [String: String])
     }
 
     /// The message a denial carries back to Claude.
@@ -252,6 +271,10 @@ public enum PermissionHook {
         case .deny(let interrupt):
             inner = ["behavior": "deny", "message": interrupt ? stoppedMessage : deniedMessage]
             if interrupt { inner["interrupt"] = true }
+        case .answer(let input, let answers):
+            var updated = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
+            updated["answers"] = answers
+            inner = ["behavior": "allow", "updatedInput": updated]
         }
         let output: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest",
                                                             "decision": inner]]

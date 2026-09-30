@@ -388,7 +388,7 @@ final class SelectionTests: XCTestCase {
 
     func testEveryKeyTheCardAsksForExists() {
         for lang in ["en", "tr"] {
-            for key in DetailCard.keys {
+            for key in DetailCard.keys + AnswerView.keys {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }
         }

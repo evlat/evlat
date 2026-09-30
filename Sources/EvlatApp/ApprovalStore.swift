@@ -12,6 +12,9 @@ final class ApprovalStore {
     /// Held, oldest first. Serialized per actor by Claude Code, so a session
     /// has one per agent at most.
     private(set) var pending: [PermissionHook.Request] = []
+    /// A held question's answers so far (`AskQuestion.Draft`), by request:
+    /// they go with the request, however it goes.
+    private var drafts: [String: AskQuestion.Draft] = [:]
 
     /// Writes an answer to the held connection (`HookListener.answer`).
     var respond: (String, LocalAPI.Response) -> Void = { _, _ in }
@@ -22,6 +25,7 @@ final class ApprovalStore {
     func asked(_ request: PermissionHook.Request) {
         for older in pending where ApprovalHook.supersedes(request, older) { release(older.id) }
         pending.append(request)
+        if let questions = request.questions { drafts[request.id] = AskQuestion.Draft(questions: questions) }
         onChange()
     }
 
@@ -38,18 +42,60 @@ final class ApprovalStore {
     func abandoned(_ id: String) {
         guard pending.contains(where: { $0.id == id }) else { return }
         pending.removeAll { $0.id == id }
+        drafts[id] = nil
         onChange()
     }
 
     /// The user's press. `false` when the request is no longer held: a press
-    /// on a card that went stale sends nothing.
+    /// on a card that went stale sends nothing. A question is not allowed
+    /// bare — that answers nothing (`AskQuestion`) — only denied or answered.
     @discardableResult
     func answer(_ id: String, allow: Bool) -> Bool {
-        guard pending.contains(where: { $0.id == id }) else { return false }
+        guard let request = pending.first(where: { $0.id == id }), !(allow && request.questions != nil) else {
+            return false
+        }
         pending.removeAll { $0.id == id }
+        drafts[id] = nil
         // Allow once: no rule, no folder, no mode is ever kept from the bar.
         let decision: PermissionHook.Decision = allow ? .allow(rules: [], directories: []) : .deny(interrupt: false)
         respond(id, LocalAPI.Response(status: .ok, body: PermissionHook.body(decision)))
+        onChange()
+        return true
+    }
+
+    /// A held question's answers so far.
+    func draft(_ id: String) -> AskQuestion.Draft? { drafts[id] }
+
+    /// An option pressed on the card. `false` when the request is no longer
+    /// held.
+    @discardableResult
+    func choose(_ id: String, option: Int) -> Bool { edit(id) { $0.choose(option) } }
+
+    /// A written answer ("Other…").
+    @discardableResult
+    func write(_ id: String, _ text: String) -> Bool { edit(id) { $0.write(text) } }
+
+    /// A multi-select question's Next or Send.
+    @discardableResult
+    func commit(_ id: String) -> Bool { edit(id) { $0.commit() } }
+
+    /// Back to the question before.
+    @discardableResult
+    func back(_ id: String) -> Bool { edit(id) { $0.back() } }
+
+    /// Changes the draft, and sends it once every question is answered.
+    private func edit(_ id: String, _ change: (inout AskQuestion.Draft) -> Void) -> Bool {
+        guard var draft = drafts[id], let request = pending.first(where: { $0.id == id }),
+              let input = request.input else { return false }
+        change(&draft)
+        if let answers = draft.answers {
+            pending.removeAll { $0.id == id }
+            drafts[id] = nil
+            respond(id, LocalAPI.Response(status: .ok,
+                                          body: PermissionHook.body(.answer(input: input, answers: answers))))
+        } else {
+            drafts[id] = draft
+        }
         onChange()
         return true
     }
@@ -62,6 +108,7 @@ final class ApprovalStore {
     private func release(_ id: String) {
         guard pending.contains(where: { $0.id == id }) else { return }
         pending.removeAll { $0.id == id }
+        drafts[id] = nil
         respond(id, Self.released)
     }
 }

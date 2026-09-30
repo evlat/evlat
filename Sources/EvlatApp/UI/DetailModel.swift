@@ -66,15 +66,62 @@ public struct SessionDetail: Equatable {
         let text: String?
         /// A subagent asked, not the session itself.
         let fromSubagent: Bool
+        /// A question to answer in place of Allow (`AskQuestion`).
+        let question: QuestionCard?
         var armed: Bool
 
-        init(_ request: PermissionHook.Request, armed: Bool) {
+        init(_ request: PermissionHook.Request, draft: AskQuestion.Draft? = nil, armed: Bool) {
             id = request.id
             tool = request.tool
             text = request.command ?? request.subject
             fromSubagent = request.agentID != nil
+            question = draft.flatMap(QuestionCard.init)
             self.armed = armed
         }
+
+        /// What arms: the request, and which of its questions is up — the
+        /// click that answers one must not land on the next one's option
+        /// drawn under it.
+        var key: String { "\(id)#\(question?.index ?? 0)" }
+
+        /// Is `button` one this card has, live? A faint card has none.
+        func takes(_ button: DetailModel.Button) -> Bool {
+            guard armed else { return false }
+            switch button {
+            case .allow: return question == nil
+            case .deny: return true
+            case .option(let index): return question?.question.options.indices.contains(index) == true
+            case .other: return question != nil
+            case .send: return question?.canCommit == true
+            case .back: return question?.canGoBack == true
+            case .go: return false
+            }
+        }
+    }
+
+    /// The question up on the card, and what is picked of it so far.
+    struct QuestionCard: Equatable {
+        let question: AskQuestion.Question
+        /// Which of how many: the terminal's tabs.
+        let index: Int
+        let count: Int
+        let picked: Set<Int>
+        let written: String?
+        let canCommit: Bool
+        let canGoBack: Bool
+
+        init?(_ draft: AskQuestion.Draft) {
+            guard let question = draft.current else { return nil }
+            self.question = question
+            index = draft.index
+            count = draft.questions.count
+            picked = draft.picked
+            written = draft.written
+            canCommit = draft.canCommit
+            canGoBack = draft.canGoBack
+        }
+
+        var isLast: Bool { index == count - 1 }
     }
 
     /// Only a session on this Mac has a terminal to look up and go to.
@@ -95,7 +142,12 @@ public final class DetailModel: ObservableObject {
     /// The card's drawn buttons. Clicks are read from geometry
     /// (`AppController.click`), so the pointer's place over them and a press
     /// are told to the card here: a drawn button still answers the pointer.
-    enum Button: Equatable { case go, allow, deny }
+    enum Button: Hashable {
+        case go, allow, deny
+        /// A question's option, its "Other…", a multi-select's Next or
+        /// Send, and the way back to the question before (`AskQuestion`).
+        case option(Int), other, send, back
+    }
     /// Written only when it changes: moves arrive at display rate.
     @Published var hovered: Button?
     /// Set for a moment on a press, before what the press does.

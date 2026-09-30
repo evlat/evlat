@@ -1,0 +1,154 @@
+import AppKit
+import Carbon.HIToolbox
+import SwiftUI
+import EvlatCore
+
+/// "Other…" on a question's card: one line to write an answer in.
+///
+/// The bar never takes the keyboard (`BarPanel.canBecomeKey` is `false`),
+/// so the line is a window of its own, laid over the card: the balloon's
+/// pattern (`ChatPanel`) — `.nonactivatingPanel` with `canBecomeKey`, so it
+/// gets the keys and Evlat stays in the background. Return answers, Esc or
+/// a click elsewhere lets it go, the answer unwritten. Built once and
+/// ordered out between uses.
+final class AnswerPanel: NSPanel {
+    /// Esc, or the keyboard went elsewhere: the controller closes it.
+    var onClose: (() -> Void)?
+
+    static let width = AppController.detailCardWidth
+    static let height: CGFloat = 96
+
+    init(content: some View) {
+        let size = CGSize(width: Self.width, height: Self.height)
+        super.init(contentRect: NSRect(origin: .zero, size: size),
+                   styleMask: [.borderless, .nonactivatingPanel],
+                   backing: .buffered, defer: false)
+        // Over the card, which is on the bar's level.
+        level = .statusBar
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: AnyView(content))
+        hosting.sizingOptions = []
+        hosting.frame = NSRect(origin: .zero, size: size)
+        contentView = hosting
+        WindowStage.stage(self)
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    /// Offstage the keyboard is a flag (`ChatPanel`, `WindowStage`).
+    private var stagedKey = false
+
+    override var isKeyWindow: Bool { WindowStage.isOffstage ? stagedKey : super.isKeyWindow }
+
+    override func makeKey() {
+        guard WindowStage.isOffstage else { return super.makeKey() }
+        stagedKey = true
+    }
+
+    override func orderOut(_ sender: Any?) {
+        super.orderOut(sender)
+        guard WindowStage.isOffstage, stagedKey else { return }
+        stagedKey = false
+        keyWentElsewhere()
+    }
+
+    /// Esc before the field editor answers it with completion; not while an
+    /// input method is composing (`ChatPanel.sendEvent`).
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.keyCode == UInt16(kVK_Escape),
+           (firstResponder as? NSTextView)?.hasMarkedText() != true {
+            onClose?()
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        onClose?()
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        keyWentElsewhere()
+    }
+
+    private func keyWentElsewhere() {
+        if isVisible { onClose?() }
+    }
+
+    /// Its top-left on the card's, in screen coordinates; shown with the
+    /// keyboard and no activation.
+    func present(atTopLeft point: NSPoint) {
+        setFrameOrigin(NSPoint(x: point.x, y: point.y - frame.height))
+        orderFrontRegardless()
+        makeKey()
+    }
+}
+
+/// What the line asks and holds.
+@MainActor
+final class AnswerModel: ObservableObject {
+    @Published var question = ""
+    @Published var text = ""
+    /// Bumped on every opening, so the field takes the focus each time.
+    @Published private(set) var openings = 0
+    var onSubmit: (String) -> Void = { _ in }
+
+    func open(question: String, text: String) {
+        self.question = question
+        self.text = text
+        openings += 1
+    }
+}
+
+struct AnswerView: View {
+    @ObservedObject var model: AnswerModel
+    @FocusState private var focused: Bool
+
+    static let placeholderKey = "answer.placeholder"
+    static let hintKey = "answer.hint"
+    static var keys: [String] { [placeholderKey, hintKey] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Claude's question: data.
+            Text(verbatim: model.question)
+                .font(DetailCard.replyFont.weight(.medium))
+                .foregroundStyle(BarPalette.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            TextField("", text: $model.text, prompt: Text(verbatim: L10n.t(Self.placeholderKey)))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(BarPalette.textPrimary)
+                .focused($focused)
+                .onSubmit { model.onSubmit(model.text) }
+                .padding(.horizontal, 8)
+                .frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(SessionIndicator.amber.opacity(focused ? 0.7 : 0.3), lineWidth: 1))
+            Text(verbatim: L10n.t(Self.hintKey))
+                .font(DetailCard.labelFont)
+                .foregroundStyle(BarPalette.textSecondary)
+                .lineLimit(1)
+        }
+        .padding(12)
+        .frame(width: AnswerPanel.width, height: AnswerPanel.height, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: DetailCard.corner, style: .continuous)
+            .fill(BarPalette.body)
+            .overlay(RoundedRectangle(cornerRadius: DetailCard.corner, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)))
+        .onAppear {
+            focused = true
+            DispatchQueue.main.async { focused = true }
+        }
+        .onChange(of: model.openings) { focused = true }
+    }
+}

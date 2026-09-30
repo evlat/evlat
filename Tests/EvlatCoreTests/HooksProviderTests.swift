@@ -769,6 +769,17 @@ final class HooksProviderTests: XCTestCase {
         }
     }
 
+    /// `AskUserQuestion` asks through the permission path, and its
+    /// notification is a permission prompt; it waits for an answer all the same.
+    func testAQuestionThroughThePermissionPathWaitsForAnAnswer() {
+        let hooks = provider()
+        hooks.handle(event("PermissionRequest", tool: "AskUserQuestion"))
+        XCTAssertEqual(activity(hooks)?.waitKind, .answer)
+        hooks.handle(event("Notification", notification: "permission_prompt"))
+        XCTAssertEqual(activity(hooks)?.waitKind, .answer)
+        XCTAssertEqual(activity(hooks)?.blockingTool?.name, "AskUserQuestion")
+    }
+
     func testAWaitingReportReachesTheBarThroughTheMergeRule() {
         let hooks = provider()
         hooks.handle(event("PermissionRequest", session: "s-1"))

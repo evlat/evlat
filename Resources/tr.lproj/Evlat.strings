@@ -239,6 +239,12 @@
 "card.approval.subagent" = "Bir alt ajan {tool} kullanmak istiyor.";
 "card.approval.allow" = "İzin ver";
 "card.approval.deny" = "Reddet";
+"card.question.other" = "Diğer…";
+"card.question.written" = "Diğer: {text}";
+"card.question.next" = "Sonraki";
+"card.question.send" = "Gönder";
+"answer.placeholder" = "Yanıtın";
+"answer.hint" = "Yanıtlamak için Return · Vazgeçmek için Esc";
 "chat.new" = "Yeni";
 "chat.history" = "Geçmiş";
 "chat.history.pin" = "Sabitle — bir haftadan sonra da kalır";

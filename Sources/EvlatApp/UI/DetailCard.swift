@@ -25,9 +25,12 @@ struct DetailCard: View {
     /// The button's drawn rectangle, `nil` when it goes. The click is read
     /// from geometry by the panel (`AppController.click`), like the hovered row.
     var onButtonFrame: (CGRect?) -> Void = { _ in }
-    /// Allow's (`true`) and Deny's (`false`) drawn rectangles, read the same
-    /// way; `nil` when they go.
-    var onApprovalFrame: (Bool, CGRect?) -> Void = { _, _ in }
+    /// A held request's buttons' drawn rectangles — Allow, Deny, a
+    /// question's options and the rest — read the same way; `nil` when one
+    /// goes.
+    var onApprovalFrame: (DetailModel.Button, CGRect?) -> Void = { _, _ in }
+    /// The window's cap; a test lifts it to measure what the card holds.
+    var maxHeight = AppController.detailCardMaxHeight
 
     /// A card of its own, apart from the body (the user's decision): all
     /// four corners round, its own edge line and shadow. The body's shape
@@ -70,10 +73,28 @@ struct DetailCard: View {
     /// About six lines of command before the box scrolls: all of what Allow
     /// lets run is on the card, never cut.
     static let approvalTextMaxHeight: CGFloat = 92
+    /// A question (`AskQuestion`): "Other…", what was written there, and a
+    /// multi-select's way on.
+    static let otherKey = "card.question.other"
+    static let writtenKey = "card.question.written"
+    static let nextKey = "card.question.next"
+    static let sendKey = "card.question.send"
+    /// A question's lines and options, sized so the tallest — three lines,
+    /// four options (the tool's most), two lines of description, the button
+    /// row and `[Go to session]`, the way to answer in the terminal — stays
+    /// inside `AppController.detailCardMaxHeight` with the header and the
+    /// title (`QuestionCardTests` measures it). The footer gives its room.
+    /// A card that ran past the cap would be clipped, but its clipped
+    /// buttons would still report rectangles.
+    static let questionLines = 3
+    static let descriptionLines = 2
+    static let optionHeight: CGFloat = 22
+    static let questionButtonHeight: CGFloat = 26
     static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
     static var keys: [String] {
         [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey,
-         outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey]
+         outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey,
+         otherKey, writtenKey, nextKey, sendKey]
             + AgentSource.allCases.map(sourceKey)
     }
 
@@ -89,7 +110,7 @@ struct DetailCard: View {
                 // As tall as what it holds, never past the height the window
                 // is sized for. A max-only frame grows to its max when offered
                 // more, so the fixed size outside it asks for the ideal.
-                .frame(maxHeight: AppController.detailCardMaxHeight, alignment: .top)
+                .frame(maxHeight: maxHeight, alignment: .top)
                 .fixedSize(horizontal: false, vertical: true)
                 .clipped()
                 .background(background)
@@ -116,6 +137,13 @@ struct DetailCard: View {
                     .font(Self.titleFont)
                     .foregroundStyle(Self.color(detail.phase))
                     .lineLimit(1)
+                if let question = detail.approval?.question {
+                    Spacer(minLength: 8)
+                    Text(verbatim: Self.questionTag(question))
+                        .font(Self.footerFont)
+                        .foregroundStyle(BarPalette.textSecondary)
+                        .lineLimit(1)
+                }
             }
             // The last thing a dimmed machine said, faded like its ring.
             .opacity(detail.dim == nil ? 1 : SessionColumn.dimOpacity + 0.2)
@@ -136,7 +164,9 @@ struct DetailCard: View {
             if let progress = detail.progress {
                 progressView(progress, phase: detail.phase)
             }
-            // Once a minute, and only while the card is up.
+            // Once a minute, and only while the card is up. A question takes
+            // the footer's room (`questionLines`).
+            if detail.approval?.question == nil {
             TimelineView(.everyMinute) { context in
                 if let footer = Self.footer(enteredAt: detail.enteredAt, activity: detail.activity,
                                             terminal: Self.footerPlace(detail),
@@ -147,6 +177,7 @@ struct DetailCard: View {
                         .lineLimit(1)
                 }
             }
+            }
             if Self.showsButton(detail) {
                 button(detail.traits.button == .backToChat ? Self.returnButton() : Self.button(for: detail.host))
                     .modifier(PressFeedback(model: model, button: .go))
@@ -154,11 +185,29 @@ struct DetailCard: View {
         }
     }
 
+    /// "Color · 1/2": the question's tab title, and where it is among them
+    /// when there are more.
+    static func questionTag(_ question: SessionDetail.QuestionCard) -> String {
+        var parts: [String] = []
+        if let header = question.question.header { parts.append(header) }
+        if question.count > 1 { parts.append("\(question.index + 1)/\(question.count)") }
+        return parts.joined(separator: " · ")
+    }
+
     /// The request whole, then Deny and Allow. Until the card has stood
     /// still for a moment the buttons are drawn faint and take no press
     /// (`AppController.click`): a card that comes up under the pointer is
     /// not an answer.
+    @ViewBuilder
     private func approvalView(_ approval: SessionDetail.ApprovalCard) -> some View {
+        if let question = approval.question {
+            questionView(question, armed: approval.armed)
+        } else {
+            permissionView(approval)
+        }
+    }
+
+    private func permissionView(_ approval: SessionDetail.ApprovalCard) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(verbatim: L10n.t(approval.fromSubagent ? Self.approvalSubagentKey : Self.approvalToolKey,
                                   ["tool": approval.tool]))
@@ -180,35 +229,127 @@ struct DetailCard: View {
                     .fill(Color.white.opacity(0.06)))
             }
             HStack(spacing: 8) {
-                approvalButton(L10n.t(Self.denyKey), allow: false, armed: approval.armed)
-                    .modifier(PressFeedback(model: model, button: approval.armed ? .deny : nil))
-                approvalButton(L10n.t(Self.allowKey), allow: true, armed: approval.armed)
-                    .modifier(PressFeedback(model: model, button: approval.armed ? .allow : nil))
+                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false, live: approval.armed)
+                approvalButton(L10n.t(Self.allowKey), button: .allow, loud: true, live: approval.armed)
             }
             .padding(.top, 2)
         }
-        .onDisappear {
-            onApprovalFrame(true, nil)
-            onApprovalFrame(false, nil)
+    }
+
+    /// The question, its options, the hovered option's description, and
+    /// (‹ ·) Deny · Other… (· Next or Send, when several can be picked). A
+    /// single-select option answers with its press — marked when the way
+    /// back returns to it; a multi-select one is ticked. Faint until armed,
+    /// like Allow.
+    private func questionView(_ question: SessionDetail.QuestionCard, armed: Bool) -> some View {
+        let options = question.question.options
+        let multi = question.question.multiSelect
+        return VStack(alignment: .leading, spacing: 4) {
+            // Claude's words: data.
+            Text(verbatim: question.question.text)
+                .font(Self.replyFont.weight(.medium))
+                .foregroundStyle(BarPalette.textPrimary)
+                .lineLimit(Self.questionLines)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 3) {
+                ForEach(options.indices, id: \.self) { index in
+                    optionButton(options[index].label, index: index, multi: multi,
+                                 picked: question.picked.contains(index), live: armed)
+                }
+            }
+            if options.contains(where: { $0.description != nil }) {
+                // The hovered option's, in lines kept for it: the card does
+                // not change height under the pointer. A longer one ends in
+                // "…"; the terminal has it whole (`[Go to session]`).
+                Text(verbatim: hoveredDescription(options) ?? " ")
+                    .font(Self.labelFont)
+                    .foregroundStyle(BarPalette.textSecondary)
+                    .lineLimit(Self.descriptionLines, reservesSpace: true)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                if question.canGoBack {
+                    backButton(live: armed)
+                }
+                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false, live: armed,
+                               height: Self.questionButtonHeight)
+                approvalButton(question.written.map { L10n.t(Self.writtenKey, ["text": $0]) } ?? L10n.t(Self.otherKey),
+                               button: .other, loud: false, live: armed, height: Self.questionButtonHeight,
+                               ticked: question.written != nil)
+                if multi {
+                    approvalButton(L10n.t(question.isLast ? Self.sendKey : Self.nextKey), button: .send, loud: true,
+                                   live: armed && question.canCommit, height: Self.questionButtonHeight)
+                }
+            }
         }
     }
 
+    /// Back to the question before: a chevron, narrow beside the words.
+    private func backButton(live: Bool) -> some View {
+        Image(systemName: "chevron.left")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(BarPalette.textPrimary)
+            .frame(width: Self.questionButtonHeight, height: Self.questionButtonHeight)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.14)))
+            .opacity(live ? 1 : 0.4)
+            .reportingFrame(.back, to: onApprovalFrame)
+            .modifier(PressFeedback(model: model, button: live ? .back : nil))
+    }
+
+    private func hoveredDescription(_ options: [AskQuestion.Option]) -> String? {
+        guard case .option(let index)? = model.hovered, options.indices.contains(index) else { return nil }
+        return options[index].description
+    }
+
+    /// An option: its label, whole-width. A multi-select one carries its
+    /// tick, amber when picked.
+    private func optionButton(_ label: String, index: Int, multi: Bool, picked: Bool, live: Bool) -> some View {
+        HStack(spacing: 6) {
+            if multi {
+                Image(systemName: picked ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(picked ? Self.color(.waiting) : BarPalette.textSecondary)
+            }
+            // An option's label is Claude's word: data.
+            Text(verbatim: label)
+                .font(Self.replyFont.weight(.medium))
+                .foregroundStyle(BarPalette.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: Self.optionHeight)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color.white.opacity(picked ? 0.16 : 0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(picked ? Self.color(.waiting).opacity(0.6) : .clear, lineWidth: 1))
+        .opacity(live ? 1 : 0.4)
+        .reportingFrame(.option(index), to: onApprovalFrame)
+        .modifier(PressFeedback(model: model, button: live ? .option(index) : nil))
+    }
+
     /// Drawn, like `[Go to session]`: the panel reads the click from the
-    /// rectangle. Allow is the phase's amber, Deny quiet; neither is a
-    /// default, and no key presses them.
-    private func approvalButton(_ title: String, allow: Bool, armed: Bool) -> some View {
-        let fill = allow ? Self.color(.waiting) : Color.white.opacity(0.14)
+    /// rectangle. The loud one is the phase's amber (Allow, Send), the rest
+    /// quiet; none is a default, and no key presses them. A faint one is
+    /// drawn at 0.4 and takes no press (`AppController.click`).
+    private func approvalButton(_ title: String, button: DetailModel.Button, loud: Bool, live: Bool,
+                                height: CGFloat = DetailCard.buttonHeight, ticked: Bool = false) -> some View {
+        let fill = loud ? Self.color(.waiting) : Color.white.opacity(ticked ? 0.22 : 0.14)
         return Text(verbatim: title)
             .font(Self.buttonFont)
-            .foregroundStyle(allow ? Color.black : BarPalette.textPrimary)
+            .foregroundStyle(loud ? Color.black : BarPalette.textPrimary)
             .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 6)
             .frame(maxWidth: .infinity)
-            .frame(height: Self.buttonHeight)
+            .frame(height: height)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(fill))
-            .opacity(armed ? 1 : 0.4)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
-                onApprovalFrame(allow, rect)
-            }
+            .opacity(live ? 1 : 0.4)
+            .reportingFrame(button, to: onApprovalFrame)
+            .modifier(PressFeedback(model: model, button: live ? button : nil))
     }
 
     /// A drawn button answering the pointer: brighter under it, pressed in
@@ -482,5 +623,16 @@ struct DetailCard: View {
         // The app's name is data, like the session's: not translated.
         if let terminal { parts.append(terminal) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+private extension View {
+    /// A drawn button's rectangle, for the click read from geometry; `nil`
+    /// when it goes. Each button clears its own: a question with fewer
+    /// options than the last must leave no stale option behind.
+    func reportingFrame(_ button: DetailModel.Button,
+                        to report: @escaping (DetailModel.Button, CGRect?) -> Void) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { report(button, $0) }
+            .onDisappear { report(button, nil) }
     }
 }
