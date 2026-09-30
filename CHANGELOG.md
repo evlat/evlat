@@ -10,6 +10,11 @@ Markdown; keep it to a few bullets.
 
 ## 0.1.7
 
+- **Waiting reminder** (Settings → General, off by default): when a session
+  has waited for your answer longer than the minutes you choose, Evlat plays
+  a soft chime, sends a notification, or both. Answering takes the
+  notification back; clicking it opens that session on the bar. Evlat asks
+  for notification permission only when you turn notifications on.
 - **Go to session** now opens the session's own tab in cmux, instead of only
   bringing cmux forward.
 
