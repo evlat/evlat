@@ -281,6 +281,16 @@ The status-line relay (`StatusLineRelay`) is the second installed contract: a
 `sh -c` wrapper that preserves the user's original command's output and exit
 code byte for byte (`StatusLineRelayTests`).
 
+The approval hook (`ApprovalHook`) is another installed contract, and
+opt-in: one `type: "http"` `PermissionRequest` group pointing at
+`/approval`, written only when the user turns on "Approve from the bar"
+(`ApprovalHookTests.testTheInstalledHookIsUnchanged`). It is the one hook
+whose answer reaches Claude Code, so Evlat answers it only with the user's
+press on the card — Allow once or Deny, never a rule, a folder or a mode —
+or `{}`, which is no decision. It authenticates no server: while Evlat is
+closed, whoever holds the port could answer it. Accepted for now; the
+realistic case is another user's process on a shared Mac.
+
 ### Local API
 
 Loopback only (`requiredInterfaceType = .loopback`; `lsof` shows `*:48151`,
@@ -292,6 +302,7 @@ but a POST to the LAN address is refused). Default port **48151**.
 | `GET /health` | |
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
+| `POST /approval` | opt-in hook of terminal sessions (`ApprovalHook`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; `404` through a tunnel |
 | `POST /signal` | external jobs; requires `X-Evlat-Key` |
 
 `/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
@@ -457,6 +468,15 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **`allowLocalEndpointReuse` is SO_REUSEADDR, not SO_REUSEPORT.** Two
   processes cannot share the port (`testASecondListenerCannotTakeTheSamePort`);
   if they could, hooks would silently split between two Evlats.
+- **A `PermissionRequest` hook does not hold the terminal's dialog.** In an
+  interactive session the dialog opens the same instant the hook fires
+  (2.1.285); whichever answers first wins. "No" or Esc in the terminal
+  closes the held connection, but **"Yes" does not**: it stays open until
+  the hook's timeout. The request carries no `tool_use_id`, so
+  `ApprovalHook.resolves` reads the answer from the tool's outcome or the
+  turn's end. A decision sent after the terminal answered is ignored.
+  Requests are serialized per session. Measured with a pty-driven
+  `claude --settings` and a stand-in server on 48999.
 - **Codex's `rollout-*.jsonl` is undocumented and grows** (62 MB seen). Read
   the last 256 KB. `codex-usage` is derived: if the format breaks it goes
   quiet and keeps the last good reading; it never falls back to an older file.

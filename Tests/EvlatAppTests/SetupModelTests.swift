@@ -61,8 +61,9 @@ final class SetupModelTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        XCTAssertEqual(model.rows.map(\.item), [.claudeHooks, .usageRelay, .codexHooks, .commandLink, .loginItem])
-        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .missing, .missing, .missing])
+        XCTAssertEqual(model.rows.map(\.item),
+                       [.claudeHooks, .usageRelay, .approvals, .codexHooks, .commandLink, .loginItem])
+        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .missing, .missing, .missing, .missing])
         XCTAssertEqual(model.row(.loginItem)?.note, "Opens \(root.path)/this/Evlat.app")
         try HookSettings.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
         XCTAssertEqual(model.row(.claudeHooks)?.status, .missing, "nothing cached, nothing read unasked")

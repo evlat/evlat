@@ -320,8 +320,8 @@ public final class HookListener {
         if let response = outcome.response {
             connection.send(content: Data(response.httpText.utf8),
                             completion: .contentProcessed { _ in connection.cancel() })
-        } else if case .permission(let asked)? = outcome.delivery, onAbandoned != nil {
-            hold(connection, id: asked.id)
+        } else if let id = Self.heldID(outcome.delivery), onAbandoned != nil {
+            hold(connection, id: id)
         } else {
             // Nobody here answers permissions (a capture): refused at once
             // rather than held for ever, and still delivered so a capture
@@ -333,6 +333,15 @@ public final class HookListener {
         guard let delivery = outcome.delivery else { return }
         let deliver = onDelivery
         DispatchQueue.main.async { deliver(delivery) }
+    }
+
+    /// The request whose answer is the user's: a chat turn's or a terminal
+    /// session's (`ApprovalHook`).
+    private static func heldID(_ delivery: LocalAPI.Delivery?) -> String? {
+        switch delivery {
+        case .permission(let asked)?, .approval(let asked)?: return asked.id
+        default: return nil
+        }
     }
 
     /// Keeps the connection until `answer`, and watches it: a far side that

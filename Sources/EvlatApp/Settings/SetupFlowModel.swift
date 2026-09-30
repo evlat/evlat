@@ -73,9 +73,10 @@ final class SetupFlowModel: ObservableObject {
         installed = false
         setup.reload()
         if let open = setup.manualOpen { setup.toggleManual(open) }
-        // Everything there is to write, but "Open at login": that one is
-        // off unless turned on (R5).
-        setup.queued = Set(setup.rows.filter { $0.action?.installs == true && $0.item != .loginItem }.map(\.item))
+        // Everything there is to write, but "Open at login" and approving
+        // from the bar: those are off unless turned on (R5).
+        setup.queued = Set(setup.rows.filter { $0.action?.installs == true && $0.item != .loginItem
+                                                   && $0.item != .approvals }.map(\.item))
         look()
         self.step = step
         if step == .edge || step == .done { blinks += 1 }

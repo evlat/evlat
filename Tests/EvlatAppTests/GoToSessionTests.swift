@@ -120,6 +120,8 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertFalse(onClick(CGPoint(x: 40 - 1, y: 310)), "beside it: not ours")
         XCTAssertEqual(activated, [])
         XCTAssertTrue(onClick(CGPoint(x: 60, y: 310)))
+        XCTAssertEqual(activated, [], "the press is drawn first")
+        RunLoop.main.run(until: Date().addingTimeInterval(AppController.pressFeedback + 0.1))
         XCTAssertEqual(activated, [term])
 
         controller.goButtonFrameChanged(nil)

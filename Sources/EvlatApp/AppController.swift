@@ -30,6 +30,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
     /// The same for the status line relay's entry.
     private var usageFailure: SettingsFile.Failure?
+    private(set) var approvalFailure: SettingsFile.Failure?
     /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
@@ -442,9 +443,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
     /// The tallest the card gets: header, status title, the tool and its
     /// subject or a few lines of the last reply, the footer and the button —
-    /// about 180 pt at the card's type sizes, with room to spare. The card
-    /// caps its text lines to stay inside it.
-    public static let detailCardMaxHeight: CGFloat = 200
+    /// about 180 pt at the card's type sizes. A held permission
+    /// (`ApprovalHook`) adds its command box and two buttons: about 285 pt.
+    /// The card caps its text lines and the box scrolls to stay inside it.
+    public static let detailCardMaxHeight: CGFloat = 290
 
     /// The window, built once and never resized: as wide as the widest open
     /// list with the card beside it (and the gap between) and the card's
@@ -979,6 +981,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // No chat runs in a capture; the listener has already
                 // refused it (nobody here answers).
                 print("permission request refused: \(request.tool)")
+            case .approval(let request):
+                print("approval request refused: \(request.tool)")
             case .signal(let report):
                 print(signalCaptureLine(report))
             }
@@ -1263,6 +1267,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                               },
                                               onGoButtonFrame: { [weak self] rect in
                                                   self?.goButtonFrameChanged(rect)
+                                              },
+                                              onApprovalFrame: { [weak self] allow, rect in
+                                                  self?.approvalFrameChanged(allow: allow, rect)
                                               }))
         panel.onClick = { [weak self] point in
             self?.click(at: point) ?? false
@@ -1931,7 +1938,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             // A chat turn's held permission request that went away unanswered.
             onAbandoned: { [weak self] id in
-                MainActor.assumeIsolated { self?.chats?.permissionAbandoned(id) }
+                MainActor.assumeIsolated {
+                    self?.chats?.permissionAbandoned(id)
+                    self?.approvals.abandoned(id)
+                }
             },
             onDelivery: { [weak self] delivery in
                 MainActor.assumeIsolated { self?.handleDelivery(delivery) }
@@ -1939,6 +1949,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         listener.start()
         hookListener = listener
         chats?.permissions = listener
+        approvals.respond = { [weak listener] id, response in listener?.answer(id, with: response) }
+        approvals.onChange = { [weak self] in self?.approvalsChanged() }
     }
 
     // MARK: - Remote machines
@@ -2042,10 +2054,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
             setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0) },
+            setApprovals: { [weak self] in self?.setApprovals(installed: $0) },
             setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
             setLoginItem: { [weak self] in self?.setLoginItem(on: $0) },
             hookFailure: { [weak self] in self?.hookFailure($0) },
             usageFailure: { [weak self] in self?.usageRelayFailure },
+            approvalFailure: { [weak self] in self?.approvalFailure },
             commandLinkFailure: { [weak self] in self?.commandLinkFailure },
             loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
     }
@@ -2290,6 +2304,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         switch delivery {
         case .hook(let event):
             handleHookEvent(event)
+        case .approval(let request):
+            approvals.asked(request)
         case .usage(let report):
             // Not `hookDiagnostics`: that bucket is the hooks' and nothing of
             // the status line's body belongs in it.
@@ -2338,6 +2354,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// One event, from the listener's callback. Internal so the coalescing has
     /// a test; the listener is the only caller in the app.
     func handleHookEvent(_ event: HookEvent) {
+        approvals.heard(event)
         hookDiagnostics.record(event)
         hooks.handle(event)
         scheduleRefresh()
@@ -2471,7 +2488,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         if barState.selectedSlot != slot { barState.selectedSlot = slot }
         detail.update(row: sessionRows.rows[slot],
-                      signal: signals.first { $0.entity == selected })
+                      signal: signals.first { $0.entity == selected },
+                      approval: approvalCard(for: selected))
     }
 
     /// The session's row index, if its row is wholly in sight.
@@ -2504,6 +2522,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         rowSwitch.cancel()
         detail.cardClosed()
         goButtonRect = nil
+        approvalRects = [:]
+        shownApproval = nil
+        if detail.hovered != nil { detail.hovered = nil }
+        if detail.pressed != nil { detail.pressed = nil }
         if barState.selected != nil { barState.selected = nil }
         if barState.selectedSlot != nil { barState.selectedSlot = nil }
         panel?.setCardRect(nil)
@@ -2517,6 +2539,40 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let row = row(atScreen: point)
         if barState.hovered != row { barState.hovered = row }
         rowSwitch.hover(row, selected: barState.selected)
+        let button = panel.flatMap { panel -> DetailModel.Button? in
+            guard let view = panel.contentView else { return nil }
+            return cardButton(at: view.convert(panel.convertPoint(fromScreen: point), from: nil))
+        }
+        if detail.hovered != button { detail.hovered = button }
+    }
+
+    /// Which of the card's live buttons is under `point` (the content view's
+    /// coordinates, as a click's). A faint approval button is none.
+    private func cardButton(at point: CGPoint) -> DetailModel.Button? {
+        guard barState.selected != nil else { return nil }
+        if let approval = detail.detail?.approval, approval.armed {
+            if approvalRects[true]?.contains(point) == true { return .allow }
+            if approvalRects[false]?.contains(point) == true { return .deny }
+        }
+        if goButtonRect?.contains(point) == true, detail.detail.map(DetailCard.showsButton) == true { return .go }
+        return nil
+    }
+
+    /// How long a pressed button shows it before what it does: long enough
+    /// to see, short enough not to feel slow.
+    static let pressFeedback: TimeInterval = 0.12
+
+    /// Shows the press, then runs `action` — which may close the card, so
+    /// the press has to be drawn first.
+    private func press(_ button: DetailModel.Button, _ action: @escaping () -> Void) {
+        detail.pressed = button
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pressFeedback) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.detail.pressed == button else { return }
+                self.detail.pressed = nil
+                action()
+            }
+        }
     }
 
     /// A scroll over the bar, from the hosting view. Taken only over the
@@ -2565,8 +2621,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// the card comes by hover (the user's decision), and a click on a
     /// row it already speaks for has nothing left to do.
     private func click(at point: CGPoint) -> Bool {
+        if barState.selected != nil, let approval = detail.detail?.approval,
+           let allow = [true, false].first(where: { approvalRects[$0]?.contains(point) == true }) {
+            // Faint buttons take the click and do nothing with it; a press
+            // on a request no longer held sends nothing (`ApprovalStore`).
+            if approval.armed, approval.id == shownApproval {
+                let id = approval.id
+                // Checked again after the press is drawn: `answer` sends
+                // nothing for a request no longer held.
+                press(allow ? .allow : .deny) { [weak self] in self?.approvals.answer(id, allow: allow) }
+            }
+            return true
+        }
         if barState.selected != nil, let button = goButtonRect, button.contains(point) {
-            goToSession()
+            press(.go) { [weak self] in self?.goToSession() }
             return true
         }
         // A mascot behind the edge takes no click: the sliver and the
@@ -2591,6 +2659,53 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     func goButtonFrameChanged(_ rect: CGRect?) {
         goButtonRect = barState.selected == nil ? nil : rect
+    }
+
+    // MARK: - Approvals
+
+    /// Terminal sessions' held permissions (`ApprovalHook`).
+    let approvals = ApprovalStore()
+
+    /// How long a request stands still on the card before its buttons take
+    /// a press: a card that comes up, or changes, under the pointer is not
+    /// an answer. The same pause browsers put on their permission prompts.
+    static let approvalArmDelay: TimeInterval = 0.6
+
+    /// Allow's (`true`) and Deny's drawn rectangles, like `goButtonRect`.
+    private var approvalRects: [Bool: CGRect] = [:]
+    /// The request the card shows, and the one whose buttons are live.
+    private var shownApproval: String?
+    private var armedApproval: String?
+
+    func approvalFrameChanged(allow: Bool, _ rect: CGRect?) {
+        approvalRects[allow] = barState.selected == nil ? nil : rect
+    }
+
+    /// The selected session's card for its held request, arming it after
+    /// `approvalArmDelay` the first time it is shown.
+    private func approvalCard(for entity: String) -> SessionDetail.ApprovalCard? {
+        guard let request = approvals.request(forSession: entity) else {
+            shownApproval = nil
+            return nil
+        }
+        if shownApproval != request.id {
+            shownApproval = request.id
+            armedApproval = nil
+            let id = request.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.approvalArmDelay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.shownApproval == id else { return }
+                    self.armedApproval = id
+                    self.approvalsChanged()
+                }
+            }
+        }
+        return SessionDetail.ApprovalCard(request, armed: armedApproval == request.id)
+    }
+
+    /// A request came, went or was answered: the card follows at once.
+    private func approvalsChanged() {
+        if let snapshot = lastSnapshot { syncSelection(snapshot.ordered) }
     }
 
     /// Looks the terminal up again and brings it forward; the list and the
@@ -3021,6 +3136,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         closeListAfterWrite()
     }
 
+    /// The approval hook (`ApprovalHook`), as `setHooks` does it.
+    func setApprovals(installed: Bool) {
+        guard let home else { return }
+        let file = AgentSource.claude.settingsFile(home: home)
+        do {
+            if installed {
+                try ApprovalHook.install(at: file)
+            } else {
+                try ApprovalHook.remove(at: file)
+            }
+            approvalFailure = nil
+        } catch {
+            approvalFailure = error as? SettingsFile.Failure ?? .unwritable
+        }
+        closeListAfterWrite()
+    }
+
     /// `~/.local/bin/evlat` to this binary, or taken away. `replacing` is
     /// the consent line's word for another copy's or a broken link.
     func setCommandLink(installed: Bool, replacing: Bool = false) {
@@ -3231,6 +3363,8 @@ struct BarBody: View {
     var onCardFrame: (CGRect?) -> Void = { _ in }
     /// `[Go to session]`'s drawn rectangle, for the click.
     var onGoButtonFrame: (CGRect?) -> Void = { _ in }
+    /// Allow's and Deny's, for the click (`DetailCard.onApprovalFrame`).
+    var onApprovalFrame: (Bool, CGRect?) -> Void = { _, _ in }
     /// The card's top above its row's ring: its header lines up with the
     /// row's name.
     static let cardLead: CGFloat = 16
@@ -3312,7 +3446,7 @@ struct BarBody: View {
     /// (`AppController.envelopeSize`), so it is never pushed around.
     @ViewBuilder private var card: some View {
         if state.isOpen, state.selected != nil, let slot = state.selectedSlot {
-            DetailCard(model: detail, onButtonFrame: onGoButtonFrame)
+            DetailCard(model: detail, onButtonFrame: onGoButtonFrame, onApprovalFrame: onApprovalFrame)
                 .animation(BarMotion.cardContent, value: state.selected)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     onCardFrame(rect)

@@ -25,6 +25,9 @@ struct DetailCard: View {
     /// The button's drawn rectangle, `nil` when it goes. The click is read
     /// from geometry by the panel (`AppController.click`), like the hovered row.
     var onButtonFrame: (CGRect?) -> Void = { _ in }
+    /// Allow's (`true`) and Deny's (`false`) drawn rectangles, read the same
+    /// way; `nil` when they go.
+    var onApprovalFrame: (Bool, CGRect?) -> Void = { _, _ in }
 
     /// A card of its own, apart from the body (the user's decision): all
     /// four corners round, its own edge line and shadow. The body's shape
@@ -59,10 +62,18 @@ struct DetailCard: View {
     /// An outside job: its header's kind and its progress row's name.
     static let outsideKey = "card.outside"
     static let progressKey = "card.progress"
+    /// A held permission (`ApprovalHook`).
+    static let approvalToolKey = "card.approval.tool"
+    static let approvalSubagentKey = "card.approval.subagent"
+    static let allowKey = "card.approval.allow"
+    static let denyKey = "card.approval.deny"
+    /// About six lines of command before the box scrolls: all of what Allow
+    /// lets run is on the card, never cut.
+    static let approvalTextMaxHeight: CGFloat = 92
     static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
     static var keys: [String] {
         [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey,
-         outsideKey, progressKey]
+         outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey]
             + AgentSource.allCases.map(sourceKey)
     }
 
@@ -108,7 +119,11 @@ struct DetailCard: View {
             }
             // The last thing a dimmed machine said, faded like its ring.
             .opacity(detail.dim == nil ? 1 : SessionColumn.dimOpacity + 0.2)
-            bodyView(CardBody.pick(detail.activity))
+            if let approval = detail.approval {
+                approvalView(approval)
+            } else {
+                bodyView(CardBody.pick(detail.activity))
+            }
             if let note = detail.note, !note.isEmpty {
                 // The sender's words: data, like a reply.
                 Text(verbatim: note)
@@ -134,7 +149,83 @@ struct DetailCard: View {
             }
             if Self.showsButton(detail) {
                 button(detail.traits.button == .backToChat ? Self.returnButton() : Self.button(for: detail.host))
+                    .modifier(PressFeedback(model: model, button: .go))
             }
+        }
+    }
+
+    /// The request whole, then Deny and Allow. Until the card has stood
+    /// still for a moment the buttons are drawn faint and take no press
+    /// (`AppController.click`): a card that comes up under the pointer is
+    /// not an answer.
+    private func approvalView(_ approval: SessionDetail.ApprovalCard) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: L10n.t(approval.fromSubagent ? Self.approvalSubagentKey : Self.approvalToolKey,
+                                  ["tool": approval.tool]))
+                .font(Self.replyFont)
+                .foregroundStyle(BarPalette.textPrimary.opacity(0.85))
+                .lineLimit(1)
+            if let text = approval.text {
+                ScrollView(.vertical, showsIndicators: true) {
+                    Text(verbatim: text)
+                        .font(Self.subjectFont)
+                        .foregroundStyle(BarPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                }
+                .frame(maxHeight: Self.approvalTextMaxHeight)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.06)))
+            }
+            HStack(spacing: 8) {
+                approvalButton(L10n.t(Self.denyKey), allow: false, armed: approval.armed)
+                    .modifier(PressFeedback(model: model, button: approval.armed ? .deny : nil))
+                approvalButton(L10n.t(Self.allowKey), allow: true, armed: approval.armed)
+                    .modifier(PressFeedback(model: model, button: approval.armed ? .allow : nil))
+            }
+            .padding(.top, 2)
+        }
+        .onDisappear {
+            onApprovalFrame(true, nil)
+            onApprovalFrame(false, nil)
+        }
+    }
+
+    /// Drawn, like `[Go to session]`: the panel reads the click from the
+    /// rectangle. Allow is the phase's amber, Deny quiet; neither is a
+    /// default, and no key presses them.
+    private func approvalButton(_ title: String, allow: Bool, armed: Bool) -> some View {
+        let fill = allow ? Self.color(.waiting) : Color.white.opacity(0.14)
+        return Text(verbatim: title)
+            .font(Self.buttonFont)
+            .foregroundStyle(allow ? Color.black : BarPalette.textPrimary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.buttonHeight)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(fill))
+            .opacity(armed ? 1 : 0.4)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                onApprovalFrame(allow, rect)
+            }
+    }
+
+    /// A drawn button answering the pointer: brighter under it, pressed in
+    /// on a click. Only a live button does (`nil` is a faint one); only a
+    /// change animates, so a still card draws nothing.
+    struct PressFeedback: ViewModifier {
+        @ObservedObject var model: DetailModel
+        let button: DetailModel.Button?
+
+        func body(content: Content) -> some View {
+            let hovered = button != nil && model.hovered == button
+            let pressed = button != nil && model.pressed == button
+            content
+                .brightness(pressed ? -0.12 : hovered ? 0.08 : 0)
+                .scaleEffect(pressed ? 0.96 : 1)
+                .animation(.easeOut(duration: 0.08), value: hovered)
+                .animation(.easeOut(duration: 0.08), value: pressed)
         }
     }
 

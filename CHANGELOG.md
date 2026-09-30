@@ -8,6 +8,15 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.1.4
+
+- **Approve from the bar** (Settings → Sessions, off by default): when a
+  Claude Code session asks for permission, its card shows the command whole
+  with **Allow** and **Deny**. It allows once, never always. The terminal
+  still asks too; whichever you answer first counts.
+- The card's buttons now light up under the pointer and press in when
+  clicked.
+
 ## 0.1.3
 
 - **Go to session** now opens the session's own tab in Bateri, Metalterm,

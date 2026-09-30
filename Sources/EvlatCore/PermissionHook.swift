@@ -164,10 +164,13 @@ public enum PermissionHook {
         public let directories: [String]
         public let sessionID: String?
         public let cwd: String?
+        /// `agent_id`: a subagent's request carries its parent's session, so
+        /// what answers it is told apart by the actor (`ApprovalHook.resolves`).
+        public let agentID: String?
 
         public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
                     rules: [Rule] = [], directories: [String] = [], sessionID: String? = nil,
-                    cwd: String? = nil) {
+                    cwd: String? = nil, agentID: String? = nil) {
             self.id = id
             self.token = token
             self.tool = tool
@@ -177,6 +180,7 @@ public enum PermissionHook {
             self.directories = directories
             self.sessionID = sessionID
             self.cwd = cwd
+            self.agentID = agentID
         }
 
         /// The hook's body. `nil` when it is not a `PermissionRequest` with a
@@ -209,7 +213,8 @@ public enum PermissionHook {
             self.init(id: id, token: token, tool: tool,
                       subject: HookEvent.subject(of: input), command: HookEvent.fullCommand(of: input),
                       rules: rules, directories: directories,
-                      sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String)
+                      sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String,
+                      agentID: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
     }
 

@@ -168,7 +168,7 @@ final class RemoteTunnels {
                 case .usage(let report): link.usage.handle(report)
                 // A tunnel answers `/permission` with `404` (`LocalAPI`):
                 // a remote machine never puts a card in front of this user.
-                case .permission: break
+                case .permission, .approval: break
                 // The machine's own outside row: the listener has
                 // already checked the machine's key. A dropped row is said on
                 // stderr like a local one, with the machine's name.

@@ -28,17 +28,20 @@ public enum LocalAPI {
         case usage(AgentSource)
         /// A chat turn's permission hook (`PermissionHook`).
         case permission
+        /// A terminal session's permission, to approve from the bar
+        /// (`ApprovalHook`).
+        case approval
         /// An outside program's row (`SignalReport`). Keyed: the
         /// listener's key decides, not the route (`Listener`).
         case signal
         case health
     }
 
-    /// The table is seven rows and it is this `switch`.
+    /// The table is eight rows and it is this `switch`.
     ///
     /// v1's generic route table (`Route.required`, `read`/`action`/`mac` kinds,
     /// a semaphore answering on the main queue) is **not** ported: every
-    /// endpoint that needed it is out of scope for v2, and seven rows do not
+    /// endpoint that needed it is out of scope for v2, and eight rows do not
     /// earn the generality.
     ///
     /// `curl` and the installed hook command never send `Origin`; a browser
@@ -68,6 +71,7 @@ public enum LocalAPI {
         case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
         case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
         case ("POST", PermissionHook.path): return .permission
+        case ("POST", ApprovalHook.path): return .approval
         case ("POST", SignalReport.path): return .signal
         case ("GET", "/health"): return .health
         default: return .notFound
@@ -135,6 +139,9 @@ public enum LocalAPI {
         /// response, and the listener keeps the connection open under the
         /// request's id until the user answers (`HookListener.answer`).
         case permission(PermissionHook.Request)
+        /// A terminal session's permission request, held like `permission`
+        /// until the user answers on the card or it is answered elsewhere.
+        case approval(PermissionHook.Request)
         /// An outside program's row, read and cleaned; the key has passed.
         case signal(SignalReport)
     }
@@ -212,6 +219,17 @@ public enum LocalAPI {
             }
             guard let asked = PermissionHook.Request(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
+        case .approval:
+            // This Mac's own sessions only, as `/permission`: a tunnel never
+            // puts a card in front of this user that grants anything.
+            guard origin == .local else { return notFound }
+            // `{}` is no decision: Claude Code's own dialog stays and decides.
+            guard let json = jsonObject(request.body),
+                  let asked = PermissionHook.Request(json: json, token: nil),
+                  asked.sessionID != nil else {
+                return Outcome(response: Response(status: .ok, body: "{}"), delivery: nil)
+            }
+            return Outcome(response: nil, delivery: .approval(asked))
         case .signal:
             // A tunnel without its machine's key does not have the route, and
             // its existence is not shown to it (as `/permission`). With the

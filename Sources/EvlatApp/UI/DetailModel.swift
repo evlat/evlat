@@ -31,6 +31,9 @@ public struct SessionDetail: Equatable {
     /// the card comes up and on the click, not on every snapshot; never for
     /// a remote session.
     var host: SessionHost = .notFound
+    /// A permission this session waits on, to answer from the card
+    /// (`ApprovalHook`); `nil` on every other card.
+    var approval: ApprovalCard?
 
     public init(entity: String, label: String, source: AgentSource?, phase: Phase,
                 enteredAt: Date?, activity: Signal.Activity?,
@@ -54,6 +57,26 @@ public struct SessionDetail: Equatable {
 
     var traits: RowTraits { .of(kind) }
 
+    /// What the card shows of a held request, and whether its buttons take
+    /// a press yet (`AppController.approvalArmDelay`).
+    struct ApprovalCard: Equatable {
+        let id: String
+        let tool: String
+        /// The command whole, or the one-line subject: what Allow lets run.
+        let text: String?
+        /// A subagent asked, not the session itself.
+        let fromSubagent: Bool
+        var armed: Bool
+
+        init(_ request: PermissionHook.Request, armed: Bool) {
+            id = request.id
+            tool = request.tool
+            text = request.command ?? request.subject
+            fromSubagent = request.agentID != nil
+            self.armed = armed
+        }
+    }
+
     /// Only a session on this Mac has a terminal to look up and go to.
     var hasTerminal: Bool { traits.button == .goToSession && machine == nil }
 }
@@ -68,6 +91,15 @@ public struct SessionDetail: Equatable {
 @MainActor
 public final class DetailModel: ObservableObject {
     @Published public private(set) var detail: SessionDetail?
+
+    /// The card's drawn buttons. Clicks are read from geometry
+    /// (`AppController.click`), so the pointer's place over them and a press
+    /// are told to the card here: a drawn button still answers the pointer.
+    enum Button: Equatable { case go, allow, deny }
+    /// Written only when it changes: moves arrive at display rate.
+    @Published var hovered: Button?
+    /// Set for a moment on a press, before what the press does.
+    @Published var pressed: Button?
 
     /// The terminal lookup and the activation, injected so a test neither
     /// walks this machine's processes nor brings an app forward.
@@ -84,7 +116,7 @@ public final class DetailModel: ObservableObject {
     /// Fed from the same snapshot as the rows, after them. `row` is the
     /// selected session's drawn row; the caller closes the card when there is
     /// none. Whole-value compare is the deadband: the stamp is not in here.
-    func update(row: SessionRow, signal: Signal?) {
+    func update(row: SessionRow, signal: Signal?, approval: SessionDetail.ApprovalCard? = nil) {
         let pid = signal?.activity?.pid
         let words: (folder: String?, note: String?)
         switch row.traits.detail {
@@ -97,6 +129,7 @@ public final class DetailModel: ObservableObject {
                                  activity: signal?.activity, machine: row.machine, dim: row.dim,
                                  kind: row.kind, folder: words.folder,
                                  sender: row.sender, note: words.note, progress: row.progress)
+        next.approval = row.hasTerminal ? approval : nil
         if !row.hasTerminal {
             // Evlat's own chat and an outside job have no terminal: nothing
             // to look up, and a "not found" button would be a lie
