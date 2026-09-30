@@ -8,6 +8,12 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.1.5
+
+- Approving from the bar is no longer a separate setting: it comes with
+  Evlat's Claude Code hooks. If Evlat says your hooks are out of date, one
+  update turns it on.
+
 ## 0.1.4
 
 - **Approve from the bar** (Settings → Sessions, off by default): when a

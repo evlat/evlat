@@ -9,7 +9,7 @@ import EvlatCore
 
 /// What the user can have Evlat set up here.
 enum SetupItem: String, CaseIterable, Identifiable {
-    case claudeHooks, codexHooks, usageRelay, approvals, commandLink, loginItem
+    case claudeHooks, codexHooks, usageRelay, commandLink, loginItem
 
     var id: String { rawValue }
 
@@ -112,7 +112,7 @@ enum SetupAttention: Equatable {
         case .hooksOutdated, .usageModified: return .sessions
         case .refused(let item):
             switch item {
-            case .claudeHooks, .codexHooks, .usageRelay, .approvals: return .sessions
+            case .claudeHooks, .codexHooks, .usageRelay: return .sessions
             case .commandLink: return .commandLine
             case .loginItem: return .general
             }
@@ -146,15 +146,12 @@ final class SetupModel: ObservableObject {
 
         var setHooks: (AgentSource, Bool) -> Void
         var setUsageRelay: (Bool) -> Void
-        /// The approval hook (`ApprovalHook`), opt-in.
-        var setApprovals: (Bool) -> Void
         /// Installed?, replacing another copy's or a broken link?
         var setCommandLink: (Bool, Bool) -> Void
         var setLoginItem: (Bool) -> Void
 
         var hookFailure: (AgentSource) -> SettingsFile.Failure?
         var usageFailure: () -> SettingsFile.Failure?
-        var approvalFailure: () -> SettingsFile.Failure?
         var commandLinkFailure: () -> CommandLinkWriter.Failure?
         var loginItemFailed: () -> Bool
     }
@@ -190,7 +187,7 @@ final class SetupModel: ObservableObject {
             for source in AppController.presentSources(home: home) {
                 let item: SetupItem = source == .claude ? .claudeHooks : .codexHooks
                 let status: SetupStatus
-                switch try? HookSettings.state(at: source.settingsFile(home: home), for: source) {
+                switch try? LocalHooks.state(at: source.settingsFile(home: home), for: source) {
                 case .current?: status = .installed
                 case .outdated?: status = .outdated; attention.append(.hooksOutdated(source))
                 case .missing?: status = .missing
@@ -210,17 +207,6 @@ final class SetupModel: ObservableObject {
                 rows.append(row(.usageRelay, usage, detail: "~/" + source.settingsPath,
                                 failure: host.usageFailure().map { L10n.t(AppController.failureKey($0), in: lang) }))
                 if host.usageFailure() != nil { attention.append(.refused(.usageRelay)) }
-                let approvals: SetupStatus
-                switch try? ApprovalHook.state(at: source.settingsFile(home: home)) {
-                case .current?: approvals = .installed
-                case .outdated?: approvals = .outdated
-                case .missing?: approvals = .missing
-                case nil: approvals = .unknown
-                }
-                rows.append(row(.approvals, approvals, detail: "~/" + source.settingsPath,
-                                note: L10n.t("setup.approvals.note", in: lang),
-                                failure: host.approvalFailure().map { L10n.t(AppController.failureKey($0), in: lang) }))
-                if host.approvalFailure() != nil { attention.append(.refused(.approvals)) }
             }
             if let binary = host.binary() {
                 let state = CommandLink.state(at: CommandLink.link(home: home), binary: binary)
@@ -317,7 +303,7 @@ final class SetupModel: ObservableObject {
     /// is written before the press; nothing but these lines is.
     func consent(_ item: SetupItem, _ action: SetupAction) -> [String] {
         switch item {
-        case .claudeHooks, .codexHooks, .usageRelay, .approvals:
+        case .claudeHooks, .codexHooks, .usageRelay:
             let file = item == .codexHooks ? AgentSource.codex.settingsPath : AgentSource.claude.settingsPath
             return [L10n.t("setup.consent.line", ["file": "~/" + file, "what": what(item, action)], in: lang)]
         case .commandLink:
@@ -338,9 +324,6 @@ final class SetupModel: ObservableObject {
     }
 
     private func what(_ item: SetupItem, _ action: SetupAction) -> String {
-        if item == .approvals {
-            return L10n.t(action.installs ? "setup.consent.what.approvals" : "setup.consent.what.approvals.remove", in: lang)
-        }
         let hooks = item != .usageRelay
         switch action {
         case .install, .update: return L10n.t(hooks ? "setup.consent.what.hooks" : "setup.consent.what.usage", in: lang)
@@ -367,7 +350,7 @@ final class SetupModel: ObservableObject {
         var claude: [String] = []
         for item in writes {
             switch item {
-            case .claudeHooks, .usageRelay, .approvals: claude.append(what(item, .install))
+            case .claudeHooks, .usageRelay: claude.append(what(item, .install))
             default: lines += consent(item, .install)
             }
         }
@@ -382,7 +365,7 @@ final class SetupModel: ObservableObject {
     /// Whether a line about the `.evlat.bak` copy belongs under the consent:
     /// only a settings file is backed up.
     func backsUp(_ items: [SetupItem]) -> Bool {
-        items.contains { [.claudeHooks, .codexHooks, .usageRelay, .approvals].contains($0) }
+        items.contains { [.claudeHooks, .codexHooks, .usageRelay].contains($0) }
     }
 
     // MARK: - Writing
@@ -408,7 +391,6 @@ final class SetupModel: ObservableObject {
         case .claudeHooks: host.setHooks(.claude, action.installs)
         case .codexHooks: host.setHooks(.codex, action.installs)
         case .usageRelay: host.setUsageRelay(action.installs)
-        case .approvals: host.setApprovals(action.installs)
         case .commandLink:
             let replacing: Bool
             switch linkState {
@@ -437,8 +419,10 @@ final class SetupModel: ObservableObject {
         let manual = RemoteSettings.manual
         let hooksRemoval = L10n.t("setup.manual.remove.hooks", ["marker": manual.marker], in: lang)
         switch item {
-        case .claudeHooks: return SetupManual(text: manual.claudeHooks, wrapping: nil, removal: hooksRemoval)
-        case .codexHooks: return SetupManual(text: manual.codexHooks, wrapping: nil, removal: hooksRemoval)
+        // This Mac's bytes: Claude's include the approval hook, which a
+        // server's (`RemoteSettings.manual`) never do.
+        case .claudeHooks: return SetupManual(text: LocalHooks.manual(for: .claude), wrapping: nil, removal: hooksRemoval)
+        case .codexHooks: return SetupManual(text: LocalHooks.manual(for: .codex), wrapping: nil, removal: hooksRemoval)
         case .usageRelay:
             return SetupManual(text: manual.statusLine, wrapping: manual.wrapping,
                                removal: L10n.t("setup.manual.remove.usage", in: lang))
@@ -446,8 +430,7 @@ final class SetupModel: ObservableObject {
             guard let binary = host.binary() else { return nil }
             return SetupManual(text: CommandLink.manualLine(binary: binary), wrapping: nil,
                                removal: L10n.t("setup.manual.remove.command", ["line": CommandLink.removeLine], in: lang))
-        // Nothing to paste by hand: it is opt-in, and the switch is the way.
-        case .approvals, .loginItem: return nil
+        case .loginItem: return nil
         }
     }
 
@@ -478,8 +461,7 @@ final class SetupModel: ObservableObject {
            "setup.consent.title", "setup.consent.line", "setup.consent.and", "setup.consent.backup",
            "setup.consent.nothing",
            "setup.consent.what.hooks", "setup.consent.what.usage", "setup.consent.what.hooks.remove",
-           "setup.consent.what.usage.remove", "setup.consent.what.approvals", "setup.consent.what.approvals.remove",
-           "setup.approvals.note", "settings.sessions.approvals",
+           "setup.consent.what.usage.remove",
            "setup.consent.command", "setup.consent.command.replace", "setup.consent.command.broken",
            "setup.consent.command.remove", "setup.consent.login.on", "setup.consent.login.off",
            "setup.manual.open", "setup.manual.copy", "setup.manual.copied", "setup.manual.check",

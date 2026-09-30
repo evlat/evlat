@@ -39,29 +39,44 @@ final class ApprovalHookTests: XCTestCase {
                        #"{"timeout":600,"type":"http","url":"http://127.0.0.1:48151/approval"}"#)
     }
 
-    func testInstallAddsOneGroupBesideTheCommandAndOthers() throws {
+    /// One row, one write: this Mac's Claude hooks are the command and the
+    /// approval hook together, and neither alone reads current.
+    func testLocalHooksInstallBothBesideOthers() throws {
         try Data(#"{"model":"opus","hooks":{"PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/other notify"}]}]}}"#.utf8).write(to: file)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .missing)
         try HookSettings.install(at: file, for: .claude)
-        XCTAssertEqual(try ApprovalHook.state(at: file), .missing, "the command hook is not the approval hook")
-        try ApprovalHook.install(at: file)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .outdated,
+                       "the command alone, as every copy before approvals wrote it: one install completes it")
+        try LocalHooks.install(at: file, for: .claude)
         let settings = try json(file)
         XCTAssertEqual(settings["model"] as? String, "opus")
         XCTAssertEqual(groups(settings).count, 3, "the other tool's, the command's and ours")
         XCTAssertEqual(((groups(settings)[0] as? [String: Any])?["hooks"] as? [[String: Any]])?.first?["command"] as? String,
                        "/usr/local/bin/other notify", "another tool's group keeps its index")
-        XCTAssertEqual(try ApprovalHook.state(at: file), .current)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current)
         XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current,
                        "the command hook does not read ours as a duplicate")
-        XCTAssertEqual(try ApprovalHook.install(at: file), .unchanged)
+        XCTAssertEqual(try LocalHooks.install(at: file, for: .claude), .unchanged)
     }
 
-    func testRemoveTakesOnlyOurs() throws {
-        try HookSettings.install(at: file, for: .claude)
-        try ApprovalHook.install(at: file)
-        try ApprovalHook.remove(at: file)
-        XCTAssertEqual(try ApprovalHook.state(at: file), .missing)
-        XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
-        XCTAssertEqual(groups(try json(file)).count, 1)
+    func testLocalHooksRemoveBothAndLeaveOthers() throws {
+        try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/usr/local/bin/other"}]}]}}"#.utf8).write(to: file)
+        try LocalHooks.install(at: file, for: .claude)
+        try LocalHooks.remove(at: file, for: .claude)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .missing)
+        XCTAssertEqual(groups(try json(file)).count, 0)
+        XCTAssertEqual(((try json(file))["hooks"] as? [String: Any])?["Stop"] as? [[String: Any]] != nil, true)
+    }
+
+    /// A server never gets the approval hook: its route is `404` through the
+    /// tunnel, and Codex has none either.
+    func testOnlyThisMacsClaudeHasIt() {
+        XCTAssertEqual(ApprovalHook.state(of: HookSettings.installing(into: [:], for: .claude)), .missing,
+                       "RemoteSettings writes HookSettings' bytes")
+        XCTAssertEqual(LocalHooks.installing(into: [:], for: .codex) as NSDictionary,
+                       HookSettings.installing(into: [:], for: .codex) as NSDictionary)
+        XCTAssertTrue(LocalHooks.manual(for: .claude).contains("/approval"))
+        XCTAssertFalse(RemoteSettings.manual.claudeHooks.contains("/approval"))
     }
 
     func testAnOtherTimeoutOrTwoCopiesReadOutdated() {

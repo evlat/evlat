@@ -30,7 +30,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
     /// The same for the status line relay's entry.
     private var usageFailure: SettingsFile.Failure?
-    private(set) var approvalFailure: SettingsFile.Failure?
     /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
@@ -670,7 +669,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func shouldOpenSetup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         let states = home.map { home in
             Self.presentSources(home: home).map { source in
-                (try? HookSettings.state(at: source.settingsFile(home: home), for: source)) ?? .missing
+                (try? LocalHooks.state(at: source.settingsFile(home: home), for: source)) ?? .missing
             }
         } ?? []
         return SetupTrigger.shouldOpen(hasStorage: defaults != nil && home != nil,
@@ -2054,12 +2053,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
             setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0) },
-            setApprovals: { [weak self] in self?.setApprovals(installed: $0) },
             setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
             setLoginItem: { [weak self] in self?.setLoginItem(on: $0) },
             hookFailure: { [weak self] in self?.hookFailure($0) },
             usageFailure: { [weak self] in self?.usageRelayFailure },
-            approvalFailure: { [weak self] in self?.approvalFailure },
             commandLinkFailure: { [weak self] in self?.commandLinkFailure },
             loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
     }
@@ -3108,9 +3105,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let file = source.settingsFile(home: home)
         do {
             if installed {
-                try HookSettings.install(at: file, for: source)
+                try LocalHooks.install(at: file, for: source)
             } else {
-                try HookSettings.remove(at: file, for: source)
+                try LocalHooks.remove(at: file, for: source)
             }
             hookFailures[source] = nil
         } catch {
@@ -3132,23 +3129,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             usageFailure = nil
         } catch {
             usageFailure = error as? SettingsFile.Failure ?? .unwritable
-        }
-        closeListAfterWrite()
-    }
-
-    /// The approval hook (`ApprovalHook`), as `setHooks` does it.
-    func setApprovals(installed: Bool) {
-        guard let home else { return }
-        let file = AgentSource.claude.settingsFile(home: home)
-        do {
-            if installed {
-                try ApprovalHook.install(at: file)
-            } else {
-                try ApprovalHook.remove(at: file)
-            }
-            approvalFailure = nil
-        } catch {
-            approvalFailure = error as? SettingsFile.Failure ?? .unwritable
         }
         closeListAfterWrite()
     }

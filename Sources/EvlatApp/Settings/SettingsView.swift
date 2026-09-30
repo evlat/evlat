@@ -236,11 +236,6 @@ private struct SessionsSection: View {
                 SetupRowView(row: usage, model: setup)
             }
         }
-        if let approvals = setup.row(.approvals) {
-            SettingsGroup(title: model.t("settings.sessions.approvals")) {
-                SetupRowView(row: approvals, model: setup)
-            }
-        }
     }
 }
 

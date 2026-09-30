@@ -1,7 +1,8 @@
 import Foundation
 
 /// Approving a terminal session's permission from the bar: a second
-/// installed hook, opt-in, beside the command `HookSettings` writes.
+/// installed hook beside the command `HookSettings` writes, installed and
+/// removed with it as one row (`LocalHooks`).
 ///
 /// It is Claude Code's documented `type: "http"` `PermissionRequest` hook,
 /// pointed at `path`. Evlat holds the request (`HookListener`) until the user
@@ -26,7 +27,7 @@ import Foundation
 /// The hook authenticates nobody: whoever holds the port while Evlat is
 /// closed could answer it. Accepted for now (a same-user process can write
 /// the settings file anyway); the risk is another user's process on a
-/// shared Mac. Off unless the user turns it on.
+/// shared Mac.
 public enum ApprovalHook {
     public static let path = "/approval"
     /// Written out, as `PermissionHook.timeout` is, so a change of default
@@ -121,23 +122,5 @@ public enum ApprovalHook {
         var result = settings
         result["hooks"] = hooks
         return result
-    }
-
-    // MARK: - Files
-
-    public static func state(at url: URL) throws -> State {
-        state(of: try SettingsFile.read(url))
-    }
-
-    @discardableResult
-    public static func install(at url: URL) throws -> SettingsFile.Outcome {
-        let outcome = try SettingsFile.apply(at: url) { installing(into: $0) }
-        if outcome == .unchanged, try state(at: url) != .current { throw SettingsFile.Failure.malformed }
-        return outcome
-    }
-
-    @discardableResult
-    public static func remove(at url: URL) throws -> SettingsFile.Outcome {
-        try SettingsFile.apply(at: url) { removing(from: $0) }
     }
 }

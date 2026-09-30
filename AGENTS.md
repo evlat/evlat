@@ -281,10 +281,13 @@ The status-line relay (`StatusLineRelay`) is the second installed contract: a
 `sh -c` wrapper that preserves the user's original command's output and exit
 code byte for byte (`StatusLineRelayTests`).
 
-The approval hook (`ApprovalHook`) is another installed contract, and
-opt-in: one `type: "http"` `PermissionRequest` group pointing at
-`/approval`, written only when the user turns on "Approve from the bar"
-(`ApprovalHookTests.testTheInstalledHookIsUnchanged`). It is the one hook
+The approval hook (`ApprovalHook`) is another installed contract: one
+`type: "http"` `PermissionRequest` group pointing at `/approval`
+(`ApprovalHookTests.testTheInstalledHookIsUnchanged`). On this Mac it is
+part of the Claude Code row, installed and removed with the command as one
+(`LocalHooks`); the command alone reads outdated, which is how a copy from
+before it is offered the update. A server's hooks never include it
+(`RemoteSettings` writes `HookSettings`' bytes). It is the one hook
 whose answer reaches Claude Code, so Evlat answers it only with the user's
 press on the card — Allow once or Deny, never a rule, a folder or a mode —
 or `{}`, which is no decision. It authenticates no server: while Evlat is

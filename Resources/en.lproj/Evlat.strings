@@ -291,11 +291,6 @@
 "card.approval.subagent" = "A subagent wants to use {tool}.";
 "card.approval.allow" = "Allow";
 "card.approval.deny" = "Deny";
-"setup.item.approvals" = "Approve from the bar";
-"setup.approvals.note" = "A permission question gets Allow and Deny on the session's card, once, never always. The terminal still asks too; whichever answers first counts.";
-"setup.consent.what.approvals" = "a permission hook";
-"setup.consent.what.approvals.remove" = "permission hook removed";
-"settings.sessions.approvals" = "Approvals";
 "chat.new" = "New";
 "chat.history" = "History";
 "chat.history.pin" = "Pin — kept past the week";

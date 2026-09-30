@@ -61,11 +61,10 @@ final class SetupModelTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        XCTAssertEqual(model.rows.map(\.item),
-                       [.claudeHooks, .usageRelay, .approvals, .codexHooks, .commandLink, .loginItem])
-        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .missing, .missing, .missing, .missing])
+        XCTAssertEqual(model.rows.map(\.item), [.claudeHooks, .usageRelay, .codexHooks, .commandLink, .loginItem])
+        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .missing, .missing, .missing])
         XCTAssertEqual(model.row(.loginItem)?.note, "Opens \(root.path)/this/Evlat.app")
-        try HookSettings.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
         XCTAssertEqual(model.row(.claudeHooks)?.status, .missing, "nothing cached, nothing read unasked")
         model.check()
         XCTAssertEqual(model.row(.claudeHooks)?.status, .installed, "\"I added it, check\" reads")
@@ -152,7 +151,7 @@ final class SetupModelTests: XCTestCase {
         let model = model(controller)
         for (item, source) in [(SetupItem.claudeHooks, AgentSource.claude), (.codexHooks, .codex)] {
             let file = root.appendingPathComponent("empty-\(source.rawValue).json")
-            try HookSettings.install(at: file, for: source)
+            try LocalHooks.install(at: file, for: source)
             XCTAssertEqual(model.manual(item)?.text, try String(contentsOf: file), "\(item)")
         }
         let file = root.appendingPathComponent("empty-statusline.json")
@@ -295,7 +294,7 @@ final class SetupWritersTests: XCTestCase {
         defaults.set("top", forKey: AppController.edgeKey)
         XCTAssertFalse(controller.shouldOpenSetup(environment: plain), "any stored edge: not new")
         defaults.removeObject(forKey: AppController.edgeKey)
-        try HookSettings.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
         XCTAssertFalse(controller.shouldOpenSetup(environment: plain))
         XCTAssertFalse(AppController(defaults: nil, home: home).shouldOpenSetup(environment: plain), "no storage")
         XCTAssertFalse(AppController(defaults: defaults, home: nil).shouldOpenSetup(environment: plain))

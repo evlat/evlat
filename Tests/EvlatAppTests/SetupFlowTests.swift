@@ -178,7 +178,7 @@ final class SetupFlowTests: XCTestCase {
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
         flow.setup.toggleManual(.claudeHooks)
-        try HookSettings.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
         flow.setup.check()
         XCTAssertNil(flow.setup.manualOpen)
         XCTAssertTrue(flow.summary.contains { $0.mark == .done && $0.text == "Claude Code hooks" })
@@ -243,7 +243,6 @@ final class SetupFlowTests: XCTestCase {
         let flow = flow(controller, step: .optional)
         XCTAssertTrue(flow.isQueued(.commandLink))
         XCTAssertFalse(flow.isQueued(.loginItem), "open at login is off by default")
-        XCTAssertFalse(flow.isQueued(.approvals), "approving from the bar is off unless turned on")
         XCTAssertEqual(flow.finishConsent, ["~/.local/bin/evlat · a link to this copy of Evlat"])
         flow.setQueued(.loginItem, true)
         XCTAssertEqual(flow.finishConsent.count, 2)
