@@ -117,6 +117,9 @@ private struct GeneralSection: View {
             }
             BodyRows(model: model)
         }
+        SettingsGroup(title: model.t("settings.general.nudge")) {
+            NudgeRows(model: model)
+        }
         if let row = setup.row(.loginItem) {
             SettingsGroup(title: model.t("settings.general.start")) {
                 LoginRow(row: row, setup: setup)
@@ -178,6 +181,66 @@ private struct BodyRows: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+/// "Waiting reminder": after how long, and how — a sound, a notification,
+/// either or both. The two switches rest while the reminder is off.
+private struct NudgeRows: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.general.nudge.after"), detail: model.t("settings.general.nudge.after.detail"))
+                Picker("", selection: Binding(get: { model.nudgeMinutes }, set: { model.setNudgeMinutes($0) })) {
+                    ForEach(AppController.nudgeChoices, id: \.self) { minutes in
+                        Text(minutes == 0 ? model.t("settings.general.nudge.off")
+                                          : model.t("settings.general.nudge.minutes", ["n": String(minutes)]))
+                            .tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(model.t("settings.general.nudge.after"))
+            }
+        }
+        toggle("settings.general.nudge.sound", on: model.nudgeSound) { model.setNudgeSound($0) }
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.general.nudge.notify"), detail: model.t("settings.general.nudge.notify.detail"))
+                switchView("settings.general.nudge.notify", on: model.nudgeNotify) { model.setNudgeNotify($0) }
+            }
+            if model.notificationsDenied {
+                HStack(spacing: 10) {
+                    Text(model.t("settings.general.nudge.notify.denied"))
+                        .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(model.t("settings.general.nudge.notify.open")) { model.openNotificationSettings() }
+                        .buttonStyle(SmallButtonStyle())
+                }
+            }
+        }
+    }
+
+    private func toggle(_ key: String, on: Bool, set: @escaping (Bool) -> Void) -> some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t(key), detail: model.t(key + ".detail"))
+                switchView(key, on: on, set: set)
+            }
+        }
+    }
+
+    private func switchView(_ key: String, on: Bool, set: @escaping (Bool) -> Void) -> some View {
+        Toggle("", isOn: Binding(get: { on }, set: set))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .labelsHidden()
+            .disabled(model.nudgeMinutes == 0)
+            .accessibilityLabel(model.t(key))
     }
 }
 

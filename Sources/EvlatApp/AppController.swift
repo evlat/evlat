@@ -177,6 +177,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// choice but never store it, so a forced launch — an isolated copy
     /// looked at or measured — leaves the user's choice alone.
     var bodyForced = false
+    /// Minutes a session may wait before the chime (Settings → General);
+    /// 0 is off, and so is nothing stored.
+    var nudgeMinutes = 0
+    /// How the reminder tells a wait: the chime (on unless turned off) and a
+    /// notification (off unless turned on, which asks macOS first).
+    var nudgeSound = true
+    var nudgeNotify = false
+    private var waitingNudge = WaitingNudge()
+    /// How the nudge sounds. A `var` so a test counts it instead of hearing it.
+    var chime: () -> Void = { Chime.play() }
+    /// `nil` outside the bundle and in tests (`WaitingNotifier.make`).
+    private var notifier: WaitingNotifier?
     /// Whether the menu-bar icon is the amber one (`TrayIcon.isAmber`).
     /// Written by `applyPresence` alone.
     private(set) var trayAmber = false
@@ -709,6 +721,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let bodySliverKey = "bar.body.sliver"
     nonisolated static let bodyPeekWaitingKey = "bar.body.peekWaiting"
     nonisolated static let bodyPeekDoneKey = "bar.body.peekDone"
+    nonisolated static let nudgeKey = "nudge.waitingMinutes"
+    nonisolated static let nudgeSoundKey = "nudge.sound"
+    nonisolated static let nudgeNotifyKey = "nudge.notify"
+    /// What the setting offers; 0 is off.
+    nonisolated static let nudgeChoices = [0, 1, 2, 5, 10, 20]
+
+    /// The stored minutes; nothing stored or a value the setting does not
+    /// offer is off.
+    nonisolated static func storedNudgeMinutes(_ defaults: UserDefaults?) -> Int {
+        let minutes = defaults?.integer(forKey: nudgeKey) ?? 0
+        return nudgeChoices.contains(minutes) ? minutes : 0
+    }
 
     /// The stored mode; nothing stored or an unknown value is `always`.
     /// Reading writes nothing.
@@ -1161,6 +1185,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyHotKey()
 
         // Before the panel, so its first hover area is already the mode's.
+        nudgeMinutes = Self.storedNudgeMinutes(defaults)
+        nudgeSound = defaults?.object(forKey: Self.nudgeSoundKey) as? Bool ?? true
+        nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
+        notifier = WaitingNotifier.make()
+        notifier?.onClick = { [weak self] entity in self?.select(entity) }
         bodyToggles = Self.storedBodyToggles(defaults)
         bodyMode = Self.bodyMode(defaults)
         bodyForced = Self.forcedBodyMode() != nil
@@ -2087,7 +2116,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             bodyMode: { [weak self] in self?.bodyMode ?? .always },
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
-            setBodyToggles: { [weak self] in self?.setBodyToggles($0) })
+            setBodyToggles: { [weak self] in self?.setBodyToggles($0) },
+            nudgeMinutes: { [weak self] in self?.nudgeMinutes ?? 0 },
+            setNudgeMinutes: { [weak self] in self?.setNudgeMinutes($0) },
+            nudgeSound: { [weak self] in self?.nudgeSound ?? true },
+            setNudgeSound: { [weak self] in self?.setNudgeSound($0) },
+            nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
+            setNudgeNotify: { [weak self] on, done in
+                guard let self else { return done(false) }
+                self.setNudgeNotify(on, completion: done)
+            },
+            notificationsDenied: { [weak self] done in
+                guard let notifier = self?.notifier else { return done(false) }
+                notifier.isDenied(done)
+            })
     }
 
     /// The window's focus call on open; a test holds it still so the runner
@@ -2462,6 +2504,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // area follows them from here. It writes nothing that did not change.
         applyPresence()
         tellNews(snapshot.news)
+        remindOfWaits(snapshot)
         if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
@@ -2882,6 +2925,54 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             defaults?.set(toggles.peekDone, forKey: Self.bodyPeekDoneKey)
         }
         bodyToggles = toggles
+    }
+
+    /// The nudge's minutes. Choosing one plays the chime, so the sound is
+    /// known before it comes unannounced.
+    func setNudgeMinutes(_ minutes: Int) {
+        defaults?.set(minutes, forKey: Self.nudgeKey)
+        nudgeMinutes = minutes
+        if minutes > 0 && nudgeSound { chime() }
+    }
+
+    func setNudgeSound(_ on: Bool) {
+        defaults?.set(on, forKey: Self.nudgeSoundKey)
+        nudgeSound = on
+        if on { chime() }
+    }
+
+    /// Turning the notification on asks macOS; refused, it stays off and the
+    /// completion says so. Called back on the main queue.
+    func setNudgeNotify(_ on: Bool, completion: @escaping (Bool) -> Void) {
+        let store = { [weak self] (on: Bool) in
+            self?.defaults?.set(on, forKey: Self.nudgeNotifyKey)
+            self?.nudgeNotify = on
+        }
+        guard on else { store(false); return completion(true) }
+        guard let notifier else { return completion(false) }
+        notifier.requestAuthorization { granted in
+            store(granted)
+            completion(granted)
+        }
+    }
+
+    /// Reads who waits now, rings and notifies for a wait that has just
+    /// outlasted the chosen minutes, and takes back the notifications of
+    /// waits that ended.
+    private func remindOfWaits(_ snapshot: Registry.Snapshot) {
+        let rows = snapshot.ordered.filter { $0.isLive && snapshot.layers[$0.entity] == .waiting }
+        let change = waitingNudge.update(waiting: Set(rows.map(\.entity)), now: now(),
+                                         after: nudgeMinutes > 0 ? TimeInterval(nudgeMinutes * 60) : nil)
+        notifier?.remove(entities: change.ended)
+        guard !change.due.isEmpty else { return }
+        if nudgeSound { chime() }
+        guard nudgeNotify, let notifier else { return }
+        for row in rows where change.due.contains(row.entity) {
+            let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
+            notifier.post(entity: row.entity,
+                          title: L10n.t("notify.waiting.title", ["name": name]),
+                          body: L10n.t("notify.waiting.body", ["n": String(nudgeMinutes)]))
+        }
     }
 
     /// The way into a new effective phase ends a running peek. One timer at

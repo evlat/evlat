@@ -37,6 +37,16 @@ final class SettingsModel: ObservableObject {
         var setBodyMode: (BodyPresence.Mode) -> Void = { _ in }
         var bodyToggles: () -> BodyPresence.Toggles = { BodyPresence.Toggles() }
         var setBodyToggles: (BodyPresence.Toggles) -> Void = { _ in }
+        /// General's "Waiting reminder": minutes, 0 is off.
+        var nudgeMinutes: () -> Int = { 0 }
+        var setNudgeMinutes: (Int) -> Void = { _ in }
+        var nudgeSound: () -> Bool = { true }
+        var setNudgeSound: (Bool) -> Void = { _ in }
+        var nudgeNotify: () -> Bool = { false }
+        /// Turning it on asks macOS; the completion says whether it is on.
+        var setNudgeNotify: (Bool, @escaping (Bool) -> Void) -> Void = { _, done in done(false) }
+        /// Whether Evlat's notifications are off in System Settings.
+        var notificationsDenied: (@escaping (Bool) -> Void) -> Void = { $0(false) }
     }
 
     /// Where `claude` is, once looked for.
@@ -55,6 +65,9 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var memoryCount: Int?
     /// "Clear…" was pressed: the row asks in place (no `NSAlert`).
     @Published private(set) var confirmingClear = false
+    /// Evlat's notifications are off in System Settings: the reminder's
+    /// notification row says so and links there.
+    @Published private(set) var notificationsDenied = false
 
     let setup: SetupModel
     let remote: RemoteMachinesModel
@@ -80,6 +93,7 @@ final class SettingsModel: ObservableObject {
         remote.reload()
         memoryCount = host.memoryCount()
         confirmingClear = false
+        host.notificationsDenied { [weak self] in self?.notificationsDenied = $0 }
         host.locateClaude { [weak self] path in
             self?.claude = path.map(Claude.found) ?? .missing
             // The lookup reads the login shell's `PATH`, which the command
@@ -118,6 +132,38 @@ final class SettingsModel: ObservableObject {
         toggles[keyPath: toggle] = on
         host.setBodyToggles(toggles)
         objectWillChange.send()
+    }
+
+    var nudgeMinutes: Int { host.nudgeMinutes() }
+
+    func setNudgeMinutes(_ minutes: Int) {
+        guard minutes != host.nudgeMinutes() else { return }
+        host.setNudgeMinutes(minutes)
+        objectWillChange.send()
+    }
+
+    var nudgeSound: Bool { host.nudgeSound() }
+    var nudgeNotify: Bool { host.nudgeNotify() }
+
+    func setNudgeSound(_ on: Bool) {
+        guard on != host.nudgeSound() else { return }
+        host.setNudgeSound(on)
+        objectWillChange.send()
+    }
+
+    /// A refusal leaves the switch off and the row pointing at System Settings.
+    func setNudgeNotify(_ on: Bool) {
+        guard on != host.nudgeNotify() else { return }
+        host.setNudgeNotify(on) { [weak self] result in
+            guard let self else { return }
+            self.notificationsDenied = on && !result
+            self.objectWillChange.send()
+        }
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// The switches shape only Smart: Always has nothing to hide, Hidden

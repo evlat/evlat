@@ -169,6 +169,14 @@ Stop                                             → review
 The session file's `status` does not carry this distinction; that file is for
 discovery, liveness, name and pid.
 
+A wait can also be heard and told: Settings → General → Waiting reminder
+(off by default) chooses N minutes, a sound (on) and a notification (off).
+A wait that outlasts N rings a chime synthesized in code (`Chime`, `NSSound`,
+no sound file) and posts one notification per session (`WaitingNotifier`),
+once per wait, timed from when this process first saw it waiting
+(`WaitingNudge`). An answer re-arms it and takes the notification back; a
+click on it opens that session's card on the bar.
+
 ### News and passive
 
 A finish (`review`, `failed`) is **news** until the user has seen it, then
@@ -252,9 +260,12 @@ is lost with the process.
 
 ### Permissions
 
-**No macOS permission is requested.** Any path that needs Accessibility, Screen
-Recording, Apple Events or notifications is an architecture decision, not an
-implementation detail.
+**No macOS permission is requested**, with one exception: notifications, asked
+only when the user turns on the waiting reminder's notification; refused, the
+sound still works. `UNUserNotificationCenter` needs a bundle, so under
+`swift run` and in tests `WaitingNotifier.make()` returns `nil`. Any other path
+that needs Accessibility, Screen Recording, Apple Events or a new permission is
+an architecture decision, not an implementation detail.
 
 ## Contracts
 
