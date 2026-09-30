@@ -8,6 +8,18 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.1.8
+
+- **Answer Claude's questions from the bar.** When Claude Code asks you a
+  question, the session's card now shows the question and its options,
+  instead of an Allow button that answered nothing. Click an option to
+  answer; tick several when the question allows it; **Other…** opens a line
+  to type your own answer. Several questions asked at once are answered one
+  after another, with a way back to change an earlier answer, and sent
+  together.
+- A session waiting on a question now reads "waiting for an answer" rather
+  than "waiting for approval".
+
 ## 0.1.7
 
 - **Waiting reminder** (Settings → General, off by default): when a session
