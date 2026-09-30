@@ -370,3 +370,17 @@ final class SessionHostTests: XCTestCase {
         XCTAssertEqual(SessionHost.environment(Int32.max), [])
     }
 }
+
+extension SessionHostTests {
+    /// cmux's tab is two ids; the link is its navigation route, and a
+    /// value that is not a UUID or a missing half is no link.
+    func testCmuxTabIsItsWorkspaceAndSurface() {
+        let workspace = "CMUX_WORKSPACE_ID=018D3A58-43C5-4E55-A360-EB03CCDED11B"
+        let surface = "CMUX_SURFACE_ID=5B3AB033-593B-4832-8B68-87D1AFEDD607"
+        XCTAssertEqual(TabLink.url(bundleID: "com.cmuxterm.app", environment: ["TERM=x", surface, workspace]),
+                       URL(string: "cmux://workspace/018D3A58-43C5-4E55-A360-EB03CCDED11B/surface/5B3AB033-593B-4832-8B68-87D1AFEDD607"))
+        XCTAssertNil(TabLink.url(bundleID: "com.cmuxterm.app", environment: [workspace]), "half a tab is none")
+        XCTAssertNil(TabLink.url(bundleID: "com.cmuxterm.app",
+                                 environment: [workspace, "CMUX_SURFACE_ID=../restart"]))
+    }
+}

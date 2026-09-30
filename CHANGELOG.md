@@ -8,6 +8,11 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.1.7
+
+- **Go to session** now opens the session's own tab in cmux, instead of only
+  bringing cmux forward.
+
 ## 0.1.6
 
 - **Antigravity** sessions now show in the bar, from the app, the IDE and

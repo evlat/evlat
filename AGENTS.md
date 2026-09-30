@@ -228,7 +228,11 @@ is lost with the process.
   gives its shells (`BATERI_TAB_URL`, `METALTERM_TAB_URL`, `WARP_FOCUS_URL`);
   in iTerm as `iterm2:reveal?sessionid=` the whole `ITERM_SESSION_ID`; in
   Claude's desktop app as `claude://code/continue?session=` its
-  `CLAUDE_CODE_HOST_SESSION_ID`. Terminal and Ghostty publish no link: their
+  `CLAUDE_CODE_HOST_SESSION_ID`; in cmux as
+  `cmux://workspace/<CMUX_WORKSPACE_ID>/surface/<CMUX_SURFACE_ID>` (its
+  socket refuses processes started outside cmux; the link is undocumented
+  but in its source, and was seen working on 0.64.25). Terminal and Ghostty
+  publish no link: their
   tab would take Apple Events. All are read from the agent's exec-time
   environment (`KERN_PROCARGS2`) — no permission. The value is checked
   (`TabLink`): `metalterm://tab/restart` is an action, not a tab.

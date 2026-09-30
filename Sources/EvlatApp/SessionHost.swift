@@ -69,7 +69,7 @@ enum SessionHost: Equatable {
         switch walk(pid: agent, probe) {
         case .app(var app):
             // The agent's environment is read only for an app that has a
-            // tab link, and only its one variable is kept.
+            // tab link, and only its own variables are kept.
             if TabLink.of(app.bundleID) != nil {
                 app.tab = TabLink.url(bundleID: app.bundleID, environment: probe.environment(agent))
             }
@@ -291,19 +291,35 @@ enum SessionHost: Equatable {
 ///   own "Continue" menu and Spotlight entries use. An id it no longer knows
 ///   opens its Claude Code home, never another session. Undocumented: if it
 ///   changes, the app still comes forward.
+/// - cmux hands each shell `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`, and
+///   `cmux://workspace/<id>/surface/<id>` selects that tab — its navigation
+///   link (`CmuxNavigationURLRequest` in cmux's source; seen working on
+///   0.64.25). Its socket refuses a process started outside cmux, so the
+///   link is the one way in.
 ///
 /// The value is checked, not trusted: it is whatever the agent's environment
 /// says, and `metalterm://tab/restart` is an action, not a tab. Bateri's ids
 /// are UUIDs, Metalterm's 16 hex digits, Warp's 32, iTerm's a UUID after its
 /// position, Claude's `local_` and a UUID (the app accepts
-/// `local_[A-Za-z0-9-]{1,64}`).
+/// `local_[A-Za-z0-9-]{1,64}`), cmux's two UUIDs.
 ///
 /// Terminal and Ghostty publish nothing an app can open: choosing their tab
 /// takes Apple Events, a permission, so they are only brought forward.
 struct TabLink {
-    let variable: String
-    /// The link, from the variable's value; `nil` when the value is not one.
-    let link: (Substring) -> URL?
+    /// Read in this order; every one must be there.
+    let variables: [String]
+    /// The link, from the variables' values; `nil` when they are not one.
+    let link: ([Substring]) -> URL?
+
+    init(variable: String, link: @escaping (Substring) -> URL?) {
+        variables = [variable]
+        self.link = { values in values.first.flatMap(link) }
+    }
+
+    init(variables: [String], link: @escaping ([Substring]) -> URL?) {
+        self.variables = variables
+        self.link = link
+    }
 
     static let known: [String: TabLink] = [
         // Bateri ships as `dev.bateri.bateri` (seen installed); the older
@@ -323,6 +339,11 @@ struct TabLink {
                 return nil
             }
             return URL(string: "claude://code/continue?session=\(value)")
+        },
+        "com.cmuxterm.app": TabLink(variables: ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"]) { values in
+            guard values.count == 2, let workspace = UUID(uuidString: String(values[0])),
+                  let surface = UUID(uuidString: String(values[1])) else { return nil }
+            return URL(string: "cmux://workspace/\(workspace.uuidString)/surface/\(surface.uuidString)")
         },
     ]
 
@@ -351,8 +372,12 @@ struct TabLink {
     /// another app, a missing variable or a value that is not one. The first
     /// occurrence counts, as `getenv` reads it.
     static func url(bundleID: String, environment: [String]) -> URL? {
-        guard let entry = of(bundleID),
-              let line = environment.first(where: { $0.hasPrefix(entry.variable + "=") }) else { return nil }
-        return entry.link(line.dropFirst(entry.variable.count + 1))
+        guard let entry = of(bundleID) else { return nil }
+        var values: [Substring] = []
+        for variable in entry.variables {
+            guard let line = environment.first(where: { $0.hasPrefix(variable + "=") }) else { return nil }
+            values.append(line.dropFirst(variable.count + 1))
+        }
+        return entry.link(values)
     }
 }
