@@ -15,6 +15,8 @@ import EvlatCore
 @MainActor
 final class RemoteMachinesTests: XCTestCase {
     private var directory: URL!
+    /// The masters' sockets: short, and never the app's `$TMPDIR/evlat`.
+    private var sockets = ""
     private var suiteName = ""
     private var defaults: UserDefaults!
     private var pasteboard: NSPasteboard!
@@ -25,6 +27,7 @@ final class RemoteMachinesTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("evlat-remote-window-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        sockets = "/tmp/e-" + UUID().uuidString.prefix(6)
         suiteName = "evlat.tests.remote-window.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
         pasteboard = NSPasteboard(name: NSPasteboard.Name("evlat.tests.\(UUID().uuidString)"))
@@ -41,6 +44,7 @@ final class RemoteMachinesTests: XCTestCase {
         pasteboard.releaseGlobally()
         defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.removeItem(atPath: sockets)
     }
 
     // MARK: - Helpers
@@ -72,7 +76,7 @@ final class RemoteMachinesTests: XCTestCase {
         let controller = AppController(defaults: defaults)
         controller.startRemoteTunnels(
             configuration: RemoteMachine.Configuration(machines: machines, fromEnvironment: !stored, rejected: []),
-            sshPath: ssh, confirmAfter: 0.2)
+            sshPath: ssh, socketDirectory: sockets, confirmAfter: 0.2)
         controllers.append(controller)
         return controller
     }
@@ -632,7 +636,7 @@ final class RemoteMachinesTests: XCTestCase {
         let ssh = try fakeSSH(.connect)
         controller.startRemoteTunnels(configuration: RemoteMachine.Configuration(
             machines: [try XCTUnwrap(RemoteMachine(id: "m1", target: "devbox"))], fromEnvironment: true, rejected: []),
-            sshPath: ssh, confirmAfter: 0.2)
+            sshPath: ssh, socketDirectory: sockets, confirmAfter: 0.2)
         controller.openSettings(section: .remote)
         let window = try XCTUnwrap(controller.settingsWindow)
         let model = try XCTUnwrap(controller.settings?.remote)

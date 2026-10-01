@@ -9,19 +9,28 @@ import EvlatCore
 /// path.
 final class RemoteTunnelsTests: XCTestCase {
     private var directory: URL!
+    /// Where the masters' sockets go: short, since `$TMPDIR` plus a UUID is
+    /// already past what a socket path may hold (`RemoteTunnel.controlPath`).
+    private var sockets: String!
+    /// Sockets a test holds open; closed at the end.
+    private var held: [Int32] = []
     private var tunnels: RemoteTunnels?
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("evlat-remote-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        sockets = "/tmp/e-" + UUID().uuidString.prefix(6)
     }
 
     override func tearDownWithError() throws {
         // Every fake started here ends here, even when an assertion failed.
         tunnels?.stopAll()
         tunnels = nil
+        held.forEach { Darwin.close($0) }
+        held = []
         try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.removeItem(atPath: sockets)
     }
 
     private enum Mode {
@@ -44,6 +53,7 @@ final class RemoteTunnelsTests: XCTestCase {
             #!/bin/sh
             \(FreshExecutable.warmLine)
             { echo '--- run'; for a in "$@"; do printf '%s\\n' "$a"; done; } >> '\(log.path)'
+            printf '%s\\n' "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" "HOME=$HOME" >> '\(log.path).env'
             \(tail)
 
             """.write(to: script, atomically: true, encoding: .utf8)
@@ -59,15 +69,24 @@ final class RemoteTunnelsTests: XCTestCase {
         }
     }
 
+    private func environment(in log: URL) -> [String] {
+        ((try? String(contentsOf: URL(fileURLWithPath: log.path + ".env"), encoding: .utf8)) ?? "")
+            .split(separator: "\n").map(String.init)
+    }
+
     private let machine = RemoteMachine(id: "fake", target: "fake")!
     private let key = String(repeating: "a", count: 64)
+    /// What `ssh` is started with, besides the tunnel's own variables.
+    private let base = ["SSH_AUTH_SOCK": "/private/tmp/evlat-test-agent.sock", "HOME": "/Users/ben",
+                        "PATH": "/usr/bin:/bin"]
 
     private func make(ssh path: String, registry: Registry = Registry(),
                       workspace: NotificationCenter = NotificationCenter(),
                       confirmAfter: TimeInterval = 0.2,
                       schedule: RemoteTunnels.Schedule? = nil) -> RemoteTunnels {
         let made = RemoteTunnels(registry: registry, sshPath: path, platform: .unknown,
-                                 now: Date.init, workspace: workspace,
+                                 now: Date.init, socketDirectory: sockets, environment: base,
+                                 workspace: workspace,
                                  confirmAfter: confirmAfter,
                                  schedule: schedule ?? RemoteTunnels.mainQueueSchedule,
                                  onChange: {})
@@ -94,9 +113,72 @@ final class RemoteTunnelsTests: XCTestCase {
         guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
             return XCTFail("the machine's listener is not up")
         }
-        XCTAssertEqual(run, RemoteTunnel.arguments(target: "fake", localPort: port),
+        let socket = try XCTUnwrap(RemoteTunnel.controlPath(directory: sockets, machineID: "fake"),
+                                   "the test's socket directory is short enough for a master")
+        XCTAssertEqual(tunnels.controlPath(of: "fake"), socket)
+        XCTAssertEqual(run, RemoteTunnel.arguments(target: "fake", localPort: port, controlPath: socket),
                        "remote 48151 onto the machine's own listener, the target after --")
         XCTAssertNotEqual(port, LocalAPI.defaultPort)
+        XCTAssertEqual(environment(in: fake.log),
+                       ["SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock", "HOME=/Users/ben"],
+                       "ssh sees Evlat's environment, the agent included")
+        let mode = try FileManager.default.attributesOfItem(atPath: sockets)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o700)
+
+        tunnels.remove(id: "fake")
+        XCTAssertNil(tunnels.controlPath(of: "fake"))
+    }
+
+    /// A socket file left by a master that is gone (`kill -9`) is cleared
+    /// before the new master starts; one that answers belongs to a running
+    /// master — another Evlat's — and is left alone, the tunnel then running
+    /// without a master of its own.
+    func testAStaleSocketIsClearedAndALiveOneIsLeftAlone() throws {
+        let socket = try XCTUnwrap(RemoteTunnel.controlPath(directory: sockets, machineID: "fake"))
+        try FileManager.default.createDirectory(atPath: sockets, withIntermediateDirectories: true)
+        Darwin.close(try bindSocket(at: socket, listening: false))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socket))
+
+        let fake = try fakeSSH(.connect)
+        var tunnels = make(ssh: fake.path)
+        tunnels.add(machine, key: key)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socket), "the stale file is gone")
+        XCTAssertEqual(runs(in: fake.log).first?.contains("-M"), true)
+        tunnels.stopAll()
+
+        held.append(try bindSocket(at: socket, listening: true))
+        let other = try fakeSSH(.connect)
+        try FileManager.default.removeItem(at: other.log)
+        tunnels = make(ssh: other.path)
+        tunnels.add(machine, key: key)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
+            return XCTFail("the machine's listener is not up")
+        }
+        XCTAssertEqual(runs(in: other.log).first, RemoteTunnel.arguments(target: "fake", localPort: port),
+                       "no master of its own beside a live one")
+        XCTAssertNil(tunnels.controlPath(of: "fake"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socket), "a live socket is not touched")
+    }
+
+    /// A unix socket bound at `path`; listening or not, its file stays.
+    private func bindSocket(at path: String, listening: Bool) throws -> Int32 {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: path.utf8)
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        XCTAssertEqual(bound, 0, String(cString: strerror(errno)))
+        if listening { XCTAssertEqual(Darwin.listen(fd, 1), 0) }
+        return fd
     }
 
     func testAFailureLineWaitsAndRetriesOnTheSchedule() throws {

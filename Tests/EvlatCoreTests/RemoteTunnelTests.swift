@@ -28,6 +28,59 @@ final class RemoteTunnelTests: XCTestCase {
         ])
     }
 
+    func testWithASocketTheTunnelIsEvlatsOwnMaster() {
+        XCTAssertEqual(RemoteTunnel.arguments(target: "ben@devbox", localPort: 50123,
+                                              controlPath: "/tmp/e/d8ca92b2"), [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "ExitOnForwardFailure=yes",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+            "-o", "ConnectTimeout=10",
+            // On the command line these win over a host's `ControlMaster`,
+            // `ControlPath` and `ControlPersist`: the master is Evlat's and
+            // ends with the tunnel.
+            "-M",
+            "-S", "/tmp/e/d8ca92b2",
+            "-o", "ControlPersist=no",
+            "-o", "RemoteCommand=none",
+            "-o", "StdinNull=no",
+            "-o", "ForkAfterAuthentication=no",
+            "-R", "127.0.0.1:48151:127.0.0.1:50123",
+            "--", "ben@devbox", "cat >/dev/null",
+        ])
+        XCTAssertEqual(RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: nil),
+                       RemoteTunnel.arguments(target: "devbox", localPort: 1), "no socket, today's list")
+        XCTAssertEqual(RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: "/s").filter { $0 == "-M" }.count,
+                       1, "a second -M would make it ControlMaster=ask")
+    }
+
+    func testTheSocketPathIsShortAndTheSameOnEveryLaunch() {
+        XCTAssertEqual(RemoteTunnel.controlPath(directory: "/tmp/e", machineID: "ben@devbox"), "/tmp/e/d8ca92b2")
+        XCTAssertEqual(RemoteTunnel.controlPath(directory: "/tmp/e/", machineID: "fake"), "/tmp/e/21580954")
+        XCTAssertNotEqual(RemoteTunnel.controlPath(directory: "/tmp/e", machineID: "a"),
+                          RemoteTunnel.controlPath(directory: "/tmp/e", machineID: "b"))
+        // 104 bytes of `sun_path`, less the 17 `ssh` appends while it sets
+        // the socket up, less the terminator: 86.
+        XCTAssertEqual(RemoteTunnel.socketPathLimit, 86)
+        let fits = "/" + String(repeating: "d", count: 86 - 10)
+        XCTAssertEqual(RemoteTunnel.controlPath(directory: fits, machineID: "x")?.utf8.count, 86)
+        XCTAssertNil(RemoteTunnel.controlPath(directory: fits + "d", machineID: "x"), "one byte over")
+        XCTAssertNil(RemoteTunnel.controlPath(directory: "/tmp/%h", machineID: "x"),
+                     "ssh expands % in a control path")
+        XCTAssertNil(RemoteTunnel.controlPath(directory: "", machineID: "x"))
+    }
+
+    func testTheEnvironmentIsAddedToEvlatsOwn() {
+        let base = ["SSH_AUTH_SOCK": "/private/tmp/agent.sock", "PATH": "/usr/bin", "HOME": "/Users/ben"]
+        XCTAssertEqual(RemoteTunnel.environment(base: base, askpass: nil), base, "the agent is kept")
+        let added = RemoteTunnel.environment(base: base, askpass: ["SSH_ASKPASS": "/x/Evlat", "PATH": "/ours"])
+        XCTAssertEqual(added["SSH_AUTH_SOCK"], "/private/tmp/agent.sock")
+        XCTAssertEqual(added["HOME"], "/Users/ben")
+        XCTAssertEqual(added["SSH_ASKPASS"], "/x/Evlat")
+        XCTAssertEqual(added["PATH"], "/ours", "the tunnel's own variables win")
+    }
+
     func testTheTargetComesAfterTheOptionTerminator() throws {
         let arguments = RemoteTunnel.arguments(target: "devbox", localPort: 1)
         let terminator = try XCTUnwrap(arguments.firstIndex(of: "--"))

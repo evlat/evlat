@@ -36,9 +36,13 @@ final class RemoteInstaller {
     /// missing (Codex not installed) fails alone; once `ssh` cannot reach the
     /// server the rest are not tried and fail the same way. `false`, and
     /// `completion` is never called, while the machine has a job running.
+    ///
+    /// `controlPath`, here and on the other jobs: the socket of the
+    /// machine's tunnel master (`RemoteTunnels.controlPath(of:)`), read on
+    /// the main queue by the caller; every call of the job rides it.
     @discardableResult
     func run(_ changes: [RemoteSettings.Change], _ action: RemoteSettings.Action,
-             machine: String, target: String,
+             machine: String, target: String, controlPath: String? = nil,
              completion: @escaping ([(RemoteSettings.Change, Result)]) -> Void) -> Bool {
         let sshPath = self.sshPath, beforeWrite = self.beforeWrite
         return start(machine: machine, completion: completion) {
@@ -48,7 +52,7 @@ final class RemoteInstaller {
                     results.append((change, .failure(.unreachable)))
                     continue
                 }
-                let result = Self.apply(change, action, target: target, ssh: sshPath,
+                let result = Self.apply(change, action, target: target, ssh: sshPath, controlPath: controlPath,
                                         beforeWrite: { beforeWrite(change) })
                 results.append((change, result))
             }
@@ -63,13 +67,15 @@ final class RemoteInstaller {
     /// the command is gone.
     @discardableResult
     func runCommand(_ action: RemoteSettings.Action, key: String, pathLine: String? = nil,
-                    machine: String, target: String,
+                    machine: String, target: String, controlPath: String? = nil,
                     completion: @escaping (CommandResult, Result?) -> Void) -> Bool {
         let sshPath = self.sshPath
         return start(machine: machine, completion: { (both: (CommandResult, Result?)) in completion(both.0, both.1) }) {
-            let command = Self.applyCommand(action, key: key, target: target, ssh: sshPath)
+            let command = Self.applyCommand(action, key: key, target: target, ssh: sshPath,
+                                            controlPath: controlPath)
             guard action == .remove, case .success = command, let pathLine else { return (command, Result?.none) }
-            return (command, Self.apply(.pathLine(pathLine), .remove, target: target, ssh: sshPath))
+            return (command, Self.apply(.pathLine(pathLine), .remove, target: target, ssh: sshPath,
+                                        controlPath: controlPath))
         }
     }
 
@@ -77,19 +83,19 @@ final class RemoteInstaller {
     /// same lock: `false`, and no `completion`, while a job runs there — a
     /// read is skipped, never queued behind a write.
     @discardableResult
-    func read(machine: String, target: String,
+    func read(machine: String, target: String, controlPath: String? = nil,
               completion: @escaping (Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure>) -> Void) -> Bool {
         let sshPath = self.sshPath
         return start(machine: machine, completion: completion) {
-            Self.applyRead(target: target, ssh: sshPath)
+            Self.applyRead(target: target, ssh: sshPath, controlPath: controlPath)
         }
     }
 
     /// The read's one call, synchronously.
-    static func applyRead(target: String, ssh: String,
+    static func applyRead(target: String, ssh: String, controlPath: String? = nil,
                           patience: Int = RemotePath.patience) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
         let nonce = UUID().uuidString
-        guard let answer = try? run(ssh, RemoteSettings.arguments(target: target),
+        guard let answer = try? run(ssh, RemoteSettings.arguments(target: target, controlPath: controlPath),
                                     script: RemoteSettings.readingScript(nonce: nonce, patience: patience)) else {
             return .failure(.unreachable)
         }
@@ -117,12 +123,13 @@ final class RemoteInstaller {
 
     /// The command's one call, synchronously.
     static func applyCommand(_ action: RemoteSettings.Action, key: String,
-                             target: String, ssh: String) -> CommandResult {
+                             target: String, ssh: String, controlPath: String? = nil) -> CommandResult {
         let nonce = UUID().uuidString
         let script = action == .install
             ? RemoteCommand.installScript(key: key, nonce: nonce)
             : RemoteCommand.removeScript(nonce: nonce)
-        guard let answer = try? run(ssh, RemoteSettings.arguments(target: target), script: script) else {
+        guard let answer = try? run(ssh, RemoteSettings.arguments(target: target, controlPath: controlPath),
+                                    script: script) else {
             return .failure(.unreachable)
         }
         return RemoteCommand.result(exitCode: answer.status, output: answer.output, nonce: nonce)
@@ -131,8 +138,9 @@ final class RemoteInstaller {
     /// One change, synchronously: two `ssh` calls at most, one when nothing
     /// is to be written.
     static func apply(_ change: RemoteSettings.Change, _ action: RemoteSettings.Action,
-                      target: String, ssh: String, beforeWrite: () -> Void = {}) -> Result {
-        let arguments = RemoteSettings.arguments(target: target)
+                      target: String, ssh: String, controlPath: String? = nil,
+                      beforeWrite: () -> Void = {}) -> Result {
+        let arguments = RemoteSettings.arguments(target: target, controlPath: controlPath)
         let nonce = UUID().uuidString
         do {
             let read = try run(ssh, arguments, script: RemoteSettings.readScript(path: change.path, nonce: nonce))

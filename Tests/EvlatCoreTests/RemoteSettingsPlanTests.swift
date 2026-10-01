@@ -54,4 +54,37 @@ final class RemoteSettingsPlanTests: XCTestCase {
         XCTAssertFalse(script.contains(NSHomeDirectory()), "this Mac's home never enters")
         XCTAssertEqual(RemoteSettings.arguments(target: "devbox").suffix(3), ["--", "devbox", "sh -s"])
     }
+
+    /// Through the tunnel's master the call does not log in again; without
+    /// one it is today's list, byte for byte.
+    func testWithASocketTheCallRidesTheTunnelsMaster() {
+        XCTAssertEqual(RemoteSettings.arguments(target: "devbox", controlPath: "/tmp/e/21580954"), [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+            "-S", "/tmp/e/21580954",
+            "-o", "ControlMaster=no",
+            "-o", "ClearAllForwardings=yes",
+            "-o", "RemoteCommand=none",
+            "-o", "StdinNull=no",
+            "-o", "ForkAfterAuthentication=no",
+            "--", "devbox", "sh -s",
+        ])
+        XCTAssertEqual(RemoteSettings.arguments(target: "devbox", controlPath: nil), [
+            "-T",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+            "-o", "ControlMaster=no",
+            "-o", "ControlPath=none",
+            "-o", "ClearAllForwardings=yes",
+            "-o", "RemoteCommand=none",
+            "-o", "StdinNull=no",
+            "-o", "ForkAfterAuthentication=no",
+            "--", "devbox", "sh -s",
+        ])
+    }
 }

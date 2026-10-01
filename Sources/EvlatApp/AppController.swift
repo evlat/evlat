@@ -2050,11 +2050,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return raw.isEmpty ? "/usr/bin/ssh" : raw
     }
 
+    /// Where the tunnels' masters put their sockets: the user's own
+    /// temporary directory, short enough for a socket path and swept by the
+    /// system. A master removes its socket when it exits; one killed leaves
+    /// a file the next launch clears (`RemoteTunnels`).
+    nonisolated static var socketDirectory: String {
+        (NSTemporaryDirectory() as NSString).appendingPathComponent("evlat")
+    }
+
     /// Internal so a test hands its own machines and the fake `ssh`; the
     /// launch reads both from the environment and the stored list. A test
     /// also shortens `confirmAfter`: the default outwaits a slow login.
     func startRemoteTunnels(configuration: RemoteMachine.Configuration? = nil,
                             sshPath: String = AppController.sshPath(),
+                            socketDirectory: String = AppController.socketDirectory,
                             confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter) {
         let configuration = configuration ?? Self.remoteConfiguration(defaults: defaults)
         for target in configuration.rejected {
@@ -2074,6 +2083,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let tunnels = RemoteTunnels(
             registry: registry, sshPath: sshPath, platform: Self.darwinPlatform,
             now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
+            socketDirectory: socketDirectory,
             confirmAfter: confirmAfter,
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         for machine in configuration.machines {
@@ -2105,7 +2115,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             add: { [weak self] target in self?.addMachine(target: target) ?? .failure(.empty) },
             remove: { [weak self] id in self?.removeMachine(id: id) },
             isStored: { [weak self] in self.map { !$0.remoteFromEnvironment } ?? false },
-            signalKey: { [weak self] id in self?.remote?.signalKey(of: id) })
+            signalKey: { [weak self] id in self?.remote?.signalKey(of: id) },
+            controlPath: { [weak self] id in self?.remote?.controlPath(of: id) })
     }
 
     /// The setup rows' way to the app: each closure is one of the

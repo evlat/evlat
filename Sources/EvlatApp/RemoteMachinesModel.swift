@@ -30,6 +30,9 @@ final class RemoteMachinesModel: ObservableObject {
         /// The machine's signal key (`RemoteTunnels.signalKey(of:)`): what
         /// the command's install writes on the server.
         var signalKey: (String) -> String?
+        /// The socket of the machine's tunnel master, while one runs
+        /// (`RemoteTunnels.controlPath(of:)`): the jobs ride it.
+        var controlPath: (String) -> String? = { _ in nil }
     }
 
     /// How a line reads at a glance. The window colours it; no icon.
@@ -299,7 +302,8 @@ final class RemoteMachinesModel: ObservableObject {
 
     private func run(_ changes: [RemoteSettings.Change], _ action: RemoteSettings.Action, machine id: String) {
         guard let row = rows.first(where: { $0.id == id }), canRun(id) else { return }
-        let started = installer.run(changes, action, machine: id, target: row.target) {
+        let started = installer.run(changes, action, machine: id, target: row.target,
+                                    controlPath: host.controlPath(id)) {
             [weak self] results in
             guard let self else { return }
             self.busy.remove(id)
@@ -368,7 +372,7 @@ final class RemoteMachinesModel: ObservableObject {
     /// not waited for — the job's own line says what it did.
     private func read(_ id: String) {
         guard let row = rows.first(where: { $0.id == id }) else { return }
-        let started = installer.read(machine: id, target: row.target) { [weak self] result in
+        let started = installer.read(machine: id, target: row.target, controlPath: host.controlPath(id)) { [weak self] result in
             guard let self, self.readings[id] == .reading else { return }
             switch result {
             case .success(let reading): self.readings[id] = .read(reading)
@@ -456,7 +460,8 @@ final class RemoteMachinesModel: ObservableObject {
         let id = row.id
         // The line the consent named, read with it: none on an install.
         let pathLine = action == .remove ? pathLineToRemove(for: id) : nil
-        let started = installer.runCommand(action, key: key, pathLine: pathLine, machine: id, target: row.target) {
+        let started = installer.runCommand(action, key: key, pathLine: pathLine, machine: id, target: row.target,
+                                           controlPath: host.controlPath(id)) {
             [weak self] result, path in
             guard let self else { return }
             self.busy.remove(id)

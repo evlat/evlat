@@ -55,6 +55,7 @@ final class RemoteSettingsTests: XCTestCase {
         try """
             #!/bin/sh
             echo run >> '\(run.appendingPathComponent("runs").path)'
+            { echo '--- run'; printf '%s\\n' "$@"; } >> '\(run.appendingPathComponent("args").path)'
             \(body)
 
             """.write(to: script, atomically: true, encoding: .utf8)
@@ -323,6 +324,40 @@ final class RemoteSettingsTests: XCTestCase {
         wait(for: [done], timeout: 20)
         XCTAssertEqual(results, [.failure(.unreachable), .failure(.unreachable)])
         XCTAssertEqual(sshRuns, 1, "the rest are not tried")
+    }
+
+    /// Every call of a job goes through the socket it is handed — the
+    /// tunnel's master, so the server sees no new login — and without one is
+    /// a connection of its own, as before.
+    func testAJobRidesTheMasterItIsHanded() throws {
+        let ssh = try setUp(shell: "/bin/sh")
+        try seed(.claude, nil)
+        let installer = RemoteInstaller(sshPath: ssh)
+        let socket = "/tmp/e/21580954"
+        var done = expectation(description: "write")
+        installer.run([.hooks(.claude)], .install, machine: "m", target: "fake", controlPath: socket) { _ in
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 20)
+        done = expectation(description: "command")
+        installer.runCommand(.install, key: String(repeating: "a", count: 64), machine: "m", target: "fake",
+                             controlPath: socket) { _, _ in done.fulfill() }
+        wait(for: [done], timeout: 20)
+        done = expectation(description: "read")
+        installer.read(machine: "m", target: "fake", controlPath: socket) { _ in done.fulfill() }
+        wait(for: [done], timeout: 20)
+        done = expectation(description: "read without a master")
+        installer.read(machine: "m", target: "fake") { _ in done.fulfill() }
+        wait(for: [done], timeout: 20)
+
+        let log = remote.deletingLastPathComponent().appendingPathComponent("args")
+        let runs = try String(contentsOf: log, encoding: .utf8).components(separatedBy: "--- run\n").dropFirst()
+            .map { $0.split(separator: "\n").map(String.init) }
+        XCTAssertEqual(runs.count, 5, "read and write, the command, two reads")
+        for run in runs.dropLast() {
+            XCTAssertEqual(run, RemoteSettings.arguments(target: "fake", controlPath: socket))
+        }
+        XCTAssertEqual(runs.last, RemoteSettings.arguments(target: "fake"))
     }
 
     func testALoginBannerDoesNotReachTheFile() throws {

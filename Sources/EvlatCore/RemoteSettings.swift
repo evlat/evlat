@@ -53,19 +53,25 @@ public enum RemoteSettings {
     /// and the tunnel's three config overrides (`RemoteTunnel.arguments`):
     /// no configured `RemoteCommand`, empty stdin or fork — the script *is*
     /// stdin.
-    public static func arguments(target: String) -> [String] {
-        ["-T",
-         "-o", "BatchMode=yes",
-         "-o", "ConnectTimeout=10",
-         "-o", "ServerAliveInterval=15",
-         "-o", "ServerAliveCountMax=3",
-         "-o", "ControlMaster=no",
-         "-o", "ControlPath=none",
-         "-o", "ClearAllForwardings=yes",
-         "-o", "RemoteCommand=none",
-         "-o", "StdinNull=no",
-         "-o", "ForkAfterAuthentication=no",
-         "--", target, "sh -s"]
+    ///
+    /// With `controlPath` — the tunnel's own master (`RemoteTunnel.arguments`)
+    /// — the call rides it as a client (`-S`, `ControlMaster=no`) and the
+    /// server sees no second login. A master that has just gone is no
+    /// error: `ssh` then connects by itself, as without one.
+    public static func arguments(target: String, controlPath: String? = nil) -> [String] {
+        let control = controlPath.map { ["-S", $0, "-o", "ControlMaster=no"] }
+            ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
+        return ["-T",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=10",
+                "-o", "ServerAliveInterval=15",
+                "-o", "ServerAliveCountMax=3"]
+            + control
+            + ["-o", "ClearAllForwardings=yes",
+               "-o", "RemoteCommand=none",
+               "-o", "StdinNull=no",
+               "-o", "ForkAfterAuthentication=no",
+               "--", target, "sh -s"]
     }
 
     // MARK: - Exit codes

@@ -185,8 +185,16 @@ public final class RemoteTunnel {
     /// - `ExitOnForwardFailure=yes`: a remote 48151 already taken ends the
     ///   process instead of leaving a tunnel that carries nothing.
     /// - `ServerAlive*`: a dead network is noticed in ~45 s.
-    /// - `ControlMaster=no`, `ControlPath=none`: riding the user's multiplexed
-    ///   master would make this process's exit say nothing about the tunnel.
+    /// - `-M -S <controlPath> -o ControlPersist=no`: the process is a master
+    ///   connection of **Evlat's own**, so the installs and reads
+    ///   (`RemoteSettings.arguments`) ride it instead of logging in again.
+    ///   The master is the tunnel itself: it lives exactly as long as this
+    ///   process and leaves no background master behind. On the command line
+    ///   the three win over a host's `ControlMaster`/`ControlPath`/
+    ///   `ControlPersist`, so the user's own master is still never used —
+    ///   riding it would make this process's exit say nothing about the
+    ///   tunnel. Without a path (none fits, or another process's master
+    ///   holds it) `ControlMaster=no`, `ControlPath=none`, as before.
     /// - `RemoteCommand=none`, `StdinNull=no`, `ForkAfterAuthentication=no`:
     ///   a host's `~/.ssh/config` may set them (`RemoteCommand tmux new -A` is
     ///   common); the first refuses a command-line command outright, the other
@@ -201,20 +209,53 @@ public final class RemoteTunnel {
     ///
     /// The remote end is `LocalAPI.defaultPort` and never `EVLAT_PORT`: it is
     /// the port the command installed on the server names.
-    public static func arguments(target: String, localPort: UInt16) -> [String] {
-        ["-T",
-         "-o", "BatchMode=yes",
-         "-o", "ExitOnForwardFailure=yes",
-         "-o", "ServerAliveInterval=15",
-         "-o", "ServerAliveCountMax=3",
-         "-o", "ConnectTimeout=10",
-         "-o", "ControlMaster=no",
-         "-o", "ControlPath=none",
-         "-o", "RemoteCommand=none",
-         "-o", "StdinNull=no",
-         "-o", "ForkAfterAuthentication=no",
-         "-R", "127.0.0.1:\(LocalAPI.defaultPort):127.0.0.1:\(localPort)",
-         "--", target, "cat >/dev/null"]
+    public static func arguments(target: String, localPort: UInt16, controlPath: String? = nil) -> [String] {
+        let control = controlPath.map { ["-M", "-S", $0, "-o", "ControlPersist=no"] }
+            ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
+        return ["-T",
+                "-o", "BatchMode=yes",
+                "-o", "ExitOnForwardFailure=yes",
+                "-o", "ServerAliveInterval=15",
+                "-o", "ServerAliveCountMax=3",
+                "-o", "ConnectTimeout=10"]
+            + control
+            + ["-o", "RemoteCommand=none",
+               "-o", "StdinNull=no",
+               "-o", "ForkAfterAuthentication=no",
+               "-R", "127.0.0.1:\(LocalAPI.defaultPort):127.0.0.1:\(localPort)",
+               "--", target, "cat >/dev/null"]
+    }
+
+    // MARK: - Master socket
+
+    /// The longest control path `ssh` can use: a unix socket's `sun_path`
+    /// holds 104 bytes with its terminator, and `ssh` binds the master at
+    /// the path plus a 17-character temporary suffix before renaming it.
+    public static let socketPathLimit = 104 - 17 - 1
+
+    /// Where the machine's master listens: `<directory>/<8 hex>`, the hex a
+    /// digest of the id — stable across launches, so a socket a killed
+    /// master left behind is found again by the next one. `nil` when the
+    /// path would not fit (`socketPathLimit`) or holds a `%`, which `ssh`
+    /// expands in a control path; the tunnel then runs without a master.
+    public static func controlPath(directory: String, machineID: String) -> String? {
+        var trimmed = directory
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        guard !trimmed.isEmpty, !trimmed.contains("%") else { return nil }
+        // FNV-1a, 32 bits: `Hasher` is seeded per process.
+        var digest: UInt32 = 0x811c_9dc5
+        for byte in machineID.utf8 {
+            digest = (digest ^ UInt32(byte)) &* 0x0100_0193
+        }
+        let path = (trimmed == "/" ? "" : trimmed) + "/" + String(format: "%08x", digest)
+        return path.utf8.count <= socketPathLimit ? path : nil
+    }
+
+    /// The environment `ssh` runs with: Evlat's own, so `SSH_AUTH_SOCK` and
+    /// the rest reach it as they would from a terminal, with the tunnel's
+    /// askpass variables added on top. Only the tunnel is given those.
+    public static func environment(base: [String: String], askpass: [String: String]?) -> [String: String] {
+        base.merging(askpass ?? [:]) { _, added in added }
     }
 
     // MARK: - Failures

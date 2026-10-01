@@ -38,6 +38,9 @@ final class RemoteTunnels {
         /// The listener's bound port, once it has one; `ssh` is not started
         /// before, since the port is in its arguments.
         var port: UInt16?
+        /// The socket the running process is master on; `nil` when it runs
+        /// without one.
+        var controlPath: String?
 
         init(machine: RemoteMachine, hooks: HooksProvider, usage: ClaudeUsageProvider,
              signals: SignalsProvider, signalKey: String) {
@@ -51,6 +54,8 @@ final class RemoteTunnels {
 
     private let registry: Registry
     private let sshPath: String
+    private let socketDirectory: String
+    private let environment: [String: String]
     private let platform: Platform
     private let now: () -> Date
     private let confirmAfter: TimeInterval
@@ -62,15 +67,23 @@ final class RemoteTunnels {
     private let workspace: NotificationCenter
 
     /// `sshPath` is handed in, never looked up here: a test gives the fake's
-    /// path, and only `AppController` reads `EVLAT_SSH`. `onChange` is called
-    /// whenever a row may read differently — an arrival or a link change.
+    /// path, and only `AppController` reads `EVLAT_SSH`. `socketDirectory`
+    /// holds the masters' sockets, one per machine; a path, never a constant
+    /// here, and short (`RemoteTunnel.socketPathLimit`). `environment` is
+    /// what `ssh` is started with, the tunnel's own variables added.
+    /// `onChange` is called whenever a row may read differently — an arrival
+    /// or a link change.
     init(registry: Registry, sshPath: String, platform: Platform, now: @escaping () -> Date,
+         socketDirectory: String,
+         environment: [String: String] = ProcessInfo.processInfo.environment,
          workspace: NotificationCenter = NSWorkspace.shared.notificationCenter,
          confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter,
          schedule: @escaping Schedule = RemoteTunnels.mainQueueSchedule,
          onChange: @escaping () -> Void) {
         self.registry = registry
         self.sshPath = sshPath
+        self.socketDirectory = socketDirectory
+        self.environment = environment
         self.platform = platform
         self.now = now
         self.workspace = workspace
@@ -103,6 +116,14 @@ final class RemoteTunnels {
     func isProcessRunning(of id: String) -> Bool? { links[id]?.process?.isRunning }
 
     func processIdentifier(of id: String) -> Int32? { links[id]?.process?.processIdentifier }
+
+    /// The socket of the machine's running master: what its installs and
+    /// reads ride (`RemoteInstaller`). `nil` while no process runs or it runs
+    /// without one.
+    func controlPath(of id: String) -> String? {
+        guard let link = links[id], link.process?.isRunning == true else { return nil }
+        return link.controlPath
+    }
 
     /// The key the machine's `/signal` asks for; what its server's command
     /// is installed with.
@@ -221,14 +242,89 @@ final class RemoteTunnels {
 
     private func launch(_ link: Link, generation: Int) {
         guard let port = link.port, let tunnel = link.tunnel else { return }
+        let controlPath = masterSocket(for: link.machine)
+        link.controlPath = controlPath
         let process = SSHProcess(path: sshPath,
-                                 arguments: RemoteTunnel.arguments(target: link.machine.target, localPort: port)) {
+                                 arguments: RemoteTunnel.arguments(target: link.machine.target, localPort: port,
+                                                                   controlPath: controlPath),
+                                 environment: RemoteTunnel.environment(base: environment, askpass: nil)) {
             [weak tunnel] stderr in
             tunnel?.exited(generation: generation, stderr: stderr)
         }
         link.process = process
         if let failure = process.run() {
             tunnel.exited(generation: generation, stderr: failure)
+        }
+    }
+}
+
+extension RemoteTunnels {
+    /// The path the machine's next master listens on, made ready: the
+    /// directory there and the user's alone, a file a dead master left
+    /// cleared. `nil` — run without a master — when no path fits, the
+    /// directory cannot be made, or the socket answers: a live master there
+    /// is another process's (a second Evlat), and is not touched.
+    private func masterSocket(for machine: RemoteMachine) -> String? {
+        guard let path = RemoteTunnel.controlPath(directory: socketDirectory, machineID: machine.id) else {
+            NSLog("Evlat: machine %@ runs without a master: %@ is too long for a socket",
+                  machine.name, socketDirectory)
+            return nil
+        }
+        do {
+            // Every launch: `$TMPDIR` is swept, and the mode is only set on
+            // creation.
+            try FileManager.default.createDirectory(atPath: socketDirectory, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: socketDirectory)
+        } catch {
+            NSLog("Evlat: machine %@ runs without a master: %@", machine.name, error.localizedDescription)
+            return nil
+        }
+        switch Self.probe(socket: path) {
+        case .absent:
+            return path
+        case .stale:
+            unlink(path)
+            return path
+        case .live:
+            NSLog("Evlat: machine %@ runs without a master: %@ is in use", machine.name, path)
+            return nil
+        case .unknown(let code):
+            NSLog("Evlat: machine %@ runs without a master: %@: %@",
+                  machine.name, path, String(cString: strerror(code)))
+            return nil
+        }
+    }
+
+    enum SocketState: Equatable {
+        case absent
+        /// A file nobody listens on: its master was killed.
+        case stale
+        case live
+        /// Anything else: left alone.
+        case unknown(Int32)
+    }
+
+    /// Whether something answers at `path`, by connecting to it. Only
+    /// `ENOENT` and `ECONNREFUSED` say the file may go.
+    static func probe(socket path: String) -> SocketState {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return .unknown(errno) }
+        defer { Darwin.close(fd) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return .unknown(ENAMETOOLONG) }
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if connected == 0 { return .live }
+        switch errno {
+        case ENOENT: return .absent
+        case ECONNREFUSED: return .stale
+        case let code: return .unknown(code)
         }
     }
 }
@@ -247,10 +343,13 @@ final class SSHProcess {
     private let onExit: (String) -> Void
 
     /// `onExit` is called once, on the main queue, with the tail of stderr.
-    init(path: String, arguments: [String], onExit: @escaping (String) -> Void) {
+    /// `environment` `nil` is this process's own.
+    init(path: String, arguments: [String], environment: [String: String]? = nil,
+         onExit: @escaping (String) -> Void) {
         self.onExit = onExit
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
+        if let environment { process.environment = environment }
         process.standardInput = input
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errors

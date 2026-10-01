@@ -645,6 +645,15 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **`dash` runs the parent's trap in a subshell until the subshell sets its
   own.** Start background jobs **before** installing traps.
 
+- **A master killed with `-9` leaves its control socket, and the next
+  `ssh -M -S` on it runs without multiplexing** ("ControlSocket … already
+  exists, disabling multiplexing"; OpenSSH 10.2p1): no error, only no
+  master, so the installs log in again. `RemoteTunnels` connects to the
+  socket before each launch: `ECONNREFUSED` → the file goes, an answer →
+  another process's master, left alone. A master that ends on its stdin's
+  EOF removes the file itself. The path must fit 104 − 17 − 1 bytes
+  (`RemoteTunnel.socketPathLimit`); a test's `$TMPDIR` + UUID does not.
+
 - **`ditto -c -k` keeps extended attributes as `._` files in the zip.**
   The framework's symlinks carry `com.apple.provenance`, which cannot be
   removed; a browser's unzip left `._Autoupdate` and friends in
