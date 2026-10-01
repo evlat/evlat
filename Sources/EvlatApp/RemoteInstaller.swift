@@ -143,13 +143,15 @@ final class RemoteInstaller {
         let arguments = RemoteSettings.arguments(target: target, controlPath: controlPath)
         let nonce = UUID().uuidString
         do {
-            let read = try run(ssh, arguments, script: RemoteSettings.readScript(path: change.path, nonce: nonce))
+            let read = try run(ssh, arguments, script: RemoteSettings.readScript(path: change.path, nonce: nonce,
+                                                                               opening: change.opening))
             let snapshot = try RemoteSettings.snapshot(exitCode: read.status, output: read.output, nonce: nonce)
             guard let write = try RemoteSettings.plan(change, action, original: snapshot.bytes) else {
                 return .success(.unchanged)
             }
             beforeWrite()
-            let script = RemoteSettings.writeScript(path: change.path, expected: snapshot.checksum, write: write)
+            let script = RemoteSettings.writeScript(path: change.path, expected: snapshot.checksum, write: write,
+                                                   opening: change.opening)
             let written = try run(ssh, arguments, script: script)
             if let failure = RemoteSettings.failure(exitCode: written.status) { throw failure }
             return .success(.written)

@@ -73,7 +73,7 @@ final class ApprovalHookTests: XCTestCase {
     func testOnlyThisMacsClaudeHasIt() {
         XCTAssertEqual(ApprovalHook.state(of: HookSettings.installing(into: [:], for: .claude)), .missing,
                        "RemoteSettings writes HookSettings' bytes")
-        XCTAssertEqual(LocalHooks.installing(into: [:], for: .codex) as NSDictionary,
+        XCTAssertEqual(LocalHooks.installing(into: [:], for: .codex, approvals: true) as NSDictionary,
                        HookSettings.installing(into: [:], for: .codex) as NSDictionary)
         XCTAssertTrue(LocalHooks.manual(for: .claude).contains("/approval"))
         XCTAssertFalse(RemoteSettings.manual.claudeHooks.contains("/approval"))

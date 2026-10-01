@@ -28,9 +28,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// write, drawn as a dim line under its entry until a write succeeds.
     /// The state itself is read from the file every time a menu is built.
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
-    /// The same for the status line relay's entry.
-    private var usageFailure: SettingsFile.Failure?
-    private var antigravityUsageFailure: SettingsFile.Failure?
+    /// The same for each agent's status line relay entry.
+    private var usageFailures: [AgentSource: SettingsFile.Failure] = [:]
     /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
@@ -77,17 +76,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The second provider. It holds the phase of every session that has ever
     /// spoken to this process, and it is the only place `waiting` comes from.
     public let hooks = HooksProvider(platform: AppController.darwinPlatform)
-    /// Claude's usage windows, as its status line posts them. Stamped with
-    /// this controller's `now`, the clock the usage block reads too, so a
-    /// fixed-date test never sees a fresh report as stale.
-    lazy var claudeUsage = ClaudeUsageProvider(now: { [unowned self] in
-        MainActor.assumeIsolated { self.now() }
-    })
-    /// The Antigravity CLI's Gemini windows, the same way from its own
-    /// status line.
-    lazy var antigravityUsage = ClaudeUsageProvider(now: { [unowned self] in
-        MainActor.assumeIsolated { self.now() }
-    }, source: .antigravity)
+    /// Each agent's usage windows that its status line posts (Claude's,
+    /// the Antigravity CLI's), by source. Stamped with this controller's
+    /// `now`, the clock the usage block reads too, so a fixed-date test never
+    /// sees a fresh report as stale.
+    lazy var statusLineUsage: [AgentSource: StatusLineUsageProvider] = Dictionary(
+        uniqueKeysWithValues: AgentSource.allCases.filter { $0.usage.statusLine != nil }.map { source in
+            (source, StatusLineUsageProvider(now: { [unowned self] in
+                MainActor.assumeIsolated { self.now() }
+            }, source: source))
+        })
     /// Outside programs' rows, as `POST /signal` left them. Stamped
     /// with this controller's clock, like the usage windows: a row's life is
     /// read against it.
@@ -1196,8 +1194,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // the bar opens, not here.
         // Memory only, no file: safe without a home. Before Codex so the
         // block's order does not hang on registration (it sorts by group).
-        registry.register(claudeUsage)
-        registry.register(antigravityUsage)
+        for source in AgentSource.allCases { if let usage = statusLineUsage[source] { registry.register(usage) } }
         if let home { registry.register(CodexUsageProvider(home: home)) }
         registry.register(chats.provider)
         // Memory only; its rows come from the listener below.
@@ -2184,13 +2181,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 }
             },
             setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
-            setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0) },
+            setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0, source: .claude) },
             setAntigravityUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0, source: .antigravity) },
             setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
             setLoginItem: { [weak self] in self?.setLoginItem(on: $0) },
             hookFailure: { [weak self] in self?.hookFailure($0) },
-            usageFailure: { [weak self] in self?.usageRelayFailure },
-            antigravityUsageFailure: { [weak self] in self?.antigravityUsageRelayFailure },
+            usageFailure: { [weak self] in self?.usageRelayFailure($0) },
             commandLinkFailure: { [weak self] in self?.commandLinkFailure },
             loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
     }
@@ -2462,7 +2458,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .usage(let report):
             // Not `hookDiagnostics`: that bucket is the hooks' and nothing of
             // the status line's body belongs in it.
-            (report.source == .antigravity ? antigravityUsage : claudeUsage).handle(report)
+            statusLineUsage[report.source]?.handle(report)
             scheduleRefresh()
         case .askpass(let request):
             // The tunnels match it to a try; without them it is refused and
@@ -3468,7 +3464,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The status line relay, as `setHooks` does it: Claude's, or the
     /// Antigravity CLI's.
-    func setUsageRelay(installed: Bool, source: AgentSource = .claude) {
+    func setUsageRelay(installed: Bool, source: AgentSource) {
         guard let home, let file = source.statusLineFile(home: home) else { return }
         var failure: SettingsFile.Failure?
         do {
@@ -3480,7 +3476,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         } catch {
             failure = error as? SettingsFile.Failure ?? .unwritable
         }
-        if source == .antigravity { antigravityUsageFailure = failure } else { usageFailure = failure }
+        usageFailures[source] = failure
         closeListAfterWrite()
     }
 
@@ -3515,8 +3511,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     func hookFailure(_ source: AgentSource) -> SettingsFile.Failure? { hookFailures[source] }
-    var usageRelayFailure: SettingsFile.Failure? { usageFailure }
-    var antigravityUsageRelayFailure: SettingsFile.Failure? { antigravityUsageFailure }
+    func usageRelayFailure(_ source: AgentSource) -> SettingsFile.Failure? { usageFailures[source] }
 
     /// The intent may already have believed the bar closed.
     private func closeListAfterWrite() {

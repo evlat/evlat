@@ -198,7 +198,7 @@ final class SetupModelTests: XCTestCase {
             XCTAssertEqual(model.manual(item)?.text, try String(contentsOf: file), "\(item)")
         }
         let file = root.appendingPathComponent("empty-statusline.json")
-        try StatusLineRelay.install(at: file)
+        try StatusLineRelay.install(at: file, source: .claude)
         XCTAssertEqual(model.manual(.usageRelay)?.text, try String(contentsOf: file))
         XCTAssertEqual(model.manual(.commandLink)?.text, CommandLink.manualLine(binary: try XCTUnwrap(controller.executable)))
         XCTAssertNil(model.manual(.loginItem))

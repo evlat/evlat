@@ -27,7 +27,7 @@ final class RemoteTunnels {
     private final class Link {
         let machine: RemoteMachine
         let hooks: HooksProvider
-        let usage: ClaudeUsageProvider
+        let usage: StatusLineUsageProvider
         /// The machine's outside rows, namespaced by its id.
         let signals: SignalsProvider
         /// What the machine's `/signal` asks for; fixed for the link's life.
@@ -60,7 +60,7 @@ final class RemoteTunnels {
         /// whether to keep it: in memory for the try alone, stored once connected.
         var typed: (password: String, prompt: String, remember: Bool)?
 
-        init(machine: RemoteMachine, hooks: HooksProvider, usage: ClaudeUsageProvider,
+        init(machine: RemoteMachine, hooks: HooksProvider, usage: StatusLineUsageProvider,
              signals: SignalsProvider, signalKey: String) {
             self.machine = machine
             self.hooks = hooks
@@ -209,7 +209,7 @@ final class RemoteTunnels {
         guard links[machine.id] == nil else { return }
         let link = Link(machine: machine,
                         hooks: HooksProvider(platform: platform, machine: machine.identity),
-                        usage: ClaudeUsageProvider(now: now, machine: machine.identity),
+                        usage: StatusLineUsageProvider(now: now, machine: machine.identity, source: .claude),
                         signals: SignalsProvider(now: now, machine: machine.identity),
                         signalKey: key)
         link.startInteractive = interactive
@@ -265,7 +265,7 @@ final class RemoteTunnels {
                 // A machine's tunnel carries Claude's windows only: its
                 // instance is Claude's, and Antigravity's relay is not
                 // installed on a server.
-                case .usage(let report): if report.source == .claude { link.usage.handle(report) }
+                case .usage(let report): if report.source == link.usage.source { link.usage.handle(report) }
                 // A tunnel answers `/permission` and `/askpass` with `404`
                 // (`LocalAPI`): a remote machine never puts a card in front
                 // of this user, nor asks for a password.

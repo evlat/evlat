@@ -293,8 +293,7 @@ public enum LocalAPI {
             // The body is that agent's status line input; each has its own
             // reader, and anything else in it is let go there.
             guard let json = jsonObject(request.body) else { return badRequest }
-            let report = source == .antigravity
-                ? UsageReport(antigravityStatusLine: json) : UsageReport(claudeStatusLine: json)
+            let report = UsageReport(statusLine: json, source: source)
             // `{}` for the same reason as a hook: the relay throws the answer
             // away, and nothing from this body is ever sent back anywhere.
             return Outcome(response: Response(status: .ok, body: "{}"), delivery: .usage(report))

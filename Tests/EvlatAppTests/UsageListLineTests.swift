@@ -43,7 +43,7 @@ final class UsageListLineTests: XCTestCase {
     func testAHugePercentDoesNotTrapEitherDiagnostic() {
         let report = UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 1e30,
                                                               resetsAt: observed)],
-                                 unrecognizedWindows: ["spend_limit"])
+                                 unrecognizedWindows: ["spend_limit"], source: .claude)
         let line = AppController.usageCaptureLine(report)
         XCTAssertTrue(line.contains("300m 1e+30%"), line)
         XCTAssertTrue(line.contains("unrecognised: spend_limit"), line)

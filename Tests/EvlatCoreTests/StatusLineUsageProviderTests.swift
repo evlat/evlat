@@ -3,7 +3,7 @@ import XCTest
 
 /// The `claude-usage` provider and the parser in front of it. The body is the
 /// status line's JSON, which Claude Code documents; only `rate_limits` is read.
-final class ClaudeUsageProviderTests: XCTestCase {
+final class StatusLineUsageProviderTests: XCTestCase {
     private let fiveHourReset = 1_790_206_798
     private let weekReset = 1_790_772_967
 
@@ -30,7 +30,7 @@ final class ClaudeUsageProviderTests: XCTestCase {
     /// The documented body: two windows, keyed to minutes here (the adapter's
     /// job), and `spend_limit` counted by name rather than drawn.
     func testTheDocumentedBodyGivesTwoWindowsAndCountsTheRest() {
-        let report = UsageReport(claudeStatusLine: body())
+        let report = UsageReport(statusLine: body(), source: .claude)
         XCTAssertEqual(report.windows, [
             UsageReport.Window(minutes: 300, usedPercent: 25,
                                resetsAt: Date(timeIntervalSince1970: TimeInterval(fiveHourReset))),
@@ -43,25 +43,25 @@ final class ClaudeUsageProviderTests: XCTestCase {
     /// Before the first API answer, and for a user with no subscription, there
     /// is no `rate_limits` at all: an empty report, not an error.
     func testNoRateLimitsIsAnEmptyReport() {
-        let report = UsageReport(claudeStatusLine: ["session_id": "s", "cost": ["total_cost_usd": 1]])
-        XCTAssertEqual(report, UsageReport(windows: [], unrecognizedWindows: []))
-        XCTAssertEqual(UsageReport(claudeStatusLine: ["rate_limits": "no"]).windows, [])
+        let report = UsageReport(statusLine: ["session_id": "s", "cost": ["total_cost_usd": 1]], source: .claude)
+        XCTAssertEqual(report, UsageReport(windows: [], unrecognizedWindows: [], source: .claude))
+        XCTAssertEqual(UsageReport(statusLine: ["rate_limits": "no"], source: .claude).windows, [])
     }
 
     /// A field that is missing or of the wrong type drops that window only.
     func testAMalformedWindowIsLeftOut() {
         for broken in [#"true"#, #""25""#, #"null"#] {
-            let report = UsageReport(claudeStatusLine: body(fiveHour: broken, spendLimit: false))
+            let report = UsageReport(statusLine: body(fiveHour: broken, spendLimit: false), source: .claude)
             XCTAssertEqual(report.windows.map(\.minutes), [10080], broken)
         }
         let noReset = try! JSONSerialization.jsonObject(
             with: Data(#"{"rate_limits":{"five_hour":{"used_percentage":3}}}"#.utf8)) as! [String: Any]
-        XCTAssertEqual(UsageReport(claudeStatusLine: noReset).windows, [])
+        XCTAssertEqual(UsageReport(statusLine: noReset, source: .claude).windows, [])
     }
 
     /// Past the limit is a legal reading; it is kept as the source said it.
     func testAPercentPastOneHundredIsKept() {
-        let report = UsageReport(claudeStatusLine: body(fiveHour: "134.0"))
+        let report = UsageReport(statusLine: body(fiveHour: "134.0"), source: .claude)
         XCTAssertEqual(report.windows.first?.usedPercent, 134)
     }
 
@@ -69,8 +69,8 @@ final class ClaudeUsageProviderTests: XCTestCase {
 
     func testAReportBecomesOfficialSignalsStampedWithTheInjectedClock() {
         let seen = Date(timeIntervalSince1970: 1_790_200_000)
-        let provider = ClaudeUsageProvider(now: { seen })
-        provider.handle(UsageReport(claudeStatusLine: body()))
+        let provider = StatusLineUsageProvider(now: { seen }, source: .claude)
+        provider.handle(UsageReport(statusLine: body(), source: .claude))
         let signals = provider.currentSignals()
         XCTAssertEqual(signals.map(\.entity), ["usage:claude-usage:300", "usage:claude-usage:10080"])
         for signal in signals {
@@ -89,11 +89,11 @@ final class ClaudeUsageProviderTests: XCTestCase {
     /// other where it was, and an empty report erases nothing.
     func testAWindowThatDidNotComeStays() {
         var clock = Date(timeIntervalSince1970: 1_790_200_000)
-        let provider = ClaudeUsageProvider(now: { clock })
-        provider.handle(UsageReport(claudeStatusLine: body()))
+        let provider = StatusLineUsageProvider(now: { clock }, source: .claude)
+        provider.handle(UsageReport(statusLine: body(), source: .claude))
         clock += 60
-        provider.handle(UsageReport(claudeStatusLine: body(fiveHour: "30.0", sevenDay: nil)))
-        provider.handle(UsageReport(claudeStatusLine: ["session_id": "s"]))
+        provider.handle(UsageReport(statusLine: body(fiveHour: "30.0", sevenDay: nil), source: .claude))
+        provider.handle(UsageReport(statusLine: ["session_id": "s"], source: .claude))
         let byMinutes = Dictionary(uniqueKeysWithValues: provider.currentSignals().map { ($0.usage!.windowMinutes, $0) })
         XCTAssertEqual(byMinutes[300]?.progress ?? 0, 0.30, accuracy: 1e-9)
         XCTAssertEqual(byMinutes[300]?.updatedAt, clock)
@@ -105,15 +105,15 @@ final class ClaudeUsageProviderTests: XCTestCase {
     /// and the next report that carries it replaces it.
     func testAnExpiredWindowIsReplacedByTheNextReport() {
         var clock = Date(timeIntervalSince1970: TimeInterval(fiveHourReset) - 10)
-        let provider = ClaudeUsageProvider(now: { clock })
-        provider.handle(UsageReport(claudeStatusLine: body(sevenDay: nil)))
+        let provider = StatusLineUsageProvider(now: { clock }, source: .claude)
+        provider.handle(UsageReport(statusLine: body(sevenDay: nil), source: .claude))
         clock = Date(timeIntervalSince1970: TimeInterval(fiveHourReset) + 10)
         XCTAssertEqual(provider.currentSignals().count, 1, "reading does not prune")
 
         let fresh = try! JSONSerialization.jsonObject(with: Data(
             #"{"rate_limits":{"five_hour":{"used_percentage":1,"resets_at":\#(fiveHourReset + 18_000)}}}"#.utf8))
             as! [String: Any]
-        provider.handle(UsageReport(claudeStatusLine: fresh))
+        provider.handle(UsageReport(statusLine: fresh, source: .claude))
         let signal = provider.currentSignals().first
         XCTAssertEqual(signal?.usage?.resetsAt, Date(timeIntervalSince1970: TimeInterval(fiveHourReset + 18_000)))
         XCTAssertEqual(signal?.updatedAt, clock)
@@ -123,10 +123,10 @@ final class ClaudeUsageProviderTests: XCTestCase {
     /// Claude Code releases an expired window, so nothing will replace it.
     func testAnExpiredWindowThatStoppedComingIsDroppedOnTheNextReport() {
         var clock = Date(timeIntervalSince1970: TimeInterval(fiveHourReset) - 10)
-        let provider = ClaudeUsageProvider(now: { clock })
-        provider.handle(UsageReport(claudeStatusLine: body()))
+        let provider = StatusLineUsageProvider(now: { clock }, source: .claude)
+        provider.handle(UsageReport(statusLine: body(), source: .claude))
         clock = Date(timeIntervalSince1970: TimeInterval(fiveHourReset) + 10)
-        provider.handle(UsageReport(claudeStatusLine: body(fiveHour: nil)))
+        provider.handle(UsageReport(statusLine: body(fiveHour: nil), source: .claude))
         XCTAssertEqual(provider.currentSignals().map { $0.usage?.windowMinutes }, [10080])
     }
 
@@ -134,8 +134,8 @@ final class ClaudeUsageProviderTests: XCTestCase {
 
     /// The local instance keeps today's names, so nothing already drawn moves.
     func testTheLocalInstanceKeepsItsNames() {
-        let provider = ClaudeUsageProvider(now: { Date(timeIntervalSince1970: 1_790_200_000) })
-        provider.handle(UsageReport(claudeStatusLine: body()))
+        let provider = StatusLineUsageProvider(now: { Date(timeIntervalSince1970: 1_790_200_000) }, source: .claude)
+        provider.handle(UsageReport(statusLine: body(), source: .claude))
         XCTAssertEqual(provider.id, "claude-usage")
         XCTAssertEqual(provider.group, "Claude")
         XCTAssertEqual(provider.currentSignals().first?.usage?.group, "Claude")
@@ -146,9 +146,10 @@ final class ClaudeUsageProviderTests: XCTestCase {
     /// windows never overwrite the local account's — even when both are the
     /// same account (merging them is out of scope).
     func testAMachinesInstanceIsItsOwnGroup() {
-        let provider = ClaudeUsageProvider(now: { Date(timeIntervalSince1970: 1_790_200_000) },
-                                           machine: Signal.Machine.Identity(id: "m-1", name: "devbox"))
-        provider.handle(UsageReport(claudeStatusLine: body()))
+        let provider = StatusLineUsageProvider(now: { Date(timeIntervalSince1970: 1_790_200_000) },
+                                               machine: Signal.Machine.Identity(id: "m-1", name: "devbox"),
+                                               source: .claude)
+        provider.handle(UsageReport(statusLine: body(), source: .claude))
         let signals = provider.currentSignals()
         XCTAssertEqual(provider.id, "claude-usage@m-1")
         XCTAssertEqual(signals.map(\.entity), ["usage:claude-usage@m-1:300", "usage:claude-usage@m-1:10080"])

@@ -42,7 +42,7 @@ public struct RemoteMachine: Codable, Equatable {
     }
 
     /// What the machine's providers are given (`HooksProvider`,
-    /// `ClaudeUsageProvider`).
+    /// `StatusLineUsageProvider`).
     public var identity: Signal.Machine.Identity {
         Signal.Machine.Identity(id: id, name: name)
     }

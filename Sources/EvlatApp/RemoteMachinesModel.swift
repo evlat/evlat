@@ -70,7 +70,7 @@ final class RemoteMachinesModel: ObservableObject {
 
         var changes: [RemoteSettings.Change] {
             switch self {
-            case .installHooks, .removeHooks: return [.hooks(.claude), .hooks(.codex)]
+            case .installHooks, .removeHooks: return AgentSource.allCases.map { .hooks($0) }
             case .installUsage, .removeUsage: return [.statusLine]
             }
         }

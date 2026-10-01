@@ -413,7 +413,7 @@ private struct ServerItemRow: View {
 
     private var blocks: [RemoteMachinesModel.Block] {
         switch item {
-        case .hooks: return RemoteMachinesModel.blocks.filter { $0.id == "claude" || $0.id == "codex" }
+        case .hooks: return RemoteMachinesModel.blocks.filter { AgentSource(rawValue: $0.id) != nil }
         case .usage: return RemoteMachinesModel.blocks.filter { $0.id == "statusLine" || $0.id == "wrapping" }
         case .command: return model.commandBlocks(for: row.id)
         }

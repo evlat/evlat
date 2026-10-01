@@ -26,7 +26,7 @@ final class AntigravityUsageTests: XCTestCase {
     /// Gemini's two windows, used as the rest of the fraction; the other
     /// vendors' pool is named, not drawn.
     func testTheMeasuredBodyGivesGeminisWindows() throws {
-        let report = UsageReport(antigravityStatusLine: body())
+        let report = UsageReport(statusLine: body(), source: .antigravity)
         XCTAssertEqual(report.source, .antigravity)
         XCTAssertEqual(report.windows.map(\.minutes), [300, 10080])
         XCTAssertEqual(report.windows[0].usedPercent, 0)
@@ -36,20 +36,20 @@ final class AntigravityUsageTests: XCTestCase {
     }
 
     func testNoQuotaIsAnEmptyReport() {
-        let report = UsageReport(antigravityStatusLine: body(quota: nil))
+        let report = UsageReport(statusLine: body(quota: nil), source: .antigravity)
         XCTAssertEqual(report, UsageReport(windows: [], unrecognizedWindows: [], source: .antigravity))
     }
 
     func testABrokenWindowIsLeftOutAlone() {
         let quota = #"{"gemini-5h":{"remaining_fraction":true,"reset_time":"2026-10-01T19:05:51Z"},"#
             + #""gemini-weekly":{"remaining_fraction":0.5,"reset_time":"2026-10-06T08:14:14.250Z"}}"#
-        let report = UsageReport(antigravityStatusLine: body(quota: quota))
+        let report = UsageReport(statusLine: body(quota: quota), source: .antigravity)
         XCTAssertEqual(report.windows.map(\.minutes), [10080], "a boolean is not a fraction")
         XCTAssertEqual(report.windows.first?.usedPercent, 50)
         XCTAssertEqual(report.windows.first?.resetsAt, date("2026-10-06T08:14:14Z").addingTimeInterval(0.25),
                        "fractional seconds are read too")
         let badDate = #"{"gemini-5h":{"remaining_fraction":0.5,"reset_time":"soon"}}"#
-        XCTAssertEqual(UsageReport(antigravityStatusLine: body(quota: badDate)).windows, [])
+        XCTAssertEqual(UsageReport(statusLine: body(quota: badDate), source: .antigravity).windows, [])
     }
 
     // MARK: - The route and the provider
@@ -70,17 +70,17 @@ final class AntigravityUsageTests: XCTestCase {
 
     func testItsProviderIsGeminisGroup() {
         let now = date("2026-10-01T14:05:51Z")
-        let provider = ClaudeUsageProvider(now: { now }, source: .antigravity)
+        let provider = StatusLineUsageProvider(now: { now }, source: .antigravity)
         XCTAssertEqual(provider.id, "antigravity-usage")
         XCTAssertEqual(provider.group, "Gemini")
-        provider.handle(UsageReport(antigravityStatusLine: body()))
+        provider.handle(UsageReport(statusLine: body(), source: .antigravity))
         let signals = provider.currentSignals()
         XCTAssertEqual(signals.map(\.usage?.group), ["Gemini", "Gemini"])
         XCTAssertEqual(signals.map(\.usage?.windowMinutes), [300, 10080])
         XCTAssertEqual(signals.map(\.fidelity), [.derived, .derived], "undocumented: drawn with ~")
-        let claude = ClaudeUsageProvider(now: { now })
+        let claude = StatusLineUsageProvider(now: { now }, source: .claude)
         claude.handle(UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 1, resetsAt: now + 60)],
-                                  unrecognizedWindows: []))
+                                  unrecognizedWindows: [], source: .claude))
         XCTAssertEqual(claude.currentSignals().map(\.fidelity), [.official], "Claude's stays official")
         XCTAssertEqual(signals.map(\.entity), ["usage:antigravity-usage:300", "usage:antigravity-usage:10080"])
     }
@@ -101,7 +101,7 @@ final class AntigravityUsageTests: XCTestCase {
     /// One agent's wrapper is not the other's: neither reads as installed
     /// nor is taken apart by the other's removal.
     func testTheSourcesWrappersAreTheirOwn() {
-        let claude: [String: Any] = ["statusLine": ["type": "command", "command": StatusLineRelay.command(wrapping: nil)]]
+        let claude: [String: Any] = ["statusLine": ["type": "command", "command": StatusLineRelay.command(wrapping: nil, source: .claude)]]
         XCTAssertEqual(StatusLineRelay.state(of: claude, source: .antigravity), .missing)
         XCTAssertEqual(StatusLineRelay.removing(from: claude, source: .antigravity)?["statusLine"] as? [String: String],
                        claude["statusLine"] as? [String: String])

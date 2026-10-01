@@ -253,7 +253,7 @@ final class RemoteReadingTests: XCTestCase {
         for shell in shells {
             let server = try self.server(shell)
             try seed(.claude, oldHook, in: server)
-            let modified = StatusLineRelay.command(wrapping: "bash s.sh") + " # mine"
+            let modified = StatusLineRelay.command(wrapping: "bash s.sh", source: .claude) + " # mine"
             try seed(.codex, String(decoding: try SettingsFile.encode(["statusLine": ["command": modified]]), as: UTF8.self),
                      in: server)
             var reading = try self.reading(server)
@@ -455,7 +455,7 @@ final class RemoteReadingTests: XCTestCase {
     func testTheBlockLeavesWhatIsNotEvlatsAlone() throws {
         for shell in shells {
             let server = try self.server(shell)
-            let modified = StatusLineRelay.command(wrapping: "bash s.sh") + " # mine"
+            let modified = StatusLineRelay.command(wrapping: "bash s.sh", source: .claude) + " # mine"
             try seed(.claude, String(decoding: try SettingsFile.encode(["statusLine": ["type": "command", "command": modified]]),
                                      as: UTF8.self), in: server)
             try FileManager.default.createDirectory(at: server.command.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -547,7 +547,9 @@ final class RemoteReadingTests: XCTestCase {
         XCTAssertNotNil(model.readings["m"], "a finished write reads the machine again")
         waitUntil("read again") { model.readings["m"] != .reading }
         XCTAssertEqual(model.items(for: "m").hooks, .installed, "the row says what the write left, not unknown")
-        XCTAssertLessThanOrEqual(server.sshRuns - runs, 4, "the job's own calls and one read")
+        // Claude's read and write, one read for each agent not on the
+        // server, and the machine's read.
+        XCTAssertLessThanOrEqual(server.sshRuns - runs, 5, "the job's own calls and one read")
 
         model.runCommand(.install)
         waitUntil("command") { model.outcomes["m"] != nil && model.readings["m"] != .reading }

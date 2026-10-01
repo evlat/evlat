@@ -429,8 +429,11 @@ final class RemoteMachinesTests: XCTestCase {
     }
 
     func testTheJobsAreTheFixedChanges() {
-        XCTAssertEqual(RemoteMachinesModel.Job.installHooks.changes, [.hooks(.claude), .hooks(.codex)])
-        XCTAssertEqual(RemoteMachinesModel.Job.removeHooks.changes, [.hooks(.claude), .hooks(.codex)])
+        // Every agent, Antigravity included: a server's hooks are each
+        // agent's own file, and a missing one says the agent is not there.
+        let hooks: [RemoteSettings.Change] = [.hooks(.claude), .hooks(.codex), .hooks(.antigravity)]
+        XCTAssertEqual(RemoteMachinesModel.Job.installHooks.changes, hooks)
+        XCTAssertEqual(RemoteMachinesModel.Job.removeHooks.changes, hooks)
         XCTAssertEqual(RemoteMachinesModel.Job.installUsage.changes, [.statusLine])
         XCTAssertEqual(RemoteMachinesModel.Job.removeUsage.changes, [.statusLine])
         XCTAssertEqual(RemoteMachinesModel.Job.allCases.map(\.action), [.install, .remove, .install, .remove])

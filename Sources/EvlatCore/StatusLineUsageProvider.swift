@@ -1,17 +1,17 @@
 import Foundation
 
-/// Claude Code's rate-limit windows, as its status line reports them through
-/// `POST /usage/claude` — and, with `source: .antigravity`, the Antigravity
-/// CLI's Gemini windows through `POST /usage/antigravity`. The two differ
-/// only in how their status line is read (`UsageReport`); what is kept, and
-/// how a window is merged and dropped, is the same.
+/// An agent's rate-limit windows, as its status line reports them through
+/// `POST /usage/{source}`: Claude Code's `rate_limits` and the Antigravity
+/// CLI's Gemini `quota`. The two differ only in how their status line is read
+/// (`UsageReport`) and in what the definition names them
+/// (`AgentSource.usage`); what is kept, and how a window is merged and
+/// dropped, is the same.
 ///
-/// `Fidelity` is `.official` for Claude: the fields are Claude Code's
-/// documented status line input, unlike Codex's rollout file. Antigravity's
-/// `quota` is undocumented (measured, `agy` 1.2.14), so its windows are
-/// `.derived` and drawn with `~`, as Codex's are. Held in memory only — nothing is
-/// written to disk, so a restart shows no Claude group until the status line
-/// next runs.
+/// `Fidelity` is the definition's: `.official` for Claude, whose fields are
+/// Claude Code's documented status line input, `.derived` for Antigravity's
+/// undocumented `quota` (drawn with `~`, as Codex's are). Held in memory
+/// only — nothing is written to disk, so a restart shows no group until the
+/// status line next runs.
 ///
 /// **Windows merge one by one.** A report updates the windows it carries and
 /// leaves the others: Claude Code sends each window only when it has it, so a
@@ -21,25 +21,15 @@ import Foundation
 ///
 /// **Not thread-safe, by design.** Reports are delivered on the main queue and
 /// `currentSignals()` is called there too (`Provider`'s contract).
-public final class ClaudeUsageProvider: Provider {
-    /// The local instance's id and group; a machine's instance derives its
-    /// own from them.
-    public static let id = "claude-usage"
-    /// The name the windows are grouped under on the bar. A proper name, not
-    /// catalogue text (`Signal.Usage.group`).
-    public static let group = "Claude"
-
-    /// Antigravity's: its windows are Gemini's pool, and the group is named
-    /// for it. "Gemini" also sorts after Claude and Codex
-    /// (`Snapshot`'s order), so the bar's cap drops it before either.
-    public static let antigravityID = "antigravity-usage"
-    public static let antigravityGroup = "Gemini"
-
-    /// `claude-usage`, or `claude-usage@{machine id}` for a remote machine's
-    /// status line: its own entities, so a remote window never overwrites
-    /// the local one even when both are the same account.
+public final class StatusLineUsageProvider: Provider {
+    /// Whose status line this is; a report from another source is not this
+    /// provider's to hold.
+    public let source: AgentSource
+    /// The definition's id (`claude-usage`), or `{id}@{machine id}` for a
+    /// remote machine's status line: its own entities, so a remote window
+    /// never overwrites the local one even when both are the same account.
     public let id: String
-    /// `Claude`, or `Claude · {machine name}`.
+    /// The definition's group (`Claude`), or `{group} · {machine name}`.
     public let group: String
     private let machine: Signal.Machine.Identity?
     private let fidelity: Signal.Fidelity
@@ -51,19 +41,20 @@ public final class ClaudeUsageProvider: Provider {
 
     private let now: () -> Date
     private var windows: [Int: Stored] = [:]
-    /// Every key under `rate_limits` this process has seen and not drawn.
+    /// Every key under the status line's root this process has seen and
+    /// not drawn.
     public private(set) var unrecognizedWindows: Set<String> = []
 
     /// The clock is injected (`HooksProvider`'s pattern): the observation
     /// stamp is the provider's, since `LocalAPI` has no clock.
-    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil,
-                source: AgentSource = .claude) {
+    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil, source: AgentSource) {
         self.now = now
         self.machine = machine
-        let base = source == .antigravity ? (Self.antigravityID, Self.antigravityGroup) : (Self.id, Self.group)
-        fidelity = source == .antigravity ? .derived : .official
-        id = machine.map { "\(base.0)@\($0.id)" } ?? base.0
-        group = machine.map { "\(base.1) · \($0.name)" } ?? base.1
+        self.source = source
+        let usage = source.usage
+        fidelity = usage.fidelity
+        id = machine.map { "\(usage.providerID)@\($0.id)" } ?? usage.providerID
+        group = machine.map { "\(usage.group) · \($0.name)" } ?? usage.group
     }
 
     public func handle(_ report: UsageReport) {

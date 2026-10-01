@@ -26,32 +26,32 @@ final class StatusLineRelayTests: XCTestCase {
         let relay = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
             + #" -H "Content-Type: application/json" --data-binary @-"#
             + #" http://127.0.0.1:48151/usage/claude >/dev/null 2>&1 &"#
-        XCTAssertEqual(StatusLineRelay.command(wrapping: "bash ~/.claude/statusline.sh"),
+        XCTAssertEqual(StatusLineRelay.command(wrapping: "bash ~/.claude/statusline.sh", source: .claude),
                        "sh -c '" + relay + #" printf %s "$i" | sh -c "$1"' evlat-statusline 'bash ~/.claude/statusline.sh'"#)
-        XCTAssertEqual(StatusLineRelay.command(wrapping: nil), "sh -c '" + relay + "'",
+        XCTAssertEqual(StatusLineRelay.command(wrapping: nil, source: .claude), "sh -c '" + relay + "'",
                        "no original: it only relays")
-        XCTAssertEqual(StatusLineRelay.command(wrapping: "echo 'hi'"),
+        XCTAssertEqual(StatusLineRelay.command(wrapping: "echo 'hi'", source: .claude),
                        "sh -c '" + relay + #" printf %s "$i" | sh -c "$1"' evlat-statusline 'echo '\''hi'\'''"#,
                        "a single quote is closed, escaped and reopened")
     }
 
     func testTheMarkerFollowsThePortAndTheRoute() {
         XCTAssertEqual(StatusLineRelay.marker, "127.0.0.1:\(LocalAPI.defaultPort)\(AgentSource.claude.usagePath!)")
-        XCTAssertTrue(StatusLineRelay.command(wrapping: "x").contains(StatusLineRelay.marker))
-        XCTAssertFalse(StatusLineRelay.command(wrapping: "x", port: 9).contains(StatusLineRelay.marker))
+        XCTAssertTrue(StatusLineRelay.command(wrapping: "x", source: .claude).contains(StatusLineRelay.marker))
+        XCTAssertFalse(StatusLineRelay.command(wrapping: "x", port: 9, source: .claude).contains(StatusLineRelay.marker))
     }
 
     func testTheOriginalComesBackOutOfTheWrapper() {
         for original in ["cat", "echo 'a' \"b\" # c", "", "printf '\\n'", "a'''b"] {
-            XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: original)),
+            XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: original, source: .claude), source: .claude),
                            .some(original), original)
         }
-        XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: nil)), .some(nil))
-        XCTAssertNil(StatusLineRelay.original(in: "bash statusline.sh"), "not ours")
-        let wrapped = StatusLineRelay.command(wrapping: "cat")
-        XCTAssertNil(StatusLineRelay.original(in: wrapped + " extra"), "edited after")
-        XCTAssertNil(StatusLineRelay.original(in: wrapped.replacingOccurrences(of: "-m 2", with: "-m 5")))
-        XCTAssertNil(StatusLineRelay.original(in: String(wrapped.dropLast())), "an unclosed quote")
+        XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: nil, source: .claude), source: .claude), .some(nil))
+        XCTAssertNil(StatusLineRelay.original(in: "bash statusline.sh", source: .claude), "not ours")
+        let wrapped = StatusLineRelay.command(wrapping: "cat", source: .claude)
+        XCTAssertNil(StatusLineRelay.original(in: wrapped + " extra", source: .claude), "edited after")
+        XCTAssertNil(StatusLineRelay.original(in: wrapped.replacingOccurrences(of: "-m 2", with: "-m 5"), source: .claude))
+        XCTAssertNil(StatusLineRelay.original(in: String(wrapped.dropLast()), source: .claude), "an unclosed quote")
     }
 
     // MARK: - Running it
@@ -86,7 +86,7 @@ final class StatusLineRelayTests: XCTestCase {
         for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
             for original in originals {
                 let listener = try OneShotListener()
-                let wrapped = try run(shell, StatusLineRelay.command(wrapping: original, port: listener.port),
+                let wrapped = try run(shell, StatusLineRelay.command(wrapping: original, port: listener.port, source: .claude),
                                       input: input)
                 let direct = try run(shell, original, input: input)
                 XCTAssertEqual(wrapped.stdout, direct.stdout, "\(shell): \(original)")
@@ -98,7 +98,7 @@ final class StatusLineRelayTests: XCTestCase {
 
     func testWithoutAnOriginalItOnlyRelays() throws {
         let listener = try OneShotListener()
-        let result = try run("/bin/sh", StatusLineRelay.command(wrapping: nil, port: listener.port), input: input)
+        let result = try run("/bin/sh", StatusLineRelay.command(wrapping: nil, port: listener.port, source: .claude), input: input)
         XCTAssertEqual(result.stdout, Data())
         XCTAssertEqual(result.status, 0)
         XCTAssertEqual(listener.body(), input)
@@ -112,7 +112,7 @@ final class StatusLineRelayTests: XCTestCase {
         closed.close()
         let silent = try OneShotListener(answer: false)
         for port in [port, silent.port] {
-            let result = try run("/bin/sh", StatusLineRelay.command(wrapping: "printf ok", port: port), input: input)
+            let result = try run("/bin/sh", StatusLineRelay.command(wrapping: "printf ok", port: port, source: .claude), input: input)
             XCTAssertEqual(result.stdout, Data("ok".utf8))
             XCTAssertEqual(result.status, 0)
             XCTAssertLessThan(result.seconds, 1, "the relay runs in the background")
@@ -131,28 +131,28 @@ final class StatusLineRelayTests: XCTestCase {
             "model": "opus",
             "statusLine": ["type": "command", "command": "bash ~/.claude/s.sh", "padding": 0, "refreshInterval": 5],
         ]
-        XCTAssertEqual(StatusLineRelay.state(of: original), .missing)
-        let installed = try XCTUnwrap(StatusLineRelay.installing(into: original))
-        XCTAssertEqual(StatusLineRelay.state(of: installed), .current)
+        XCTAssertEqual(StatusLineRelay.state(of: original, source: .claude), .missing)
+        let installed = try XCTUnwrap(StatusLineRelay.installing(into: original, source: .claude))
+        XCTAssertEqual(StatusLineRelay.state(of: installed, source: .claude), .current)
         XCTAssertEqual(statusLine(installed)?["command"] as? String,
-                       StatusLineRelay.command(wrapping: "bash ~/.claude/s.sh"))
+                       StatusLineRelay.command(wrapping: "bash ~/.claude/s.sh", source: .claude))
         XCTAssertEqual(statusLine(installed)?["padding"] as? Int, 0, "neighbours stay")
         XCTAssertEqual(statusLine(installed)?["refreshInterval"] as? Int, 5)
-        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.installing(into: installed)))
+        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.installing(into: installed, source: .claude)))
             .isEqual(to: installed), "a second install changes nothing")
-        let removed = try XCTUnwrap(StatusLineRelay.removing(from: installed))
+        let removed = try XCTUnwrap(StatusLineRelay.removing(from: installed, source: .claude))
         XCTAssertTrue(NSDictionary(dictionary: removed).isEqual(to: original))
     }
 
     func testWithoutAStatusLineRemoveDeletesTheKey() throws {
-        let installed = try XCTUnwrap(StatusLineRelay.installing(into: ["model": "opus"]))
+        let installed = try XCTUnwrap(StatusLineRelay.installing(into: ["model": "opus"], source: .claude))
         XCTAssertEqual(statusLine(installed)?["type"] as? String, "command", "added when there was none")
-        XCTAssertEqual(statusLine(installed)?["command"] as? String, StatusLineRelay.command(wrapping: nil))
-        let removed = try XCTUnwrap(StatusLineRelay.removing(from: installed))
+        XCTAssertEqual(statusLine(installed)?["command"] as? String, StatusLineRelay.command(wrapping: nil, source: .claude))
+        let removed = try XCTUnwrap(StatusLineRelay.removing(from: installed, source: .claude))
         XCTAssertTrue(NSDictionary(dictionary: removed).isEqual(to: ["model": "opus"]))
 
-        let padded = try XCTUnwrap(StatusLineRelay.installing(into: ["statusLine": ["padding": 2]]))
-        let back = try XCTUnwrap(StatusLineRelay.removing(from: padded))
+        let padded = try XCTUnwrap(StatusLineRelay.installing(into: ["statusLine": ["padding": 2]], source: .claude))
+        let back = try XCTUnwrap(StatusLineRelay.removing(from: padded, source: .claude))
         XCTAssertTrue(NSDictionary(dictionary: back).isEqual(to: ["statusLine": ["padding": 2]]),
                       "another key keeps the object")
     }
@@ -160,34 +160,34 @@ final class StatusLineRelayTests: XCTestCase {
     /// A command without `type` is left without one: the round trip is exact.
     func testATypelessCommandStaysTypeless() throws {
         let original: [String: Any] = ["statusLine": ["command": "cat"]]
-        let installed = try XCTUnwrap(StatusLineRelay.installing(into: original))
+        let installed = try XCTUnwrap(StatusLineRelay.installing(into: original, source: .claude))
         XCTAssertNil(statusLine(installed)?["type"])
-        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.removing(from: installed)))
+        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.removing(from: installed, source: .claude)))
             .isEqual(to: original))
     }
 
     func testAHandEditedWrapperIsModifiedAndRefused() throws {
-        let wrapped = StatusLineRelay.command(wrapping: "cat")
+        let wrapped = StatusLineRelay.command(wrapping: "cat", source: .claude)
         let inner = wrapped.replacingOccurrences(of: "cat'", with: "cat | tr a b'")
-        XCTAssertEqual(StatusLineRelay.state(of: ["statusLine": ["command": inner]]), .current,
+        XCTAssertEqual(StatusLineRelay.state(of: ["statusLine": ["command": inner]], source: .claude), .current,
                        "the original edited inside its quotes is still a wrapper, of another command")
         let edited = wrapped.replacingOccurrences(of: "-m 2", with: "-m 9")
         let settings: [String: Any] = ["statusLine": ["type": "command", "command": edited]]
-        XCTAssertEqual(StatusLineRelay.state(of: settings), .modified)
-        XCTAssertNil(StatusLineRelay.installing(into: settings), "no half install")
-        XCTAssertNil(StatusLineRelay.removing(from: settings), "no half removal")
+        XCTAssertEqual(StatusLineRelay.state(of: settings, source: .claude), .modified)
+        XCTAssertNil(StatusLineRelay.installing(into: settings, source: .claude), "no half install")
+        XCTAssertNil(StatusLineRelay.removing(from: settings, source: .claude), "no half removal")
     }
 
     func testShapesThatAreNotOursAreRefused() {
         for value: Any in ["bash s.sh", ["type": "command", "command": 3], ["type": "static", "command": "cat"]] {
-            XCTAssertNil(StatusLineRelay.installing(into: ["statusLine": value]), "\(value)")
+            XCTAssertNil(StatusLineRelay.installing(into: ["statusLine": value], source: .claude), "\(value)")
         }
-        XCTAssertEqual(StatusLineRelay.state(of: ["statusLine": "bash s.sh"]), .missing)
+        XCTAssertEqual(StatusLineRelay.state(of: ["statusLine": "bash s.sh"], source: .claude), .missing)
     }
 
     func testRemovingWhatIsMissingChangesNothing() throws {
         let settings: [String: Any] = ["statusLine": ["type": "command", "command": "cat"]]
-        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.removing(from: settings)))
+        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.removing(from: settings, source: .claude)))
             .isEqual(to: settings))
     }
 
@@ -209,20 +209,20 @@ final class StatusLineRelayTests: XCTestCase {
         let url = try settingsFile()
         try Data(#"{"statusLine": {"type": "command", "command": "cat"}, "model": "opus"}"#.utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        XCTAssertEqual(try StatusLineRelay.state(at: url), .missing)
+        XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .missing)
 
-        XCTAssertEqual(try StatusLineRelay.install(at: url), .written)
-        XCTAssertEqual(try StatusLineRelay.state(at: url), .current)
+        XCTAssertEqual(try StatusLineRelay.install(at: url, source: .claude), .written)
+        XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .current)
         XCTAssertEqual(try json(statusBackup(url)) as? [String: String], ["type": "command", "command": "cat"])
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: statusBackup(url).path)[.posixPermissions]
                        as? Int, 0o600, "the backup keeps the file's mode")
 
-        XCTAssertEqual(try StatusLineRelay.install(at: url), .unchanged)
+        XCTAssertEqual(try StatusLineRelay.install(at: url, source: .claude), .unchanged)
         XCTAssertEqual(try json(statusBackup(url)) as? [String: String], ["type": "command", "command": "cat"],
                        "an install that writes nothing leaves the backup")
 
-        XCTAssertEqual(try StatusLineRelay.remove(at: url), .written)
-        XCTAssertEqual(try StatusLineRelay.state(at: url), .missing)
+        XCTAssertEqual(try StatusLineRelay.remove(at: url, source: .claude), .written)
+        XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .missing)
         let back = try XCTUnwrap(try json(url) as? [String: Any])
         XCTAssertTrue(NSDictionary(dictionary: back).isEqual(
             to: ["statusLine": ["type": "command", "command": "cat"], "model": "opus"]))
@@ -230,26 +230,26 @@ final class StatusLineRelayTests: XCTestCase {
         // The user changes the command; the next install backs up theirs, not
         // the first one — the general `.evlat.bak` would not.
         try Data(#"{"statusLine": {"type": "command", "command": "tac"}}"#.utf8).write(to: url)
-        XCTAssertEqual(try StatusLineRelay.install(at: url), .written)
+        XCTAssertEqual(try StatusLineRelay.install(at: url, source: .claude), .written)
         XCTAssertEqual(try json(statusBackup(url)) as? [String: String], ["type": "command", "command": "tac"])
     }
 
     func testWithoutAStatusLineTheBackupIsNull() throws {
         let url = try settingsFile()
-        XCTAssertEqual(try StatusLineRelay.install(at: url), .written)
+        XCTAssertEqual(try StatusLineRelay.install(at: url, source: .claude), .written)
         XCTAssertTrue(try json(statusBackup(url)) is NSNull)
-        XCTAssertEqual(try StatusLineRelay.remove(at: url), .written)
+        XCTAssertEqual(try StatusLineRelay.remove(at: url, source: .claude), .written)
         XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(try json(url) as? [String: Any])).isEqual(to: [:]))
     }
 
     func testAModifiedFileIsRefusedAndLeftAsItWas() throws {
         let url = try settingsFile()
-        let edited = StatusLineRelay.command(wrapping: "cat") + " | tr a b"
+        let edited = StatusLineRelay.command(wrapping: "cat", source: .claude) + " | tr a b"
         let bytes = try JSONSerialization.data(withJSONObject: ["statusLine": ["command": edited]])
         try bytes.write(to: url)
-        XCTAssertEqual(try StatusLineRelay.state(at: url), .modified)
-        for write in [StatusLineRelay.install(at:), StatusLineRelay.remove(at:)] {
-            XCTAssertThrowsError(try write(url)) { XCTAssertEqual($0 as? SettingsFile.Failure, .malformed) }
+        XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .modified)
+        for write in [StatusLineRelay.install(at:source:), StatusLineRelay.remove(at:source:)] {
+            XCTAssertThrowsError(try write(url, .claude)) { XCTAssertEqual($0 as? SettingsFile.Failure, .malformed) }
         }
         XCTAssertEqual(try Data(contentsOf: url), bytes)
         XCTAssertFalse(FileManager.default.fileExists(atPath: statusBackup(url).path))
@@ -260,15 +260,15 @@ final class StatusLineRelayTests: XCTestCase {
     func testARefusedWriteKeepsTheLastBackup() throws {
         let url = try settingsFile()
         try Data(#"{"statusLine": {"command": "cat"}}"#.utf8).write(to: url)
-        try StatusLineRelay.install(at: url)
-        try StatusLineRelay.remove(at: url)
+        try StatusLineRelay.install(at: url, source: .claude)
+        try StatusLineRelay.remove(at: url, source: .claude)
         let kept = try Data(contentsOf: statusBackup(url))
         try Data(#"{"statusLine": {"command": "tac"}}"#.utf8).write(to: url)
         XCTAssertThrowsError(try SettingsFile.apply(at: url, beforeWrite: {
             try? Data(#"{"statusLine": {"command": "rev"}}"#.utf8).write(to: url)
         }, backUp: { _, mode in
             try SettingsFile.replace(self.statusBackup(url), with: Data("null".utf8), mode: mode)
-        }) { StatusLineRelay.installing(into: $0) ?? $0 }) {
+        }) { StatusLineRelay.installing(into: $0, source: .claude) ?? $0 }) {
             XCTAssertEqual($0 as? SettingsFile.Failure, .changedUnderneath)
         }
         XCTAssertEqual(try Data(contentsOf: statusBackup(url)), kept)
@@ -279,7 +279,7 @@ final class StatusLineRelayTests: XCTestCase {
     func testABackupNeverReplacesADirectory() throws {
         let url = try settingsFile()
         try FileManager.default.createDirectory(at: statusBackup(url), withIntermediateDirectories: false)
-        XCTAssertThrowsError(try StatusLineRelay.install(at: url)) {
+        XCTAssertThrowsError(try StatusLineRelay.install(at: url, source: .claude)) {
             XCTAssertEqual($0 as? SettingsFile.Failure, .unwritable)
         }
         var isDirectory: ObjCBool = false
@@ -294,9 +294,9 @@ final class StatusLineRelayTests: XCTestCase {
         let url = try settingsFile()
         try HookSettings.install(at: url, for: .claude)
         let hooks = try XCTUnwrap(try json(url) as? [String: Any])["hooks"] as? [String: Any]
-        try StatusLineRelay.install(at: url)
+        try StatusLineRelay.install(at: url, source: .claude)
         XCTAssertEqual(try HookSettings.state(at: url, for: .claude), .current)
-        try StatusLineRelay.remove(at: url)
+        try StatusLineRelay.remove(at: url, source: .claude)
         let after = try XCTUnwrap(try json(url) as? [String: Any])["hooks"] as? [String: Any]
         XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(after)).isEqual(to: try XCTUnwrap(hooks)))
         XCTAssertEqual(try HookSettings.state(at: url, for: .claude), .current)
@@ -304,7 +304,7 @@ final class StatusLineRelayTests: XCTestCase {
 
     func testNoDirectoryIsNotCreated() {
         let url = AgentSource.claude.settingsFile(home: home)
-        XCTAssertThrowsError(try StatusLineRelay.install(at: url)) {
+        XCTAssertThrowsError(try StatusLineRelay.install(at: url, source: .claude)) {
             XCTAssertEqual($0 as? SettingsFile.Failure, .noDirectory)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.configDirectory(home: home).path))

@@ -287,7 +287,7 @@ final class MenuTests: XCTestCase {
     func testAHandEditedWrapperIsALine() throws {
         try agentDirectory(.claude)
         let file = AgentSource.claude.settingsFile(home: home)
-        let edited = StatusLineRelay.command(wrapping: "cat").replacingOccurrences(of: "-m 2", with: "-m 9")
+        let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
         let bytes = try JSONSerialization.data(withJSONObject: ["statusLine": ["command": edited]])
         try bytes.write(to: file)
         let controller = controller(home: home)
@@ -360,16 +360,16 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
 
-        controller.setUsageRelay(installed: true)
+        controller.setUsageRelay(installed: true, source: .claude)
         let line = try XCTUnwrap(try settings(.claude)["statusLine"] as? [String: Any])
-        XCTAssertEqual(line["command"] as? String, StatusLineRelay.command(wrapping: "bash ~/s.sh"))
+        XCTAssertEqual(line["command"] as? String, StatusLineRelay.command(wrapping: "bash ~/s.sh", source: .claude))
         XCTAssertEqual(line["padding"] as? Int, 0)
-        XCTAssertEqual(try StatusLineRelay.state(at: file), .current)
+        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .claude), .current)
 
-        controller.setUsageRelay(installed: false)
+        controller.setUsageRelay(installed: false, source: .claude)
         let back = try JSONSerialization.jsonObject(with: Data(original.utf8)) as? [String: Any]
         XCTAssertTrue(NSDictionary(dictionary: try settings(.claude)).isEqual(to: try XCTUnwrap(back)))
-        XCTAssertNil(controller.usageRelayFailure)
+        XCTAssertNil(controller.usageRelayFailure(.claude))
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")), [], "no failure line")
     }
 
@@ -378,8 +378,8 @@ final class MenuTests: XCTestCase {
         try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: AgentSource.claude.settingsFile(home: home))
         let controller = controller(home: home)
         defer { controller.panel?.close() }
-        controller.setUsageRelay(installed: true)
-        XCTAssertEqual(controller.usageRelayFailure, .malformed)
+        controller.setUsageRelay(installed: true, source: .claude)
+        XCTAssertEqual(controller.usageRelayFailure(.claude), .malformed)
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
                         .map { $0.representedObject as? SetupAttention }, [.refused(.usageRelay)])
     }

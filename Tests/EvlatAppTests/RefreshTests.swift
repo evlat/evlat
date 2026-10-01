@@ -114,17 +114,17 @@ final class RefreshTests: XCTestCase {
 
     /// A status line's report goes to the usage provider, stamped with the
     /// controller's clock, and never into the hooks' diagnostics bucket.
-    func testAUsageDeliveryReachesTheUsageProviderAndNotTheHookBucket() {
+    func testAUsageDeliveryReachesTheUsageProviderAndNotTheHookBucket() throws {
         let controller = AppController()
         let seen = Date(timeIntervalSince1970: 1_790_200_000)
         controller.now = { seen }
-        controller.registry.register(controller.claudeUsage)
+        controller.registry.register(try XCTUnwrap(controller.statusLineUsage[.claude]))
         let report = UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 40,
                                                               resetsAt: seen + 3600)],
-                                 unrecognizedWindows: [])
+                                 unrecognizedWindows: [], source: .claude)
 
         controller.handleDelivery(.usage(report))
-        XCTAssertEqual(controller.claudeUsage.currentSignals().map(\.updatedAt), [seen])
+        XCTAssertEqual(controller.statusLineUsage[.claude]?.currentSignals().map(\.updatedAt), [seen])
         XCTAssertEqual(controller.hookDiagnostics.summary, HookDiagnostics().summary,
                        "the hooks' bucket saw nothing")
         let snapshot = controller.registry.snapshot()
@@ -142,8 +142,8 @@ final class RefreshTests: XCTestCase {
                                  unrecognizedWindows: [], source: .antigravity)
 
         controller.handleDelivery(.usage(report))
-        XCTAssertEqual(controller.antigravityUsage.currentSignals().map(\.usage?.group), ["Gemini"])
-        XCTAssertEqual(controller.claudeUsage.currentSignals(), [], "Claude's windows are untouched")
+        XCTAssertEqual(controller.statusLineUsage[.antigravity]?.currentSignals().map(\.usage?.group), ["Gemini"])
+        XCTAssertEqual(controller.statusLineUsage[.claude]?.currentSignals(), [], "Claude's windows are untouched")
     }
 
     // MARK: - Opening reads

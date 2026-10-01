@@ -39,11 +39,26 @@ public enum RemoteSettings {
         public var path: String {
             switch self {
             case .hooks(let source): return source.settingsPath
-            case .statusLine: return AgentSource.claude.settingsPath
+            // Claude's always has one.
+            case .statusLine: return RemoteSettings.statusLineSource.statusLinePath!
             case .pathLine(let file): return file
             }
         }
+
+        /// When the file's folder is missing, the directories (relative to
+        /// `$HOME`) any one of which lets the scripts open it — the agent's
+        /// presence, for an agent whose hooks folder is opened
+        /// (`AgentSource.opensHooksDirectory`). Empty: a missing folder is
+        /// `noDirectory`, the agent is not on the server.
+        public var opening: [String] {
+            guard case .hooks(let source) = self, source.opensHooksDirectory else { return [] }
+            return source.presenceDirectories
+        }
     }
+
+    /// The one agent whose status line a server gets: Antigravity's relay
+    /// there has not been measured.
+    static let statusLineSource = AgentSource.claude
 
     public enum Action: Equatable { case install, remove }
 
@@ -108,10 +123,12 @@ public enum RemoteSettings {
 
     /// Prints `<nonce> <cksum>` on a line of its own, then the bytes. The
     /// nonce finds that line behind whatever a login script printed first.
-    public static func readScript(path: String, nonce: String) -> String {
+    /// `opening` is the change's (`Change.opening`): a folder it may open
+    /// reads as a missing file.
+    public static func readScript(path: String, nonce: String, opening: [String] = []) -> String {
         """
         n=\(quoted(nonce))
-        \(prelude(path: path))
+        \(prelude(path: path, opening: opening, creating: false))
         s=$(sum) || exit \(code(.unreadable))
         printf '%s %s\\n' "$n" "$s"
         if [ -e "$t" ]; then cat "$t" || exit \(code(.unreadable)); fi
@@ -155,23 +172,6 @@ public enum RemoteSettings {
         return try SettingsFile.encode(changed)
     }
 
-    /// A server's hooks: each agent's command alone — never the approval
-    /// hook, whose route a tunnel answers `404` — in the agent's own file
-    /// shape (Antigravity's is `AntigravityHooks`').
-    static func hooksState(of settings: [String: Any], for source: AgentSource) -> HookSettings.State {
-        source == .antigravity ? AntigravityHooks.state(of: settings) : HookSettings.state(of: settings, for: source)
-    }
-
-    static func hooksInstalling(into settings: [String: Any], for source: AgentSource) -> [String: Any] {
-        source == .antigravity ? AntigravityHooks.installing(into: settings)
-            : HookSettings.installing(into: settings, for: source)
-    }
-
-    static func hooksRemoving(from settings: [String: Any], for source: AgentSource) -> [String: Any] {
-        source == .antigravity ? AntigravityHooks.removing(from: settings)
-            : HookSettings.removing(from: settings, for: source)
-    }
-
     /// The local writers' `install`/`remove`, on bytes. A refusal is
     /// `malformed`, decided here from the bytes just read, as the local
     /// writers decide it from the file.
@@ -183,24 +183,39 @@ public enum RemoteSettings {
             let settings = try SettingsFile.parse(original)
             switch (change, action) {
             case (.hooks(let source), .install):
-                guard let data = try plan(original: original, { hooksInstalling(into: $0, for: source) })
-                else {
-                    if hooksState(of: settings, for: source) != .current { throw SettingsFile.Failure.malformed }
+                // A server's hooks never include the approval hook: its
+                // route is `404` through a tunnel.
+                guard let data = try plan(original: original, {
+                    LocalHooks.installing(into: $0, for: source, approvals: false)
+                }) else {
+                    if LocalHooks.state(of: settings, for: source, approvals: false) != .current {
+                        throw SettingsFile.Failure.malformed
+                    }
                     return nil
                 }
                 return Write(contents: data, backup: nil)
             case (.hooks(let source), .remove):
-                return try plan(original: original, { hooksRemoving(from: $0, for: source) })
+                return try plan(original: original, { LocalHooks.removing(from: $0, for: source, approvals: false) })
                     .map { Write(contents: $0, backup: nil) }
             case (.statusLine, .install):
-                guard let data = try plan(original: original, { StatusLineRelay.installing(into: $0) ?? $0 }) else {
-                    if StatusLineRelay.state(of: settings) != .current { throw SettingsFile.Failure.malformed }
+                let source = statusLineSource
+                guard let data = try plan(original: original, {
+                    StatusLineRelay.installing(into: $0, source: source) ?? $0
+                }) else {
+                    if StatusLineRelay.state(of: settings, source: source) != .current {
+                        throw SettingsFile.Failure.malformed
+                    }
                     return nil
                 }
                 return Write(contents: data, backup: try StatusLineRelay.backupContents(of: settings))
             case (.statusLine, .remove):
-                guard let data = try plan(original: original, { StatusLineRelay.removing(from: $0) ?? $0 }) else {
-                    if StatusLineRelay.state(of: settings) == .modified { throw SettingsFile.Failure.malformed }
+                let source = statusLineSource
+                guard let data = try plan(original: original, {
+                    StatusLineRelay.removing(from: $0, source: source) ?? $0
+                }) else {
+                    if StatusLineRelay.state(of: settings, source: source) == .modified {
+                        throw SettingsFile.Failure.malformed
+                    }
                     return nil
                 }
                 return Write(contents: data, backup: nil)
@@ -223,13 +238,15 @@ public enum RemoteSettings {
     /// under the server's umask, as the local atomic write does. The target
     /// is the link's end, so a link stays a link. The contents travel as
     /// single-quoted words, never a heredoc: a heredoc adds a newline the
-    /// local writer does not write.
-    public static func writeScript(path: String, expected: String, write: Write) -> String {
+    /// local writer does not write. `opening` is the change's
+    /// (`Change.opening`): the missing folder is made, as this Mac's writer
+    /// makes it.
+    public static func writeScript(path: String, expected: String, write: Write, opening: [String] = []) -> String {
         let unwritable = code(.unwritable)
         var script = """
         e=\(quoted(expected))
         c=\(quoted(String(decoding: write.contents, as: UTF8.self)))
-        \(prelude(path: path))
+        \(prelude(path: path, opening: opening, creating: true))
         s=$(sum) || exit \(code(.unreadable))
         [ "$s" = "$e" ] || exit \(code(.changedUnderneath))
         tmp=${t%/*}/.${t##*/}.evlat.$$.tmp
@@ -288,11 +305,11 @@ public enum RemoteSettings {
 
         /// The local reader's state, from the bytes read.
         public func hooks(_ source: AgentSource) -> Found<HookSettings.State> {
-            found(source) { RemoteSettings.hooksState(of: $0, for: source) }
+            found(source) { LocalHooks.state(of: $0, for: source, approvals: false) }
         }
 
         public var statusLine: Found<StatusLineRelay.State> {
-            found(.claude) { StatusLineRelay.state(of: $0) }
+            found(RemoteSettings.statusLineSource) { StatusLineRelay.state(of: $0, source: RemoteSettings.statusLineSource) }
         }
 
         private func found<State>(_ source: AgentSource, _ state: ([String: Any]) -> State) -> Found<State> {
@@ -319,7 +336,7 @@ public enum RemoteSettings {
             script += """
             (
             n=\(quoted(nonce))
-            \(prelude(path: source.settingsPath))
+            \(prelude(path: source.settingsPath, opening: Change.hooks(source).opening, creating: false))
             s=$(sum) || exit \(unreadable)
             printf '%s begin \(source.rawValue) %s\\n' "$n" "$s"
             if [ -e "$t" ]; then cat "$t" || exit \(unreadable); fi
@@ -396,13 +413,14 @@ public enum RemoteSettings {
             } catch {
                 continue
             }
-            if source == .claude,
+            if source == statusLineSource,
                let usage = (try? plan(.statusLine, .install, original: write?.contents ?? snapshot.bytes)) ?? nil {
                 write = usage
             }
             guard let write else { continue }
             parts.append(part(file: "~/" + source.settingsPath,
-                              writeScript(path: source.settingsPath, expected: snapshot.checksum, write: write)))
+                              writeScript(path: source.settingsPath, expected: snapshot.checksum, write: write,
+                                          opening: Change.hooks(source).opening)))
         }
         let commandPart = reading.command != .foreign && !reading.command.isCurrent
         if commandPart {
@@ -442,11 +460,27 @@ public enum RemoteSettings {
     /// `f`: the path the user knows. `t`: where its links end — a link whose
     /// end is missing is refused, as `SettingsFile.resolve` refuses it.
     /// `sum`: the target's `cksum` line, `absent`, or failure.
-    private static func prelude(path: String) -> String {
+    ///
+    /// A missing folder is `noDirectory` — the agent is not on the server.
+    /// With `opening`, the agent's presence decides instead: none of its
+    /// directories is `noDirectory` whatever the folder; one is, and a
+    /// missing folder reads as an absent file and a write (`creating`)
+    /// makes it.
+    private static func prelude(path: String, opening: [String], creating: Bool) -> String {
         let unreadable = code(.unreadable)
+        let folder: String
+        if opening.isEmpty {
+            folder = "[ -d \"${f%/*}\" ] || exit \(code(.noDirectory))"
+        } else {
+            let present = opening.map { "[ -d \"$HOME\"/\(quoted($0)) ]" }.joined(separator: " || ")
+            // Asked even when the folder is there: a shared folder left
+            // behind, or made by another tool, does not say the agent is.
+            folder = "{ \(present); } || exit \(code(.noDirectory))"
+                + (creating ? "\n[ -d \"${f%/*}\" ] || mkdir -p \"${f%/*}\" || exit \(code(.unwritable))" : "")
+        }
         return """
         f="$HOME"/\(quoted(path))
-        [ -d "${f%/*}" ] || exit \(code(.noDirectory))
+        \(folder)
         link() {
           readlink "$1" 2>/dev/null && return 0
           l=$(ls -ld "$1") || return 1
@@ -499,28 +533,37 @@ public enum RemoteSettings {
         public let statusLine: String
         /// The wrapper around an existing command, `placeholder` in its place.
         public let wrapping: String
-        /// The Antigravity CLI's `statusLine` for a file that has none, and
-        /// its wrapper. This Mac's only: a server gets no Antigravity relay.
-        public let antigravityStatusLine: String
-        public let antigravityWrapping: String
         /// Every command Evlat writes contains this; removing by hand is
         /// taking out the entries that do.
         public let marker: String
-    }
 
-    public static var manual: Manual {
-        func text(_ settings: [String: Any]) -> String {
+        /// An agent's `statusLine` for a file that has none, and its wrapper
+        /// with `placeholder` in the user's command's place; `nil` for an
+        /// agent with no status line. Claude's are `statusLine` and
+        /// `wrapping`; Antigravity's are this Mac's only — a server gets no
+        /// Antigravity relay.
+        public static func statusLine(for source: AgentSource) -> (text: String, wrapping: String)? {
+            guard let line = StatusLineRelay.installing(into: [:], source: source) else { return nil }
+            return (text(line), StatusLineRelay.command(wrapping: placeholder, source: source))
+        }
+
+        static func text(_ settings: [String: Any]) -> String {
             // The empty object always encodes; `[:]` never reaches this.
             String(decoding: (try? SettingsFile.encode(settings)) ?? Data(), as: UTF8.self)
         }
+    }
+
+    public static var manual: Manual {
+        func hooks(_ source: AgentSource) -> String {
+            Manual.text(LocalHooks.installing(into: [:], for: source, approvals: false))
+        }
+        let statusLine = Manual.statusLine(for: statusLineSource)
         return Manual(
-            claudeHooks: text(HookSettings.installing(into: [:], for: .claude)),
-            codexHooks: text(HookSettings.installing(into: [:], for: .codex)),
-            antigravityHooks: text(AntigravityHooks.installing(into: [:])),
-            statusLine: text(StatusLineRelay.installing(into: [:]) ?? [:]),
-            wrapping: StatusLineRelay.command(wrapping: Manual.placeholder),
-            antigravityStatusLine: text(StatusLineRelay.installing(into: [:], source: .antigravity) ?? [:]),
-            antigravityWrapping: StatusLineRelay.command(wrapping: Manual.placeholder, source: .antigravity),
+            claudeHooks: hooks(.claude),
+            codexHooks: hooks(.codex),
+            antigravityHooks: hooks(.antigravity),
+            statusLine: statusLine?.text ?? "",
+            wrapping: statusLine?.wrapping ?? "",
             marker: "127.0.0.1:\(LocalAPI.defaultPort)")
     }
 }

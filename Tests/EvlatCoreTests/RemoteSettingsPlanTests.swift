@@ -38,6 +38,18 @@ final class RemoteSettingsPlanTests: XCTestCase {
         XCTAssertEqual(write.backup, Data("null".utf8), "no statusLine before: the backup says so")
     }
 
+    /// A server's hooks are this Mac's transformation without the approval
+    /// hook: its route is `404` through a tunnel.
+    func testAServersHooksNeverCarryTheApprovalHook() throws {
+        let write = try XCTUnwrap(try RemoteSettings.plan(.hooks(.claude), .install, original: nil))
+        XCTAssertFalse(String(decoding: write.contents, as: UTF8.self).contains("/approval"))
+        XCTAssertEqual(write.contents, try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude)))
+        let local = try SettingsFile.encode(LocalHooks.installing(into: [:], for: .claude, approvals: true))
+        XCTAssertTrue(String(decoding: local, as: UTF8.self).contains("/approval"), "this Mac's do")
+        // A file with the command alone is current on a server.
+        XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .install, original: write.contents))
+    }
+
     /// An install that cannot reach current without overwriting someone
     /// else's value is refused, as the local writer refuses it.
     func testAnInstallThatCannotBeCompletedIsMalformed() {

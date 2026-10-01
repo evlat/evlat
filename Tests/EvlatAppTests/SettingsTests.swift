@@ -61,7 +61,7 @@ final class SettingsTests: XCTestCase {
             loginPath: { recorder.loginPath },
             hotKeyRefused: { recorder.hotKeyRefused }, unreachableMachines: { recorder.unreachable },
             setHooks: { _, _ in }, setUsageRelay: { _ in }, setCommandLink: { _, _ in }, setLoginItem: { _ in },
-            hookFailure: { _ in nil }, usageFailure: { nil }, commandLinkFailure: { nil },
+            hookFailure: { _ in nil }, usageFailure: { _ in nil }, commandLinkFailure: { nil },
             loginItemFailed: { false }), lang: "en")
         let remote = RemoteMachinesModel(host: RemoteMachinesModel.Host(
             machines: { [] }, state: { _ in nil }, sessionCounts: { [:] }, add: { _ in .failure(.empty) },

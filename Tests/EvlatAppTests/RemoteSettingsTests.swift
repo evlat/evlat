@@ -118,7 +118,7 @@ final class RemoteSettingsTests: XCTestCase {
                 XCTAssertEqual(bytes(backup(claude(remote))), bytes(backup(claude(local))), "\(shell): backup")
 
                 XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .success(.written), shell)
-                XCTAssertEqual(try StatusLineRelay.install(at: claude(local)), .written)
+                XCTAssertEqual(try StatusLineRelay.install(at: claude(local), source: .claude), .written)
                 XCTAssertEqual(bytes(claude(remote)), bytes(claude(local)), "\(shell): statusLine")
                 XCTAssertEqual(bytes(statusBackup(claude(remote))), bytes(statusBackup(claude(local))),
                                "\(shell): the statusLine backup")
@@ -270,7 +270,7 @@ final class RemoteSettingsTests: XCTestCase {
     func testAModifiedWrapperIsNotTakenApart() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)
-            let modified = StatusLineRelay.command(wrapping: "bash s.sh") + " # mine"
+            let modified = StatusLineRelay.command(wrapping: "bash s.sh", source: .claude) + " # mine"
             let text = String(decoding: try SettingsFile.encode(["statusLine": ["type": "command", "command": modified]]),
                               as: UTF8.self)
             try seed(.claude, text)
@@ -309,6 +309,52 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(apply(.hooks(.codex), .install, ssh: ssh), .success(.written), shell)
             XCTAssertEqual(try HookSettings.install(at: codex(local), for: .codex), .written)
             XCTAssertEqual(bytes(codex(remote)), bytes(codex(local)), shell)
+        }
+    }
+
+    /// Antigravity's hooks folder is shared and need not exist; on a server
+    /// where the agent is (its CLI's folder), the install makes it, as this
+    /// Mac's writer does, with the same bytes — and the machine's read then
+    /// finds the hooks current.
+    func testAntigravitysHooksFolderIsMadeWhereTheAgentIs() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            for home in [remote!, local!] {
+                try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity-cli"),
+                                                        withIntermediateDirectories: true)
+            }
+            let file = AgentSource.antigravity.settingsFile(home: remote)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
+                           .state(.missing), "\(shell): the agent is there, its hooks are not")
+            XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(try LocalHooks.install(at: AgentSource.antigravity.settingsFile(home: local),
+                                                  for: .antigravity), .written)
+            XCTAssertEqual(bytes(file), bytes(AgentSource.antigravity.settingsFile(home: local)), shell)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
+                           .state(.current), shell)
+            XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .success(.unchanged), shell)
+            XCTAssertEqual(apply(.hooks(.antigravity), .remove, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(try LocalHooks.state(at: file, for: .antigravity), .missing, shell)
+        }
+    }
+
+    /// Without the agent on the server nothing is made: the folder's
+    /// absence still says Antigravity is not there.
+    func testAntigravitysHooksFolderIsNotMadeWhereTheAgentIsNot() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
+            XCTAssertEqual(apply(.hooks(.antigravity), .remove, ssh: ssh), .failure(.file(.noDirectory)), shell)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: remote.appendingPathComponent(".gemini").path), shell)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
+                           .noDirectory, shell)
+            // A shared folder left behind does not say the agent is there.
+            try FileManager.default.createDirectory(at: AgentSource.antigravity.configDirectory(home: remote),
+                                                    withIntermediateDirectories: true)
+            XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.antigravity.settingsFile(home: remote).path))
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
+                           .noDirectory, shell)
         }
     }
 
@@ -381,10 +427,10 @@ final class RemoteSettingsTests: XCTestCase {
         try HookSettings.install(at: codex(local), for: .codex)
         XCTAssertEqual(Data(RemoteSettings.manual.codexHooks.utf8), bytes(codex(local)))
         try FileManager.default.removeItem(at: claude(local))
-        try StatusLineRelay.install(at: claude(local))
+        try StatusLineRelay.install(at: claude(local), source: .claude)
         XCTAssertEqual(Data(RemoteSettings.manual.statusLine.utf8), bytes(claude(local)))
         XCTAssertEqual(RemoteSettings.manual.wrapping,
-                       StatusLineRelay.command(wrapping: RemoteSettings.Manual.placeholder))
+                       StatusLineRelay.command(wrapping: RemoteSettings.Manual.placeholder, source: .claude))
         XCTAssertTrue(RemoteSettings.manual.claudeHooks.contains(RemoteSettings.manual.marker))
         XCTAssertTrue(RemoteSettings.manual.statusLine.contains(RemoteSettings.manual.marker))
     }
@@ -400,7 +446,7 @@ final class RemoteSettingsTests: XCTestCase {
         for (original, output, status) in [("printf ok", "ok", Int32(0)), ("cat; exit 3", "in", Int32(3))] {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/dash")
-            process.arguments = ["-c", StatusLineRelay.command(wrapping: original, port: 9)]
+            process.arguments = ["-c", StatusLineRelay.command(wrapping: original, port: 9, source: .claude)]
             process.environment = ["PATH": bin.path + ":/usr/bin:/bin"]
             let stdin = Pipe(), stdout = Pipe()
             process.standardInput = stdin

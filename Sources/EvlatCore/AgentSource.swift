@@ -46,20 +46,49 @@ public enum AgentSource: String, CaseIterable {
         }
     }
 
-    /// Whether the agent is on this Mac: a directory only it creates. For
-    /// Antigravity that is not the hooks file's directory — `~/.gemini`
-    /// belongs to Gemini CLI as well — but the app's or the CLI's own.
+    /// Whether the agent is on this Mac: a directory only it creates.
     public func isPresent(home: URL) -> Bool {
-        let directories: [String]
+        presenceDirectories.contains { Self.isDirectory(home.appendingPathComponent($0)) }
+    }
+
+    /// The directories, relative to a home, whose existence says the agent
+    /// is installed; any one is enough. For Antigravity they are not the
+    /// hooks file's directory — `~/.gemini` belongs to Gemini CLI as well —
+    /// but the app's and the CLI's own. A server's shell asks the same
+    /// question (`RemoteSettings`).
+    public var presenceDirectories: [String] {
         switch self {
-        case .claude, .codex: directories = [configDirectoryName]
-        case .antigravity: directories = [".gemini/antigravity", ".gemini/antigravity-cli"]
+        case .claude, .codex: return [configDirectoryName]
+        case .antigravity: return [".gemini/antigravity", ".gemini/antigravity-cli"]
         }
-        return directories.contains { name in
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: home.appendingPathComponent(name).path,
-                                                  isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// Whether the install makes the hooks file's directory when it is
+    /// missing. Claude's and Codex's is the agent's own and says it is
+    /// installed, so it is never made; Antigravity's is a shared folder its
+    /// presence does not depend on, and it may not exist yet. The rule is
+    /// the same on this Mac (`LocalHooks.install`) and on a server
+    /// (`RemoteSettings`), where it also waits for `presenceDirectories`.
+    public var opensHooksDirectory: Bool { self == .antigravity }
+
+    /// Whether Evlat's approval hook goes in beside the command
+    /// (`ApprovalHook`): Claude's alone; the others have no such event.
+    public var supportsApprovals: Bool { self == .claude }
+
+    /// Whether the agent's status line can be relayed here: it has one
+    /// (`statusLinePath`), and for Antigravity the CLI that reads it is
+    /// installed — the app and the IDE have no status line.
+    public func hasStatusLine(home: URL) -> Bool {
+        switch self {
+        case .claude: return statusLinePath != nil
+        case .codex: return false
+        case .antigravity: return Self.isDirectory(home.appendingPathComponent(".gemini/antigravity-cli"))
         }
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// The agent's own directory under `home`. Its existence is what says the
@@ -104,6 +133,70 @@ public enum AgentSource: String, CaseIterable {
         }
     }
     private var settingsFileName: String { self == .claude ? "settings.json" : "hooks.json" }
+
+    // MARK: - Usage
+
+    /// How a status line's JSON carries one window's numbers.
+    public enum UsageReading {
+        /// `used_percentage` (0–100) and `resets_at` (epoch seconds):
+        /// Claude Code's documented `rate_limits`.
+        case usedPercentage
+        /// `remaining_fraction` (0–1, what is left) and `reset_time`
+        /// (RFC 3339): the Antigravity CLI's `quota` (measured, `agy`
+        /// 1.2.14, undocumented).
+        case remainingFraction
+    }
+
+    /// The part of a status line the windows are read from
+    /// (`UsageReport`).
+    public struct StatusLineUsage {
+        /// The key under which the windows sit.
+        public let root: String
+        /// The windows drawn, and how long each one is. A key under `root`
+        /// that is not here stays unrecognized and visible in `--capture`.
+        public let windows: [(key: String, minutes: Int)]
+        public let reading: UsageReading
+    }
+
+    /// Where an agent's usage windows come from and what they are called on
+    /// the bar.
+    public struct Usage {
+        /// The local provider's id; a machine's instance derives its own.
+        public let providerID: String
+        /// The name the windows are grouped under on the bar. A proper
+        /// name, not catalogue text (`Signal.Usage.group`).
+        public let group: String
+        public let fidelity: Signal.Fidelity
+        /// `nil` when the windows are not posted by a status line: Codex's
+        /// are read from its own file (`CodexUsageProvider`).
+        public let statusLine: StatusLineUsage?
+    }
+
+    public var usage: Usage {
+        switch self {
+        // Claude Code's documented status line input: `.official`.
+        case .claude:
+            return Usage(providerID: "claude-usage", group: "Claude", fidelity: .official,
+                         statusLine: StatusLineUsage(root: "rate_limits",
+                                                     windows: [("five_hour", 300), ("seven_day", 10080)],
+                                                     reading: .usedPercentage))
+        // An undocumented rollout file: `.derived`, drawn with `~`.
+        case .codex:
+            return Usage(providerID: "codex-usage", group: "Codex", fidelity: .derived, statusLine: nil)
+        // Its `quota` holds two pools of the same two lengths: `gemini-*`
+        // and `3p-*` (the other vendors' models it offers). Only Gemini's
+        // is drawn — the bar has room for one more group of two windows
+        // (`UsageBlockModel.maxLines`) — so `3p-*` stays unrecognized. The
+        // group is named for that pool; "Gemini" also sorts after Claude
+        // and Codex (`Snapshot`'s order), so the bar's cap drops it first.
+        // Undocumented, so `.derived`.
+        case .antigravity:
+            return Usage(providerID: "antigravity-usage", group: "Gemini", fidelity: .derived,
+                         statusLine: StatusLineUsage(root: "quota",
+                                                     windows: [("gemini-5h", 300), ("gemini-weekly", 10080)],
+                                                     reading: .remainingFraction))
+        }
+    }
 
     /// Translates a source's hook body into the canonical vocabulary. An event
     /// this adapter does not know is passed through **unchanged** rather than

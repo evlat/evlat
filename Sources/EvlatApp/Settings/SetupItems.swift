@@ -189,8 +189,7 @@ final class SetupModel: ObservableObject {
         var setLoginItem: (Bool) -> Void
 
         var hookFailure: (AgentSource) -> SettingsFile.Failure?
-        var usageFailure: () -> SettingsFile.Failure?
-        var antigravityUsageFailure: () -> SettingsFile.Failure? = { nil }
+        var usageFailure: (AgentSource) -> SettingsFile.Failure?
         var commandLinkFailure: () -> CommandLinkWriter.Failure?
         var loginItemFailed: () -> Bool
     }
@@ -238,7 +237,7 @@ final class SetupModel: ObservableObject {
                 // Antigravity's status line is the CLI's alone: no row for
                 // the app or IDE without it.
                 guard let path = source.statusLinePath, let file = source.statusLineFile(home: home),
-                      source != .antigravity || Self.hasAntigravityCLI(home: home) else { continue }
+                      source.hasStatusLine(home: home) else { continue }
                 let usageItem = SetupItem.usage(for: source)
                 let usage: SetupStatus
                 switch try? StatusLineRelay.state(at: file, source: source) {
@@ -249,7 +248,7 @@ final class SetupModel: ObservableObject {
                 case .missing?: usage = .missing
                 case nil: usage = .unknown
                 }
-                let failure = source == .claude ? host.usageFailure() : host.antigravityUsageFailure()
+                let failure = host.usageFailure(source)
                 rows.append(row(usageItem, usage, detail: "~/" + path,
                                 failure: failure.map { L10n.t(AppController.failureKey($0), in: lang) }))
                 if failure != nil { attention.append(.refused(usageItem)) }
@@ -332,14 +331,6 @@ final class SetupModel: ObservableObject {
     }
 
     func row(_ item: SetupItem) -> SetupRow? { rows.first { $0.item == item } }
-
-    /// The Antigravity CLI's own directory: its settings file holds the
-    /// status line, and it is created by the CLI alone.
-    nonisolated static func hasAntigravityCLI(home: URL) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini/antigravity-cli").path,
-                                              isDirectory: &isDirectory) && isDirectory.boolValue
-    }
 
     /// `…/Evlat.app` for a binary inside one, else the binary.
     nonisolated static func bundlePath(of binary: URL) -> String {
@@ -488,11 +479,9 @@ final class SetupModel: ObservableObject {
         case .antigravityHooks:
             return SetupManual(text: LocalHooks.manual(for: .antigravity), wrapping: nil,
                                removal: L10n.t("setup.manual.remove.antigravity", in: lang))
-        case .usageRelay:
-            return SetupManual(text: manual.statusLine, wrapping: manual.wrapping,
-                               removal: L10n.t("setup.manual.remove.usage", in: lang))
-        case .antigravityUsageRelay:
-            return SetupManual(text: manual.antigravityStatusLine, wrapping: manual.antigravityWrapping,
+        case .usageRelay, .antigravityUsageRelay:
+            guard let source = item.usageSource, let line = RemoteSettings.Manual.statusLine(for: source) else { return nil }
+            return SetupManual(text: line.text, wrapping: line.wrapping,
                                removal: L10n.t("setup.manual.remove.usage", in: lang))
         case .commandLink:
             guard let binary = host.binary() else { return nil }

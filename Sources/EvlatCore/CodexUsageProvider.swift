@@ -13,11 +13,12 @@ import Foundation
 /// the bar opens. `currentSignals()` answers from memory — it is asked every
 /// 1.5 s and on every hook event, and the newest rollout can be tens of MB.
 public final class CodexUsageProvider: Provider, Reloadable {
-    public static let id = "codex-usage"
+    /// The definition's (`AgentSource.usage`), like the status line
+    /// providers' ids.
+    public static let id = AgentSource.codex.usage.providerID
     public var id: String { Self.id }
-    /// The name the windows are grouped under on the bar. A proper name, not
-    /// catalogue text (`Signal.Usage.group`).
-    public static let group = "Codex"
+    /// The name the windows are grouped under on the bar.
+    public static let group = AgentSource.codex.usage.group
     /// How much of the newest file is read, from its end. Never the whole
     /// file: a long session's rollout was measured at 62 MB.
     public static let tailBytes = 256 * 1024
@@ -160,7 +161,7 @@ public final class CodexUsageProvider: Provider, Reloadable {
     private static func signal(for window: Window, observed: Date) -> Signal {
         Signal(provider: id, entity: "usage:\(id):\(window.minutes)", kind: .usage,
                phase: .idle, progress: window.usedPercent / 100, label: group,
-               fidelity: .derived, updatedAt: observed,
+               fidelity: AgentSource.codex.usage.fidelity, updatedAt: observed,
                usage: Signal.Usage(group: group, windowMinutes: window.minutes,
                                    resetsAt: window.resetsAt))
     }
