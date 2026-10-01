@@ -359,6 +359,8 @@
 "settings.sessions.agents" = "Ajanlar";
 "settings.sessions.agents.note" = "İlk yazımdan önce dosyanın yanına .evlat.bak yedeği alınır. Açık Claude oturumlarında değişiklik /hooks ile yüklenir.";
 "settings.sessions.usage" = "Kullanım";
+"settings.sessions.usage.hideStale" = "Bir saattir görülmeyen kullanımı gizle";
+"settings.sessions.usage.hideStale.detail" = "Son zamanlarda kullanmadığın bir araç, yeniden bildirene kadar çubuktan kalkar.";
 "settings.sessions.none" = "Bu Mac'te Claude Code da Codex de yok. Biri kurulunca satırı burada çıkar.";
 "settings.chat.open" = "Açmak";
 "settings.chat.hotkey" = "Kısayol";

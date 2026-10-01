@@ -294,9 +294,20 @@ private struct SessionsSection: View {
                 ForEach(agents) { SetupRowView(row: $0, model: setup) }
             }
         }
-        if let usage = setup.row(.usageRelay) {
-            SettingsGroup(title: model.t("settings.sessions.usage")) {
+        SettingsGroup(title: model.t("settings.sessions.usage")) {
+            if let usage = setup.row(.usageRelay) {
                 SetupRowView(row: usage, model: setup)
+            }
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.sessions.usage.hideStale"),
+                             detail: model.t("settings.sessions.usage.hideStale.detail"))
+                    Toggle("", isOn: Binding(get: { model.hidesStaleUsage }, set: { model.setHidesStaleUsage($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.sessions.usage.hideStale"))
+                }
             }
         }
     }

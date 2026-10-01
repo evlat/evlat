@@ -184,6 +184,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// notification (off unless turned on, which asks macOS first).
     var nudgeSound = true
     var nudgeNotify = false
+    /// Settings → Sessions → Usage: leave out a window not seen for the
+    /// hour (`UsageBlockModel.lines`). Off unless turned on.
+    var hidesStaleUsage = false
     private var waitingNudge = WaitingNudge()
     /// How the nudge sounds. A `var` so a test counts it instead of hearing it.
     var chime: () -> Void = { Chime.play() }
@@ -728,6 +731,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let nudgeKey = "nudge.waitingMinutes"
     nonisolated static let nudgeSoundKey = "nudge.sound"
     nonisolated static let nudgeNotifyKey = "nudge.notify"
+    nonisolated static let hideStaleUsageKey = "usage.hideStale"
     /// What the setting offers; 0 is off.
     nonisolated static let nudgeChoices = [0, 1, 2, 5, 10, 20]
 
@@ -1192,6 +1196,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         nudgeMinutes = Self.storedNudgeMinutes(defaults)
         nudgeSound = defaults?.object(forKey: Self.nudgeSoundKey) as? Bool ?? true
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
+        hidesStaleUsage = defaults?.bool(forKey: Self.hideStaleUsageKey) ?? false
         notifier = WaitingNotifier.make()
         notifier?.onClick = { [weak self] entity in self?.select(entity) }
         bodyToggles = Self.storedBodyToggles(defaults)
@@ -2132,6 +2137,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setNudgeMinutes: { [weak self] in self?.setNudgeMinutes($0) },
             nudgeSound: { [weak self] in self?.nudgeSound ?? true },
             setNudgeSound: { [weak self] in self?.setNudgeSound($0) },
+            hidesStaleUsage: { [weak self] in self?.hidesStaleUsage ?? false },
+            setHidesStaleUsage: { [weak self] in self?.setHidesStaleUsage($0) },
             nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
             setNudgeNotify: { [weak self] on, done in
                 guard let self else { return done(false) }
@@ -2475,7 +2482,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // the minute, not with a relay's stamp. The clock is read here, so a
         // window that resets leaves within one poll.
         let usageBefore = usageBlock.lines
-        usageBlock.update(from: snapshot.usage, now: now())
+        usageBlock.update(from: snapshot.usage, now: now(), hidingStale: hidesStaleUsage)
         let rowsChanged = before != sessionRows.rows
         if rowsChanged || usageBefore != usageBlock.lines {
             // The body follows the column and the block — drawn, not the
@@ -3025,6 +3032,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         defaults?.set(on, forKey: Self.nudgeSoundKey)
         nudgeSound = on
         if on { chime() }
+    }
+
+    /// Stored, then drawn: the block reads it on the refresh it schedules.
+    func setHidesStaleUsage(_ on: Bool) {
+        defaults?.set(on, forKey: Self.hideStaleUsageKey)
+        hidesStaleUsage = on
+        scheduleRefresh()
     }
 
     /// Turning the notification on asks macOS; refused, it stays off and the

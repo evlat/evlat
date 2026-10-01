@@ -416,6 +416,8 @@
 "settings.sessions.agents" = "Agents";
 "settings.sessions.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Open Claude sessions load the change with /hooks.";
 "settings.sessions.usage" = "Usage";
+"settings.sessions.usage.hideStale" = "Hide usage not seen for an hour";
+"settings.sessions.usage.hideStale.detail" = "A tool you have not used lately leaves the bar until it reports again.";
 "settings.sessions.none" = "Neither Claude Code nor Codex is on this Mac. Their rows appear once one is installed.";
 "settings.chat.open" = "Opening";
 "settings.chat.hotkey" = "Shortcut";

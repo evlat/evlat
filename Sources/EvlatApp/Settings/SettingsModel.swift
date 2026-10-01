@@ -42,6 +42,9 @@ final class SettingsModel: ObservableObject {
         var setNudgeMinutes: (Int) -> Void = { _ in }
         var nudgeSound: () -> Bool = { true }
         var setNudgeSound: (Bool) -> Void = { _ in }
+        /// Sessions' "Usage": leave out what was not seen for the hour.
+        var hidesStaleUsage: () -> Bool = { false }
+        var setHidesStaleUsage: (Bool) -> Void = { _ in }
         var nudgeNotify: () -> Bool = { false }
         /// Turning it on asks macOS; the completion says whether it is on.
         var setNudgeNotify: (Bool, @escaping (Bool) -> Void) -> Void = { _, done in done(false) }
@@ -143,6 +146,13 @@ final class SettingsModel: ObservableObject {
     }
 
     var nudgeSound: Bool { host.nudgeSound() }
+    var hidesStaleUsage: Bool { host.hidesStaleUsage() }
+
+    func setHidesStaleUsage(_ on: Bool) {
+        guard on != host.hidesStaleUsage() else { return }
+        host.setHidesStaleUsage(on)
+        objectWillChange.send()
+    }
     var nudgeNotify: Bool { host.nudgeNotify() }
 
     func setNudgeSound(_ on: Bool) {
@@ -278,6 +288,7 @@ final class SettingsModel: ObservableObject {
         "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.bare",
         "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
         "settings.sessions.agents", "settings.sessions.agents.note", "settings.sessions.usage",
+        "settings.sessions.usage.hideStale", "settings.sessions.usage.hideStale.detail",
         "settings.sessions.none",
         "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",
         "settings.chat.hotkey.change", "settings.chat.hotkey.cancel", "settings.chat.hotkey.recording",
