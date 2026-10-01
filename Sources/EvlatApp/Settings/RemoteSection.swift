@@ -5,10 +5,10 @@ import EvlatCore
 /// Settings → Remote machines: what the "Remote Machines…"
 /// window held, as a section. Each machine is a row that opens on a click
 /// (the whole row, and a 24 pt chevron); open, it lists what is set up on
-/// **the server's own files** — hooks, the usage line, the `evlat` command —
-/// each with its path on the server (`devbox:~/.claude/settings.json`), its
-/// state as last read over `ssh`, its button and its block to paste; then
-/// every block in one.
+/// **the server's own files** — this Mac's agent cards, drawn by the same
+/// view and written over `ssh`, then the `evlat` command — each with its
+/// path on the server (`devbox:~/.claude/settings.json`), its state as last
+/// read, its button and its block to paste; then every block in one.
 struct RemoteSection: View {
     @ObservedObject var model: RemoteMachinesModel
     @ObservedObject var settings: SettingsModel
@@ -147,8 +147,8 @@ private struct MachineRow: View {
     }
 }
 
-/// "Set up on devbox": the three rows, the read's state, the last job's
-/// line, and every block in one.
+/// "Set up on devbox": the agents' cards and the command, the read's
+/// state, the last job's line, and every block in one.
 private struct ServerPart: View {
     @ObservedObject var model: RemoteMachinesModel
     let row: RemoteMachinesModel.Row
@@ -156,6 +156,48 @@ private struct ServerPart: View {
     @State private var manual: Manual?
 
     enum Manual: Equatable { case item(RemoteMachinesModel.Item), combined }
+
+    /// The cards' driver: this machine's model, its lock and its spinner.
+    private var card: SetupCardDriver {
+        let model = model, id = row.id
+        let reading = model.readings[id] == .reading
+        let manualOpen: SetupItem?
+        if case .item(.agent(let source))? = manual { manualOpen = .agent(source) } else { manualOpen = nil }
+        let manual = $manual
+        return SetupCardDriver(
+            lang: model.lang, turningOff: model.turningOff[id], manualOpen: manualOpen,
+            busy: !model.canRun(id),
+            spinning: { item in
+                guard case .agent(let source) = item else { return false }
+                return reading || model.working[id] == .agent(source)
+            },
+            statusText: { status in
+                model.t(status == .notFound ? "remote.status.notFound" : status.key)
+            },
+            consent: { item, action in
+                guard case .agent(let source) = item else { return [] }
+                return model.consent(source, action, on: id)
+            },
+            perform: { item in
+                guard case .agent(let source) = item,
+                      let action = model.agentRows(for: id).first(where: { $0.item == item })?.action else { return }
+                model.perform(.agent(source), action.installs ? .install : .remove, on: id)
+            },
+            setEnabled: { model.setEnabled($0, $1, on: id) },
+            confirmTurnOff: { model.confirmTurnOff(remove: $0, on: id) },
+            cancelTurnOff: { model.cancelTurnOff(on: id) },
+            relayRemovalConsent: { model.relayRemovalConsent($0, on: id) },
+            removeRelay: { model.removeRelay($0, on: id) },
+            manual: { item in
+                guard case .agent(let source) = item else { return nil }
+                return RemoteMachinesModel.manual(source, in: model.lang)
+            },
+            toggleManual: { item in
+                guard case .agent(let source) = item else { return }
+                manual.wrappedValue = manual.wrappedValue == .item(.agent(source)) ? nil : .item(.agent(source))
+            },
+            check: { model.check(id) })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -168,9 +210,11 @@ private struct ServerPart: View {
             }
             readingLine
             SettingsRows(fill: SettingsPalette.serverRows) {
-                ForEach(RemoteMachinesModel.Item.allCases, id: \.self) { item in
-                    ServerItemRow(model: model, row: row, item: item, manual: $manual)
+                let card = card
+                ForEach(model.agentRows(for: row.id)) { agent in
+                    SetupRowView(row: agent, card: card)
                 }
+                ServerItemRow(model: model, row: row, item: .command, manual: $manual)
             }
             outcome
             combined
@@ -276,8 +320,9 @@ private struct ServerPart: View {
     }
 }
 
-/// One of the three: the server path it writes, its state, its button
-/// with what it writes beside it, and its blocks to paste.
+/// The command's row: the server path it writes, its state, its button
+/// with what it writes beside it, and its blocks to paste. (The agents are
+/// this Mac's cards, `SetupRowView`.)
 private struct ServerItemRow: View {
     @ObservedObject var model: RemoteMachinesModel
     let row: RemoteMachinesModel.Row
@@ -288,8 +333,7 @@ private struct ServerItemRow: View {
     private var status: SetupStatus {
         let items = model.items(for: row.id)
         switch item {
-        case .hooks: return items.hooks
-        case .usage: return items.usage
+        case .agent(let source): return items.agents[source] ?? .unknown
         case .command: return items.command
         }
     }
@@ -315,7 +359,7 @@ private struct ServerItemRow: View {
     var body: some View {
         RowBox {
             HStack(alignment: .center, spacing: 10) {
-                RowTitle(name: model.t("remote.item.\(item.rawValue)"), detail: detail, monospaced: true)
+                RowTitle(name: model.t("remote.item.command"), detail: detail, monospaced: true)
                 state
             }
             .opacity(status == .foreign ? 0.55 : 1)
@@ -373,15 +417,8 @@ private struct ServerItemRow: View {
     private func path(_ relative: String) -> String { "\(target):~/\(relative)" }
 
     private var detail: String {
-        switch item {
-        case .hooks:
-            return AgentSource.allCases.map { path($0.settingsPath) }.joined(separator: "\n")
-        case .usage:
-            return model.t("settings.remote.usage.detail", ["file": path(AgentSource.claude.settingsPath)])
-        case .command:
-            return model.t("settings.remote.command.detail",
-                           ["command": path(RemoteCommand.commandPath), "key": path(RemoteCommand.keyPath)])
-        }
+        model.t("settings.remote.command.detail",
+                ["command": path(RemoteCommand.commandPath), "key": path(RemoteCommand.keyPath)])
     }
 
     private func consentLine(_ file: String, _ whatKey: String) -> String {
@@ -393,12 +430,8 @@ private struct ServerItemRow: View {
         let install = action == .install
         let line = consentLine
         switch item {
-        case .hooks:
-            let what = install ? "setup.consent.what.hooks" : "setup.consent.what.hooks.remove"
-            return AgentSource.allCases.map { line($0.settingsPath, what) }
-        case .usage:
-            return [line(AgentSource.claude.settingsPath,
-                         install ? "setup.consent.what.usage" : "setup.consent.what.usage.remove")]
+        case .agent(let source):
+            return model.consent(source, install ? .install : .remove, on: row.id)
         case .command:
             var lines = [line(RemoteCommand.commandPath, install ? "settings.remote.what.command"
                                                                  : "settings.remote.what.command.remove"),
@@ -412,11 +445,7 @@ private struct ServerItemRow: View {
     }
 
     private var blocks: [RemoteMachinesModel.Block] {
-        switch item {
-        case .hooks: return RemoteMachinesModel.blocks.filter { AgentSource(rawValue: $0.id) != nil }
-        case .usage: return RemoteMachinesModel.blocks.filter { $0.id == "statusLine" || $0.id == "wrapping" }
-        case .command: return model.commandBlocks(for: row.id)
-        }
+        item == .command ? model.commandBlocks(for: row.id) : []
     }
 
     @ViewBuilder private var manualPart: some View {
@@ -478,12 +507,6 @@ private struct ServerItemRow: View {
         }
     }
 
-    /// How to take it out by hand; the command's is its own third block.
-    private var removal: String? {
-        switch item {
-        case .hooks: return model.t("remote.manual.remove", ["marker": RemoteSettings.manual.marker])
-        case .usage: return model.t("setup.manual.remove.usage")
-        case .command: return nil
-        }
-    }
+    /// How to take it out by hand: the command's is its own third block.
+    private var removal: String? { nil }
 }

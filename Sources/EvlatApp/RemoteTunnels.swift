@@ -25,9 +25,12 @@ final class RemoteTunnels {
     /// One machine's parts. The listener and the tunnel hold it weakly, so
     /// dropping it from `links` ends it.
     private final class Link {
-        let machine: RemoteMachine
+        /// Its `agents` follow the cards' switches (`setAgents`).
+        var machine: RemoteMachine
         let hooks: HooksProvider
-        let usage: StatusLineUsageProvider
+        /// One per agent switched on whose usage a status line posts; an
+        /// agent switched off has none, so its windows go with it.
+        var usage: [AgentSource: StatusLineUsageProvider] = [:]
         /// The machine's outside rows, namespaced by its id.
         let signals: SignalsProvider
         /// What the machine's `/signal` asks for; fixed for the link's life.
@@ -60,11 +63,9 @@ final class RemoteTunnels {
         /// whether to keep it: in memory for the try alone, stored once connected.
         var typed: (password: String, prompt: String, remember: Bool)?
 
-        init(machine: RemoteMachine, hooks: HooksProvider, usage: StatusLineUsageProvider,
-             signals: SignalsProvider, signalKey: String) {
+        init(machine: RemoteMachine, hooks: HooksProvider, signals: SignalsProvider, signalKey: String) {
             self.machine = machine
             self.hooks = hooks
-            self.usage = usage
             self.signals = signals
             self.signalKey = signalKey
         }
@@ -189,6 +190,38 @@ final class RemoteTunnels {
     /// is installed with.
     func signalKey(of id: String) -> String? { links[id]?.signalKey }
 
+    /// The machine's enabled agents (`RemoteMachine.enabledAgents`); `nil`
+    /// for no such machine, or while it follows every agent.
+    func enabledAgents(of id: String) -> Set<AgentSource>? {
+        guard let machine = links[id]?.machine, machine.agents != nil else { return nil }
+        return machine.enabledAgents
+    }
+
+    /// The machine's switches changed: kept on its entry (what the list
+    /// stores) and its usage providers brought in line.
+    func setAgents(_ agents: [String]?, of id: String) {
+        guard let link = links[id] else { return }
+        link.machine.agents = agents
+        syncUsage(link)
+        onChange()
+    }
+
+    /// A usage provider per agent on with a status line, none for the rest.
+    /// Which agents a server actually relays is its install's business
+    /// (`RemoteSettings.relays`): a provider nothing posts to draws nothing.
+    private func syncUsage(_ link: Link) {
+        let wanted = link.machine.enabledAgents.filter { $0.usage.statusLine != nil }
+        for (source, provider) in link.usage where !wanted.contains(source) {
+            registry.unregister(provider)
+            link.usage[source] = nil
+        }
+        for source in AgentSource.allCases where wanted.contains(source) && link.usage[source] == nil {
+            let provider = StatusLineUsageProvider(now: now, machine: link.machine.identity, source: source)
+            link.usage[source] = provider
+            registry.register(provider)
+        }
+    }
+
     /// The machine is known to want a password (`RemoteTunnel.asksForPassword`).
     func asksForPassword(of id: String) -> Bool { links[id]?.tunnel?.asksForPassword ?? false }
 
@@ -209,7 +242,6 @@ final class RemoteTunnels {
         guard links[machine.id] == nil else { return }
         let link = Link(machine: machine,
                         hooks: HooksProvider(platform: platform, machine: machine.identity),
-                        usage: StatusLineUsageProvider(now: now, machine: machine.identity, source: .claude),
                         signals: SignalsProvider(now: now, machine: machine.identity),
                         signalKey: key)
         link.startInteractive = interactive
@@ -262,10 +294,9 @@ final class RemoteTunnels {
                 link.tunnel?.heard()
                 switch delivery {
                 case .hook(let event): link.hooks.handle(event)
-                // A machine's tunnel carries Claude's windows only: its
-                // instance is Claude's, and Antigravity's relay is not
-                // installed on a server.
-                case .usage(let report): if report.source == link.usage.source { link.usage.handle(report) }
+                // To the machine's provider for that agent; none (switched
+                // off, or no status line) drops it.
+                case .usage(let report): link.usage[report.source]?.handle(report)
                 // A tunnel answers `/permission` and `/askpass` with `404`
                 // (`LocalAPI`): a remote machine never puts a card in front
                 // of this user, nor asks for a password.
@@ -284,7 +315,7 @@ final class RemoteTunnels {
         links[machine.id] = link
         order.append(machine.id)
         registry.register(link.hooks)
-        registry.register(link.usage)
+        syncUsage(link)
         registry.register(link.signals)
         store.password(for: machine.id) { [weak link] password in link?.hasStoredPassword = password != nil }
         link.listener?.start()
@@ -299,7 +330,7 @@ final class RemoteTunnels {
         // Its password goes with it; an id is never reused.
         store.delete(for: id)
         registry.unregister(link.hooks)
-        registry.unregister(link.usage)
+        for provider in link.usage.values { registry.unregister(provider) }
         registry.unregister(link.signals)
         onChange()
     }

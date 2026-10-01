@@ -367,7 +367,7 @@ final class SettingsModel: ObservableObject {
         "settings.command.note",
         "settings.attention",
         "settings.remote.machines", "settings.remote.note", "settings.remote.open", "settings.remote.closed",
-        "settings.remote.usage.detail", "settings.remote.command.detail",
+        "settings.remote.command.detail",
         "settings.remote.retry", "settings.remote.close",
         "settings.remote.what.command", "settings.remote.what.command.remove",
         "settings.remote.what.key", "settings.remote.what.key.remove",

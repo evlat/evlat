@@ -363,7 +363,7 @@ public final class HooksProvider: Provider {
                 updatedAt: session.since,
                 activity: session.activity,
                 machine: machine.map {
-                    Signal.Machine(name: $0.name, dim: dim(session, phase: phase, now: now))
+                    Signal.Machine(name: $0.name, dim: dim(session, phase: phase, now: now), id: $0.id)
                 }
             )
         }

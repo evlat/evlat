@@ -81,11 +81,6 @@
 "menu.force" = "Force state";
 "menu.force.follow" = "Follow sessions";
 
-/* After a hook write (the settings window, a remote machine): what the
-   agent needs to load the change. */
-"menu.hooks.hint.claude" = "In open Claude Code sessions, open /hooks once to load the change.";
-"menu.hooks.hint.codex" = "Codex asks you to trust the new hooks.";
-"menu.hooks.hint.remove" = "Codex may ask again to trust your other hooks.";
 /* A refused write, on its settings row until a write succeeds. The file is
    left as it was in every case. */
 "menu.hooks.error.unreadable" = "The settings file could not be read";
@@ -93,11 +88,6 @@
 "menu.hooks.error.noDirectory" = "The agent's folder is gone";
 "menu.hooks.error.changedUnderneath" = "The file changed while writing; try again";
 "menu.hooks.error.unwritable" = "The settings file could not be written";
-
-/* The usage line wraps the user's status line command so its JSON also
-   reaches Evlat. A wrapper changed by hand is left alone: an attention line
-   in the menu, a dim row in the settings. */
-"menu.usage.hint" = "Wraps your Claude Code status line; open sessions relay usage from their next message.";
 
 /* The remote machines: servers reached over ssh whose sessions show on the
    bar, set up in Settings → Remote Machines. */
@@ -171,11 +161,9 @@
 
 /* By hand: exactly what the automatic setup writes, to paste yourself.
    {placeholder} is the word to replace with your own command. */
-"remote.manual.claude" = "~/.claude/settings.json — merge this “hooks” block into the file, next to any hooks you already have:";
-"remote.manual.codex" = "~/.codex/hooks.json — the same for Codex, if it is on the server:";
-"remote.manual.antigravity" = "~/.gemini/config/hooks.json — for Antigravity (app or agy), if it is on the server:";
 "remote.manual.statusLine" = "The usage line — if settings.json has no “statusLine” yet, add this:";
 "remote.manual.wrapping" = "If it already has one, keep it and set its “command” to this, with your command in place of {placeholder} (a ' inside it is written '\\''):";
+"remote.manual.agent" = "{file} — merge this “hooks” block into the file, next to any hooks you already have:";
 "remote.manual.remove" = "To remove: delete every entry whose command contains {marker}, and put your statusLine command back. If the automatic setup changed a file, its first version is in the same folder with .evlat.bak added to the name.";
 "remote.manual.surface" = "What this opens: any process on the server can write hook events to Evlat through the tunnel — hooks carry no key. Rows from the evlat command need this machine's key, which only its user can read. If another user on the server holds port 48151 first, your events and the command's key go to their Mac. If two Macs install the command on one server, the last one's key wins. With GatewayPorts yes in the server's sshd_config, the port opens to the server's network.";
 "remote.copy" = "Copy";
@@ -203,10 +191,16 @@
 "remote.command.manual.key" = "~/.config/evlat/signal.token — this machine's key, readable by you alone:";
 "remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
 "remote.items.title" = "Set up on {name}";
-"remote.items.body" = "The tunnel only opens the way. For Claude on the server to tell this bar, these are written into the server's own files: Evlat connects over ssh and writes them, or you run the block on the server yourself.";
-"remote.item.hooks" = "Hooks";
-"remote.item.usage" = "Usage line";
+"remote.items.body" = "The tunnel only opens the way. For an agent on the server to tell this bar, these are written into the server's own files — the same cards as this Mac's, written over ssh, or a block you run on the server yourself. A server has no approval hook, and its Antigravity gets hooks only.";
 "remote.item.command" = "evlat command";
+/* An agent card on a server: the agent's folder is not there; and what
+   the agent needs after a write there, where it has something to say
+   (remote.hint.<install|remove>.<agent>). {agent} is the agent's name. */
+"remote.status.notFound" = "Not on this server";
+"remote.hint.install.claude" = "In open Claude Code sessions, open /hooks once to load the change.";
+"remote.hint.install.codex" = "Codex asks you to trust the new hooks.";
+"remote.hint.remove.codex" = "Codex may ask again to trust your other hooks.";
+"remote.hint.usage" = "Wraps your {agent} status line; open sessions relay usage from their next message.";
 "remote.reading" = "Reading the server…";
 "remote.reading.failed" = "Could not read the server; its rows are unknown.";
 "remote.combined" = "Copy everything as one block";
@@ -502,7 +496,6 @@
 "settings.remote.note" = "Click a machine to see what is set up on that server.";
 "settings.remote.open" = "open";
 "settings.remote.closed" = "closed";
-"settings.remote.usage.detail" = "{file} · statusLine";
 "settings.remote.command.detail" = "{command}\nkey {key}";
 "settings.remote.retry" = "Read again";
 "settings.remote.close" = "Close";

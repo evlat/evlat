@@ -2204,6 +2204,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         for machine in configuration.machines {
             tunnels.add(machine, key: remoteSignalKeys[machine.id] ?? SignalKey.generate())
         }
+        // Each machine's rows answer to its own switches, not this Mac's.
+        registry.machineSources = { [weak tunnels] id in tunnels?.enabledAgents(of: id) }
         remote = tunnels
         remoteSSHPath = sshPath
     }
@@ -2233,7 +2235,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             signalKey: { [weak self] id in self?.remote?.signalKey(of: id) },
             controlPath: { [weak self] id in self?.remote?.controlPath(of: id) },
             retryByUser: { [weak self] id in self?.remote?.retryByUser(id: id) },
-            asksForPassword: { [weak self] id in self?.remote?.asksForPassword(of: id) ?? false })
+            asksForPassword: { [weak self] id in self?.remote?.asksForPassword(of: id) ?? false },
+            setAgents: { [weak self] id, agents in self?.setMachineAgents(id: id, agents) })
     }
 
     /// The setup rows' way to the app: each closure is one of the
@@ -2482,6 +2485,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // it, and a machine added again gets a new one.
         remoteSignalKeys.removeValue(forKey: id)
         storeSignalKeys()
+    }
+
+    /// A machine card's switch: the machine's own set, kept on its entry —
+    /// stored with the list, or for the run alone when the list came from
+    /// `EVLAT_MACHINES`.
+    func setMachineAgents(id: String, _ agents: [String]?) {
+        remote?.setAgents(agents, of: id)
+        storeMachines()
+        scheduleRefresh()
     }
 
     /// Only a stored list is written back; one from the environment is read,

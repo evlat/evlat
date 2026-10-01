@@ -116,6 +116,25 @@ final class EnabledAgentsTests: XCTestCase {
         XCTAssertEqual(Set(registry.snapshot().ordered.map(\.entity)), ["x", "remote:m:s"])
     }
 
+    /// A machine's row answers to that machine's set, by its id; the same
+    /// rule, never this Mac's set, and a switched-off row is held back,
+    /// not lost.
+    func testAMachinesRowAnswersToTheMachinesSet() {
+        let remote = row("remote:m:s", .working, .official, source: .claude,
+                         machine: Signal.Machine(name: "devbox", id: "m"))
+        let other = row("remote:n:s", .working, .official, source: .claude,
+                        machine: Signal.Machine(name: "box", id: "n"))
+        let registry = registry([remote, other, row("c1", .working, .official, source: .claude)])
+        registry.machineSources = { $0 == "m" ? [.codex] : nil }
+        XCTAssertEqual(Set(registry.snapshot().ordered.map(\.entity)), ["remote:n:s", "c1"])
+        XCTAssertEqual(registry.snapshot().switchedOff, ["remote:m:s"])
+        XCTAssertEqual(Set(registry.signals().map(\.entity)), ["remote:n:s", "c1"])
+        registry.machineSources = { _ in [.claude] }
+        registry.enabledSources = { [] }
+        XCTAssertEqual(Set(registry.snapshot().ordered.map(\.entity)), ["remote:m:s", "remote:n:s"],
+                       "this Mac's set is this Mac's alone")
+    }
+
     func testNoSetDrawsEveryAgent() {
         let registry = registry([row("c1", .working, .official, source: .codex)])
         XCTAssertEqual(registry.snapshot().ordered.map(\.entity), ["c1"])

@@ -138,17 +138,30 @@ the user's change — an isolated process (`EVLAT_PORT`) keeps it in memory.
 An agent off has no session row: `Registry.signals()` drops it **after**
 the merge, `kind == .session` only, by asking whether the row's `source` is
 in the set (a file row and a hook row go together; a remote machine's rows
-are not this Mac's set). Its usage provider is unregistered, so its windows
+answer to that machine's set, `Registry.machineSources`, by
+`Signal.Machine.id`). Its usage provider is unregistered, so its windows
 go with it. An `/approval` request with no switched-on agent that takes
 approvals is answered `{}` at once and the held ones are let go. Its
 attention lines go quiet. Turning off an agent with Evlat's parts in its
 files asks whether they go too (the default) or stay.
 
-Remote machines add no provider type: each machine gets its own `hooks`,
-`claude-usage` and `signal` *instances*, fed through an `ssh -R` reverse
-tunnel. Identity comes from the listener, never from the request body; remote
-entities are namespaced (`remote:<machine>:<session>`,
+Remote machines add no provider type: each machine gets its own `hooks`
+and `signal` *instances*, and a `StatusLineUsageProvider` per agent switched
+on there whose usage a status line posts (`<id>@<machine>`), fed through an
+`ssh -R` reverse tunnel; a usage report goes to the machine's provider for
+its `source`, or is dropped. Identity comes from the listener, never from the
+request body; remote entities are namespaced (`remote:<machine>:<session>`,
 `signal:<machine>:<id>`) so they can never merge with local rows.
+
+A machine shows this Mac's agent cards (Settings → Remote Machines, the same
+`SetupRowView` with another `SetupCardDriver`), written over `ssh`: one
+press is one agent's unit (`RemoteSettings.Change.agent`), its one file in
+one write. A server has no approval hook, and only `RemoteSettings.relays`
+— Claude — gets the usage line there; Antigravity's remote relay is not
+measured and not installed. Its switches are the machine's own set,
+`remote.machines[].agents` (`decodeIfPresent`; none stored is every agent
+the server has, and it is written only on the user's change), independent
+of `agents.enabled`; an `EVLAT_MACHINES` machine keeps it for the run.
 
 Each machine's tunnel is Evlat's **own `ssh` master** (`-M -S <socket>
 -o ControlPersist=no`, socket under `$TMPDIR/evlat`, its path a parameter

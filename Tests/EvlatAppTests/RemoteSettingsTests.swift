@@ -338,6 +338,51 @@ final class RemoteSettingsTests: XCTestCase {
         }
     }
 
+    /// Claude's card on a server is one write of its one file: the hooks
+    /// (no approval hook) and the usage line, the user's status line
+    /// wrapped and kept aside — the read then says the unit is current —
+    /// and one removal takes both out, the status line back as it was.
+    func testClaudesUnitIsOneWriteOfHooksAndUsageLine() throws {
+        let original = #"{"statusLine":{"type":"command","command":"bash ~/.claude/line.sh","padding":0}}"#
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try seed(.claude, original)
+            let before = sshRuns
+            XCTAssertEqual(apply(.agent(.claude), .install, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(sshRuns - before, 2, "\(shell): one read, one write")
+            let reading = try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get()
+            XCTAssertEqual(reading.unit(.claude), .state(.init(hooks: .current, relay: .current)), shell)
+            let settings = try SettingsFile.read(claude(remote))
+            XCTAssertEqual(LocalHooks.state(of: settings, for: .claude, approvals: true), .outdated,
+                           "\(shell): a server has no approval hook")
+            XCTAssertNotNil(bytes(statusBackup(claude(remote))), "\(shell): the status line it wrapped is kept")
+            XCTAssertEqual(apply(.agent(.claude), .install, ssh: ssh), .success(.unchanged), shell)
+
+            XCTAssertEqual(apply(.agent(.claude), .remove, ssh: ssh), .success(.written), shell)
+            let removed = try SettingsFile.read(claude(remote))
+            XCTAssertEqual(LocalHooks.state(of: removed, for: .claude, approvals: false), .missing, shell)
+            XCTAssertEqual((removed["statusLine"] as? [String: Any])?["command"] as? String,
+                           "bash ~/.claude/line.sh", "\(shell): the user's command is back")
+        }
+    }
+
+    /// Antigravity's card on a server is its hooks alone: no usage line is
+    /// installed there (unmeasured). The folder is made where the agent is.
+    func testAntigravitysUnitIsItsHooksAlone() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try FileManager.default.createDirectory(at: remote.appendingPathComponent(".gemini/antigravity-cli"),
+                                                    withIntermediateDirectories: true)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.antigravity),
+                           .state(.init(hooks: .missing, relay: nil)), shell)
+            XCTAssertEqual(apply(.agent(.antigravity), .install, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.antigravity),
+                           .state(.init(hooks: .current, relay: nil)), shell)
+            let cli = remote.appendingPathComponent(".gemini/antigravity-cli/settings.json")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: cli.path), "\(shell): no relay on a server")
+        }
+    }
+
     /// Without the agent on the server nothing is made: the folder's
     /// absence still says Antigravity is not there.
     func testAntigravitysHooksFolderIsNotMadeWhereTheAgentIsNot() throws {

@@ -157,13 +157,18 @@ public struct Signal: Equatable {
         /// up, the row has been heard from since it came up, and a `working`
         /// row has not gone quiet — so nothing here runs on a timer.
         public let dim: Dim?
+        /// The machine's stable id (`Identity.id`): which machine's enabled
+        /// agents the row answers to (`Registry`). `nil` from a provider
+        /// that never names one.
+        public let id: String?
 
         /// Whether the machine can be heard right now.
         public var reachable: Bool { dim == nil }
 
-        public init(name: String, dim: Dim? = nil) {
+        public init(name: String, dim: Dim? = nil, id: String? = nil) {
             self.name = name
             self.dim = dim
+            self.id = id
         }
 
         /// A dimmed row's reason and the moment it was lost. The moment is

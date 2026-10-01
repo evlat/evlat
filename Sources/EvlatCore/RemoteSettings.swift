@@ -32,13 +32,17 @@ public enum RemoteSettings {
     public enum Change: Hashable {
         case hooks(AgentSource)
         case statusLine
+        /// The agent as one unit (`AgentIntegration`'s rule on a server):
+        /// its hooks, and — where the server gets its status line
+        /// (`relays`) — the usage line, in one write of its one file.
+        case agent(AgentSource)
         /// `RemotePath.line` in a startup file (`.bashrc`…): text, not JSON.
         case pathLine(String)
 
         /// The file, relative to the server's `$HOME`.
         public var path: String {
             switch self {
-            case .hooks(let source): return source.settingsPath
+            case .hooks(let source), .agent(let source): return source.settingsPath
             // Claude's always has one.
             case .statusLine: return RemoteSettings.statusLineSource.statusLinePath!
             case .pathLine(let file): return file
@@ -51,14 +55,23 @@ public enum RemoteSettings {
         /// (`AgentSource.opensHooksDirectory`). Empty: a missing folder is
         /// `noDirectory`, the agent is not on the server.
         public var opening: [String] {
-            guard case .hooks(let source) = self, source.opensHooksDirectory else { return [] }
-            return source.presenceDirectories
+            switch self {
+            case .hooks(let source), .agent(let source):
+                return source.opensHooksDirectory ? source.presenceDirectories : []
+            case .statusLine, .pathLine:
+                return []
+            }
         }
     }
 
     /// The one agent whose status line a server gets: Antigravity's relay
     /// there has not been measured.
     static let statusLineSource = AgentSource.claude
+
+    /// Whether `source`'s unit on a server includes the usage line. The
+    /// same file as its hooks: `statusLineSource`'s status line lives in
+    /// its settings.
+    public static func relays(_ source: AgentSource) -> Bool { source == statusLineSource }
 
     public enum Action: Equatable { case install, remove }
 
@@ -219,12 +232,42 @@ public enum RemoteSettings {
                     return nil
                 }
                 return Write(contents: data, backup: nil)
+            case (.agent(let source), .install):
+                return try installUnit(source, settings: settings)
+            case (.agent(let source), .remove):
+                return try plan(original: original, { settings in
+                    let hooks = LocalHooks.removing(from: settings, for: source, approvals: false)
+                    guard relays(source) else { return hooks }
+                    // Someone's own wrapper is left as it is (`nil`).
+                    return StatusLineRelay.removing(from: hooks, source: source) ?? hooks
+                }).map { Write(contents: $0, backup: nil) }
             case (.pathLine, _):
                 return nil
             }
         } catch let failure as SettingsFile.Failure {
             throw Failure.file(failure)
         }
+    }
+
+    /// The unit's install: hooks, then the usage line where it is a part
+    /// and still missing — a wrapper changed by hand is never written over.
+    /// The relay's backup is carried only when this write wraps the
+    /// `statusLine`, as on this Mac (`AgentIntegration`). Nothing to write
+    /// while a part that should be there is not: a shape not ours, refused.
+    private static func installUnit(_ source: AgentSource, settings: [String: Any]) throws -> Write? {
+        var next = LocalHooks.installing(into: settings, for: source, approvals: false)
+        let wraps = relays(source) && StatusLineRelay.state(of: settings, source: source) == .missing
+        if wraps, let wrapped = StatusLineRelay.installing(into: next, source: source) { next = wrapped }
+        guard !NSDictionary(dictionary: next).isEqual(to: settings) else {
+            let relayMissing = relays(source) && StatusLineRelay.state(of: settings, source: source) == .missing
+            if LocalHooks.state(of: settings, for: source, approvals: false) != .current || relayMissing {
+                throw SettingsFile.Failure.malformed
+            }
+            return nil
+        }
+        let wrapped = wraps && StatusLineRelay.state(of: next, source: source) == .current
+        return Write(contents: try SettingsFile.encode(next),
+                     backup: wrapped ? try StatusLineRelay.backupContents(of: settings) : nil)
     }
 
     // MARK: - Write
@@ -312,6 +355,17 @@ public enum RemoteSettings {
             found(RemoteSettings.statusLineSource) { StatusLineRelay.state(of: $0, source: RemoteSettings.statusLineSource) }
         }
 
+        /// The agent as one unit, by the same rule as this Mac's card
+        /// (`AgentIntegration.State`): its hooks, and the usage line where
+        /// the server gets one (`relays`) — read from the same file.
+        public func unit(_ source: AgentSource) -> Found<AgentIntegration.State> {
+            found(source) { settings in
+                AgentIntegration.State(
+                    hooks: LocalHooks.state(of: settings, for: source, approvals: false),
+                    relay: RemoteSettings.relays(source) ? StatusLineRelay.state(of: settings, source: source) : nil)
+            }
+        }
+
         private func found<State>(_ source: AgentSource, _ state: ([String: Any]) -> State) -> Found<State> {
             switch files[source] {
             case .success(let snapshot)?:
@@ -397,27 +451,21 @@ public enum RemoteSettings {
     /// when there is nothing to write, the agent's folder is missing, the
     /// file could not be read, or the command is somebody else's; a
     /// wrapper changed by hand keeps the file's hooks part and loses only
-    /// the usage line. `nil`: nothing to write at all.
+    /// the usage line. Only `agents` get a part: the machine's switches.
+    /// `nil`: nothing to write at all.
     ///
     /// Each part is a `sh` of its own on a quoted heredoc: `exit` and the
     /// traps stay inside it, nothing is expanded by the user's shell, and a
     /// part that fails says which file on stderr. No line starts with `#`
     /// outside a part: an interactive zsh reads a comment as a command.
-    public static func combinedScript(_ reading: Reading, key: String) -> String? {
+    public static func combinedScript(_ reading: Reading, key: String,
+                                      agents: Set<AgentSource> = Set(AgentSource.allCases)) -> String? {
         var parts: [String] = []
-        for source in AgentSource.allCases {
+        for source in AgentSource.allCases where agents.contains(source) {
             guard case .success(let snapshot)? = reading.files[source] else { continue }
-            var write: Write?
-            do {
-                write = try plan(.hooks(source), .install, original: snapshot.bytes)
-            } catch {
-                continue
-            }
-            if source == statusLineSource,
-               let usage = (try? plan(.statusLine, .install, original: write?.contents ?? snapshot.bytes)) ?? nil {
-                write = usage
-            }
-            guard let write else { continue }
+            // The automatic button's own transform: the unit, hooks and
+            // usage line together.
+            guard let write = (try? plan(.agent(source), .install, original: snapshot.bytes)) ?? nil else { continue }
             parts.append(part(file: "~/" + source.settingsPath,
                               writeScript(path: source.settingsPath, expected: snapshot.checksum, write: write,
                                           opening: Change.hooks(source).opening)))

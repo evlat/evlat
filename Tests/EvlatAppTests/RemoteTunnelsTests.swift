@@ -270,6 +270,69 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertTrue(tunnels.state(of: "fake")?.isConnected == true)
     }
 
+    /// A usage report goes to the machine's provider for its own agent —
+    /// no agent is singled out — and an agent switched off on the machine
+    /// has no provider: its report is dropped and its windows go.
+    func testAUsageReportGoesToItsAgentsProviderOnTheMachine() throws {
+        let fake = try fakeSSH(.connect)
+        let registry = Registry()
+        let tunnels = make(ssh: fake.path, registry: registry)
+        tunnels.add(machine, key: key)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
+            return XCTFail("the machine's listener is not up")
+        }
+        func post(_ source: AgentSource, _ body: String) -> Int {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(source.usagePath!)")!)
+            request.httpMethod = "POST"
+            request.httpBody = Data(body.utf8)
+            return send(request)
+        }
+        let reset = Int(Date().timeIntervalSince1970) + 3600
+        XCTAssertEqual(post(.claude, #"{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":\#(reset)}}}"#), 200)
+        XCTAssertEqual(post(.antigravity, #"{"quota":{"gemini-5h":{"remaining_fraction":0.5,"reset_time":"2099-01-01T00:00:00Z"}}}"#), 200)
+        waitUntil("both windows") { registry.snapshot().usage.count == 2 }
+        XCTAssertEqual(Set(registry.snapshot().usage.map(\.provider)),
+                       ["claude-usage@fake", "antigravity-usage@fake"], "each to its own agent's provider")
+
+        tunnels.setAgents(["claude", "codex"], of: "fake")
+        XCTAssertEqual(registry.snapshot().usage.map(\.provider), ["claude-usage@fake"],
+                       "switched off: its provider and windows go")
+        XCTAssertEqual(post(.antigravity, #"{"quota":{"gemini-5h":{"remaining_fraction":0.2,"reset_time":"2099-01-01T00:00:00Z"}}}"#), 200)
+        XCTAssertEqual(registry.snapshot().usage.map(\.provider), ["claude-usage@fake"], "and its report is dropped")
+        XCTAssertEqual(tunnels.machines.first?.agents, ["claude", "codex"], "kept on the machine's entry")
+        XCTAssertEqual(tunnels.enabledAgents(of: "fake"), [.claude, .codex])
+    }
+
+    /// A machine's switches hide its own agents' rows, after the merge,
+    /// and leave this Mac's set alone; the hidden row is switched off, not
+    /// gone, so its finish is not retold when it comes back.
+    func testAMachinesSwitchesHideItsOwnRowsOnly() throws {
+        let fake = try fakeSSH(.connect)
+        let registry = Registry()
+        let tunnels = make(ssh: fake.path, registry: registry)
+        registry.machineSources = { [weak tunnels] in tunnels?.enabledAgents(of: $0) }
+        registry.enabledSources = { [] }
+        tunnels.add(machine, key: key)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
+            return XCTFail("the machine's listener is not up")
+        }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook")!)
+        request.httpMethod = "POST"
+        request.httpBody = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s-3"}"#.utf8)
+        XCTAssertEqual(send(request), 200)
+        waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "remote:fake:s-3" } }
+        XCTAssertEqual(registry.snapshot().ordered.first?.machine?.id, "fake",
+                       "this Mac's empty set does not hide a machine's row")
+
+        tunnels.setAgents(["codex"], of: "fake")
+        XCTAssertEqual(registry.snapshot().ordered, [])
+        XCTAssertEqual(registry.snapshot().switchedOff, ["remote:fake:s-3"])
+        tunnels.setAgents(["codex", "claude"], of: "fake")
+        XCTAssertEqual(registry.snapshot().ordered.map(\.entity), ["remote:fake:s-3"])
+    }
+
     func testRemovingAMachineDropsItsRows() throws {
         let fake = try fakeSSH(.connect)
         let registry = Registry()

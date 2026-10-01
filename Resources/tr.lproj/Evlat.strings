@@ -51,16 +51,11 @@
 "menu.force" = "Durumu zorla";
 "menu.force.follow" = "Oturumları izle";
 
-"menu.hooks.hint.claude" = "Açık Claude Code oturumlarında değişikliği yüklemek için /hooks'u bir kez aç.";
-"menu.hooks.hint.codex" = "Codex yeni hook'lara güvenip güvenmediğini soracak.";
-"menu.hooks.hint.remove" = "Codex diğer hook'larına yeniden güvenmeni isteyebilir.";
 "menu.hooks.error.unreadable" = "Ayar dosyası okunamadı";
 "menu.hooks.error.malformed" = "Ayar dosyası Evlat'ın düzenleyebileceği biçimde değil; olduğu gibi bırakıldı";
 "menu.hooks.error.noDirectory" = "Aracın klasörü yok";
 "menu.hooks.error.changedUnderneath" = "Dosya yazılırken değişti; yeniden dene";
 "menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";
-
-"menu.usage.hint" = "Claude Code durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";
 
 "remote.empty.title" = "Henüz uzak makine yok";
 "remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";
@@ -117,11 +112,9 @@
 "remote.result.unwritable" = "dosya yazılamadı";
 "remote.result.unreachable" = "Sunucuya ulaşılamadı; hiçbir şey değişmedi.";
 
-"remote.manual.claude" = "~/.claude/settings.json — bu “hooks” bloğunu dosyaya, varsa kendi hook'larının yanına ekle:";
-"remote.manual.codex" = "~/.codex/hooks.json — sunucuda Codex varsa onun için aynısı:";
-"remote.manual.antigravity" = "~/.gemini/config/hooks.json — sunucuda Antigravity (uygulama ya da agy) varsa onun için:";
 "remote.manual.statusLine" = "Kullanım satırı — settings.json'da henüz “statusLine” yoksa bunu ekle:";
 "remote.manual.wrapping" = "Zaten varsa onu koru ve “command” değerini bununla değiştir; {placeholder} yerine kendi komutunu yaz (içindeki ' işareti '\\'' diye yazılır):";
+"remote.manual.agent" = "{file} — bu “hooks” bloğunu dosyaya, varsa kendi hook'larının yanına ekle:";
 "remote.manual.remove" = "Kaldırmak için: komutunda {marker} geçen her girdiyi sil ve statusLine komutunu eski hâline getir. Otomatik kurulum bir dosyayı değiştirdiyse ilk hâli aynı klasörde, adına .evlat.bak eklenmiş olarak durur.";
 "remote.manual.surface" = "Bunun açtığı yüzey: sunucudaki her süreç tünelden Evlat'a hook olayı yazabilir — hook'lar anahtar taşımaz. evlat komutunun satırları bu makinenin anahtarını ister ve onu yalnız o kullanıcı okuyabilir. Sunucudaki başka bir kullanıcı 48151 portunu önce tutarsa olayların ve komutun anahtarı onun Mac'ine gider. Aynı sunucuya iki Mac komutu kurarsa sonuncunun anahtarı geçer. Sunucunun sshd_config'inde GatewayPorts yes varsa port sunucunun ağına açılır.";
 "remote.copy" = "Kopyala";
@@ -146,10 +139,13 @@
 "remote.command.manual.key" = "~/.config/evlat/signal.token — bu makinenin anahtarı, yalnız senin okuyabileceğin biçimde:";
 "remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
 "remote.items.title" = "{name} sunucusuna kurulanlar";
-"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki Claude'un bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır: Evlat ssh ile bağlanıp yazar, ya da bloğu sen sunucuda çalıştırırsın.";
-"remote.item.hooks" = "Hook'lar";
-"remote.item.usage" = "Kullanım satırı";
+"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki bir ajanın bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır — bu Mac'tekiyle aynı kartlar, ssh üstünden yazılır; ya da bloğu sen sunucuda çalıştırırsın. Sunucuda onay hook'u yoktur; Antigravity'ye yalnız hook'lar kurulur.";
 "remote.item.command" = "evlat komutu";
+"remote.status.notFound" = "Bu sunucuda bulunamadı";
+"remote.hint.install.claude" = "Açık Claude Code oturumlarında değişikliği yüklemek için /hooks'u bir kez aç.";
+"remote.hint.install.codex" = "Codex yeni hook'lara güvenip güvenmediğini soracak.";
+"remote.hint.remove.codex" = "Codex diğer hook'larına yeniden güvenmeni isteyebilir.";
+"remote.hint.usage" = "{agent} durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";
 "remote.reading" = "Sunucu okunuyor…";
 "remote.reading.failed" = "Sunucu okunamadı; satırların durumu bilinmiyor.";
 "remote.combined" = "Hepsini tek blok olarak kopyala";
@@ -445,7 +441,6 @@
 "settings.remote.note" = "Bir makineye tıkla: o sunucuya neyin kurulu olduğu açılır.";
 "settings.remote.open" = "açık";
 "settings.remote.closed" = "kapalı";
-"settings.remote.usage.detail" = "{file} · statusLine";
 "settings.remote.command.detail" = "{command}\nanahtar {key}";
 "settings.remote.retry" = "Yeniden oku";
 "settings.remote.close" = "Kapat";

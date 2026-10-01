@@ -142,7 +142,7 @@ public struct SignalReport: Equatable {
         return Signal(provider: Self.provider, entity: entity, kind: .custom,
                       phase: word.phase, progress: progress, label: label, detail: detail,
                       fidelity: .manual, rawStatus: word.rawValue, updatedAt: phaseStart,
-                      machine: machine.map { Signal.Machine(name: $0.name, dim: dim) }, sender: sender)
+                      machine: machine.map { Signal.Machine(name: $0.name, dim: dim, id: $0.id) }, sender: sender)
     }
 
     // MARK: - Reading

@@ -123,7 +123,7 @@ final class SignalsProviderTests: XCTestCase {
         XCTAssertEqual(row?.provider, SignalsProvider.id)
         XCTAssertEqual(row?.kind, .custom)
         XCTAssertEqual(row?.fidelity, .manual)
-        XCTAssertEqual(row?.machine, Signal.Machine(name: "devbox"))
+        XCTAssertEqual(row?.machine, Signal.Machine(name: "devbox", id: "M"))
         XCTAssertEqual(row?.isLive, true)
     }
 

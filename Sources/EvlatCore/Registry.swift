@@ -43,6 +43,11 @@ public final class Registry {
     /// the storage; the rule that reads it is here.
     public var enabledSources: () -> Set<AgentSource>? = { nil }
 
+    /// A remote machine's own enabled agents, by its id; `nil` draws every
+    /// agent's. A machine's set is its own, never this Mac's: the same rule
+    /// (`shows`), asked of another set.
+    public var machineSources: (String) -> Set<AgentSource>? = { _ in nil }
+
     public init() {}
 
     public func register(_ provider: Provider) {
@@ -87,7 +92,7 @@ public final class Registry {
     /// invisible the day it arrives.
     public func signals() -> [Signal] {
         let enabled = enabledSources()
-        return merged().filter { Self.shows($0, enabled: enabled) }
+        return merged().filter { shows($0, enabled: enabled) }
     }
 
     /// Every entity's one row, before the enabled set is asked.
@@ -113,12 +118,21 @@ public final class Registry {
     ///
     /// Only sessions: a usage window leaves with its provider's
     /// registration, and a chat or an outside job belongs to no agent's
-    /// switch. A session with no agent named passes, as does a remote
-    /// machine's — a machine keeps its own set, not this Mac's.
+    /// switch. A session with no agent named passes. A remote machine's
+    /// is asked of that machine's set (`machineSources`), not this Mac's.
     static func shows(_ signal: Signal, enabled: Set<AgentSource>?) -> Bool {
         guard let enabled, signal.kind == .session, signal.machine == nil,
               let source = signal.source else { return true }
         return enabled.contains(source)
+    }
+
+    /// `shows`, with a machine's row asked of its own set. One with no id
+    /// passes: there is no set to ask.
+    private func shows(_ signal: Signal, enabled: Set<AgentSource>?) -> Bool {
+        guard let machine = signal.machine else { return Self.shows(signal, enabled: enabled) }
+        guard let id = machine.id, let own = machineSources(id), signal.kind == .session,
+              let source = signal.source else { return true }
+        return own.contains(source)
     }
 
     /// Reduces one entity's rows to the single line the bar shows.
@@ -378,7 +392,7 @@ public final class Registry {
     public func snapshot(seen: Set<Finish> = []) -> Snapshot {
         let enabled = enabledSources()
         let rows = merged()
-        return Snapshot(signals: rows.filter { Self.shows($0, enabled: enabled) }, seen: seen,
-                        switchedOff: Set(rows.filter { !Self.shows($0, enabled: enabled) }.map(\.entity)))
+        return Snapshot(signals: rows.filter { shows($0, enabled: enabled) }, seen: seen,
+                        switchedOff: Set(rows.filter { !shows($0, enabled: enabled) }.map(\.entity)))
     }
 }

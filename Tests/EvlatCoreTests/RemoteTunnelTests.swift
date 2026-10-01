@@ -191,6 +191,26 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertEqual(RemoteMachine.decode(nil), [])
     }
 
+    /// An entry stored before the machines had switches reads with every
+    /// agent on and is written back as it was: the field appears only once
+    /// the user changes a switch, and a name this build does not know stays.
+    func testAnEntryWithoutAgentsIsTheLiveDefaultAndIsNotRewritten() throws {
+        let old = Data(#"[{"id":"u-1","target":"ben@devbox"}]"#.utf8)
+        let machine = try XCTUnwrap(RemoteMachine.decode(old).first)
+        XCTAssertNil(machine.agents)
+        XCTAssertEqual(machine.enabledAgents, Set(AgentSource.allCases))
+        let again = try XCTUnwrap(RemoteMachine.encode([machine]))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: again) as? [[String: Any]])
+        XCTAssertEqual(object.first?.keys.sorted(), ["id", "target"], "no agents key written for nil")
+
+        var changed = machine
+        changed.agents = ["codex", "later-agent"]
+        let stored = try XCTUnwrap(RemoteMachine.encode([changed]))
+        let back = try XCTUnwrap(RemoteMachine.decode(stored).first)
+        XCTAssertEqual(back.agents, ["codex", "later-agent"])
+        XCTAssertEqual(back.enabledAgents, [.codex])
+    }
+
     // MARK: - Failures
 
     func testEachOpenSSHLineIsClassified() {

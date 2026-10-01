@@ -136,6 +136,11 @@ struct SetupManual: Equatable {
     /// An agent's `statusLine`, when its usage line is a part: a second
     /// block under the hooks'.
     var statusLine: String? = nil
+    /// The sentences above the blocks, where they differ from this Mac's:
+    /// a server's name the file to paste into.
+    var lead: String? = nil
+    var statusLineLead: String? = nil
+    var wrappingLead: String? = nil
 }
 
 /// Something the menu's dim lines and the settings list's dot are made of.
@@ -602,6 +607,23 @@ final class SetupModel: ObservableObject {
     /// "Cancel": the switch stays on, nothing written.
     func cancelTurnOff() { turningOff = nil }
 
+    /// This Mac's cards: the view's state and actions, all this model's.
+    var card: SetupCardDriver {
+        SetupCardDriver(
+            lang: lang, turningOff: turningOff, manualOpen: manualOpen,
+            statusText: { [lang] in L10n.t($0.key, in: lang) },
+            consent: { [unowned self] in self.consent($0, $1) },
+            perform: { [unowned self] in self.perform($0) },
+            setEnabled: { [unowned self] in self.setEnabled($0, $1) },
+            confirmTurnOff: { [unowned self] in self.confirmTurnOff(remove: $0) },
+            cancelTurnOff: { [unowned self] in self.cancelTurnOff() },
+            relayRemovalConsent: { [unowned self] in self.relayRemovalConsent($0) },
+            removeRelay: { [unowned self] in self.removeRelay($0) },
+            manual: { [unowned self] in self.manual($0) },
+            toggleManual: { [unowned self] in self.toggleManual($0) },
+            check: { [unowned self] in self.check() })
+    }
+
     // MARK: - By hand
 
     /// Opens `item`'s block, closing any other; the open one closes.
@@ -685,13 +707,41 @@ final class SetupModel: ObservableObject {
             .map(AppController.failureKey)
 }
 
+/// What a card needs from whoever writes it — this Mac's files
+/// (`SetupModel.card`) or a server's over `ssh` (`RemoteMachinesModel`):
+/// the state it draws, as values, and the actions, as closures. The same
+/// view draws both; only these differ.
+struct SetupCardDriver {
+    let lang: String
+    var turningOff: AgentSource?
+    var manualOpen: SetupItem?
+    /// A write or a read runs where the card writes: its buttons are off.
+    var busy = false
+    /// The rows a running write or read is about: a spinner for the state.
+    var spinning: (SetupItem) -> Bool = { _ in false }
+    /// A state's word: a server says "Not on this server".
+    var statusText: (SetupStatus) -> String
+    var consent: (SetupItem, SetupAction) -> [String]
+    var perform: (SetupItem) -> Void
+    var setEnabled: (AgentSource, Bool) -> Void
+    /// The turn-off question's answer: `true` takes Evlat's parts out.
+    var confirmTurnOff: (Bool) -> Void
+    var cancelTurnOff: () -> Void
+    var relayRemovalConsent: (AgentSource) -> [String]
+    var removeRelay: (AgentSource) -> Void
+    var manual: (SetupItem) -> SetupManual?
+    var toggleManual: (SetupItem) -> Void
+    var check: () -> Void
+}
+
 /// One row as both windows draw it: name and file, status; the button
 /// inside a box that lists what it writes; an agent's parts under "What it
-/// writes"; the "by hand" block. Holds no state of its own but "Copied"; the model
-/// says what is open.
+/// writes"; the "by hand" block. Holds no state of its own but "Copied"; the
+/// driver says what is open. Its parent observes the model, so a change
+/// there draws the card again with a new driver.
 struct SetupRowView: View {
     let row: SetupRow
-    @ObservedObject var model: SetupModel
+    let card: SetupCardDriver
     /// The setup writes with one press for all rows: its rows draw no
     /// button and no consent of their own.
     var showsButton = true
@@ -704,7 +754,22 @@ struct SetupRowView: View {
     /// An agent's "What it writes" is open.
     @State private var details = false
 
-    private var lang: String { model.lang }
+    init(row: SetupRow, card: SetupCardDriver, showsButton: Bool = true, monospaced: Bool = true,
+         queued: Binding<Bool>? = nil) {
+        self.row = row
+        self.card = card
+        self.showsButton = showsButton
+        self.monospaced = monospaced
+        self.queued = queued
+    }
+
+    /// This Mac's card.
+    init(row: SetupRow, model: SetupModel, showsButton: Bool = true, monospaced: Bool = true,
+         queued: Binding<Bool>? = nil) {
+        self.init(row: row, card: model.card, showsButton: showsButton, monospaced: monospaced, queued: queued)
+    }
+
+    private var lang: String { card.lang }
 
     /// The settings' agent card carries the agent's switch; the setup's
     /// switch is its queue's.
@@ -712,10 +777,12 @@ struct SetupRowView: View {
 
     var body: some View {
         RowBox {
-            if switches, !row.enabled, let source = row.item.agent {
+            // An agent not there reads as such, dim, its switch off: "off"
+            // would say the user chose it.
+            if switches, !row.enabled, row.status != .notFound, let source = row.item.agent {
                 offCard(source)
             } else {
-                card
+                onCard
             }
         }
     }
@@ -737,8 +804,8 @@ struct SetupRowView: View {
     }
 
     private func agentSwitch(_ source: AgentSource) -> some View {
-        Toggle("", isOn: Binding(get: { row.enabled && model.turningOff != source },
-                                 set: { model.setEnabled(source, $0) }))
+        Toggle("", isOn: Binding(get: { row.enabled && card.turningOff != source },
+                                 set: { card.setEnabled(source, $0) }))
             .toggleStyle(.switch)
             .controlSize(.small)
             .labelsHidden()
@@ -755,11 +822,11 @@ struct SetupRowView: View {
                 .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
-                Button(L10n.t("setup.agent.turnOff.remove", in: lang)) { model.confirmTurnOff(remove: true) }
+                Button(L10n.t("setup.agent.turnOff.remove", in: lang)) { card.confirmTurnOff(true) }
                     .buttonStyle(SmallButtonStyle(primary: true))
-                Button(L10n.t("setup.agent.turnOff.keep", in: lang)) { model.confirmTurnOff(remove: false) }
+                Button(L10n.t("setup.agent.turnOff.keep", in: lang)) { card.confirmTurnOff(false) }
                     .buttonStyle(SmallButtonStyle())
-                Button(L10n.t("setup.agent.turnOff.cancel", in: lang)) { model.cancelTurnOff() }
+                Button(L10n.t("setup.agent.turnOff.cancel", in: lang)) { card.cancelTurnOff() }
                     .buttonStyle(SmallButtonStyle())
             }
             .padding(.top, 4)
@@ -771,7 +838,7 @@ struct SetupRowView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(SettingsPalette.consentLine))
     }
 
-    @ViewBuilder private var card: some View {
+    @ViewBuilder private var onCard: some View {
         HStack(alignment: .center, spacing: 10) {
             RowTitle(name: row.name, detail: row.detail, monospaced: monospaced,
                      code: row.item == .commandLink)
@@ -789,15 +856,16 @@ struct SetupRowView: View {
             Text(failure).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        if let source = row.item.agent, switches, model.turningOff == source {
+        if let source = row.item.agent, switches, card.turningOff == source {
             turnOffQuestion()
         }
         if showsButton, !row.parts.isEmpty {
             partsPart
         }
-        if showsButton, let action = row.action, model.manualOpen != row.item {
-            ConsentAction(lines: model.consent(row.item, action), title: L10n.t(action.key, in: lang)) {
-                model.perform(row.item)
+        if showsButton, let action = row.action, card.manualOpen != row.item, !card.spinning(row.item) {
+            ConsentAction(lines: card.consent(row.item, action), title: L10n.t(action.key, in: lang),
+                          enabled: !card.busy) {
+                card.perform(row.item)
             }
         }
         manualPart
@@ -806,20 +874,22 @@ struct SetupRowView: View {
     /// The status, or in the setup the switch: a missing row says nothing
     /// there but its switch, one set up by hand that it is waiting.
     @ViewBuilder private var trailing: some View {
-        if queued != nil, model.manualOpen == row.item {
+        if queued != nil, card.manualOpen == row.item {
             Text(L10n.t("setup.flow.manual.waiting", in: lang))
                 .font(.system(size: 12)).foregroundStyle(SettingsPalette.wait).fixedSize()
         } else if let queued, row.action?.installs == true {
             if row.status != .missing {
-                StatusText(status: row.status, text: L10n.t(row.status.key, in: lang))
+                StatusText(status: row.status, text: card.statusText(row.status))
             }
             Toggle("", isOn: queued)
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .labelsHidden()
                 .accessibilityLabel(row.name)
+        } else if card.spinning(row.item) {
+            ProgressView().controlSize(.small).frame(height: 16)
         } else {
-            StatusText(status: row.status, text: L10n.t(row.status.key, in: lang))
+            StatusText(status: row.status, text: card.statusText(row.status))
         }
     }
 
@@ -833,7 +903,7 @@ struct SetupRowView: View {
                 ForEach(row.parts, id: \.name) { part in
                     HStack(spacing: 10) {
                         RowTitle(name: part.name, detail: part.file, monospaced: true)
-                        StatusText(status: part.status, text: L10n.t(part.status.key, in: lang))
+                        StatusText(status: part.status, text: card.statusText(part.status))
                     }
                 }
             }
@@ -841,42 +911,45 @@ struct SetupRowView: View {
             .padding(.horizontal, 8)
             .background(RoundedRectangle(cornerRadius: 8).fill(SettingsPalette.consent))
             if row.removesRelay, let source = row.item.agent {
-                ConsentAction(lines: model.relayRemovalConsent(source),
-                              title: L10n.t("setup.agent.removeUsage", in: lang)) {
-                    model.removeRelay(source)
+                ConsentAction(lines: card.relayRemovalConsent(source),
+                              title: L10n.t("setup.agent.removeUsage", in: lang), enabled: !card.busy) {
+                    card.removeRelay(source)
                 }
             }
         }
     }
 
     @ViewBuilder private var manualPart: some View {
-        if let manual = model.manual(row.item), row.status != .installed, row.status != .foreign,
+        if let manual = card.manual(row.item), row.status != .installed, row.status != .foreign,
            row.status != .notFound {
-            if model.manualOpen == row.item {
-                ManualBox(text: manual.text, footnote: manual.removal) {
+            if card.manualOpen == row.item {
+                ManualBox(lead: manual.lead, text: manual.text, footnote: manual.removal) {
                     Button(L10n.t(copied ? "setup.manual.copied" : "setup.manual.copy", in: lang)) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(manual.text, forType: .string)
                         copied = true
                     }
                     .buttonStyle(SmallButtonStyle())
-                    Button(L10n.t("setup.manual.check", in: lang)) { model.check() }
+                    Button(L10n.t("setup.manual.check", in: lang)) { card.check() }
                         .buttonStyle(SmallButtonStyle())
-                    Button(L10n.t("setup.manual.auto", in: lang)) { model.toggleManual(row.item) }
+                        .disabled(card.busy)
+                    Button(L10n.t("setup.manual.auto", in: lang)) { card.toggleManual(row.item) }
                         .buttonStyle(LinkButtonStyle())
                 }
                 if let statusLine = manual.statusLine {
-                    ManualBox(lead: L10n.t("setup.agent.part.usage", in: lang), text: statusLine, maxHeight: 60) {
+                    ManualBox(lead: manual.statusLineLead ?? L10n.t("setup.agent.part.usage", in: lang), text: statusLine,
+                              maxHeight: 60) {
                         EmptyView()
                     }
                 }
                 if let wrapping = manual.wrapping {
-                    ManualBox(lead: L10n.t("setup.manual.wrapping", in: lang), text: wrapping, maxHeight: 60) {
+                    ManualBox(lead: manual.wrappingLead ?? L10n.t("setup.manual.wrapping", in: lang), text: wrapping,
+                              maxHeight: 60) {
                         EmptyView()
                     }
                 }
             } else {
-                Button(L10n.t("setup.manual.open", in: lang)) { copied = false; model.toggleManual(row.item) }
+                Button(L10n.t("setup.manual.open", in: lang)) { copied = false; card.toggleManual(row.item) }
                     .buttonStyle(LinkButtonStyle())
             }
         }

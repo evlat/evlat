@@ -282,6 +282,22 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: RemoteMachine.signalKeysStorageKey), "never written")
     }
 
+    /// A machine's switches are stored on its entry with the list; the
+    /// environment's machines keep theirs for the run alone.
+    func testAMachinesSwitchesAreStoredOnlyWithAStoredList() throws {
+        let ssh = try fakeSSH(.connect)
+        let machine = try XCTUnwrap(RemoteMachine(id: "fake", target: "fake"))
+        let environment = controller(ssh: ssh, stored: false, machines: [machine])
+        environment.setMachineAgents(id: "fake", ["codex"])
+        XCTAssertEqual(environment.remote?.enabledAgents(of: "fake"), [.codex])
+        XCTAssertNil(defaults.object(forKey: RemoteMachine.storageKey), "EVLAT_MACHINES: never written")
+
+        let stored = controller(ssh: ssh, machines: [machine])
+        stored.setMachineAgents(id: "fake", ["claude"])
+        let saved = RemoteMachine.decode(defaults.data(forKey: RemoteMachine.storageKey))
+        XCTAssertEqual(saved.first?.agents, ["claude"])
+    }
+
     // MARK: - The setup buttons
 
     func testWhileAJobRunsItsMachinesButtonsAreOff() throws {
@@ -294,10 +310,10 @@ final class RemoteMachinesTests: XCTestCase {
         let id = try XCTUnwrap(model.selection)
         XCTAssertTrue(model.canRun(id))
 
-        model.run(.installHooks)
+        model.run(.install(.claude))
         XCTAssertFalse(model.canRun(id), "one job per machine")
         XCTAssertTrue(model.isBusy(id))
-        model.run(.removeHooks)   // refused, not queued
+        model.run(.remove(.codex))   // refused, not queued
         waitUntil("done") { !model.isBusy(id) }
         XCTAssertTrue(model.canRun(id))
         XCTAssertEqual(model.outcomes[id]?.line, L10n.t("remote.result.unreachable", in: "en"),
@@ -323,8 +339,8 @@ final class RemoteMachinesTests: XCTestCase {
             [(.hooks(.claude), .success(.written)), (.hooks(.codex), .failure(.file(.noDirectory)))],
             .install, in: "tr")
         XCTAssertEqual(installed.line, "Claude Code: kuruldu · Codex: kurulu değil (klasör yok)")
-        XCTAssertEqual(installed.hints, [L10n.t("menu.hooks.hint.claude", in: "tr")],
-                       "the local entry's hint: open /hooks once")
+        XCTAssertEqual(installed.hints, [L10n.t("remote.hint.install.claude", in: "tr")],
+                       "the agent's own hint: open /hooks once")
         XCTAssertFalse(installed.trouble, "Codex not being there is not a failure")
 
         let again = RemoteMachinesModel.outcome(
@@ -336,6 +352,21 @@ final class RemoteMachinesTests: XCTestCase {
                                                 .install, in: "en")
         XCTAssertEqual(raced.line, "Usage line: the file changed while writing; try again")
         XCTAssertTrue(raced.trouble)
+    }
+
+    /// A card's write names its agent; the hints come from the catalogue
+    /// by the agent's name, and the usage line's from the agent whose
+    /// status line the server gets.
+    func testAUnitsLineNamesItsAgentAndItsHints() {
+        let claude = RemoteMachinesModel.outcome([(.agent(.claude), .success(.written))], .install, in: "en")
+        XCTAssertEqual(claude.line, "Claude Code: installed")
+        XCTAssertEqual(claude.hints, [L10n.t("remote.hint.install.claude", in: "en"),
+                                      L10n.t("remote.hint.usage", ["agent": "Claude Code"], in: "en")])
+        let antigravity = RemoteMachinesModel.outcome([(.agent(.antigravity), .success(.written))], .install,
+                                                      in: "en")
+        XCTAssertEqual(antigravity.hints, [], "nothing measured, nothing said; no usage line on a server")
+        let codex = RemoteMachinesModel.outcome([(.agent(.codex), .success(.written))], .remove, in: "tr")
+        XCTAssertEqual(codex.hints, [L10n.t("remote.hint.remove.codex", in: "tr")])
     }
 
     // MARK: - The command line
@@ -352,14 +383,14 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertFalse(model.isBusy(id), "no key, no job")
         recorder.keys[id] = String(repeating: "ab", count: 32)
 
-        model.run(.installHooks)
+        model.run(.install(.claude))
         model.runCommand(.install)   // refused: the machine has a job
         waitUntil("hooks done") { !model.isBusy(id) }
         XCTAssertEqual(model.outcomes[id]?.line, L10n.t("remote.result.unreachable", in: "en"))
 
         model.runCommand(.install)
         XCTAssertFalse(model.canRun(id), "the command's job holds the same lock")
-        model.run(.installUsage)
+        model.run(.install(.codex))
         waitUntil("command done") { !model.isBusy(id) }
         XCTAssertEqual(model.outcomes[id]?.line, L10n.t("remote.command.result.unreachable", in: "en"))
         XCTAssertEqual(model.outcomes[id]?.trouble, true)
@@ -428,15 +459,15 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertEqual(model.copied, "command.key")
     }
 
-    func testTheJobsAreTheFixedChanges() {
-        // Every agent, Antigravity included: a server's hooks are each
-        // agent's own file, and a missing one says the agent is not there.
-        let hooks: [RemoteSettings.Change] = [.hooks(.claude), .hooks(.codex), .hooks(.antigravity)]
-        XCTAssertEqual(RemoteMachinesModel.Job.installHooks.changes, hooks)
-        XCTAssertEqual(RemoteMachinesModel.Job.removeHooks.changes, hooks)
-        XCTAssertEqual(RemoteMachinesModel.Job.installUsage.changes, [.statusLine])
-        XCTAssertEqual(RemoteMachinesModel.Job.removeUsage.changes, [.statusLine])
-        XCTAssertEqual(RemoteMachinesModel.Job.allCases.map(\.action), [.install, .remove, .install, .remove])
+    func testAJobIsOneAgentsUnit() {
+        // One change per press: the agent's one file, its hooks and — where
+        // the server gets one — its usage line in the same write.
+        for source in AgentSource.allCases {
+            XCTAssertEqual(RemoteMachinesModel.Job.install(source).changes, [.agent(source)])
+            XCTAssertEqual(RemoteMachinesModel.Job.remove(source).changes, [.agent(source)])
+            XCTAssertEqual(RemoteMachinesModel.Job.install(source).action, .install)
+            XCTAssertEqual(RemoteMachinesModel.Job.remove(source).action, .remove)
+        }
     }
 
     // MARK: - Status
@@ -557,22 +588,26 @@ final class RemoteMachinesTests: XCTestCase {
 
     func testTheBlocksToPasteAreTheWritersOwn() throws {
         let manual = RemoteSettings.manual
-        let blocks = RemoteMachinesModel.blocks
-        XCTAssertEqual(blocks.map(\.id), ["claude", "codex", "antigravity", "statusLine", "wrapping"])
-        XCTAssertEqual(blocks[0].text, manual.hooks(for: .claude))
-        XCTAssertEqual(blocks[1].text, manual.hooks(for: .codex))
-        XCTAssertEqual(blocks[2].text, manual.hooks(for: .antigravity))
-        XCTAssertEqual(blocks[3].text, manual.statusLine)
+        for source in AgentSource.allCases {
+            let card = RemoteMachinesModel.manual(source, in: "en")
+            XCTAssertEqual(card.text, manual.hooks(for: source))
+            XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.settingsPath], in: "en"))
+            // The usage line is a part on a server for one agent alone.
+            XCTAssertEqual(card.statusLine != nil, RemoteSettings.relays(source), source.rawValue)
+        }
+        let claude = RemoteMachinesModel.manual(.claude, in: "en")
+        XCTAssertEqual(claude.statusLine, manual.statusLine)
         // The wrapper goes inside a JSON string: shown as one, it decodes to
         // the writer's command byte for byte.
-        let decoded = try JSONSerialization.jsonObject(with: Data(blocks[4].text.utf8), options: .fragmentsAllowed)
+        let wrapping = try XCTUnwrap(claude.wrapping)
+        let decoded = try JSONSerialization.jsonObject(with: Data(wrapping.utf8), options: .fragmentsAllowed)
         XCTAssertEqual(decoded as? String, manual.wrapping)
     }
 
     func testCopyPutsTheBlockOnThePasteboard() throws {
         let model = RemoteMachinesModel(host: host(Recorder()), installer: RemoteInstaller(sshPath: "/nonexistent"),
                                         pasteboard: pasteboard, lang: "en")
-        let block = try XCTUnwrap(RemoteMachinesModel.blocks.first)
+        let block = RemoteMachinesModel.pathBlock
         model.copy(block)
         XCTAssertEqual(pasteboard.string(forType: .string), block.text)
         XCTAssertEqual(model.copied, block.id, "the button says it was copied")

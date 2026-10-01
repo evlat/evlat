@@ -84,7 +84,7 @@ public final class StatusLineUsageProvider: Provider {
                        // rule reads it on a usage row (`Snapshot` splits them
                        // out first); staleness is read from `updatedAt`. The
                        // machine is here for the group order and the name.
-                       machine: machine.map { Signal.Machine(name: $0.name) })
+                       machine: machine.map { Signal.Machine(name: $0.name, id: $0.id) })
             }
         }
     }

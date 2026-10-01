@@ -11,13 +11,22 @@ public struct RemoteMachine: Codable, Equatable {
     public let id: String
     /// What `ssh` is given after `--`: a `~/.ssh/config` alias or `user@host`.
     public let target: String
+    /// The agents followed on this machine (its cards' switches), as
+    /// `EnabledAgents` stores them; independent of this Mac's set.
+    ///
+    /// **`nil` is a live answer, not a value**, as for this Mac: every agent
+    /// is on, and one the server does not have is dropped by its reading.
+    /// Only a user's change writes it, and the synthesized encoder leaves a
+    /// `nil` out, so an entry stored before the field reads back unchanged.
+    public var agents: [String]?
 
     /// `nil` for a target `validate` refuses: an invalid machine cannot be
     /// built, so no later step has to ask again.
-    public init?(id: String, target: String) {
+    public init?(id: String, target: String, agents: [String]? = nil) {
         guard Self.validate(target: target) == nil, !id.isEmpty else { return nil }
         self.id = id
         self.target = target
+        self.agents = agents
     }
 
     /// A stored entry is re-validated on the way in: the value came from a
@@ -26,7 +35,9 @@ public struct RemoteMachine: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(String.self, forKey: .id)
         let target = try container.decode(String.self, forKey: .target)
-        guard let machine = RemoteMachine(id: id, target: target) else {
+        // A newer copy may store more; an older one never wrote it.
+        let agents = try container.decodeIfPresent([String].self, forKey: .agents)
+        guard let machine = RemoteMachine(id: id, target: target, agents: agents) else {
             throw DecodingError.dataCorruptedError(forKey: .target, in: container,
                                                    debugDescription: "not a usable ssh target")
         }
@@ -39,6 +50,12 @@ public struct RemoteMachine: Codable, Equatable {
         guard let at = target.lastIndex(of: "@") else { return target }
         let host = target[target.index(after: at)...]
         return host.isEmpty ? target : String(host)
+    }
+
+    /// The agents whose rows and usage this machine's tunnel delivers. A
+    /// stored name this build does not know is skipped and kept as it was.
+    public var enabledAgents: Set<AgentSource> {
+        EnabledAgents.resolve(stored: agents, isPresent: { _ in true })
     }
 
     /// What the machine's providers are given (`HooksProvider`,
