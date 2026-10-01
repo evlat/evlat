@@ -96,6 +96,10 @@ public struct SessionRow: Equatable, Identifiable {
     /// 0, or this row's number among rows with the same name in the same tool
     /// on the same machine (2, 3, …). The first of them keeps the bare name.
     public let duplicate: Int
+    /// The git branch drawn after the name, when it is what tells this row
+    /// from another of the same name (`SessionRowsModel.names`); `nil`
+    /// otherwise, which is most rows.
+    public let branch: String?
     /// When the column saw this row enter its phase; `nil` when it was first
     /// seen already in it — how long is not known, and the status line says
     /// no duration rather than invent one. The model's own clock, never the
@@ -151,7 +155,7 @@ public struct SessionRow: Equatable, Identifiable {
     public var id: String { entity }
 
     public init(entity: String, label: String, phase: Phase,
-                source: AgentSource? = nil, duplicate: Int = 0,
+                source: AgentSource? = nil, duplicate: Int = 0, branch: String? = nil,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
                 machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session,
                 progress: Int? = nil, sender: String? = nil, passive: Bool = false) {
@@ -169,6 +173,7 @@ public struct SessionRow: Equatable, Identifiable {
         self.phase = phase
         self.source = source
         self.duplicate = duplicate
+        self.branch = branch
         self.enteredAt = enteredAt
         // Only a waiting row has something to wait for. `reconcile` already
         // keeps the block on waiting rows alone; this keeps the row honest if
@@ -178,9 +183,10 @@ public struct SessionRow: Equatable, Identifiable {
         self.dim = dim
     }
 
-    public init(_ signal: Signal, duplicate: Int = 0, enteredAt: Date? = nil, passive: Bool = false) {
+    public init(_ signal: Signal, duplicate: Int = 0, branch: String? = nil,
+                enteredAt: Date? = nil, passive: Bool = false) {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
-                  source: signal.source, duplicate: duplicate,
+                  source: signal.source, duplicate: duplicate, branch: branch,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
                   machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind,
                   progress: signal.progress.flatMap(Self.percent), sender: signal.sender,
@@ -258,9 +264,26 @@ public final class SessionRowsModel: ObservableObject {
     /// (`AGENTS.md` → Pitfalls, the rhythm trap).
     private(set) var clockStarts = 0
 
+    /// Reads a folder's branch (`GitHead.branch`); injected so the tests
+    /// need no repository. The default reads nothing.
+    private let readBranch: (String) -> String?
+    /// Branches read so far, by folder, `nil` included: a folder is read once,
+    /// then again only after `forgetBranches()`. Pruned with the rows.
+    private var branches: [String: String?] = [:]
+
     /// `now` is injected so the tests can move time by hand.
-    public init(now: @escaping () -> Date = Date.init) {
+    public init(now: @escaping () -> Date = Date.init,
+                readBranch: @escaping (String) -> String? = { _ in nil }) {
         self.now = now
+        self.readBranch = readBranch
+    }
+
+    /// Drops every branch read, so the next `update` reads them again. The
+    /// shell calls it as the bar opens, before the scan that sizes the body:
+    /// a `git checkout` made while the bar was closed is drawn on this
+    /// opening, and the width is right from the first frame.
+    public func forgetBranches() {
+        branches.removeAll()
     }
 
     deinit { clock?.invalidate() }
@@ -312,23 +335,63 @@ public final class SessionRowsModel: ObservableObject {
     /// order, so a number does not change when the rows reorder or
     /// scroll into the count.
     nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
+        names(signals, branch: { _ in nil }).mapValues(\.number).filter { $0.value > 0 }
+    }
+
+    /// What tells same-named rows apart: a branch where they are on
+    /// different ones, a number where nothing else does.
+    ///
+    /// **A branch is drawn only inside a group of the same name** (tool and
+    /// tag, as for the numbers), and only when the group holds more than one
+    /// branch — "no branch" counting as one. A row alone under its name stays
+    /// bare, as it does today: most people run one session per repository and
+    /// would read a branch on every row as noise. Two sessions in one
+    /// worktree say the same branch, which tells them apart no better than
+    /// the name, so they are numbered instead.
+    ///
+    /// The numbers then run within (name, drawn branch): `shop-api ⑂ feat`
+    /// twice is `shop-api` and `shop-api²`, both with the branch.
+    ///
+    /// `branch` is asked only for the rows of a group of two or more, so a
+    /// column of distinct names touches no file.
+    nonisolated static func names(_ signals: [Signal], branch: (Signal) -> String?)
+        -> [String: (number: Int, branch: String?)] {
         // A struct, not a joined string: a sender may hold any separator.
         struct Group: Hashable {
             let tag: String?, source: AgentSource?, label: String
         }
-        var groups: [Group: [String]] = [:]
+        var groups: [Group: [Signal]] = [:]
         for signal in signals {
             let tag = RowTraits.of(signal.kind).tag.text(machine: signal.machine?.name, sender: signal.sender)
             let key = Group(tag: tag, source: signal.source, label: signal.label)
-            groups[key, default: []].append(signal.entity)
+            groups[key, default: []].append(signal)
         }
-        var numbers: [String: Int] = [:]
-        for entities in groups.values where entities.count > 1 {
-            for (index, entity) in entities.sorted().enumerated() where index > 0 {
-                numbers[entity] = index + 1
+        var result: [String: (number: Int, branch: String?)] = [:]
+        for members in groups.values where members.count > 1 {
+            let read = Dictionary(uniqueKeysWithValues: members.map { ($0.entity, branch($0)) })
+            let drawn = Set(read.values).count > 1
+            var byBranch: [String?: [String]] = [:]
+            for member in members {
+                byBranch[drawn ? read[member.entity] ?? nil : nil, default: []].append(member.entity)
+            }
+            for (shown, entities) in byBranch {
+                for (index, entity) in entities.sorted().enumerated() {
+                    result[entity] = (entities.count > 1 && index > 0 ? index + 1 : 0, shown)
+                }
             }
         }
-        return numbers
+        return result
+    }
+
+    /// The branch of a row, read through the cache. Only a session on this
+    /// Mac has a folder here to read: a remote row's folder is on its server.
+    private func branch(of signal: Signal) -> String? {
+        guard signal.kind == .session, signal.machine == nil,
+              let folder = signal.detail, folder.hasPrefix("/") else { return nil }
+        if let known = branches[folder] { return known }
+        let read = readBranch(folder)
+        branches[folder] = read
+        return read
     }
 
     /// Writes what is drawn, and only when it changed.
@@ -381,13 +444,16 @@ public final class SessionRowsModel: ObservableObject {
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity
         }
-        let numbers = Self.duplicateNumbers(signals)
+        let names = Self.names(signals, branch: branch(of:))
+        let folders = Set(signals.compactMap(\.detail))
+        branches = branches.filter { folders.contains($0.key) }
         let next = ordered.map {
             // A chat's or an outside job's stamp is the moment its phase
             // began (`ChatSession`, `SignalsProvider`), never moved by a tool
             // event: its time is known even for a row first seen already in
             // it — one read back at launch.
-            SessionRow($0, duplicate: numbers[$0.entity] ?? 0,
+            SessionRow($0, duplicate: names[$0.entity]?.number ?? 0,
+                       branch: names[$0.entity]?.branch,
                        enteredAt: enteredAt[$0.entity]
                            ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil),
                        passive: layers[$0.entity] == .passive)

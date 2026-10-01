@@ -503,6 +503,20 @@ struct DetailCard: View {
                 .foregroundStyle(BarPalette.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            if let branch = detail.branch {
+                // After the name, as on the row; cut in the middle like it,
+                // and before the name is, since it is the part that differs.
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 9, weight: .medium))
+                    Text(verbatim: branch)
+                        .font(Self.sourceFont)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                    .foregroundStyle(BarPalette.textSecondary)
+                    .layoutPriority(1)
+            }
             Spacer(minLength: 8)
             if let tag = detail.traits.tag.text(machine: detail.machine, sender: detail.sender, inCard: true) {
                 // The column's tag — the machine, an outside job's sender,

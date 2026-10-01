@@ -459,6 +459,130 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.rows.first { $0.entity == "c" }?.duplicate, 2, "reordering keeps the number")
     }
 
+    // MARK: - Branches
+
+    /// A session in a folder: what the branch is read from.
+    private func inFolder(_ entity: String, _ folder: String, label: String = "shop-api",
+                          phase: Phase = .idle, machine: String? = nil) -> Signal {
+        Signal(provider: "stub", entity: entity, phase: phase, label: label, detail: folder,
+               source: .claude, fidelity: .official,
+               updatedAt: Date(timeIntervalSince1970: 1_790_000_000),
+               machine: machine.map { Signal.Machine(name: $0) })
+    }
+
+    /// The worktrees case: one repository's name three times, three branches.
+    private let worktrees = ["/w/a/shop-api": "main", "/w/b/shop-api": "feat/checkout-v2",
+                             "/w/c/shop-api": "fix/rate-limit"]
+
+    func testSameNamedSessionsOnDifferentBranchesShowTheirBranch() {
+        let model = SessionRowsModel(readBranch: { self.worktrees[$0] })
+        model.update(from: [inFolder("s1", "/w/a/shop-api"), inFolder("s2", "/w/b/shop-api"),
+                            inFolder("s3", "/w/c/shop-api")])
+        let byEntity = Dictionary(uniqueKeysWithValues: model.rows.map { ($0.entity, $0) })
+        XCTAssertEqual(byEntity["s1"]?.branch, "main")
+        XCTAssertEqual(byEntity["s2"]?.branch, "feat/checkout-v2")
+        XCTAssertEqual(byEntity["s3"]?.branch, "fix/rate-limit")
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0, 0], "the branch tells them apart: no number")
+    }
+
+    /// One session per repository is the common case: its row stays as it
+    /// was, and no file is read for it.
+    func testANameOfItsOwnShowsNoBranchAndReadsNothing() {
+        var reads: [String] = []
+        let model = SessionRowsModel(readBranch: { reads.append($0); return "main" })
+        model.update(from: [inFolder("s1", "/w/a/shop-api"),
+                            inFolder("s2", "/p/evlat", label: "evlat")])
+        XCTAssertEqual(model.rows.map(\.branch), [nil, nil])
+        XCTAssertEqual(reads, [], "a column of distinct names touches no file")
+    }
+
+    /// Two sessions in one worktree say the same branch: no better than the
+    /// name, so they are numbered as before and draw no branch.
+    func testTheSameBranchTwiceIsNumberedInstead() {
+        let model = SessionRowsModel(readBranch: { _ in "main" })
+        model.update(from: [inFolder("s1", "/w/a/shop-api"), inFolder("s2", "/w/a/shop-api")])
+        XCTAssertEqual(model.rows.map(\.branch), [nil, nil])
+        XCTAssertEqual(Set(model.rows.map(\.duplicate)), [0, 2])
+    }
+
+    /// Two on one branch and one on another: all three draw their branch,
+    /// and the pair is numbered within it.
+    func testAPairOnOneBranchIsNumberedBesideItsBranch() {
+        let model = SessionRowsModel(readBranch: { $0 == "/w/c/shop-api" ? "fix/rate-limit" : "main" })
+        model.update(from: [inFolder("s1", "/w/a/shop-api"), inFolder("s2", "/w/b/shop-api"),
+                            inFolder("s3", "/w/c/shop-api")])
+        let byEntity = Dictionary(uniqueKeysWithValues: model.rows.map { ($0.entity, $0) })
+        XCTAssertEqual(byEntity["s1"]?.branch, "main")
+        XCTAssertEqual(byEntity["s2"]?.branch, "main")
+        XCTAssertEqual(byEntity["s3"]?.branch, "fix/rate-limit")
+        XCTAssertEqual(byEntity["s1"]?.duplicate, 0)
+        XCTAssertEqual(byEntity["s2"]?.duplicate, 2)
+        XCTAssertEqual(byEntity["s3"]?.duplicate, 0)
+    }
+
+    /// A folder outside git beside one in it: "no branch" is a value of its
+    /// own, so the one with a branch shows it and the other stays bare.
+    func testAFolderWithoutABranchStaysBareBesideOneWithIt() {
+        let model = SessionRowsModel(readBranch: { $0 == "/w/b/shop-api" ? "feat/x" : nil })
+        model.update(from: [inFolder("s1", "/w/a/shop-api"), inFolder("s2", "/w/b/shop-api")])
+        let byEntity = Dictionary(uniqueKeysWithValues: model.rows.map { ($0.entity, $0) })
+        XCTAssertNil(byEntity["s1"]?.branch)
+        XCTAssertEqual(byEntity["s2"]?.branch, "feat/x")
+        XCTAssertEqual(model.rows.map(\.duplicate), [0, 0])
+    }
+
+    /// A remote session's folder is on its server: never read here.
+    func testARemoteSessionsFolderIsNeverRead() {
+        var reads: [String] = []
+        let model = SessionRowsModel(readBranch: { reads.append($0); return "main" })
+        model.update(from: [inFolder("r1", "/srv/a/api", label: "api", machine: "devbox"),
+                            inFolder("r2", "/srv/b/api", label: "api", machine: "devbox")])
+        XCTAssertEqual(reads, [])
+        XCTAssertEqual(model.rows.map(\.branch), [nil, nil])
+    }
+
+    /// A folder is read once; reopening the bar (`forgetBranches`) reads it
+    /// again, so a checkout made meanwhile is drawn.
+    func testABranchIsReadOnceUntilForgotten() {
+        var branch = "main", reads = 0
+        let model = SessionRowsModel(readBranch: { reads += 1; return $0 == "/w/a/shop-api" ? branch : "other" })
+        let signals = [inFolder("s1", "/w/a/shop-api"), inFolder("s2", "/w/b/shop-api")]
+        model.update(from: signals)
+        model.update(from: signals)
+        XCTAssertEqual(reads, 2, "two folders, one read each")
+        branch = "feat/new"
+        model.update(from: signals)
+        XCTAssertEqual(model.rows.first { $0.entity == "s1" }?.branch, "main", "not read again while closed")
+        model.forgetBranches()
+        model.update(from: signals)
+        XCTAssertEqual(model.rows.first { $0.entity == "s1" }?.branch, "feat/new")
+    }
+
+    /// The body is fitted to the branch as drawn: never past a long name's
+    /// width, since a long branch is cut at `branchMaxWidth`.
+    func testTheOpenBodyHoldsTheBranchWithinItsCap() {
+        let bare = SessionRow(entity: "a", label: "shop-api", phase: .idle, source: .claude)
+        let short = SessionRow(entity: "a", label: "shop-api", phase: .idle, source: .claude,
+                               branch: "feat/checkout-v2")
+        let long = SessionRow(entity: "a", label: "shop-api", phase: .idle, source: .claude,
+                              branch: "feature/PROJ-1234-add-oauth-and-much-more")
+        XCTAssertGreaterThan(SessionColumn.namesWidth([short], in: "en"),
+                             SessionColumn.namesWidth([bare], in: "en"))
+        XCTAssertLessThanOrEqual(SessionColumn.branchWidth(long.branch!),
+                                 SessionColumn.branchIconWidth + SessionColumn.branchIconGap
+                                    + SessionColumn.branchMaxWidth)
+        XCTAssertEqual(SessionColumn.openWidth(rows: [long], in: "en"), AppController.expandedBarWidth,
+                       "a long branch opens the body to its cap and no further")
+        XCTAssertEqual(AppController.expandedBarWidth, 199, "the widest body is what it was")
+    }
+
+    /// The commenter's waiting row fits the 140 pt box whole at 9 pt.
+    func testTheWorktreeWaitingRowFitsUncut() {
+        let waiting = SessionRow(entity: "a", label: "shop-api", phase: .waiting, source: .claude,
+                                 branch: "feat/checkout-v2", waitKind: .approval)
+        XCTAssertLessThan(SessionColumn.namesWidth([waiting], in: "en"), SessionColumn.nameMaxWidth)
+    }
+
     /// A beating row is never hidden behind still ones: the model orders by
     /// phase itself, so a working session handed in last still takes a slot
     /// and starts the clock, and the count stands for idle rows.

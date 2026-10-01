@@ -31,6 +31,11 @@ public struct SessionDetail: Equatable {
     /// the card comes up and on the click, not on every snapshot; never for
     /// a remote session.
     var host: SessionHost = .notFound
+    /// The git branch of the session's folder, for the header. Unlike the
+    /// row, which draws one only between same-named sessions, the card has
+    /// room and says it always. Resolved with `host`, and never for a remote
+    /// session: its folder is on its server.
+    var branch: String?
     /// A permission this session waits on, to answer from the card
     /// (`ApprovalHook`); `nil` on every other card.
     var approval: ApprovalCard?
@@ -157,6 +162,9 @@ public final class DetailModel: ObservableObject {
     /// walks this machine's processes nor brings an app forward.
     var resolveHost: (Int32?) -> SessionHost = { SessionHost.resolve(pid: $0) }
     var activate: (SessionHost.App) -> Bool = { SessionHost.activate($0) }
+    /// The branch of a folder (`GitHead.branch`); injected like the host, so
+    /// a test reads no repository. The default reads nothing.
+    var resolveBranch: (String) -> String? = { _ in nil }
 
     /// Which session and pid `detail.host` was resolved for. The snapshot
     /// arrives every poll and on every event; the process walk runs only when
@@ -191,8 +199,11 @@ public final class DetailModel: ObservableObject {
             hostKey = nil
         } else if let key = hostKey, key.entity == row.entity, key.pid == pid, let current = detail {
             next.host = current.host
+            next.branch = current.branch
         } else {
             next.host = resolveHost(pid)
+            // The row's, when it already read one: the two never disagree.
+            next.branch = row.branch ?? signal?.detail.flatMap(resolveBranch)
             hostKey = (row.entity, pid)
         }
         if detail != next { detail = next }

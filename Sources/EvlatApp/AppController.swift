@@ -55,10 +55,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
     /// mascot in `refresh()`, observed by its own column.
-    public let sessionRows = SessionRowsModel()
+    /// The column's rows; same-named sessions are told apart by the branch
+    /// their folder is on, read from git's files (`GitHead`).
+    public let sessionRows = SessionRowsModel(readBranch: GitHead.branch(in:))
     /// The card's facts for the selected session. Written only while one is
     /// selected (`syncSelection`), observed by the card alone.
-    public let detail = DetailModel()
+    public let detail: DetailModel = {
+        let model = DetailModel()
+        model.resolveBranch = GitHead.branch(in:)
+        return model
+    }()
     /// The usage block's lines. Fed from the same snapshot in `refresh()`,
     /// observed by the open bar's block alone.
     let usageBlock = UsageBlockModel()
@@ -2880,6 +2886,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // providers answer is theirs to say (`Reloadable`); the scan after it
         // is what brings the new reading onto the body being opened.
         registry.reload()
+        // Branches are read again on each opening, before the scan that
+        // sizes the body: a checkout made while the bar was closed shows now.
+        sessionRows.forgetBranches()
         if openedAt == nil { openedAt = now() }
         refresh()
         // After the scan: a finish it brings in has been seen by opening.

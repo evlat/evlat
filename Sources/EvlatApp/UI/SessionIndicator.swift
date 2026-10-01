@@ -61,6 +61,18 @@ struct SessionColumn: View {
     static var machineKerning: CGFloat { UsageBlock.headerKerning }
     /// Between a name (or its number) and its machine.
     static let machineGap: CGFloat = 5
+    /// The branch after a repeated name (`SessionRow.branch`): a size under
+    /// the name, in the status line's grey. Measured in this face: at 10 pt
+    /// a waiting row of `shop-api ⑂ feat/checkout-v2` came to 146 pt and
+    /// was cut by the 140 pt box; at 9 pt it is 139 and fits.
+    static let branchFont = NSFont.systemFont(ofSize: 9, weight: .regular)
+    /// The widest a branch is drawn; a longer one is cut in the middle,
+    /// where `feature/PROJ-1234-…` names differ least. The whole name is on
+    /// the card. It leaves the name at least 34 pt of the 140 pt box.
+    static let branchMaxWidth: CGFloat = 90
+    /// The branch mark's box and its gap to the name.
+    static let branchIconWidth: CGFloat = 8
+    static let branchIconGap: CGFloat = 2
     /// How much of a dimmed row's ring is left: enough to read its phase and
     /// its mark, faint enough to sit behind every live ring.
     static let dimOpacity: Double = 0.4
@@ -118,6 +130,7 @@ struct SessionColumn: View {
                     + ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
             }
             if let tag = row.tag { name += machineGap + machineWidth(tag) }
+            if let branch = row.branch { name += machineGap + branchWidth(branch) }
             return max(name, status)
         }.max() ?? 0
         return min(ceil(widest), nameMaxWidth)
@@ -140,6 +153,17 @@ struct SessionColumn: View {
     }
 
     static let numberGap: CGFloat = 2
+
+    /// A branch as drawn: its mark and its name, the name capped at
+    /// `branchMaxWidth` — the body is fitted to this, so a long branch does
+    /// not open it past what a long name already could.
+    static func branchWidth(_ branch: String) -> CGFloat {
+        branchIconWidth + branchIconGap + min(branchTextWidth(branch), branchMaxWidth)
+    }
+
+    static func branchTextWidth(_ branch: String) -> CGFloat {
+        ceil((branch as NSString).size(withAttributes: [.font: branchFont]).width)
+    }
 
     /// The machine's name as drawn: `UsageBlock.heading`'s capitals, measured
     /// with its spacing.
@@ -313,7 +337,7 @@ struct SessionColumn: View {
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow) -> some View {
         VStack(alignment: docked, spacing: 1) {
-            name(row.label, duplicate: row.duplicate, machine: row.tag,
+            name(row.label, duplicate: row.duplicate, machine: row.tag, branch: row.branch,
                  color: row.phase == .idle || row.passive || !row.isLive
                  ? BarPalette.textSecondary : BarPalette.textPrimary)
             if showsNames {
@@ -346,7 +370,8 @@ struct SessionColumn: View {
             .allowsHitTesting(false)
     }
 
-    private func name(_ label: String, duplicate: Int, machine: String?, color: Color) -> some View {
+    private func name(_ label: String, duplicate: Int, machine: String?, branch: String?,
+                      color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
             // The name is data, not text of ours: it is what the user called
             // the session, so it bypasses the string lookup (`verbatim`) and
@@ -374,6 +399,25 @@ struct SessionColumn: View {
                     .foregroundStyle(UsageBlock.headerColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .layoutPriority(1)
+                    .padding(.leading, Self.machineGap - Self.numberGap)
+            }
+            if let branch {
+                // The same priority as the machine, for the same reason: the
+                // branch is what tells two `shop-api`s apart, so the name
+                // gives way first. Its frame is its own width up to the cap,
+                // so a short branch takes no more room than it needs.
+                HStack(alignment: .firstTextBaseline, spacing: Self.branchIconGap) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 7, weight: .medium))
+                        .frame(width: Self.branchIconWidth)
+                    Text(verbatim: branch)
+                        .font(Font(Self.branchFont))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: min(Self.branchTextWidth(branch), Self.branchMaxWidth))
+                }
+                    .foregroundStyle(BarPalette.textSecondary)
                     .layoutPriority(1)
                     .padding(.leading, Self.machineGap - Self.numberGap)
             }
