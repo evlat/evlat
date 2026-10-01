@@ -94,6 +94,8 @@ public enum StatusLineRelay {
     /// Antigravity's relay alone also gets `stack_with_default`: with it the
     /// CLI draws its own status line and the wrapper's empty output under
     /// it, instead of an empty line in its place (measured, `agy` 1.2.14).
+    /// That holds for a `statusLine` with no command too; a value the user
+    /// set there is left as it is.
     public static func installing(into settings: [String: Any],
                                   source: AgentSource = .claude) -> [String: Any]? {
         guard path(source) != nil else { return nil }
@@ -117,6 +119,7 @@ public enum StatusLineRelay {
         } else {
             if line["type"] == nil { line["type"] = "command" }
             line["command"] = command(wrapping: nil, source: source)
+            if source == .antigravity, line[stackKey] == nil { line[stackKey] = true }
         }
         result["statusLine"] = line
         return result

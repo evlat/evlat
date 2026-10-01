@@ -106,7 +106,10 @@ Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
   provider's `unrecognizedStatuses`; it is drawn as `idle` but never swallowed.
 - `activity`, `usage` and `machine` are not phases and never change priority.
   Usage signals are split out by `kind` and never reach the mascot, the rings
-  or `hasLive`.
+  or `hasLive`. A window not observed for an hour (`UsageBlockModel.staleAfter`)
+  is drawn dimmed; Settings → Sessions → Usage → "Hide usage not seen for an
+  hour" (`usage.hideStale`, off by default) leaves it out instead, before the
+  block's cap, so a tool not in use frees its lines until it reports again.
 - `Fidelity` (`official | derived | manual`) reaches the UI: derived and manual
   numbers are drawn with a `~` prefix, so an estimate never looks published.
 - "Is anything live?" is `Registry.hasLive` — any live, active row — not a
@@ -123,7 +126,7 @@ prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
 | `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (`AgentSource`, `CodexHookAdapter`, `AntigravityHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
 | `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid | derived |
 | `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept | official |
-| `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`ClaudeUsageProvider(source:)`) | official |
+| `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`ClaudeUsageProvider(source:)`); the format is undocumented | derived |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens | derived |
 | `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
 | `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
@@ -435,8 +438,8 @@ the script bumps its version.
 ### User files
 
 `~/.claude/settings.json`, `~/.claude/statusline-*.sh`, `~/.codex/hooks.json`,
-`~/.codex/config.toml`, `~/.gemini/config/hooks.json`, `~/.local/bin/evlat`
-and login items belong to the
+`~/.codex/config.toml`, `~/.gemini/config/hooks.json`,
+`~/.gemini/antigravity-cli/settings.json`, `~/.local/bin/evlat` and login items belong to the
 user. **Agents do not write them.** Writers are tested against a temporary root
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
 So does the login keychain: no test or trial writes an Evlat entry to it.

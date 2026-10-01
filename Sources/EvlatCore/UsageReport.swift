@@ -95,13 +95,19 @@ public struct UsageReport: Equatable {
                   source: .antigravity)
     }
 
-    /// RFC 3339, with or without fractional seconds.
+    /// RFC 3339, with or without fractional seconds. A formatter set for
+    /// fractions rejects the plain form, so both are tried; built once,
+    /// since the status line posts on every draw.
     static func date(_ text: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: text) { return date }
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: text)
+        plainFormatter.date(from: text) ?? fractionalFormatter.date(from: text)
     }
+
+    private static let plainFormatter = ISO8601DateFormatter()
+    private static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     /// A JSON number and nothing else. `JSONSerialization` hands booleans
     /// back as `NSNumber` too, and `as? Double` would take `true` for 1.

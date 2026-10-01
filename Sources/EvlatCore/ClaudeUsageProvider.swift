@@ -6,8 +6,10 @@ import Foundation
 /// only in how their status line is read (`UsageReport`); what is kept, and
 /// how a window is merged and dropped, is the same.
 ///
-/// `Fidelity` is `.official`: the fields are Claude Code's documented status
-/// line input, unlike Codex's rollout file. Held in memory only — nothing is
+/// `Fidelity` is `.official` for Claude: the fields are Claude Code's
+/// documented status line input, unlike Codex's rollout file. Antigravity's
+/// `quota` is undocumented (measured, `agy` 1.2.14), so its windows are
+/// `.derived` and drawn with `~`, as Codex's are. Held in memory only — nothing is
 /// written to disk, so a restart shows no Claude group until the status line
 /// next runs.
 ///
@@ -40,6 +42,7 @@ public final class ClaudeUsageProvider: Provider {
     /// `Claude`, or `Claude · {machine name}`.
     public let group: String
     private let machine: Signal.Machine.Identity?
+    private let fidelity: Signal.Fidelity
 
     private struct Stored {
         let window: UsageReport.Window
@@ -58,6 +61,7 @@ public final class ClaudeUsageProvider: Provider {
         self.now = now
         self.machine = machine
         let base = source == .antigravity ? (Self.antigravityID, Self.antigravityGroup) : (Self.id, Self.group)
+        fidelity = source == .antigravity ? .derived : .official
         id = machine.map { "\(base.0)@\($0.id)" } ?? base.0
         group = machine.map { "\(base.1) · \($0.name)" } ?? base.1
     }
@@ -82,7 +86,7 @@ public final class ClaudeUsageProvider: Provider {
             windows[minutes].map { stored in
                 Signal(provider: id, entity: "usage:\(id):\(minutes)", kind: .usage,
                        phase: .idle, progress: stored.window.usedPercent / 100, label: group,
-                       fidelity: .official, updatedAt: stored.observed,
+                       fidelity: fidelity, updatedAt: stored.observed,
                        usage: Signal.Usage(group: group, windowMinutes: minutes,
                                            resetsAt: stored.window.resetsAt),
                        // Dimming is not this provider's to know and no

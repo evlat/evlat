@@ -77,7 +77,11 @@ final class AntigravityUsageTests: XCTestCase {
         let signals = provider.currentSignals()
         XCTAssertEqual(signals.map(\.usage?.group), ["Gemini", "Gemini"])
         XCTAssertEqual(signals.map(\.usage?.windowMinutes), [300, 10080])
-        XCTAssertEqual(signals.map(\.fidelity), [.official, .official])
+        XCTAssertEqual(signals.map(\.fidelity), [.derived, .derived], "undocumented: drawn with ~")
+        let claude = ClaudeUsageProvider(now: { now })
+        claude.handle(UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 1, resetsAt: now + 60)],
+                                  unrecognizedWindows: []))
+        XCTAssertEqual(claude.currentSignals().map(\.fidelity), [.official], "Claude's stays official")
         XCTAssertEqual(signals.map(\.entity), ["usage:antigravity-usage:300", "usage:antigravity-usage:10080"])
     }
 
@@ -123,6 +127,21 @@ final class AntigravityUsageTests: XCTestCase {
         XCTAssertNil(wrappedLine["stack_with_default"], "the user's own line is still drawn")
         XCTAssertEqual(StatusLineRelay.removing(from: wrapped, source: .antigravity)?["statusLine"] as? [String: String],
                        ["type": "command", "command": "mine.sh"])
+    }
+
+    /// A `statusLine` with no command gets the relay alone, and so the key:
+    /// without it the CLI's own line would be replaced by an empty one. A
+    /// value the user set is kept.
+    func testARelayAloneKeepsTheCLIsLineEvenBesideAnEmptyStatusLine() throws {
+        for line in [[:], ["type": "command"]] as [[String: Any]] {
+            let installed = try XCTUnwrap(StatusLineRelay.installing(into: ["statusLine": line], source: .antigravity))
+            let written = try XCTUnwrap(installed["statusLine"] as? [String: Any])
+            XCTAssertEqual(written["stack_with_default"] as? Bool, true)
+            XCTAssertEqual(StatusLineRelay.state(of: installed, source: .antigravity), .current)
+        }
+        let own: [String: Any] = ["statusLine": ["stack_with_default": false]]
+        let installed = try XCTUnwrap(StatusLineRelay.installing(into: own, source: .antigravity))
+        XCTAssertEqual((installed["statusLine"] as? [String: Any])?["stack_with_default"] as? Bool, false)
     }
 
     func testItsFileIsTheCLIsSettings() {

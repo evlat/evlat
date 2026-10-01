@@ -34,6 +34,16 @@ Markdown; keep it to a few bullets.
   terminal tab you last used, never one that has since closed, and
   in herdr it also switches to the session's pane, in any workspace. Thanks
   to @gabeperez (#5).
+- **See your Gemini usage from the Antigravity CLI.** A **Gemini** group
+  joins Claude and Codex in the usage block, with its 5-hour and weekly
+  windows. Turn it on in Settings → Sessions → Usage (**Antigravity usage
+  line**), shown when the `agy` CLI is installed; the CLI keeps drawing its
+  own status line. The numbers carry a `~`: they come from a format
+  Antigravity does not document. Thanks to @gabeperez (#6).
+- **Hide usage you have not used lately.** Settings → Sessions → Usage →
+  **Hide usage not seen for an hour** (off by default) takes a tool's group
+  off the bar until it reports again, instead of keeping it dimmed until its
+  window resets. Thanks to @gabeperez (#7).
 
 ## 0.1.8
 
