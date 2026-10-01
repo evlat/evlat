@@ -31,6 +31,7 @@ Tests/EvlatCoreTests/
 Tests/EvlatAppTests/
 Tests/Fixtures/      fake `claude`, fake `ssh`
 Resources/{en,tr}.lproj/Evlat.strings
+docs/media/          README's banner and screenshots; not bundled into the app
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
                         of the signature (ad-hoc, or EVLAT_SIGN_IDENTITY) and
                         the version (EVLAT_VERSION, EVLAT_BUILD)

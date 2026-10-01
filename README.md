@@ -1,7 +1,30 @@
+<div align="center">
+
+<img src="docs/media/banner.png" alt="Evlat: which of your agents is waiting on you?" width="100%">
+
 # Evlat
 
-A status strip for the edge of your macOS screen that tells you, at a glance,
-what your AI coding sessions are doing.
+**A status strip for the edge of your macOS screen that tells you, at a glance,
+what your AI coding sessions are doing.**
+
+[![Download for macOS](https://img.shields.io/badge/Download_for_macOS-Evlat.dmg-black?style=for-the-badge&logo=apple)](https://github.com/evlat/evlat/releases/latest/download/Evlat.dmg)
+
+macOS 14 or later · signed and notarized · updates itself · no macOS permissions
+
+<table>
+<tr>
+<td width="33%"><img src="docs/media/waiting.jpg" alt="The open bar: every session by name and state, with Claude and Codex usage limits"></td>
+<td width="33%"><img src="docs/media/jump.jpg" alt="A session's card: what it is waiting on, and Go to session"></td>
+<td width="33%"><img src="docs/media/chat.jpg" alt="The chat bubble next to the mascot"></td>
+</tr>
+<tr>
+<td align="center">See who's waiting on you</td>
+<td align="center">One click to the right tab</td>
+<td align="center">Ask without switching windows</td>
+</tr>
+</table>
+
+</div>
 
 A small mascot sits at the head of the bar and shows the overall state; below
 it, one ring per session. You don't have to look at the bar: when a session
