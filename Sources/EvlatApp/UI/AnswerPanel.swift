@@ -76,6 +76,12 @@ final class AnswerPanel: NSPanel {
         onClose?()
     }
 
+    /// ⌘V and the other editing keys: a password is often pasted
+    /// (`EditingKeys`).
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        EditingKeys.perform(event, from: self) || super.performKeyEquivalent(with: event)
+    }
+
     override func resignKey() {
         super.resignKey()
         keyWentElsewhere()

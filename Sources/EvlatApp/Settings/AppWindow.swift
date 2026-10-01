@@ -139,23 +139,41 @@ final class AppKeyWindow: NSWindow {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // A shortcut being recorded is not a key equivalent (⌥⌘W, ⌘J…).
         if event.type == .keyDown, keyInterceptor(event) { return true }
+        if event.type == .keyDown, EditingKeys.isClose(event) { performClose(nil); return true }
+        if EditingKeys.perform(event, from: self) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+/// Cut, Copy, Paste, Select All, Undo and Redo for a window's fields. Evlat
+/// has no main menu (an accessory app), and these arrive through the main
+/// menu's key equivalents: a window with a field routes them itself, or the
+/// field takes no pasted text (a password from a password manager, say).
+enum EditingKeys {
+    /// The action a key equivalent stands for, or `nil`.
+    static func action(for event: NSEvent) -> Selector? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard event.type == .keyDown, flags == .command || flags == [.command, .shift],
-              let key = event.charactersIgnoringModifiers?.lowercased() else {
-            return super.performKeyEquivalent(with: event)
-        }
-        let action: Selector?
+              let key = event.charactersIgnoringModifiers?.lowercased() else { return nil }
         switch (key, flags == .command) {
-        case ("w", true): performClose(nil); return true
-        case ("x", true): action = #selector(NSText.cut(_:))
-        case ("c", true): action = #selector(NSText.copy(_:))
-        case ("v", true): action = #selector(NSText.paste(_:))
-        case ("a", true): action = #selector(NSText.selectAll(_:))
-        case ("z", true): action = Selector(("undo:"))
-        case ("z", false): action = Selector(("redo:"))
-        default: action = nil
+        case ("x", true): return #selector(NSText.cut(_:))
+        case ("c", true): return #selector(NSText.copy(_:))
+        case ("v", true): return #selector(NSText.paste(_:))
+        case ("a", true): return #selector(NSText.selectAll(_:))
+        case ("z", true): return Selector(("undo:"))
+        case ("z", false): return Selector(("redo:"))
+        default: return nil
         }
-        if let action, NSApp.sendAction(action, to: nil, from: self) { return true }
-        return super.performKeyEquivalent(with: event)
+    }
+
+    static func isClose(_ event: NSEvent) -> Bool {
+        event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "w"
+    }
+
+    /// Sends the event's action down the responder chain; `true` if someone took it.
+    static func perform(_ event: NSEvent, from sender: Any) -> Bool {
+        guard let action = action(for: event) else { return false }
+        return NSApp.sendAction(action, to: nil, from: sender)
     }
 }
