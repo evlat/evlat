@@ -19,7 +19,8 @@ Markdown; keep it to a few bullets.
   name but sit on different branches, each row on the bar now shows its
   branch instead of a number. A session's card always shows its branch.
   Settings → Sessions → Git branch turns this off, or on for every session.
-  Sessions on remote machines show no branch.
+  Sessions on remote machines show no branch. Thanks to Shinyoo Kim, who
+  asked for it on Product Hunt.
 - **Connect to servers that ask for a password.** A remote machine no
   longer needs an ssh key: when the server asks for a password, Evlat shows
   the question in a small window, and **Remember in Keychain** (on by
