@@ -41,6 +41,19 @@ final class RemoteTunnels {
         /// The socket the running process is master on; `nil` when it runs
         /// without one.
         var controlPath: String?
+        /// The first try asks the user: the machine was just added.
+        var startInteractive = false
+        /// A password is in the store for the machine, as last read or
+        /// written: what a quiet try's refused prompt is weighed against.
+        var hasStoredPassword = false
+        /// The running try's launch.
+        var generation = 0
+        /// The stored password went to this try's first password prompt;
+        /// never to a second.
+        var usedStoredPassword = false
+        /// What the user typed at this try's password prompt, and whether to
+        /// keep it: kept in memory for the try alone, stored once connected.
+        var typed: (password: String, remember: Bool)?
 
         init(machine: RemoteMachine, hooks: HooksProvider, usage: ClaudeUsageProvider,
              signals: SignalsProvider, signalKey: String) {
@@ -65,6 +78,39 @@ final class RemoteTunnels {
     private var order: [String] = []
     private var observers: [NSObjectProtocol] = []
     private let workspace: NotificationCenter
+    private let askpass: AskpassRoute?
+    private let store: SSHPasswordStore
+    /// Askpass token → the try it was made for.
+    private var tokens: [String: (id: String, generation: Int)] = [:]
+
+    /// An `ssh` question for the user, held until it is answered
+    /// (`answer(_:with:remember:)`). The text is `ssh`'s, verbatim.
+    struct Prompt: Equatable {
+        /// The held request's id (`Askpass.Request.id`).
+        let id: String
+        let machineID: String
+        let machine: String
+        let text: String
+        let generation: Int
+
+        var isPassword: Bool { Askpass.isPassword(text) }
+        var isYesNo: Bool { Askpass.isYesNo(text) }
+    }
+
+    /// The questions waiting for the user, oldest first; the window shows
+    /// the first.
+    private(set) var prompts: [Prompt] = []
+    /// Called when `prompts` changes.
+    var onPromptsChanged: () -> Void = {}
+    /// Answers a held `/askpass` request (`HookListener.answer`).
+    var respond: (String, LocalAPI.Response) -> Void = { _, _ in }
+
+    /// What `ssh` needs to ask Evlat: the helper (this binary) and the port
+    /// of the listener that holds `/askpass`. Without a port, no askpass.
+    struct AskpassRoute {
+        let binary: String
+        let port: () -> UInt16?
+    }
 
     /// `sshPath` is handed in, never looked up here: a test gives the fake's
     /// path, and only `AppController` reads `EVLAT_SSH`. `socketDirectory`
@@ -79,8 +125,12 @@ final class RemoteTunnels {
          workspace: NotificationCenter = NSWorkspace.shared.notificationCenter,
          confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter,
          schedule: @escaping Schedule = RemoteTunnels.mainQueueSchedule,
+         askpass: AskpassRoute? = nil,
+         store: SSHPasswordStore = MemoryPasswordStore(),
          onChange: @escaping () -> Void) {
         self.registry = registry
+        self.askpass = askpass
+        self.store = store
         self.sshPath = sshPath
         self.socketDirectory = socketDirectory
         self.environment = environment
@@ -129,6 +179,12 @@ final class RemoteTunnels {
     /// is installed with.
     func signalKey(of id: String) -> String? { links[id]?.signalKey }
 
+    /// The machine is known to want a password (`RemoteTunnel.asksForPassword`).
+    func asksForPassword(of id: String) -> Bool { links[id]?.tunnel?.asksForPassword ?? false }
+
+    /// "Enter Password…": an interactive try now (`RemoteTunnel.retryByUser`).
+    func retryByUser(id: String) { links[id]?.tunnel?.retryByUser() }
+
     /// Registers the machine's providers and opens its tunnel as soon as its
     /// listener is bound. A machine already present is left as it is.
     ///
@@ -136,13 +192,17 @@ final class RemoteTunnels {
     /// answers `/signal` with it and with no other — not this Mac's, not
     /// another machine's. Required, so no machine's listener is left with a
     /// `/signal` that silently answers `404`.
-    func add(_ machine: RemoteMachine, key: String) {
+    ///
+    /// `interactive`: the first try asks the user (a machine just added);
+    /// one restored at launch tries quietly.
+    func add(_ machine: RemoteMachine, key: String, interactive: Bool = false) {
         guard links[machine.id] == nil else { return }
         let link = Link(machine: machine,
                         hooks: HooksProvider(platform: platform, machine: machine.identity),
                         usage: ClaudeUsageProvider(now: now, machine: machine.identity),
                         signals: SignalsProvider(now: now, machine: machine.identity),
                         signalKey: key)
+        link.startInteractive = interactive
         let tunnel = RemoteTunnel(effects: RemoteTunnel.Effects(
             launch: { [weak self, weak link] generation in
                 guard let self, let link else { return }
@@ -150,10 +210,16 @@ final class RemoteTunnels {
             },
             terminate: { [weak link] in link?.process?.terminate() },
             now: now,
-            schedule: schedule), confirmAfter: confirmAfter)
+            schedule: schedule,
+            hasStoredPassword: { [weak link] in link?.hasStoredPassword ?? false }), confirmAfter: confirmAfter)
         let onChange = self.onChange
-        tunnel.onChange = { [weak link] state in
+        tunnel.onChange = { [weak self, weak link] state in
             guard let link else { return }
+            if state.isConnected { self?.keepTypedPassword(link) }
+            // The one password a try sends was refused: whichever it was
+            // — the stored one, or a typed one kept by a too-early
+            // "connected" — it is not kept, so "Enter Password…" asks.
+            if state == .needsUser(rejected: true) { self?.forgetPassword(link) }
             link.hooks.setLink(connected: state.isConnected)
             link.signals.setLink(connected: state.isConnected)
             // The tunnel's trace on stderr, like the rows' (`refresh`).
@@ -171,7 +237,7 @@ final class RemoteTunnels {
                 case .listening(let port) where link.port == nil:
                     link.port = port
                     NSLog("Evlat: machine %@ listening on 127.0.0.1:%d", link.machine.name, Int(port))
-                    link.tunnel?.start()
+                    link.tunnel?.start(interactive: link.startInteractive)
                 case .unavailable:
                     NSLog("Evlat: machine %@ listener %@", link.machine.name, status.text)
                 default:
@@ -207,6 +273,7 @@ final class RemoteTunnels {
         registry.register(link.hooks)
         registry.register(link.usage)
         registry.register(link.signals)
+        store.password(for: machine.id) { [weak link] password in link?.hasStoredPassword = password != nil }
         link.listener?.start()
     }
 
@@ -214,6 +281,7 @@ final class RemoteTunnels {
     func remove(id: String) {
         guard let link = links.removeValue(forKey: id) else { return }
         order.removeAll { $0 == id }
+        endAttempt(of: link, generation: nil)
         close(link)
         registry.unregister(link.hooks)
         registry.unregister(link.usage)
@@ -244,17 +312,142 @@ final class RemoteTunnels {
         guard let port = link.port, let tunnel = link.tunnel else { return }
         let controlPath = masterSocket(for: link.machine)
         link.controlPath = controlPath
+        link.generation = generation
+        link.usedStoredPassword = false
+        link.typed = nil
+        let asking = askpassEnvironment(for: link, generation: generation)
         let process = SSHProcess(path: sshPath,
                                  arguments: RemoteTunnel.arguments(target: link.machine.target, localPort: port,
-                                                                   controlPath: controlPath),
-                                 environment: RemoteTunnel.environment(base: environment, askpass: nil)) {
-            [weak tunnel] stderr in
+                                                                   controlPath: controlPath, askpass: asking != nil),
+                                 environment: RemoteTunnel.environment(base: environment, askpass: asking)) {
+            [weak self, weak link, weak tunnel] stderr in
+            // The try's questions go with it, before the tunnel hears why.
+            if let self, let link { self.endAttempt(of: link, generation: generation) }
             tunnel?.exited(generation: generation, stderr: stderr)
         }
         link.process = process
         if let failure = process.run() {
+            endAttempt(of: link, generation: generation)
             tunnel.exited(generation: generation, stderr: failure)
         }
+    }
+
+    /// The tunnel's askpass variables, with a token new to this try; `nil`
+    /// — and `BatchMode=yes` — while this Mac's listener has no port.
+    private func askpassEnvironment(for link: Link, generation: Int) -> [String: String]? {
+        guard let askpass, let port = askpass.port() else { return nil }
+        let token = SignalKey.generate()
+        tokens[token] = (link.machine.id, generation)
+        return ["SSH_ASKPASS": askpass.binary,
+                "SSH_ASKPASS_REQUIRE": "force",
+                Askpass.environmentKey: Askpass.value(Askpass.Mark(port: port, token: token))]
+    }
+
+    /// The try `generation` (every try: `nil`) is over: its token answers
+    /// nothing more, and its held questions are let go — the window drops
+    /// them. The tunnel is told nothing here; its own exit report follows.
+    private func endAttempt(of link: Link, generation: Int?) {
+        tokens = tokens.filter { !($0.value.id == link.machine.id && (generation == nil || $0.value.generation == generation)) }
+        let dropped = prompts.filter { $0.machineID == link.machine.id && (generation == nil || $0.generation == generation) }
+        guard !dropped.isEmpty else { return }
+        prompts.removeAll { prompt in dropped.contains(prompt) }
+        dropped.forEach { respond($0.id, LocalAPI.noAnswer) }
+        onPromptsChanged()
+    }
+
+    private func forgetPassword(_ link: Link) {
+        link.typed = nil
+        link.hasStoredPassword = false
+        store.delete(for: link.machine.id)
+    }
+
+    /// A password typed on this try, with "Remember" on, is stored once the
+    /// try connected — never before: a refused one is never kept.
+    private func keepTypedPassword(_ link: Link) {
+        guard let typed = link.typed else { return }
+        link.typed = nil
+        guard typed.remember else { return }
+        store.save(typed.password, for: link.machine.id, target: link.machine.target)
+        link.hasStoredPassword = true
+    }
+}
+
+// MARK: - Askpass
+
+extension RemoteTunnels {
+    /// A helper's prompt (`/askpass`, already held by the listener). A token
+    /// no running try has is refused. A password prompt takes the stored
+    /// password, once per try; on a quiet try every other prompt is refused;
+    /// on an interactive one it waits for the user (`prompts`).
+    func ask(_ request: Askpass.Request) {
+        // A try halted by a sleep keeps its token until its exit is
+        // reported; its questions are no longer anyone's.
+        guard let owner = tokens[request.token], let link = links[owner.id], let tunnel = link.tunnel,
+              link.generation == owner.generation, tunnel.state == .connecting else {
+            return respond(request.id, LocalAPI.noAnswer)
+        }
+        let generation = owner.generation
+        tunnel.promptOpened()
+        let password = Askpass.isPassword(request.prompt)
+        // The store is asked, not `hasStoredPassword`: at launch its
+        // answer may not have come back yet.
+        guard password, !link.usedStoredPassword else {
+            return route(request, link: link, generation: generation, password: password)
+        }
+        link.usedStoredPassword = true
+        store.password(for: link.machine.id) { [weak self, weak link] stored in
+            guard let self, let link, link.generation == generation, self.tokens[request.token] != nil else {
+                self?.respond(request.id, LocalAPI.noAnswer)
+                return
+            }
+            guard let stored else {
+                link.hasStoredPassword = false
+                return self.route(request, link: link, generation: generation, password: true)
+            }
+            link.hasStoredPassword = true
+            self.respond(request.id, LocalAPI.Response(status: .ok, body: stored))
+            link.tunnel?.promptAnswered(sentPassword: true)
+        }
+    }
+
+    private func route(_ request: Askpass.Request, link: Link, generation: Int, password: Bool) {
+        guard link.tunnel?.mode == .interactive else {
+            respond(request.id, LocalAPI.noAnswer)
+            link.tunnel?.promptRefused(password: password)
+            return
+        }
+        prompts.append(Prompt(id: request.id, machineID: link.machine.id, machine: link.machine.name,
+                              text: request.prompt, generation: generation))
+        onPromptsChanged()
+    }
+
+    /// The user's answer to a held question; `nil` is a refusal (Cancel,
+    /// Esc, the window closed). `remember` is the password's box.
+    func answer(_ id: String, with text: String?, remember: Bool = false) {
+        guard let index = prompts.firstIndex(where: { $0.id == id }) else { return }
+        let prompt = prompts.remove(at: index)
+        onPromptsChanged()
+        guard let link = links[prompt.machineID], link.generation == prompt.generation else {
+            return respond(id, LocalAPI.noAnswer)
+        }
+        guard let text else {
+            respond(id, LocalAPI.noAnswer)
+            link.tunnel?.promptRefused(password: prompt.isPassword)
+            return
+        }
+        respond(id, LocalAPI.Response(status: .ok, body: text))
+        if prompt.isPassword { link.typed = (text, remember) }
+        link.tunnel?.promptAnswered(sentPassword: prompt.isPassword)
+    }
+
+    /// The helper went away before an answer (`ssh` gave up): its
+    /// question leaves the window.
+    func abandoned(_ id: String) {
+        guard let index = prompts.firstIndex(where: { $0.id == id }) else { return }
+        let prompt = prompts.remove(at: index)
+        onPromptsChanged()
+        guard let link = links[prompt.machineID], link.generation == prompt.generation else { return }
+        link.tunnel?.promptRefused(password: prompt.isPassword)
     }
 }
 

@@ -33,6 +33,10 @@ final class RemoteMachinesModel: ObservableObject {
         /// The socket of the machine's tunnel master, while one runs
         /// (`RemoteTunnels.controlPath(of:)`): the jobs ride it.
         var controlPath: (String) -> String? = { _ in nil }
+        /// "Enter Password…": an interactive try now (`RemoteTunnels.retryByUser`).
+        var retryByUser: (String) -> Void = { _ in }
+        /// The machine is known to want a password (`RemoteTunnels.asksForPassword`).
+        var asksForPassword: (String) -> Bool = { _ in false }
     }
 
     /// How a line reads at a glance. The window colours it; no icon.
@@ -46,6 +50,9 @@ final class RemoteMachinesModel: ObservableObject {
         /// What to do about a failure, `nil` when there is none.
         let advice: String?
         let tone: Tone
+        /// The row offers "Enter Password…": the tunnel waits for the user,
+        /// or a password is what it lacks.
+        var enterPassword = false
     }
 
     /// The line a finished job leaves under the buttons, and what the agents
@@ -183,7 +190,8 @@ final class RemoteMachinesModel: ObservableObject {
             let status = Self.status(host.state(machine.id), sessions: counts[machine.id] ?? 0,
                                      now: date, in: lang, target: machine.target)
             return Row(id: machine.id, name: machine.name, target: machine.target,
-                       status: status.text, advice: status.advice, tone: status.tone)
+                       status: status.text, advice: status.advice, tone: status.tone,
+                       enterPassword: Self.offersPassword(host.state(machine.id)))
         }
         if fresh != rows { rows = fresh }
         if let selection, !fresh.contains(where: { $0.id == selection }) { self.selection = nil }
@@ -230,6 +238,26 @@ final class RemoteMachinesModel: ObservableObject {
         case .option: return "remote.add.option"
         case .invalidCharacter: return "remote.add.invalidCharacter"
         }
+    }
+
+    /// "Enter Password…" on a row: the window asks at once.
+    func enterPassword(_ id: String) {
+        guard rows.contains(where: { $0.id == id }) else { return }
+        host.retryByUser(id)
+        reload()
+    }
+
+    static func offersPassword(_ state: RemoteTunnel.State?) -> Bool {
+        state?.wantsPassword ?? false
+    }
+
+    /// A password server with no tunnel up: the setup buttons cannot reach
+    /// it (they ride the tunnel's master), so the row says to connect first.
+    /// A running `ssh` is not enough: at a prompt its master socket is not
+    /// open yet.
+    func needsConnectionFirst(_ id: String) -> Bool {
+        guard host.asksForPassword(id) else { return false }
+        return host.controlPath(id) == nil || host.state(id)?.isConnected != true
     }
 
     // MARK: - Removing
@@ -580,6 +608,9 @@ final class RemoteMachinesModel: ObservableObject {
             let text = L10n.t("remote.state.waiting",
                               ["failure": L10n.t(failureKey(failure), in: lang), "retry": retry], in: lang)
             return (text, L10n.t(adviceKey(failure), ["target": target], in: lang), .trouble)
+        case .needsUser(let rejected)?:
+            let key = rejected ? "remote.state.passwordRefused" : "remote.state.needsPassword"
+            return (L10n.t(key, in: lang), L10n.t(key + ".advice", in: lang), .trouble)
         }
     }
 
@@ -591,6 +622,7 @@ final class RemoteMachinesModel: ObservableObject {
         case .hostKey: return "remote.failure.hostKey"
         case .hostName: return "remote.failure.hostName"
         case .unreachable: return "remote.failure.unreachable"
+        case .passwordNeeded: return "remote.failure.passwordNeeded"
         case .other: return "remote.failure.other"
         }
     }
@@ -656,12 +688,15 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.command.manual.script", "remote.command.manual.key", "remote.command.manual.remove",
                     "remote.items.title", "remote.items.body",
                     "remote.item.hooks", "remote.item.usage", "remote.item.command",
-                    "remote.reading", "remote.reading.failed",
+                    "remote.reading", "remote.reading.failed", "remote.reading.connectFirst",
+                    "remote.state.needsPassword", "remote.state.needsPassword.advice",
+                    "remote.state.passwordRefused", "remote.state.passwordRefused.advice", "remote.enterPassword",
                     "remote.combined", "remote.combined.hint", "remote.combined.title", "remote.combined.body",
                     "remote.combined.whole", "remote.combined.check", "remote.combined.checkNote"]
         keys += [RemoteMachine.TargetProblem.empty, .option, .invalidCharacter].map(problemKey)
         keys += blocks.map(\.captionKey)
-        let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable, .other]
+        let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable,
+                                                .passwordNeeded, .other]
         keys += failures.map(failureKey) + failures.map(adviceKey)
         let results: [RemoteInstaller.Result] = [
             .success(.written), .success(.unchanged),

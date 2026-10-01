@@ -14,6 +14,14 @@ final class AskpassHelperTests: XCTestCase {
     private var asked: [Askpass.Request] = []
     private var processes: [Process] = []
 
+    /// A freshly linked binary's first run pays for macOS's assessment
+    /// (once ~50 s): paid here, untimed, not inside a test's 15 s wait.
+    override class func setUp() {
+        super.setUp()
+        FreshExecutable.warm(Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+            .appendingPathComponent("Evlat").path)
+    }
+
     override func tearDown() {
         processes.filter(\.isRunning).forEach { kill($0.processIdentifier, SIGKILL) }
         listener?.stop()

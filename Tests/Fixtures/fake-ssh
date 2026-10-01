@@ -1,0 +1,57 @@
+#!/bin/sh
+# A fake `ssh` for the tunnel tests: it asks its askpass the way the real one
+# does — the prompt alone in argv[1], the helper `$SSH_ASKPASS`, its stdout the
+# answer and its exit code whether there is one — and never reaches a server.
+# Tests hand its path to `RemoteTunnels` the way `EVLAT_SSH` does; the real
+# `ssh` is never run from a test.
+#
+#   FAKE_SSH_LOG          file its arguments go to; `<log>.env` gets the
+#                         variables it was started with, `<log>.askpass` one
+#                         `askpass <exit code> <answer>` line per prompt
+#   FAKE_SSH_PROMPT1..3   the prompts to ask, in order (none: no prompt)
+#   FAKE_SSH_PASSWORD     the password the "server" takes; another answer to a
+#                         password prompt is refused (unset: any answer)
+#   FAKE_SSH_FAIL         one OpenSSH line to end with instead of connecting
+#
+# A refused prompt ends it as OpenSSH does: `Host key verification failed.`
+# for a yes/no question, `Permission denied` for anything else. Connected, it
+# holds its stdin open like the real remote `cat`.
+
+# `--evlat-warm`: exit before anything else (FreshExecutable).
+[ "$1" = --evlat-warm ] && exit 0
+
+log="${FAKE_SSH_LOG:-/dev/null}"
+{ echo '--- run'; for a in "$@"; do printf '%s\n' "$a"; done; } >> "$log"
+printf '%s\n' "SSH_AUTH_SOCK=${SSH_AUTH_SOCK-}" \
+  "SSH_ASKPASS=${SSH_ASKPASS-unset}" \
+  "SSH_ASKPASS_REQUIRE=${SSH_ASKPASS_REQUIRE-unset}" \
+  "EVLAT_ASKPASS=${EVLAT_ASKPASS:+set}" >> "$log.env"
+
+denied='Permission denied (publickey,password).'
+for n in 1 2 3; do
+  eval "prompt=\${FAKE_SSH_PROMPT$n-}"
+  [ -n "$prompt" ] || break
+  # The helper's streams are not the tunnel's: its stdin is nobody's.
+  answer=$("$SSH_ASKPASS" "$prompt" </dev/null)
+  code=$?
+  printf 'askpass %s %s\n' "$code" "$answer" >> "$log.askpass"
+  case "$prompt" in
+    *yes/no*)
+      if [ "$code" -ne 0 ] || [ "$answer" != yes ]; then
+        echo 'Host key verification failed.' >&2
+        exit 255
+      fi ;;
+    *)
+      if [ "$code" -ne 0 ]; then echo "$denied" >&2; exit 255; fi
+      if [ -n "${FAKE_SSH_PASSWORD+set}" ] && [ "$answer" != "$FAKE_SSH_PASSWORD" ]; then
+        echo "$denied" >&2
+        exit 255
+      fi ;;
+  esac
+done
+
+if [ -n "${FAKE_SSH_FAIL-}" ]; then
+  echo "$FAKE_SSH_FAIL" >&2
+  exit 255
+fi
+exec cat >/dev/null

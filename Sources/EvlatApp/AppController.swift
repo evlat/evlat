@@ -2006,13 +2006,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             onStatus: { status in
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
             },
-            // A chat turn's held permission request that went away unanswered.
-            // An askpass prompt's id comes here too; none is held past its
-            // delivery yet, so nothing has one to drop.
+            // A chat turn's held permission request that went away unanswered,
+            // or a tunnel's askpass prompt whose `ssh` gave up.
             onAbandoned: { [weak self] id in
                 MainActor.assumeIsolated {
                     self?.chats?.permissionAbandoned(id)
                     self?.approvals.abandoned(id)
+                    self?.remote?.abandoned(id)
                 }
             },
             onDelivery: { [weak self] delivery in
@@ -2064,7 +2064,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func startRemoteTunnels(configuration: RemoteMachine.Configuration? = nil,
                             sshPath: String = AppController.sshPath(),
                             socketDirectory: String = AppController.socketDirectory,
-                            confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter) {
+                            confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter,
+                            askpassBinary: String? = Bundle.main.executableURL?.path,
+                            passwords: SSHPasswordStore = MemoryPasswordStore()) {
         let configuration = configuration ?? Self.remoteConfiguration(defaults: defaults)
         for target in configuration.rejected {
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
@@ -2085,7 +2087,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
             socketDirectory: socketDirectory,
             confirmAfter: confirmAfter,
+            // `ssh` asks this binary (`Askpass`), which asks the listener's
+            // `/askpass`; until the listener is bound no tunnel prompts.
+            askpass: askpassBinary.map { binary in
+                RemoteTunnels.AskpassRoute(binary: binary, port: { [weak self] in
+                    MainActor.assumeIsolated { self?.hookListener?.boundPort }
+                })
+            },
+            store: passwords,
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
+        tunnels.respond = { [weak self] id, response in
+            MainActor.assumeIsolated { self?.hookListener?.answer(id, with: response) }
+        }
+        tunnels.onPromptsChanged = { [weak self] in MainActor.assumeIsolated { self?.promptsChanged() } }
         for machine in configuration.machines {
             tunnels.add(machine, key: remoteSignalKeys[machine.id] ?? SignalKey.generate())
         }
@@ -2116,7 +2130,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             remove: { [weak self] id in self?.removeMachine(id: id) },
             isStored: { [weak self] in self.map { !$0.remoteFromEnvironment } ?? false },
             signalKey: { [weak self] id in self?.remote?.signalKey(of: id) },
-            controlPath: { [weak self] id in self?.remote?.controlPath(of: id) })
+            controlPath: { [weak self] id in self?.remote?.controlPath(of: id) },
+            retryByUser: { [weak self] id in self?.remote?.retryByUser(id: id) },
+            asksForPassword: { [weak self] id in self?.remote?.asksForPassword(of: id) ?? false })
     }
 
     /// The setup rows' way to the app: each closure is one of the
@@ -2131,8 +2147,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             unreachableMachines: { [weak self] in
                 guard let remote = self?.remote else { return [] }
                 return remote.machines.compactMap { machine in
-                    guard case .waiting? = remote.state(of: machine.id) else { return nil }
+                    guard case .waiting? = remote.state(of: machine.id),
+                          !RemoteMachinesModel.offersPassword(remote.state(of: machine.id)) else { return nil }
                     return machine.name
+                }
+            },
+            // Its own line, not "unreachable": the server answered, and
+            // what it wants is the password (R9).
+            machinesNeedingPassword: { [weak self] in
+                guard let remote = self?.remote else { return [] }
+                return remote.machines.compactMap { machine in
+                    RemoteMachinesModel.offersPassword(remote.state(of: machine.id)) ? machine.name : nil
                 }
             },
             setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
@@ -2337,7 +2362,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let machine = RemoteMachine(id: UUID().uuidString, target: target) else { return .failure(.empty) }
         let key = SignalKey.generate()
         remoteSignalKeys[machine.id] = key
-        remote.add(machine, key: key)
+        // The first try asks: a password or a host key is answered in
+        // Evlat's window now, while the user is there to answer it.
+        remote.add(machine, key: key, interactive: true)
         storeMachines()
         storeSignalKeys()
         return .success(machine)
@@ -2411,9 +2438,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             claudeUsage.handle(report)
             scheduleRefresh()
         case .askpass(let request):
-            // No tunnel asks yet: every prompt is refused, and `ssh` sends
-            // no password.
-            hookListener?.answer(request.id, with: LocalAPI.noAnswer)
+            // The tunnels match it to a try; without them it is refused and
+            // `ssh` sends no password.
+            if let remote { remote.ask(request) } else {
+                hookListener?.answer(request.id, with: LocalAPI.noAnswer)
+            }
         case .permission(let request):
             // The store matches it to a turn, or refuses it.
             if let chats { chats.permissionAsked(request) } else {
@@ -2802,6 +2831,49 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .other: openAnswer(id)
         case .go: break
         }
+    }
+
+    // MARK: - ssh's questions
+
+    /// `ssh`'s question in its own window (`PromptView`), while one waits.
+    private(set) var promptPanel: AnswerPanel?
+    let promptModel = PromptModel()
+
+    /// The tunnels' questions changed: the oldest is shown, or the window
+    /// goes. Nothing activates Evlat; the keyboard comes back to the app in
+    /// front when it closes, which never stopped being active.
+    func promptsChanged() {
+        showPrompt(remote?.prompts.first)
+    }
+
+    /// `prompt` in the window, or the window gone (`nil`).
+    func showPrompt(_ prompt: RemoteTunnels.Prompt?) {
+        guard let prompt else {
+            promptModel.clear()
+            promptPanel?.orderOut(nil)
+            return
+        }
+        let window = promptPanel ?? makePromptPanel()
+        let fresh = promptModel.prompt != prompt
+        promptModel.show(prompt)
+        if fresh || !window.isVisible {
+            // The bar's own screen, never the focused one's.
+            window.present(on: panel?.screen ?? NSScreen.screens.first)
+        }
+    }
+
+    private func makePromptPanel() -> AnswerPanel {
+        let window = AnswerPanel(content: PromptView(model: promptModel), size: PromptView.size)
+        // Esc: the question is refused — `ssh` sends nothing, and the row
+        // says what that means. Not a click elsewhere: the password may be
+        // in another app, and the window waits while it is fetched.
+        window.closesWhenKeyLeaves = false
+        window.onClose = { [weak self] in self?.promptModel.refuse() }
+        promptModel.onAnswer = { [weak self] id, text, remember in
+            self?.remote?.answer(id, with: text, remember: remember)
+        }
+        promptPanel = window
+        return window
     }
 
     // MARK: - The answer line

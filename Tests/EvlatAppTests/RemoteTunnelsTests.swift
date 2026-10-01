@@ -27,6 +27,8 @@ final class RemoteTunnelsTests: XCTestCase {
         // Every fake started here ends here, even when an assertion failed.
         tunnels?.stopAll()
         tunnels = nil
+        askpassListener?.stop()
+        askpassListener = nil
         held.forEach { Darwin.close($0) }
         held = []
         try? FileManager.default.removeItem(at: directory)
@@ -341,6 +343,192 @@ final class RemoteTunnelsTests: XCTestCase {
         tunnels.remove(id: "fake")
         XCTAssertFalse(registry.snapshot().ordered.contains { $0.entity.hasPrefix("signal:fake:") })
         XCTAssertNil(tunnels.signalKey(of: "fake"))
+    }
+
+    // MARK: - Asking for a password
+
+    /// `Tests/Fixtures/fake-ssh`, copied and warmed: the fake that asks its
+    /// askpass. Configured through the environment `ssh` is started with.
+    private func promptingSSH() throws -> (path: String, log: URL) {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/fake-ssh")
+        let copy = directory.appendingPathComponent("fake-ssh-prompting")
+        try FileManager.default.copyItem(at: fixture, to: copy)
+        FreshExecutable.warm(copy.path)
+        return (copy.path, directory.appendingPathComponent("prompting.log"))
+    }
+
+    /// The built binary: the helper `ssh` runs.
+    private var helper: String {
+        Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("Evlat").path
+    }
+
+    /// This Mac's listener as the app has it: `/askpass` held and handed
+    /// to the tunnels, their answers written back, an abandoned one told.
+    private var askpassListener: HookListener?
+
+    private func makeAsking(ssh path: String, log: URL, environment extra: [String: String],
+                            store: SSHPasswordStore = MemoryPasswordStore(),
+                            port: Bool = true, confirmAfter: TimeInterval = 0.2) throws -> RemoteTunnels {
+        var tunnelsRef: RemoteTunnels?
+        let listener = HookListener(port: 0, onAbandoned: { id in tunnelsRef?.abandoned(id) }) { delivery in
+            if case .askpass(let request) = delivery { tunnelsRef?.ask(request) }
+        }
+        listener.start()
+        askpassListener = listener
+        guard case .listening(let bound) = listener.awaitSettled(timeout: 5) else {
+            throw XCTSkip("listener did not come up: \(listener.status.text)")
+        }
+        var environment = base.merging(extra) { _, new in new }
+        environment["FAKE_SSH_LOG"] = log.path
+        let made = RemoteTunnels(registry: Registry(), sshPath: path, platform: .unknown,
+                                 now: Date.init, socketDirectory: sockets, environment: environment,
+                                 workspace: NotificationCenter(), confirmAfter: confirmAfter,
+                                 askpass: RemoteTunnels.AskpassRoute(binary: helper, port: { port ? bound : nil }),
+                                 store: store, onChange: {})
+        made.respond = { [weak listener] id, response in listener?.answer(id, with: response) }
+        tunnelsRef = made
+        tunnels = made
+        return made
+    }
+
+    private func askpassLines(_ log: URL) -> [String] {
+        ((try? String(contentsOf: URL(fileURLWithPath: log.path + ".askpass"), encoding: .utf8)) ?? "")
+            .split(separator: "\n").map(String.init)
+    }
+
+    private let passwordPrompt = "ben@fake's password: "
+
+    /// The stored password answers the try's first password prompt and no
+    /// other: a second prompt on the same try is refused, and the login
+    /// that refused the stored one is not tried again.
+    func testTheStoredPasswordGoesToTheFirstPasswordPromptOnce() throws {
+        let fake = try promptingSSH()
+        let store = MemoryPasswordStore(["fake": "s3cr€t"])
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
+                                                   "FAKE_SSH_PROMPT2": passwordPrompt],
+                                     store: store)
+        tunnels.add(machine, key: key)
+        waitUntil("stopped for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: true) }
+        XCTAssertEqual(askpassLines(fake.log), ["askpass 0 s3cr€t", "askpass 1 "])
+        XCTAssertEqual(runs(in: fake.log).count, 1, "a refused password is not sent again")
+        let run = try XCTUnwrap(runs(in: fake.log).first)
+        XCTAssertTrue(run.contains("BatchMode=no"))
+        XCTAssertTrue(run.contains("NumberOfPasswordPrompts=1"))
+        XCTAssertTrue(tunnels.prompts.isEmpty, "a quiet try puts nothing in front of the user")
+        // The refused stored password is forgotten: "Enter Password…" asks
+        // the user instead of sending it again.
+        var kept: String? = "unread"
+        store.password(for: "fake") { kept = $0 }
+        XCTAssertNil(kept)
+        tunnels.retryByUser(id: "fake")
+        waitUntil("the user is asked", timeout: 15) { !tunnels.prompts.isEmpty }
+        tunnels.prompts.forEach { tunnels.answer($0.id, with: nil) }
+    }
+
+    /// A quiet try refuses a host key question: `ssh`'s own line, and the
+    /// failure is the host key as it always was.
+    func testAQuietTryRefusesAHostKeyQuestion() throws {
+        let fake = try promptingSSH()
+        let question = """
+            The authenticity of host 'fake (10.0.0.9)' can't be established.
+            ED25519 key fingerprint is SHA256:abc.
+            Are you sure you want to continue connecting (yes/no/[fingerprint])?
+            """
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: ["FAKE_SSH_PROMPT1": question])
+        tunnels.add(machine, key: key)
+        waitUntil("waiting", timeout: 15) {
+            if case .waiting(_, .hostKey)? = tunnels.state(of: "fake") { return true }
+            return false
+        }
+        XCTAssertEqual(askpassLines(fake.log), ["askpass 1 "])
+    }
+
+    /// `ssh` keeps Evlat's environment — the agent first of all — with the
+    /// askpass variables added; with no port to ask, none of them, and
+    /// `ssh` never prompts.
+    func testTheAgentIsKeptAndAskpassComesOnlyWithAPort() throws {
+        let fake = try promptingSSH()
+        var tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:])
+        tunnels.add(machine, key: key)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        XCTAssertEqual(environment(in: fake.log), [
+            "SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock",
+            "SSH_ASKPASS=\(helper)", "SSH_ASKPASS_REQUIRE=force", "EVLAT_ASKPASS=set",
+        ])
+        tunnels.stopAll()
+        askpassListener?.stop()
+
+        try FileManager.default.removeItem(atPath: fake.log.path + ".env")
+        try FileManager.default.removeItem(at: fake.log)
+        tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:], port: false)
+        tunnels.add(machine, key: key)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        XCTAssertEqual(environment(in: fake.log), [
+            "SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock",
+            "SSH_ASKPASS=unset", "SSH_ASKPASS_REQUIRE=unset", "EVLAT_ASKPASS=",
+        ])
+        let run = try XCTUnwrap(runs(in: fake.log).first)
+        XCTAssertTrue(run.contains("BatchMode=yes"), "without a helper, no prompt at all")
+    }
+
+    /// A machine just added asks the user; the typed password reaches
+    /// `ssh`, and with "Remember" on it is kept once the tunnel is up.
+    func testAnAddedMachineAsksTheUserAndKeepsTheAnswerOnceConnected() throws {
+        let fake = try promptingSSH()
+        let store = MemoryPasswordStore()
+        var changes = 0
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "typed"],
+                                     // Longer than the helper takes to ask: the
+                                     // question, not the clock, holds it.
+                                     store: store, confirmAfter: 3)
+        tunnels.onPromptsChanged = { changes += 1 }
+        tunnels.add(machine, key: key, interactive: true)
+        waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
+        let prompt = try XCTUnwrap(tunnels.prompts.first)
+        XCTAssertEqual(prompt.text, passwordPrompt, "the prompt as ssh wrote it")
+        XCTAssertEqual(prompt.machine, "fake")
+        XCTAssertTrue(prompt.isPassword)
+        XCTAssertEqual(tunnels.state(of: "fake"), .connecting, "not connected while the question waits")
+        var kept: String?
+        store.password(for: "fake") { kept = $0 }
+        XCTAssertNil(kept)
+
+        tunnels.answer(prompt.id, with: "typed", remember: true)
+        XCTAssertTrue(tunnels.prompts.isEmpty)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        XCTAssertEqual(askpassLines(fake.log), ["askpass 0 typed"])
+        store.password(for: "fake") { kept = $0 }
+        XCTAssertEqual(kept, "typed")
+        XCTAssertGreaterThanOrEqual(changes, 2)
+    }
+
+    /// A try that ends takes its held question with it: the window's
+    /// prompt goes, and the helper is answered — nothing is left waiting.
+    func testAnEndingTryLetsItsHeldQuestionGo() throws {
+        let fake = try promptingSSH()
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: ["FAKE_SSH_PROMPT1": passwordPrompt],
+                                     confirmAfter: 3)
+        tunnels.add(machine, key: key, interactive: true)
+        waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
+        tunnels.sleep()
+        waitUntil("the question went with the try", timeout: 15) { tunnels.prompts.isEmpty }
+        waitUntil("process gone") { tunnels.isProcessRunning(of: "fake") == false }
+        XCTAssertEqual(tunnels.state(of: "fake"), .stopped)
+    }
+
+    /// A token no running try holds is refused, whatever it asks.
+    func testAnUnknownTokenIsRefused() throws {
+        let fake = try promptingSSH()
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:])
+        var answered: [(String, LocalAPI.Response)] = []
+        tunnels.respond = { answered.append(($0, $1)) }
+        tunnels.ask(Askpass.Request(id: "r-1", token: String(repeating: "c", count: 64), prompt: passwordPrompt))
+        XCTAssertEqual(answered.map(\.0), ["r-1"])
+        XCTAssertEqual(answered.first?.1, LocalAPI.noAnswer)
+        XCTAssertTrue(tunnels.prompts.isEmpty)
     }
 
     // MARK: - Which machines

@@ -248,6 +248,26 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.text(.machineUnreachable("devbox")), "devbox: server unreachable")
     }
 
+    /// A machine waiting for its password is its own line, at the remote
+    /// section — not "unreachable": the server answered.
+    func testAMachineWaitingForItsPasswordIsAnAttentionLine() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        var waiting: [String] = []
+        let model = model(controller) { host in
+            host.unreachableMachines = { [] }
+            host.machinesNeedingPassword = { waiting }
+        }
+        XCTAssertFalse(model.attention.contains(.machineNeedsPassword("devbox")))
+        waiting = ["devbox"]
+        model.reloadIfMachinesChanged()
+        XCTAssertTrue(model.attention.contains(.machineNeedsPassword("devbox")), "the line follows the tunnel")
+        XCTAssertEqual(SetupAttention.machineNeedsPassword("devbox").section, .remote)
+        XCTAssertEqual(model.text(.machineNeedsPassword("devbox")), "devbox: waiting for a password")
+        XCTAssertEqual(SetupModel(host: controller.setupHost, lang: "tr").text(.machineNeedsPassword("devbox")),
+                       "devbox: şifre bekliyor")
+    }
+
     func testEveryKeyIsInBothTables() {
         for lang in ["en", "tr"] {
             for key in SetupModel.keys {

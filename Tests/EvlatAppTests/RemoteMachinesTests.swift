@@ -95,6 +95,9 @@ final class RemoteMachinesTests: XCTestCase {
         var states: [String: RemoteTunnel.State] = [:]
         var counts: [String: Int] = [:]
         var keys: [String: String] = [:]
+        var retried: [String] = []
+        var password: Set<String> = []
+        var sockets: [String: String] = [:]
     }
 
     private func host(_ recorder: Recorder, stored: Bool = true) -> RemoteMachinesModel.Host {
@@ -113,7 +116,10 @@ final class RemoteMachinesTests: XCTestCase {
                 recorder.machines.removeAll { $0.id == id }
             },
             isStored: { stored },
-            signalKey: { recorder.keys[$0] })
+            signalKey: { recorder.keys[$0] },
+            controlPath: { recorder.sockets[$0] },
+            retryByUser: { recorder.retried.append($0) },
+            asksForPassword: { recorder.password.contains($0) })
     }
 
     private func stored() -> [RemoteMachine] {
@@ -455,8 +461,64 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertNil(RemoteMachinesModel.status(.connecting, sessions: 0, now: now, in: "en").advice)
     }
 
+    /// A password the server wants: the row says which of the three it is,
+    /// in words, and offers "Enter Password…" — never for another failure.
+    func testThePasswordStatesHaveTheirOwnLines() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func status(_ state: RemoteTunnel.State, _ lang: String = "en")
+            -> (text: String, advice: String?, tone: RemoteMachinesModel.Tone) {
+            RemoteMachinesModel.status(state, sessions: 0, now: now, in: lang)
+        }
+        XCTAssertEqual(status(.needsUser(rejected: false)).text, "waiting for your password")
+        XCTAssertEqual(status(.needsUser(rejected: false), "tr").text, "şifre bekliyor")
+        XCTAssertEqual(status(.needsUser(rejected: true)).text, "password refused")
+        XCTAssertEqual(status(.needsUser(rejected: true), "tr").text, "şifre reddedildi")
+        XCTAssertTrue(status(.waiting(retryAt: now.addingTimeInterval(20), failure: .passwordNeeded), "tr").text
+            .hasPrefix("şifre gerekiyor · "))
+        XCTAssertEqual(status(.needsUser(rejected: true)).tone, .trouble)
+        XCTAssertNotNil(status(.needsUser(rejected: true)).advice)
+        XCTAssertFalse(status(.waiting(retryAt: now, failure: .authentication)).advice?.contains("passwordless") ?? true,
+                       "a password is a way in now")
+
+        XCTAssertTrue(RemoteMachinesModel.offersPassword(.needsUser(rejected: true)))
+        XCTAssertTrue(RemoteMachinesModel.offersPassword(.needsUser(rejected: false)))
+        XCTAssertTrue(RemoteMachinesModel.offersPassword(.waiting(retryAt: now, failure: .passwordNeeded)))
+        XCTAssertFalse(RemoteMachinesModel.offersPassword(.waiting(retryAt: now, failure: .authentication)))
+        XCTAssertFalse(RemoteMachinesModel.offersPassword(.connected(since: now)))
+        XCTAssertFalse(RemoteMachinesModel.offersPassword(nil))
+    }
+
+    /// "Enter Password…" tries the machine interactively, through the
+    /// tunnels; and a password server with no tunnel up says to connect
+    /// first — the setup rides the tunnel's connection.
+    func testEnterPasswordTriesAndAPasswordServerWithoutATunnelSaysConnectFirst() {
+        let recorder = Recorder()
+        let model = RemoteMachinesModel(host: host(recorder), installer: RemoteInstaller(sshPath: "/nonexistent"),
+                                        pasteboard: pasteboard, lang: "en")
+        model.draft = "devbox"
+        model.add()
+        let id = "id-devbox"
+        recorder.states[id] = .needsUser(rejected: true)
+        model.reload()
+        XCTAssertEqual(model.rows.first?.enterPassword, true)
+        model.enterPassword(id)
+        XCTAssertEqual(recorder.retried, [id])
+
+        XCTAssertFalse(model.needsConnectionFirst(id), "not known to want a password")
+        recorder.password.insert(id)
+        XCTAssertTrue(model.needsConnectionFirst(id))
+        recorder.sockets[id] = "/tmp/e/1"
+        XCTAssertTrue(model.needsConnectionFirst(id), "an ssh still at its prompt has no master yet")
+        recorder.states[id] = .connected(since: Date())
+        XCTAssertFalse(model.needsConnectionFirst(id), "the tunnel's master is up: the setup rides it")
+
+        model.reload()
+        XCTAssertEqual(model.rows.first?.enterPassword, false)
+    }
+
     func testEveryTunnelFailureHasALineAndAdvice() {
-        let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable, .other]
+        let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable,
+                                                .passwordNeeded, .other]
         let lines = Set(failures.map(RemoteMachinesModel.failureKey))
         let advice = Set(failures.map(RemoteMachinesModel.adviceKey))
         XCTAssertEqual(lines.count, failures.count)

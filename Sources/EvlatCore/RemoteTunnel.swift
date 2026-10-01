@@ -180,8 +180,15 @@ public final class RemoteTunnel {
     // MARK: - Arguments
 
     /// Every option is load-bearing:
-    /// - `BatchMode=yes`: no password or passphrase prompt, and an unknown
-    ///   host key is an error rather than a question nobody sees.
+    /// - `askpass` (Evlat's own helper is in the environment, `RemoteTunnels`):
+    ///   `BatchMode=no`, so a password, a passphrase or an unknown host key
+    ///   is a prompt — and every prompt goes to the helper, never to a
+    ///   terminal. A helper's refusal sends no password at all, and a refused
+    ///   host key still ends in `Host key verification failed.` (measured,
+    ///   OpenSSH 10.2p1). `NumberOfPasswordPrompts=1`: a wrong password is
+    ///   one try, not three. Without a helper, `BatchMode=yes` as before: no
+    ///   prompt at all, else a controlling terminal — `swift run`'s — would
+    ///   be asked.
     /// - `ExitOnForwardFailure=yes`: a remote 48151 already taken ends the
     ///   process instead of leaving a tunnel that carries nothing.
     /// - `ServerAlive*`: a dead network is noticed in ~45 s.
@@ -209,15 +216,17 @@ public final class RemoteTunnel {
     ///
     /// The remote end is `LocalAPI.defaultPort` and never `EVLAT_PORT`: it is
     /// the port the command installed on the server names.
-    public static func arguments(target: String, localPort: UInt16, controlPath: String? = nil) -> [String] {
+    public static func arguments(target: String, localPort: UInt16, controlPath: String? = nil,
+                                 askpass: Bool = false) -> [String] {
         let control = controlPath.map { ["-M", "-S", $0, "-o", "ControlPersist=no"] }
             ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
-        return ["-T",
-                "-o", "BatchMode=yes",
-                "-o", "ExitOnForwardFailure=yes",
-                "-o", "ServerAliveInterval=15",
-                "-o", "ServerAliveCountMax=3",
-                "-o", "ConnectTimeout=10"]
+        let prompts = askpass ? ["-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1"] : ["-o", "BatchMode=yes"]
+        return ["-T"]
+            + prompts
+            + ["-o", "ExitOnForwardFailure=yes",
+               "-o", "ServerAliveInterval=15",
+               "-o", "ServerAliveCountMax=3",
+               "-o", "ConnectTimeout=10"]
             + control
             + ["-o", "RemoteCommand=none",
                "-o", "StdinNull=no",
@@ -266,6 +275,9 @@ public final class RemoteTunnel {
         case hostKey
         case hostName
         case unreachable
+        /// A password was asked on a quiet try and nobody could answer it
+        /// (`RemoteTunnel.exited`); never read from `ssh`'s lines.
+        case passwordNeeded
         case other
     }
 
@@ -320,6 +332,21 @@ public final class RemoteTunnel {
         case connecting
         case connected(since: Date)
         case waiting(retryAt: Date, failure: Failure)
+        /// Stopped until the user acts (`retryByUser`): a password that was
+        /// sent was refused (`rejected`), or a quiet try was asked for one
+        /// on a machine a password is known to open. No timer runs; a wake
+        /// and a start keep it — another try would only be refused again,
+        /// each one a failed login in the server's log.
+        case needsUser(rejected: Bool)
+
+        /// Stopped for the user's password, or waiting for want of one:
+        /// what offers "Enter Password…" and the attention line.
+        public var wantsPassword: Bool {
+            switch self {
+            case .needsUser, .waiting(_, .passwordNeeded): return true
+            default: return false
+            }
+        }
 
         public var isConnected: Bool {
             if case .connected = self { return true }
@@ -333,6 +360,7 @@ public final class RemoteTunnel {
             case .connecting: return "connecting"
             case .connected(let since): return "connected since \(iso.string(from: since))"
             case .waiting(let at, let failure): return "waiting (\(failure.rawValue)) until \(iso.string(from: at))"
+            case .needsUser(let rejected): return rejected ? "password refused" : "waiting for a password"
             }
         }
     }
@@ -346,14 +374,18 @@ public final class RemoteTunnel {
         public var now: () -> Date
         /// Runs the closure after the interval; the returned closure cancels it.
         public var schedule: (TimeInterval, @escaping () -> Void) -> () -> Void
+        /// Whether a password is stored for the machine (`SSHPasswordStore`).
+        public var hasStoredPassword: () -> Bool
 
         public init(launch: @escaping (Int) -> Void, terminate: @escaping () -> Void,
                     now: @escaping () -> Date,
-                    schedule: @escaping (TimeInterval, @escaping () -> Void) -> () -> Void) {
+                    schedule: @escaping (TimeInterval, @escaping () -> Void) -> () -> Void,
+                    hasStoredPassword: @escaping () -> Bool = { false }) {
             self.launch = launch
             self.terminate = terminate
             self.now = now
             self.schedule = schedule
+            self.hasStoredPassword = hasStoredPassword
         }
     }
 
@@ -362,6 +394,27 @@ public final class RemoteTunnel {
     }
     /// Called on every change of `state`, synchronously.
     public var onChange: ((State) -> Void)?
+
+    /// Who a try's prompts go to. `quiet`: only a stored password answers,
+    /// and only a password prompt — anything else is refused. `interactive`:
+    /// the user is asked. Only the user's own press (`retryByUser`) and a
+    /// machine just added (`start(interactive:)`) try interactively; every
+    /// try on the schedule, after a wake or at launch, is quiet.
+    public enum Mode: Equatable { case quiet, interactive }
+
+    /// The running try's mode; the last one's while none runs.
+    public private(set) var mode: Mode = .quiet
+    /// The last connection was made with a password. In memory: a launch
+    /// starts without it (a stored password stands in for it then).
+    public private(set) var lastConnectedWithPassword = false
+
+    /// What the running try has met, for `exited` to read.
+    private struct Attempt {
+        var sentPassword = false
+        var refusedPassword = false
+        var heldPrompts = 0
+    }
+    private var current = Attempt()
 
     private let effects: Effects
     private let confirmAfter: TimeInterval
@@ -380,11 +433,64 @@ public final class RemoteTunnel {
         self.confirmAfter = confirmAfter
     }
 
-    /// Begin connecting, and keep reconnecting until `stop`.
-    public func start() {
+    /// Begin connecting, and keep reconnecting until `stop`. `interactive`
+    /// asks the user on the first try (a machine just added). Waiting for the
+    /// user stays waiting.
+    public func start(interactive: Bool = false) {
         enabled = true
-        guard !asleep, !running else { return }
-        attempt()
+        guard !asleep, !running, !isWaitingForUser else { return }
+        attempt(interactive ? .interactive : .quiet)
+    }
+
+    /// The user's press ("Enter password…"): the only way out of
+    /// `needsUser`. An interactive try at once, the schedule from zero; a
+    /// pending wait is dropped.
+    public func retryByUser() {
+        guard enabled, !asleep, !running else { return }
+        failures = 0
+        attempt(.interactive)
+    }
+
+    /// Whether the machine is known to want a password: what the setup
+    /// buttons' "connect first" reads.
+    public var asksForPassword: Bool {
+        state.wantsPassword || lastConnectedWithPassword
+    }
+
+    private var isWaitingForUser: Bool {
+        if case .needsUser = state { return true }
+        return false
+    }
+
+    // MARK: - Prompts
+
+    /// The running try's `ssh` asked something and the answer is pending.
+    /// Until it is answered the try cannot be called connected.
+    public func promptOpened() {
+        guard running else { return }
+        current.heldPrompts += 1
+        cancel()
+    }
+
+    /// The prompt was answered; `sentPassword` when what went back is a
+    /// password (stored or typed). The wait for the connection starts over.
+    public func promptAnswered(sentPassword: Bool) {
+        guard running else { return }
+        if sentPassword { current.sentPassword = true }
+        promptClosed()
+    }
+
+    /// The prompt was refused (or abandoned); `password` when it was a
+    /// password prompt.
+    public func promptRefused(password: Bool) {
+        guard running else { return }
+        if password { current.refusedPassword = true }
+        promptClosed()
+    }
+
+    private func promptClosed() {
+        current.heldPrompts = max(0, current.heldPrompts - 1)
+        if current.heldPrompts == 0, state == .connecting { scheduleConfirmation() }
     }
 
     /// Stop for good: the machine was removed or the app is quitting.
@@ -406,9 +512,9 @@ public final class RemoteTunnel {
     /// the network before the sleep.
     public func wake() {
         asleep = false
-        guard enabled, !running else { return }
+        guard enabled, !running, !isWaitingForUser else { return }
         failures = 0
-        attempt()
+        attempt(.quiet)
     }
 
     /// A request arrived on this machine's listener. Only the tunnel can
@@ -417,6 +523,11 @@ public final class RemoteTunnel {
     public func heard() {
         guard running, state == .connecting else { return }
         cancel()
+        connected()
+    }
+
+    private func connected() {
+        lastConnectedWithPassword = current.sentPassword
         state = .connected(since: effects.now())
     }
 
@@ -425,7 +536,10 @@ public final class RemoteTunnel {
         guard generation == self.generation, running else { return }
         running = false
         cancel()
+        let attempt = current
+        current = Attempt()
         let now = effects.now()
+        let wasConnected = state.isConnected
         if case .connected(let since) = state, now.timeIntervalSince(since) >= Self.stableAfter {
             failures = 0
         }
@@ -433,28 +547,54 @@ public final class RemoteTunnel {
             state = .stopped
             return
         }
+        let failure = Self.classify(stderr: stderr)
+        // A password went and the login was refused: not again, whoever
+        // sent it. One wrong password is one failed login on the server.
+        // Even when the timer had called it connected: a login refused
+        // after 15 s (a slow PAM) never was.
+        if attempt.sentPassword, failure == .authentication {
+            state = .needsUser(rejected: true)
+            return
+        }
+        // A quiet try met a password prompt it could not answer.
+        let quietPassword = mode == .quiet && attempt.refusedPassword && !wasConnected
+        if quietPassword, effects.hasStoredPassword() || lastConnectedWithPassword {
+            state = .needsUser(rejected: false)
+            return
+        }
         failures += 1
         let wait = Self.delay(afterFailures: failures)
-        state = .waiting(retryAt: now.addingTimeInterval(wait), failure: Self.classify(stderr: stderr))
+        state = .waiting(retryAt: now.addingTimeInterval(wait),
+                         failure: attempt.refusedPassword && !wasConnected ? .passwordNeeded : failure)
         cancelPending = effects.schedule(wait) { [weak self] in
             guard let self, self.enabled, !self.asleep, !self.running else { return }
-            self.attempt()
+            self.attempt(.quiet)
         }
     }
 
-    private func attempt() {
+    private func attempt(_ mode: Mode) {
         cancel()
         generation += 1
         running = true
+        current = Attempt()
+        self.mode = mode
         state = .connecting
         let launched = generation
         effects.launch(launched)
         // The launch can have failed and reported its exit already.
         guard running, launched == generation else { return }
+        scheduleConfirmation()
+    }
+
+    /// A process still running `confirmAfter` from now, with no prompt held,
+    /// is connected.
+    private func scheduleConfirmation() {
+        cancel()
+        let launched = generation
         cancelPending = effects.schedule(confirmAfter) { [weak self] in
             guard let self, self.running, launched == self.generation,
-                  self.state == .connecting else { return }
-            self.state = .connected(since: self.effects.now())
+                  self.state == .connecting, self.current.heldPrompts == 0 else { return }
+            self.connected()
         }
     }
 
@@ -466,6 +606,9 @@ public final class RemoteTunnel {
             generation += 1
             effects.terminate()
         }
+        current = Attempt()
+        // Waiting for the user outlives a sleep; only `stop` ends it.
+        if isWaitingForUser, enabled { return }
         state = .stopped
     }
 

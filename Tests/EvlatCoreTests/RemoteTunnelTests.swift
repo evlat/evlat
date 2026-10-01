@@ -55,6 +55,22 @@ final class RemoteTunnelTests: XCTestCase {
                        1, "a second -M would make it ControlMaster=ask")
     }
 
+    /// With an askpass to ask, `ssh` may prompt — once per method — and
+    /// the prompt goes to Evlat; without one it never prompts at all: a
+    /// controlling terminal would otherwise be asked.
+    func testWithAnAskpassSSHMayPromptOnce() {
+        let plain = RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: "/s")
+        let asking = RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: "/s", askpass: true)
+        XCTAssertTrue(plain.contains("BatchMode=yes"))
+        XCTAssertFalse(plain.contains("NumberOfPasswordPrompts=1"))
+        XCTAssertFalse(asking.contains("BatchMode=yes"))
+        XCTAssertTrue(asking.contains("BatchMode=no"))
+        XCTAssertTrue(asking.contains("NumberOfPasswordPrompts=1"))
+        XCTAssertEqual(asking.filter { $0 != "BatchMode=no" && $0 != "NumberOfPasswordPrompts=1" && $0 != "-o" },
+                       plain.filter { $0 != "BatchMode=yes" && $0 != "-o" }, "nothing else moves")
+        XCTAssertEqual(Array(asking.suffix(3)), ["--", "devbox", "cat >/dev/null"])
+    }
+
     func testTheSocketPathIsShortAndTheSameOnEveryLaunch() {
         XCTAssertEqual(RemoteTunnel.controlPath(directory: "/tmp/e", machineID: "ben@devbox"), "/tmp/e/d8ca92b2")
         XCTAssertEqual(RemoteTunnel.controlPath(directory: "/tmp/e/", machineID: "fake"), "/tmp/e/21580954")
@@ -219,6 +235,7 @@ final class RemoteTunnelTests: XCTestCase {
         var changes: [RemoteTunnel.State] = []
         /// What a launch does: nothing (a process now runs) by default.
         var onLaunch: (Int) -> Void = { _ in }
+        var stored = false
 
         lazy var tunnel: RemoteTunnel = {
             let tunnel = RemoteTunnel(effects: RemoteTunnel.Effects(
@@ -232,7 +249,8 @@ final class RemoteTunnelTests: XCTestCase {
                     let index = self.scheduled.count
                     self.scheduled.append((delay, run, false))
                     return { [unowned self] in self.scheduled[index].cancelled = true }
-                }))
+                },
+                hasStoredPassword: { [unowned self] in self.stored }))
             tunnel.onChange = { [unowned self] in self.changes.append($0) }
             return tunnel
         }()
@@ -360,5 +378,159 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertEqual(h.changes.count, 3)
         XCTAssertEqual(h.changes.first, .connecting)
         XCTAssertTrue(h.changes[1].isConnected)
+    }
+
+    // MARK: - Passwords
+
+    /// While a prompt is up nothing is known about the login: the 15 s pass
+    /// with nobody answering, and the tunnel is still connecting. The
+    /// answer starts the wait over.
+    func testAHeldPromptKeepsTheTunnelFromConnecting() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.promptOpened()
+        h.now += 15
+        h.runPending()
+        XCTAssertEqual(h.tunnel.state, .connecting, "nobody has answered")
+        h.tunnel.promptAnswered(sentPassword: true)
+        XCTAssertEqual(h.pending, [RemoteTunnel.defaultConfirmAfter], "the wait starts over at the answer")
+        h.now += 15
+        h.runPending()
+        XCTAssertEqual(h.tunnel.state, .connected(since: h.now))
+        XCTAssertTrue(h.tunnel.lastConnectedWithPassword)
+    }
+
+    /// A password that was sent and refused is not sent again: the tunnel
+    /// stops and waits for the user, with no timer.
+    func testASentPasswordRefusedWaitsForTheUser() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.promptOpened()
+        h.tunnel.promptAnswered(sentPassword: true)
+        h.tunnel.exited(generation: 1, stderr: "user@devbox: Permission denied (publickey,password).")
+        XCTAssertEqual(h.tunnel.state, .needsUser(rejected: true))
+        XCTAssertEqual(h.pending, [], "no retry")
+    }
+
+    /// A slow server refuses after the timer called the try connected: the
+    /// password was still refused, and is not sent again.
+    func testARefusalAfterTheTimerIsStillARefusal() {
+        let h = Harness()
+        h.tunnel.start(interactive: true)
+        h.tunnel.promptOpened()
+        h.tunnel.promptAnswered(sentPassword: true)
+        h.runPending()
+        XCTAssertTrue(h.tunnel.state.isConnected)
+        h.tunnel.exited(generation: 1, stderr: "Permission denied (password).")
+        XCTAssertEqual(h.tunnel.state, .needsUser(rejected: true))
+        XCTAssertEqual(h.pending, [])
+    }
+
+    /// A quiet try that met a password prompt it could not answer stops when
+    /// a password is known to be the way in: one is stored, or the last
+    /// connection was made with one.
+    func testAQuietPasswordPromptStopsWhenAPasswordIsTheWayIn() {
+        let stored = Harness()
+        stored.stored = true
+        stored.tunnel.start()
+        stored.tunnel.promptOpened()
+        stored.tunnel.promptRefused(password: true)
+        stored.tunnel.exited(generation: 1, stderr: "Permission denied (password).")
+        XCTAssertEqual(stored.tunnel.state, .needsUser(rejected: false))
+        XCTAssertEqual(stored.pending, [])
+
+        let before = Harness()
+        before.tunnel.start(interactive: true)
+        before.tunnel.promptOpened()
+        before.tunnel.promptAnswered(sentPassword: true)
+        before.runPending()
+        XCTAssertTrue(before.tunnel.lastConnectedWithPassword)
+        before.tunnel.sleep()
+        before.tunnel.wake()
+        XCTAssertEqual(before.tunnel.mode, .quiet, "a wake tries quietly")
+        before.tunnel.promptOpened()
+        before.tunnel.promptRefused(password: true)
+        before.tunnel.exited(generation: before.launches.last!, stderr: "Permission denied (password).")
+        XCTAssertEqual(before.tunnel.state, .needsUser(rejected: false))
+    }
+
+    /// Without either, a password prompt is a failure like the others: the
+    /// row says a password is needed and the schedule goes on.
+    func testAQuietPasswordPromptOtherwiseWaitsOnTheSchedule() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.promptOpened()
+        h.tunnel.promptRefused(password: true)
+        h.tunnel.exited(generation: 1, stderr: "Permission denied (publickey,password).")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .passwordNeeded))
+        XCTAssertEqual(h.pending, [2])
+        XCTAssertTrue(h.tunnel.asksForPassword)
+    }
+
+    /// A refused host key question is not a password: the failure is
+    /// OpenSSH's own line, as before.
+    func testARefusedHostKeyQuestionIsAHostKeyFailure() {
+        let h = Harness()
+        h.stored = true
+        h.tunnel.start()
+        h.tunnel.promptOpened()
+        h.tunnel.promptRefused(password: false)
+        h.tunnel.exited(generation: 1, stderr: "Host key verification failed.")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .hostKey))
+    }
+
+    /// Waiting for the user outlives a sleep and a start; only the user's
+    /// own try leaves it, interactive and with the schedule from zero.
+    func testOnlyTheUserLeavesWaitingForTheUser() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.promptOpened()
+        h.tunnel.promptAnswered(sentPassword: true)
+        h.tunnel.exited(generation: 1, stderr: "Permission denied (password).")
+        XCTAssertEqual(h.tunnel.state, .needsUser(rejected: true))
+        h.tunnel.sleep()
+        XCTAssertEqual(h.tunnel.state, .needsUser(rejected: true), "kept through a sleep")
+        h.tunnel.wake()
+        h.tunnel.start()
+        XCTAssertEqual(h.launches, [1], "no quiet try behind the user's back")
+        XCTAssertEqual(h.tunnel.state, .needsUser(rejected: true))
+
+        h.tunnel.retryByUser()
+        XCTAssertEqual(h.launches, [1, 2])
+        XCTAssertEqual(h.tunnel.mode, .interactive)
+        XCTAssertEqual(h.tunnel.state, .connecting)
+        h.tunnel.exited(generation: 2, stderr: "Connection refused")
+        XCTAssertEqual(h.pending, [2], "the schedule starts over")
+        h.runPending()
+        XCTAssertEqual(h.tunnel.mode, .quiet, "a retry on the schedule is quiet")
+    }
+
+    /// A password prompt on the user's own try can be retried from the row
+    /// too: "password needed" offers the same press.
+    func testTheUserCanTryAgainFromAPasswordNeededWait() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.promptOpened()
+        h.tunnel.promptRefused(password: true)
+        h.tunnel.exited(generation: 1, stderr: "Permission denied (password).")
+        XCTAssertEqual(h.pending, [2])
+        h.tunnel.retryByUser()
+        XCTAssertEqual(h.pending, [RemoteTunnel.defaultConfirmAfter], "the pending retry is dropped")
+        XCTAssertEqual(h.tunnel.mode, .interactive)
+        XCTAssertEqual(h.launches, [1, 2])
+    }
+
+    /// A connection made without a password clears what the last one said.
+    func testAKeyLoginClearsThePasswordBit() {
+        let h = Harness()
+        h.tunnel.start(interactive: true)
+        h.tunnel.promptOpened()
+        h.tunnel.promptAnswered(sentPassword: true)
+        h.tunnel.heard()
+        XCTAssertTrue(h.tunnel.lastConnectedWithPassword)
+        h.tunnel.exited(generation: 1, stderr: "")
+        h.runPending()
+        h.tunnel.heard()
+        XCTAssertFalse(h.tunnel.lastConnectedWithPassword)
     }
 }

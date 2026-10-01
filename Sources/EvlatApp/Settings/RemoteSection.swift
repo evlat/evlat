@@ -109,6 +109,10 @@ private struct MachineRow: View {
                     .lineLimit(2)
             }
             Spacer(minLength: 8)
+            if row.enterPassword {
+                Button(model.t("remote.enterPassword")) { model.enterPassword(row.id) }
+                    .buttonStyle(SmallButtonStyle())
+            }
             Button(model.t("remote.remove")) { model.askToRemove(row.id) }
                 .buttonStyle(SmallButtonStyle())
         }
@@ -177,6 +181,24 @@ private struct ServerPart: View {
     }
 
     @ViewBuilder private var readingLine: some View {
+        if model.needsConnectionFirst(row.id), model.readings[row.id] != .reading {
+            // The reads and installs ride the tunnel's connection; without
+            // it a password server cannot be reached (`BatchMode=yes`).
+            HStack(spacing: 8) {
+                Text(model.t("remote.reading.connectFirst")).font(.system(size: 11.5))
+                    .foregroundStyle(SettingsPalette.wait)
+                    .fixedSize(horizontal: false, vertical: true)
+                if row.enterPassword {
+                    Button(model.t("remote.enterPassword")) { model.enterPassword(row.id) }
+                        .buttonStyle(LinkButtonStyle())
+                }
+            }
+        } else {
+            plainReadingLine
+        }
+    }
+
+    @ViewBuilder private var plainReadingLine: some View {
         switch model.readings[row.id] {
         case .reading?:
             HStack(spacing: 6) {

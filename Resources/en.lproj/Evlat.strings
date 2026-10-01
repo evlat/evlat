@@ -107,7 +107,7 @@
 /* The window. With no machine it shows an invitation and the field. */
 "remote.empty.title" = "No remote machines yet";
 "remote.empty.body" = "Sessions you run on a server over ssh can show up on the bar like local ones. Add the server by the name you give ssh — an alias from ~/.ssh/config such as devbox, or me@server.";
-"remote.empty.requirement" = "Needs passwordless ssh, and to have connected once from Terminal.";
+"remote.empty.requirement" = "Needs ssh: a key loaded in your agent, or a password Evlat asks for when you add the machine.";
 /* The field: an ssh target. The button adds it; Return does too. */
 "remote.add.placeholder" = "devbox or me@server";
 "remote.add" = "Add";
@@ -132,7 +132,7 @@
 /* What went wrong (also the menu's line), then what to do about it.
    {target} is what the machine was added as. */
 "remote.failure.authentication" = "sign-in refused";
-"remote.failure.authentication.advice" = "Evlat needs passwordless ssh: a key the server accepts, loaded in your agent. Check that “ssh {target}” logs in from Terminal without asking.";
+"remote.failure.authentication.advice" = "The server refused every way in: a key loaded in your agent, or a password. Check that “ssh {target}” logs in from Terminal.";
 "remote.failure.portBusy" = "port 48151 is taken on the server";
 "remote.failure.portBusy.advice" = "The server may still hold an old connection; it usually lets go within a minute. Another user's Evlat on the same server can hold it too.";
 "remote.failure.hostKey" = "unknown host key";
@@ -143,6 +143,16 @@
 "remote.failure.unreachable.advice" = "Check the network or the VPN; Evlat keeps trying.";
 "remote.failure.other" = "ssh failed";
 "remote.failure.other.advice" = "Run “ssh {target}” in Terminal to see why.";
+"remote.failure.passwordNeeded" = "password needed";
+"remote.failure.passwordNeeded.advice" = "The server asks for a password. Enter it once; Evlat asks again only when you press “Enter Password…”.";
+/* Stopped until the user enters the password: Evlat does not try again on its own. */
+"remote.state.needsPassword" = "waiting for your password";
+"remote.state.needsPassword.advice" = "Evlat stopped trying, so the server logs no failed sign-ins. Enter the password to connect.";
+"remote.state.passwordRefused" = "password refused";
+"remote.state.passwordRefused.advice" = "The server refused the password. Evlat never sends a refused password again on its own: enter it again.";
+"remote.enterPassword" = "Enter Password…";
+/* The setup buttons ride the tunnel's connection; a password server cannot be reached without it. */
+"remote.reading.connectFirst" = "This server asks for a password: connect first, then read or set it up — Evlat's setup rides the open connection.";
 
 /* Setting the server up: two ways, always both offered. */
 /* The result line: one "{change}: {result}" per file, joined with " · ".
@@ -305,6 +315,15 @@
 "card.question.send" = "Send";
 "answer.placeholder" = "Your answer";
 "answer.hint" = "Return to answer · Esc to cancel";
+
+/* ssh's question in Evlat's own window: the prompt is shown as ssh wrote it. */
+"prompt.title" = "{machine} asks";
+"prompt.placeholder" = "Password";
+"prompt.remember" = "Remember in Keychain";
+"prompt.yes" = "Yes";
+"prompt.no" = "No";
+"prompt.cancel" = "Cancel";
+"prompt.send" = "Connect";
 "chat.new" = "New";
 "chat.history" = "History";
 "chat.history.pin" = "Pin — kept past the week";
@@ -372,6 +391,7 @@
 "setup.attention.refused" = "{item}: the last change was refused";
 "setup.attention.hotKey" = "The shortcut is not registered";
 "setup.attention.machine" = "{machine}: server unreachable";
+"setup.attention.machinePassword" = "{machine}: waiting for a password";
 "setup.attention.commandLink" = "The evlat command points elsewhere";
 
 /* Settings window (014/phase-2) */

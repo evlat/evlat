@@ -67,7 +67,7 @@
 
 "remote.empty.title" = "Henüz uzak makine yok";
 "remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";
-"remote.empty.requirement" = "Parolasız ssh ve bir kez terminalden bağlanmış olmak gerekir.";
+"remote.empty.requirement" = "ssh gerekir: ajanına yüklü bir anahtar ya da makineyi eklerken Evlat'ın soracağı bir şifre.";
 "remote.add.placeholder" = "devbox ya da ben@sunucu";
 "remote.add" = "Ekle";
 "remote.add.empty" = "ssh'a verdiğin adı yaz.";
@@ -84,7 +84,7 @@
 "remote.retry" = "{time} sonra yeniden denenecek";
 "remote.retry.soon" = "birazdan yeniden denenecek";
 "remote.failure.authentication" = "kimlik doğrulama başarısız";
-"remote.failure.authentication.advice" = "Evlat parolasız ssh ister: sunucunun kabul ettiği, ajanına yüklü bir anahtar. Terminalde “ssh {target}” komutunun bir şey sormadan girdiğine bak.";
+"remote.failure.authentication.advice" = "Sunucu her yolu reddetti: ajanına yüklü bir anahtarı da, şifreyi de. Terminalde “ssh {target}” ile girilebildiğine bak.";
 "remote.failure.portBusy" = "sunucuda 48151 portu dolu";
 "remote.failure.portBusy.advice" = "Sunucu eski bağlantıyı tutuyor olabilir; genellikle bir dakika içinde bırakır. Aynı sunucudaki başka bir kullanıcının Evlat'ı da tutuyor olabilir.";
 "remote.failure.hostKey" = "bilinmeyen sunucu anahtarı";
@@ -95,6 +95,16 @@
 "remote.failure.unreachable.advice" = "Ağı ya da VPN'i denetle; Evlat denemeyi sürdürür.";
 "remote.failure.other" = "ssh başarısız";
 "remote.failure.other.advice" = "Nedenini görmek için terminalde “ssh {target}” çalıştır.";
+"remote.failure.passwordNeeded" = "şifre gerekiyor";
+"remote.failure.passwordNeeded.advice" = "Sunucu şifre istiyor. Bir kez gir; Evlat yalnız “Şifre gir…” düğmesine bastığında yeniden sorar.";
+/* Kullanıcı şifreyi girene dek durdu: Evlat kendiliğinden yeniden denemez. */
+"remote.state.needsPassword" = "şifre bekliyor";
+"remote.state.needsPassword.advice" = "Sunucunun günlüğüne başarısız giriş düşmesin diye Evlat denemeyi bıraktı. Bağlanmak için şifreyi gir.";
+"remote.state.passwordRefused" = "şifre reddedildi";
+"remote.state.passwordRefused.advice" = "Sunucu şifreyi reddetti. Evlat reddedilen şifreyi kendiliğinden bir daha göndermez: yeniden gir.";
+"remote.enterPassword" = "Şifre gir…";
+/* Kurulum düğmeleri tünelin bağlantısından geçer; şifreli sunucuya o olmadan ulaşılmaz. */
+"remote.reading.connectFirst" = "Bu sunucu şifre istiyor: önce bağlan, sonra oku ya da kur — Evlat'ın kurulumu açık bağlantıdan geçer.";
 
 "remote.result.part" = "{change}: {result}";
 "remote.change.usage" = "Kullanım satırı";
@@ -248,6 +258,15 @@
 "card.question.send" = "Gönder";
 "answer.placeholder" = "Yanıtın";
 "answer.hint" = "Yanıtlamak için Return · Vazgeçmek için Esc";
+
+/* ssh'ın sorusu Evlat'ın kendi penceresinde: istem ssh'ın yazdığı gibi gösterilir. */
+"prompt.title" = "{machine} soruyor";
+"prompt.placeholder" = "Şifre";
+"prompt.remember" = "Anahtar Zinciri'nde hatırla";
+"prompt.yes" = "Evet";
+"prompt.no" = "Hayır";
+"prompt.cancel" = "Vazgeç";
+"prompt.send" = "Bağlan";
 "chat.new" = "Yeni";
 "chat.history" = "Geçmiş";
 "chat.history.pin" = "Sabitle — bir haftadan sonra da kalır";
@@ -315,6 +334,7 @@
 "setup.attention.refused" = "{item}: son değişiklik reddedildi";
 "setup.attention.hotKey" = "Kısayol kaydedilemedi";
 "setup.attention.machine" = "{machine}: sunucuya ulaşılamıyor";
+"setup.attention.machinePassword" = "{machine}: şifre bekliyor";
 "setup.attention.commandLink" = "evlat komutu başka bir yere gidiyor";
 
 /* Settings window (014/phase-2) */

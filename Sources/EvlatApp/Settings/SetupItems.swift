@@ -117,6 +117,8 @@ enum SetupAttention: Equatable {
     case refused(SetupItem)
     case hotKeyUnregistered
     case machineUnreachable(String)
+    /// A machine's tunnel stopped for the user's password (`needsUser`).
+    case machineNeedsPassword(String)
     case commandLinkElsewhere
 
     /// Where the settings window shows it: its sections, in the side
@@ -135,7 +137,7 @@ enum SetupAttention: Equatable {
             case .loginItem: return .general
             }
         case .hotKeyUnregistered: return .chat
-        case .machineUnreachable: return .remote
+        case .machineUnreachable, .machineNeedsPassword: return .remote
         case .commandLinkElsewhere: return .commandLine
         }
     }
@@ -161,6 +163,8 @@ final class SetupModel: ObservableObject {
         var hotKeyRefused: () -> Bool
         /// Names of the machines whose tunnel is failing.
         var unreachableMachines: () -> [String]
+        /// Names of the machines whose tunnel waits for the user's password.
+        var machinesNeedingPassword: () -> [String] = { [] }
 
         var setHooks: (AgentSource, Bool) -> Void
         var setUsageRelay: (Bool) -> Void
@@ -272,6 +276,7 @@ final class SetupModel: ObservableObject {
         }
         if host.hotKeyRefused() { attention.append(.hotKeyUnregistered) }
         attention += host.unreachableMachines().map(SetupAttention.machineUnreachable)
+        attention += host.machinesNeedingPassword().map(SetupAttention.machineNeedsPassword)
         self.rows = rows
         self.attention = attention
         // A block closes when its row goes, or once what it adds is there
@@ -285,11 +290,15 @@ final class SetupModel: ObservableObject {
     /// read again only when it would read differently, so the settings
     /// window's refresh reads no file while nothing changed.
     func reloadIfMachinesChanged() {
-        let shown = attention.compactMap { attention -> String? in
-            if case .machineUnreachable(let name) = attention { return name }
-            return nil
+        let shown = attention.filter {
+            switch $0 {
+            case .machineUnreachable, .machineNeedsPassword: return true
+            default: return false
+            }
         }
-        if shown != host.unreachableMachines() { reload() }
+        let now = host.unreachableMachines().map(SetupAttention.machineUnreachable)
+            + host.machinesNeedingPassword().map(SetupAttention.machineNeedsPassword)
+        if shown != now { reload() }
     }
 
     private func row(_ item: SetupItem, _ status: SetupStatus, detail: String, note: String? = nil,
@@ -468,6 +477,8 @@ final class SetupModel: ObservableObject {
             return L10n.t("setup.attention.refused", ["item": L10n.t(item.nameKey, in: lang)], in: lang)
         case .hotKeyUnregistered: return L10n.t("setup.attention.hotKey", in: lang)
         case .machineUnreachable(let name): return L10n.t("setup.attention.machine", ["machine": name], in: lang)
+        case .machineNeedsPassword(let name):
+            return L10n.t("setup.attention.machinePassword", ["machine": name], in: lang)
         case .commandLinkElsewhere: return L10n.t("setup.attention.commandLink", in: lang)
         }
     }
@@ -491,7 +502,7 @@ final class SetupModel: ObservableObject {
            "setup.manual.remove.hooks", "setup.manual.remove.antigravity", "setup.manual.remove.usage",
            "setup.manual.remove.command",
            "setup.attention.hooksOutdated", "setup.attention.refused", "setup.attention.hotKey",
-           "setup.attention.machine", "setup.attention.commandLink", "menu.usage.modified"]
+           "setup.attention.machine", "setup.attention.machinePassword", "setup.attention.commandLink", "menu.usage.modified"]
         + [HookSettings.Failure.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
             .map(AppController.failureKey)
 }
