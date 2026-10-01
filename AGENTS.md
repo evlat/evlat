@@ -270,8 +270,12 @@ is lost with the process.
   but in its source, and was seen working on 0.64.25). Terminal and Ghostty
   publish no link: their
   tab would take Apple Events. All are read from the agent's exec-time
-  environment (`KERN_PROCARGS2`) — no permission — or, in a herdr pane, from
-  the herdr client's. A herdr pane is then selected inside the tab with
+  environment (`KERN_PROCARGS2`) — no permission — or, in a herdr or tmux
+  pane, from the client's: herdr's newest client connected to its server's
+  client socket and with a terminal, tmux's client of the pane's session
+  that did something last (asked of the server's own `tmux`, 0.5 s at
+  most). A pane whose client is not found opens no tab: the app comes
+  forward only. A herdr pane is then selected inside the tab with
   `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`): the one process
   `[Go to session]` runs — the server's own executable, fixed arguments, a
   checked id, no shell, and a command that only selects. The value is checked
@@ -618,6 +622,16 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   is the server's, from the terminal the server was **first** started in —
   a cmux tab long closed, or Ghostty while the client is in cmux — so the
   tab link is read from the client.
+- **A closed tab's herdr client lives on, attached** (herdr 0.9.3, Bateri).
+  The tab closed, its `login` sat exiting, and the `herdr` client stayed with
+  no terminal (`tty ??`), still connected to the server, ignoring `TERM`
+  and `HUP` — only `KILL` ended it. Its pid was the highest and its chain
+  still reached Bateri, so "the higher pid" opened the closed tab; pids are
+  no order of attaching either (17:08 got 22670, 17:18 got 37020). A
+  client counts only with a terminal and a connection to the client socket
+  (`unsi_conn_pcb` = the server's accepted `soi_pcb`, what `lsof -U` shows
+  as `->0x…`), newest start first. Every client shows the same view: a
+  switch in one window was seen in the other at once.
 
 ### SwiftUI and AppKit
 

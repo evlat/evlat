@@ -24,7 +24,11 @@ final class SessionHostTests: XCTestCase {
                        bundles: [String: (bundleID: String, name: String)] = [:],
                        running: [String: SessionHost.App] = [:],
                        environment: [Int32: [String]] = [:],
-                       arguments: [Int32: [String]] = [:]) -> SessionHost.Probe {
+                       arguments: [Int32: [String]] = [:],
+                       sockets: [Int32: [SessionHost.UnixSocket]]? = nil,
+                       terminals: [Int32: Bool] = [:],
+                       started: [Int32: TimeInterval] = [:],
+                       tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil }) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
                           regularApp: { table[$0]?.app },
                           executablePath: { table[$0]?.path },
@@ -32,7 +36,11 @@ final class SessionHostTests: XCTestCase {
                           running: { running[$0] },
                           environment: { environment[$0] ?? [] },
                           arguments: { arguments[$0] ?? [] },
-                          processes: { Array(table.keys) })
+                          processes: { Array(table.keys) },
+                          unixSockets: { pid in sockets.map { $0[pid] ?? [] } },
+                          hasTerminal: { terminals[$0] },
+                          startedAt: { started[$0].map(Date.init(timeIntervalSince1970:)) },
+                          tmux: tmux)
     }
 
     func testADirectTerminal() {
@@ -501,5 +509,221 @@ extension SessionHostTests {
         XCTAssertEqual(SessionHost.arguments(me).count, CommandLine.arguments.count)
         XCTAssertTrue(SessionHost.allPIDs().contains(me))
         XCTAssertEqual(SessionHost.arguments(Int32.max), [])
+    }
+
+    // MARK: Which client (herdr 0.9.3, measured on this Mac with Bateri)
+
+    private static let bateriPath = "/Applications/bateri.app/Contents/MacOS/bateri"
+    private var bateri: SessionHost.App { SessionHost.App(bundleID: "dev.bateri.bateri", name: "bateri", pid: 580) }
+    private static let clientSocket = "/Users/u/.config/herdr/herdr-client.sock"
+    private static func bateriTab(_ id: String) -> [String] { ["BATERI_TAB_URL=bateri://tab/\(id)"] }
+    private static let closedTab = "8934C33B-1546-4850-B5B3-65153FEB1FC5"
+    private static let olderTab = "9F6818EC-BBCE-41B8-8818-571597ADAEE2"
+    private static let newerTab = "B18327D0-24AD-4D4B-AE74-8DBED7B17EEB"
+
+    /// As seen: the server is still the child of the client that started it,
+    /// whose tab has closed; two live clients in two other tabs. Pids as
+    /// measured — the closed tab's client holds the highest, and the newest
+    /// client a lower one than the older live one would suggest.
+    private var herdrInBateri: [Int32: Proc] {
+        [
+            92981: Proc(parent: 37882, path: "/Users/u/.local/bin/claude"),
+            37882: Proc(parent: 37881, path: "/bin/zsh"),
+            37881: Proc(parent: 37880, path: Self.herdr),
+            37880: Proc(parent: 35046, path: Self.herdr),      // the closed tab's
+            35046: Proc(parent: 35045, path: "/bin/zsh"),
+            35045: Proc(parent: 580, path: "/usr/bin/login"),
+            37020: Proc(parent: 36660, path: Self.herdr),      // 17:18
+            36660: Proc(parent: 580, path: "/bin/zsh"),
+            22670: Proc(parent: 22237, path: Self.herdr),      // 17:08
+            22237: Proc(parent: 580, path: "/bin/zsh"),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+        ]
+    }
+
+    private var herdrInBateriArguments: [Int32: [String]] {
+        [37881: [Self.herdr, "server"], 37880: ["herdr"], 37020: ["herdr"], 22670: ["herdr"]]
+    }
+
+    private var herdrInBateriEnvironment: [Int32: [String]] {
+        [92981: Self.bateriTab(Self.closedTab) + ["HERDR_ENV=1", "HERDR_PANE_ID=w5:p1", "TERM_PROGRAM=herdr"],
+         37880: Self.bateriTab(Self.closedTab),
+         37020: Self.bateriTab(Self.newerTab),
+         22670: Self.bateriTab(Self.olderTab)]
+    }
+
+    /// The server's accepted client sockets and each client's end, as
+    /// `PROC_PIDFDSOCKETINFO` read them; the server's API socket and an
+    /// internal pair are among its sockets too.
+    private var herdrInBateriSockets: [Int32: [SessionHost.UnixSocket]] {
+        [37881: [SessionHost.UnixSocket(pcb: 0xe3bf, peer: 0, path: "/Users/u/.config/herdr/herdr.sock"),
+                 SessionHost.UnixSocket(pcb: 0x7f30, peer: 0x4052),
+                 SessionHost.UnixSocket(pcb: 0x6f4b, peer: 0, path: Self.clientSocket),
+                 SessionHost.UnixSocket(pcb: 0xc9fe, peer: 0x112f, path: Self.clientSocket),
+                 SessionHost.UnixSocket(pcb: 0x3b46, peer: 0xd82d, path: Self.clientSocket),
+                 SessionHost.UnixSocket(pcb: 0x0d63, peer: 0xc1ae, path: Self.clientSocket)],
+         37880: [SessionHost.UnixSocket(pcb: 0xd82d, peer: 0x3b46)],
+         37020: [SessionHost.UnixSocket(pcb: 0xc1ae, peer: 0x0d63)],
+         22670: [SessionHost.UnixSocket(pcb: 0x112f, peer: 0xc9fe)]]
+    }
+
+    private func herdrInBateriProbe(table: [Int32: Proc]? = nil,
+                                    sockets: [Int32: [SessionHost.UnixSocket]]? = nil,
+                                    terminals: [Int32: Bool] = [37880: false, 37020: true, 22670: true],
+                                    started: [Int32: TimeInterval] = [37880: 1_000, 22670: 3_100, 37020: 3_700])
+        -> SessionHost.Probe {
+        probe(table ?? herdrInBateri, environment: herdrInBateriEnvironment,
+              arguments: herdrInBateriArguments, sockets: sockets ?? herdrInBateriSockets,
+              terminals: terminals, started: started)
+    }
+
+    private func tab(of host: SessionHost) -> String? {
+        guard case .app(let app) = host else { return nil }
+        return app.tab?.absoluteString
+    }
+
+    /// The closed tab's client holds the highest pid and its walk still
+    /// reaches Bateri; it has no terminal, so it is not taken.
+    func testAClientWithNoTerminalIsNotTaken() {
+        let host = SessionHost.resolve(pid: 92981, herdrInBateriProbe())
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
+        guard case .app(let app) = host else { return XCTFail("\(host)") }
+        XCTAssertEqual(app.herdr?.pane, "w5:p1")
+    }
+
+    /// Of two live clients the one started last wins, not the higher pid.
+    func testTheNewestClientWinsOverTheHigherPid() {
+        let host = SessionHost.resolve(pid: 92981, herdrInBateriProbe(started: [37880: 1_000, 22670: 3_700,
+                                                                                  37020: 3_100]))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.olderTab)")
+    }
+
+    /// A `herdr` that is not connected to the client socket is no client,
+    /// even when its arguments look like one: here the newest live one only
+    /// talks to the API socket.
+    func testAHerdrNotConnectedToTheClientSocketIsNotAClient() {
+        var sockets = herdrInBateriSockets
+        sockets[37020] = [SessionHost.UnixSocket(pcb: 0xc1ae, peer: 0xe3bf)]
+        let host = SessionHost.resolve(pid: 92981, herdrInBateriProbe(sockets: sockets))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.olderTab)")
+    }
+
+    /// No live client: the walk goes on through the closed tab's client and
+    /// reaches Bateri, but the pane's inherited tab is not opened and herdr
+    /// is not asked for a pane.
+    func testAPaneWithNoClientFoundOpensNoTab() {
+        let host = SessionHost.resolve(pid: 92981, herdrInBateriProbe(terminals: [37880: false, 37020: false,
+                                                                                    22670: false]))
+        XCTAssertEqual(host, .app(bateri), "the app only: no tab, no herdr pane")
+    }
+
+    func testAMultiplexedEnvironmentIsRecognised() {
+        XCTAssertTrue(SessionHost.isMultiplexed(["HERDR_ENV=1"]))
+        XCTAssertTrue(SessionHost.isMultiplexed(["TERM_PROGRAM=herdr"]))
+        XCTAssertTrue(SessionHost.isMultiplexed(["TMUX=/tmp/tmux-501/default,123,0"]))
+        XCTAssertFalse(SessionHost.isMultiplexed(["TMUX="]))
+        XCTAssertFalse(SessionHost.isMultiplexed(["TERM_PROGRAM=bateri", "HERDR_ENV=0"]))
+    }
+
+    // MARK: tmux
+
+    private static let tmuxPath = "/opt/homebrew/bin/tmux"
+    private static let tmuxEnvironment = ["TMUX=/private/tmp/tmux-501/default,4000,0", "TMUX_PANE=%3"]
+
+    /// claude in a tmux pane; the server is parented to launchd, two clients
+    /// in two Bateri tabs and a third attached to another session.
+    private var tmuxInBateri: [Int32: Proc] {
+        [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 4000, path: "/bin/zsh"),
+            4000: Proc(parent: 1, path: Self.tmuxPath),
+            4100: Proc(parent: 4101, path: Self.tmuxPath),
+            4101: Proc(parent: 580, path: "/bin/zsh"),
+            4200: Proc(parent: 4201, path: Self.tmuxPath),
+            4201: Proc(parent: 580, path: "/bin/zsh"),
+            4300: Proc(parent: 4301, path: Self.tmuxPath),
+            4301: Proc(parent: 580, path: "/bin/zsh"),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+        ]
+    }
+
+    private func tmuxProbe(_ reply: TmuxReply?, asked: ((TmuxQuery) -> Void)? = nil) -> SessionHost.Probe {
+        probe(tmuxInBateri,
+              environment: [900: Self.bateriTab(Self.closedTab) + Self.tmuxEnvironment,
+                            4100: Self.bateriTab(Self.olderTab), 4200: Self.bateriTab(Self.newerTab),
+                            4300: Self.bateriTab("C0FFEE00-0000-4000-8000-000000000000")],
+              tmux: { query in asked?(query); return reply })
+    }
+
+    /// The pane's session's client that did something last; another
+    /// session's, though more recent, is not it.
+    func testATmuxPaneIsHostedWhereItsMostRecentClientRuns() {
+        var query: TmuxQuery?
+        let reply = TmuxReply(session: "$1", clients: [.init(pid: 4100, activity: 1_700, session: "$1"),
+                                                        .init(pid: 4200, activity: 1_900, session: "$1"),
+                                                        .init(pid: 4300, activity: 2_000, session: "$2")])
+        let host = SessionHost.resolve(pid: 900, tmuxProbe(reply, asked: { query = $0 }))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
+        XCTAssertEqual(query, TmuxQuery(executable: Self.tmuxPath, socket: "/private/tmp/tmux-501/default",
+                                        server: 4000, pane: "%3"))
+    }
+
+    /// tmux did not answer: the server's chain reaches no app, and even one
+    /// that did would not open the pane's inherited tab.
+    func testATmuxPaneWithNoAnswerOpensNoTab() {
+        XCTAssertEqual(SessionHost.resolve(pid: 900, tmuxProbe(nil)), .notFound)
+        var table = tmuxInBateri
+        table[4000] = Proc(parent: 4101, path: Self.tmuxPath)
+        let host = SessionHost.resolve(pid: 900, probe(table, environment: [900: Self.bateriTab(Self.closedTab)
+                                                                                + Self.tmuxEnvironment]))
+        XCTAssertEqual(host, .app(bateri))
+    }
+
+    func testATmuxQueryIsCheckedBeforeItIsAsked() {
+        let good = TmuxQuery.of(executable: Self.tmuxPath, environment: Self.tmuxEnvironment)
+        XCTAssertEqual(good?.arguments, ["-S", "/private/tmp/tmux-501/default", "display-message", "-p", "-t",
+                                         "%3", "#{session_id}", ";", "list-clients", "-F",
+                                         "#{client_pid} #{client_activity} #{session_id}"])
+        XCTAssertEqual(TmuxQuery.of(executable: Self.tmuxPath,
+                                    environment: ["TMUX=/tmp/a,b/default,77,1", "TMUX_PANE=%0"])?.socket,
+                       "/tmp/a,b/default", "a comma in the socket's path")
+        for pane in ["3", "%", "%3;x", "%-1", "%3 ", "-t"] {
+            XCTAssertNil(TmuxQuery.of(executable: Self.tmuxPath, environment: ["TMUX=/s,77,0", "TMUX_PANE=\(pane)"]),
+                         pane)
+        }
+        for tmux in ["relative,77,0", "/s,x,0", "/s,1,0", "/s,77", ""] {
+            XCTAssertNil(TmuxQuery.of(executable: Self.tmuxPath, environment: ["TMUX=\(tmux)", "TMUX_PANE=%1"]),
+                         tmux)
+        }
+        XCTAssertNil(TmuxQuery.of(executable: "tmux", environment: Self.tmuxEnvironment), "a path, not a name")
+    }
+
+    func testATmuxReplyIsParsed() {
+        XCTAssertEqual(TmuxReply.parse("$1\n4100 1700 $1\n4200 1900 $2\nnot a client\n"),
+                       TmuxReply(session: "$1", clients: [.init(pid: 4100, activity: 1_700, session: "$1"),
+                                                          .init(pid: 4200, activity: 1_900, session: "$2")]))
+        XCTAssertEqual(TmuxReply.parse("$4\n")?.clients, [])
+        XCTAssertNil(TmuxReply.parse(""))
+        XCTAssertNil(TmuxReply.parse("no server running on /tmp/x\n"))
+    }
+
+    // MARK: The real reads
+
+    /// A socket pair in this process: each end's peer is the other's block.
+    func testTheRealUnixSocketsPairUp() throws {
+        var pair: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair), 0)
+        defer { close(pair[0]); close(pair[1]) }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let sockets = try XCTUnwrap(SessionHost.unixSockets(me))
+        let paired = sockets.filter { a in sockets.contains { $0.pcb == a.peer && $0.peer == a.pcb } }
+        XCTAssertGreaterThanOrEqual(paired.count, 2)
+        XCTAssertNil(SessionHost.unixSockets(Int32.max))
+    }
+
+    func testTheRealTerminalAndStartTimeAreRead() {
+        XCTAssertEqual(SessionHost.hasTerminal(1), false, "launchd has no terminal")
+        XCTAssertNil(SessionHost.hasTerminal(Int32.max))
+        XCTAssertNotNil(AppController.processStartedAt(ProcessInfo.processInfo.processIdentifier))
     }
 }
