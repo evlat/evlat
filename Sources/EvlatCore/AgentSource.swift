@@ -17,13 +17,12 @@ public enum AgentSource: String, CaseIterable {
     /// synonym (`LocalAPI.dispatch`).
     public var hookPath: String { self == .claude ? "/hook" : "/hook/\(rawValue)" }
 
-    /// Where the agent's rate-limit windows are posted, when it documents
-    /// them. Only Claude does — its status line input carries `rate_limits` —
-    /// so every other source has no route here (`nil`); Codex's windows are
-    /// read from its own file instead (`CodexUsageProvider`). Named like
-    /// `hookPath`'s later rows, since nothing is installed on it yet that
-    /// would pin another spelling.
-    public var usagePath: String? { self == .claude ? "/usage/\(rawValue)" : nil }
+    /// Where the agent's rate-limit windows are posted, when its status line
+    /// carries them: Claude's `rate_limits`, and the Antigravity CLI's
+    /// `quota` (measured, `agy` 1.2.14). Codex has no route here (`nil`);
+    /// its windows are read from its own file instead
+    /// (`CodexUsageProvider`). Named like `hookPath`'s later rows.
+    public var usagePath: String? { self == .codex ? nil : "/usage/\(rawValue)" }
 
     /// The events Evlat's command is installed on, byte for byte v1's lists.
     /// `SubagentStart`/`SubagentStop` are left out on purpose: a subagent's tool
@@ -73,6 +72,23 @@ public enum AgentSource: String, CaseIterable {
     /// that forgets to pass one must not land on the user's real settings.
     public func settingsFile(home: URL) -> URL {
         configDirectory(home: home).appendingPathComponent(settingsFileName)
+    }
+
+    /// The file the agent reads its `statusLine` from, where Evlat's usage
+    /// relay goes (`StatusLineRelay`): Claude's settings, and the Antigravity
+    /// CLI's own settings — not the hooks file, which the app and IDE share
+    /// and which has no status line. Codex has none (`nil`).
+    public func statusLineFile(home: URL) -> URL? {
+        statusLinePath.map { home.appendingPathComponent($0) }
+    }
+
+    /// The same file relative to a home, as the setup names it.
+    public var statusLinePath: String? {
+        switch self {
+        case .claude: return settingsPath
+        case .codex: return nil
+        case .antigravity: return ".gemini/antigravity-cli/settings.json"
+        }
     }
 
     /// The same file relative to a home: a server's `$HOME`, which only the

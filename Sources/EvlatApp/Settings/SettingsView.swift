@@ -294,9 +294,10 @@ private struct SessionsSection: View {
                 ForEach(agents) { SetupRowView(row: $0, model: setup) }
             }
         }
-        if let usage = setup.row(.usageRelay) {
+        let usage = [SetupItem.usageRelay, .antigravityUsageRelay].compactMap(setup.row)
+        if !usage.isEmpty {
             SettingsGroup(title: model.t("settings.sessions.usage")) {
-                SetupRowView(row: usage, model: setup)
+                ForEach(usage) { SetupRowView(row: $0, model: setup) }
             }
         }
     }

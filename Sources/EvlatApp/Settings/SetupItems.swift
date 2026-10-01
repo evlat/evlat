@@ -9,9 +9,22 @@ import EvlatCore
 
 /// What the user can have Evlat set up here.
 enum SetupItem: String, CaseIterable, Identifiable {
-    case claudeHooks, codexHooks, antigravityHooks, usageRelay, commandLink, loginItem
+    case claudeHooks, codexHooks, antigravityHooks, usageRelay, antigravityUsageRelay, commandLink, loginItem
 
     var id: String { rawValue }
+
+    /// The agent whose status line the row wraps; `nil` for the others.
+    var usageSource: AgentSource? {
+        switch self {
+        case .usageRelay: return .claude
+        case .antigravityUsageRelay: return .antigravity
+        default: return nil
+        }
+    }
+
+    static func usage(for source: AgentSource) -> SetupItem {
+        source == .antigravity ? .antigravityUsageRelay : .usageRelay
+    }
 
     /// The agent whose hooks the row installs; `nil` for the others.
     var agent: AgentSource? {
@@ -19,7 +32,7 @@ enum SetupItem: String, CaseIterable, Identifiable {
         case .claudeHooks: return .claude
         case .codexHooks: return .codex
         case .antigravityHooks: return .antigravity
-        case .usageRelay, .commandLink, .loginItem: return nil
+        case .usageRelay, .antigravityUsageRelay, .commandLink, .loginItem: return nil
         }
     }
 
@@ -114,6 +127,7 @@ struct SetupManual: Equatable {
 enum SetupAttention: Equatable {
     case hooksOutdated(AgentSource)
     case usageModified
+    case antigravityUsageModified
     case refused(SetupItem)
     case hotKeyUnregistered
     case machineUnreachable(String)
@@ -127,10 +141,10 @@ enum SetupAttention: Equatable {
 
     var section: Section {
         switch self {
-        case .hooksOutdated, .usageModified: return .sessions
+        case .hooksOutdated, .usageModified, .antigravityUsageModified: return .sessions
         case .refused(let item):
             switch item {
-            case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay: return .sessions
+            case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay, .antigravityUsageRelay: return .sessions
             case .commandLink: return .commandLine
             case .loginItem: return .general
             }
@@ -164,12 +178,15 @@ final class SetupModel: ObservableObject {
 
         var setHooks: (AgentSource, Bool) -> Void
         var setUsageRelay: (Bool) -> Void
+        /// The Antigravity CLI's relay; a no-op unless the host writes it.
+        var setAntigravityUsageRelay: (Bool) -> Void = { _ in }
         /// Installed?, replacing another copy's or a broken link?
         var setCommandLink: (Bool, Bool) -> Void
         var setLoginItem: (Bool) -> Void
 
         var hookFailure: (AgentSource) -> SettingsFile.Failure?
         var usageFailure: () -> SettingsFile.Failure?
+        var antigravityUsageFailure: () -> SettingsFile.Failure? = { nil }
         var commandLinkFailure: () -> CommandLinkWriter.Failure?
         var loginItemFailed: () -> Bool
     }
@@ -214,17 +231,24 @@ final class SetupModel: ObservableObject {
                 rows.append(row(item, status, detail: "~/" + source.settingsPath,
                                 failure: host.hookFailure(source).map { L10n.t(AppController.failureKey($0), in: lang) }))
                 if host.hookFailure(source) != nil { attention.append(.refused(item)) }
-                guard source == .claude else { continue }
+                // Antigravity's status line is the CLI's alone: no row for
+                // the app or IDE without it.
+                guard let path = source.statusLinePath, let file = source.statusLineFile(home: home),
+                      source != .antigravity || Self.hasAntigravityCLI(home: home) else { continue }
+                let usageItem = SetupItem.usage(for: source)
                 let usage: SetupStatus
-                switch try? StatusLineRelay.state(at: source.settingsFile(home: home)) {
+                switch try? StatusLineRelay.state(at: file, source: source) {
                 case .current?: usage = .installed
-                case .modified?: usage = .foreign; attention.append(.usageModified)
+                case .modified?:
+                    usage = .foreign
+                    attention.append(source == .claude ? .usageModified : .antigravityUsageModified)
                 case .missing?: usage = .missing
                 case nil: usage = .unknown
                 }
-                rows.append(row(.usageRelay, usage, detail: "~/" + source.settingsPath,
-                                failure: host.usageFailure().map { L10n.t(AppController.failureKey($0), in: lang) }))
-                if host.usageFailure() != nil { attention.append(.refused(.usageRelay)) }
+                let failure = source == .claude ? host.usageFailure() : host.antigravityUsageFailure()
+                rows.append(row(usageItem, usage, detail: "~/" + path,
+                                failure: failure.map { L10n.t(AppController.failureKey($0), in: lang) }))
+                if failure != nil { attention.append(.refused(usageItem)) }
             }
             if let binary = host.binary() {
                 let state = CommandLink.state(at: CommandLink.link(home: home), binary: binary)
@@ -300,6 +324,14 @@ final class SetupModel: ObservableObject {
 
     func row(_ item: SetupItem) -> SetupRow? { rows.first { $0.item == item } }
 
+    /// The Antigravity CLI's own directory: its settings file holds the
+    /// status line, and it is created by the CLI alone.
+    nonisolated static func hasAntigravityCLI(home: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini/antigravity-cli").path,
+                                              isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
     /// `…/Evlat.app` for a binary inside one, else the binary.
     nonisolated static func bundlePath(of binary: URL) -> String {
         let app = binary.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -321,8 +353,8 @@ final class SetupModel: ObservableObject {
     /// is written before the press; nothing but these lines is.
     func consent(_ item: SetupItem, _ action: SetupAction) -> [String] {
         switch item {
-        case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay:
-            let file = (item.agent ?? .claude).settingsPath
+        case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay, .antigravityUsageRelay:
+            let file = item.usageSource?.statusLinePath ?? (item.agent ?? .claude).settingsPath
             return [L10n.t("setup.consent.line", ["file": "~/" + file, "what": what(item, action)], in: lang)]
         case .commandLink:
             guard action.installs else {
@@ -342,7 +374,7 @@ final class SetupModel: ObservableObject {
     }
 
     private func what(_ item: SetupItem, _ action: SetupAction) -> String {
-        let hooks = item != .usageRelay
+        let hooks = item.usageSource == nil
         switch action {
         case .install, .update: return L10n.t(hooks ? "setup.consent.what.hooks" : "setup.consent.what.usage", in: lang)
         case .remove: return L10n.t(hooks ? "setup.consent.what.hooks.remove" : "setup.consent.what.usage.remove", in: lang)
@@ -383,7 +415,8 @@ final class SetupModel: ObservableObject {
     /// Whether a line about the `.evlat.bak` copy belongs under the consent:
     /// only a settings file is backed up.
     func backsUp(_ items: [SetupItem]) -> Bool {
-        items.contains { [.claudeHooks, .codexHooks, .antigravityHooks, .usageRelay].contains($0) }
+        items.contains { [.claudeHooks, .codexHooks, .antigravityHooks, .usageRelay,
+                          .antigravityUsageRelay].contains($0) }
     }
 
     // MARK: - Writing
@@ -410,6 +443,7 @@ final class SetupModel: ObservableObject {
         case .codexHooks: host.setHooks(.codex, action.installs)
         case .antigravityHooks: host.setHooks(.antigravity, action.installs)
         case .usageRelay: host.setUsageRelay(action.installs)
+        case .antigravityUsageRelay: host.setAntigravityUsageRelay(action.installs)
         case .commandLink:
             let replacing: Bool
             switch linkState {
@@ -448,6 +482,9 @@ final class SetupModel: ObservableObject {
         case .usageRelay:
             return SetupManual(text: manual.statusLine, wrapping: manual.wrapping,
                                removal: L10n.t("setup.manual.remove.usage", in: lang))
+        case .antigravityUsageRelay:
+            return SetupManual(text: manual.antigravityStatusLine, wrapping: manual.antigravityWrapping,
+                               removal: L10n.t("setup.manual.remove.usage", in: lang))
         case .commandLink:
             guard let binary = host.binary() else { return nil }
             return SetupManual(text: CommandLink.manualLine(binary: binary), wrapping: nil,
@@ -464,6 +501,7 @@ final class SetupModel: ObservableObject {
         case .hooksOutdated(let source):
             return L10n.t("setup.attention.hooksOutdated", ["source": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
         case .usageModified: return L10n.t("menu.usage.modified", in: lang)
+        case .antigravityUsageModified: return L10n.t("menu.usage.modified.antigravity", in: lang)
         case .refused(let item):
             return L10n.t("setup.attention.refused", ["item": L10n.t(item.nameKey, in: lang)], in: lang)
         case .hotKeyUnregistered: return L10n.t("setup.attention.hotKey", in: lang)
@@ -491,7 +529,8 @@ final class SetupModel: ObservableObject {
            "setup.manual.remove.hooks", "setup.manual.remove.antigravity", "setup.manual.remove.usage",
            "setup.manual.remove.command",
            "setup.attention.hooksOutdated", "setup.attention.refused", "setup.attention.hotKey",
-           "setup.attention.machine", "setup.attention.commandLink", "menu.usage.modified"]
+           "setup.attention.machine", "setup.attention.commandLink", "menu.usage.modified",
+           "menu.usage.modified.antigravity"]
         + [HookSettings.Failure.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
             .map(AppController.failureKey)
 }

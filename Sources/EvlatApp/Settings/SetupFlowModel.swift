@@ -34,7 +34,8 @@ final class SetupFlowModel: ObservableObject {
 
     /// The sessions step's items, and the optional step's: what "Install"
     /// and "Finish" may write.
-    static let sessionItems: Set<SetupItem> = [.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks]
+    static let sessionItems: Set<SetupItem> = [.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks,
+                                               .antigravityUsageRelay]
     static let optionalItems: Set<SetupItem> = [.commandLink, .loginItem]
 
     @Published private(set) var step: Step = .hello
@@ -215,14 +216,14 @@ final class SetupFlowModel: ObservableObject {
     /// What the setup leaves behind, read from the rows as they are now.
     var summary: [SummaryLine] {
         var lines = [SummaryLine(mark: .done, text: t(edge.isLeft ? "setup.flow.summary.left" : "setup.flow.summary.right"))]
-        for item in [SetupItem.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks] {
+        for item in [SetupItem.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks, .antigravityUsageRelay] {
             guard let row = setup.row(item) else { continue }
             let name = t("setup.flow.summary.\(item.rawValue)")
             if row.status == .installed || row.status == .outdated {
                 lines.append(SummaryLine(mark: .done, text: name))
             } else if setup.manualOpen == item {
                 lines.append(SummaryLine(mark: .pending, text: t("setup.flow.summary.manual", ["item": name])))
-            } else if item != .usageRelay {
+            } else if item.usageSource == nil {
                 lines.append(SummaryLine(mark: .skipped, text: t("setup.flow.summary.skipped", ["item": name])))
             }
         }
@@ -279,7 +280,7 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.done.note",
         "setup.flow.summary.left", "setup.flow.summary.right",
         "setup.flow.summary.claudeHooks", "setup.flow.summary.usageRelay", "setup.flow.summary.codexHooks",
-        "setup.flow.summary.antigravityHooks",
+        "setup.flow.summary.antigravityHooks", "setup.flow.summary.antigravityUsageRelay",
         "setup.flow.summary.manual", "setup.flow.summary.skipped",
         "setup.flow.summary.chat", "setup.flow.summary.chat.mode",
         "setup.flow.summary.login", "setup.flow.summary.command", "setup.flow.summary.command.manual",

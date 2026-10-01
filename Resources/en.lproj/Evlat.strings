@@ -97,6 +97,7 @@
    reaches Evlat. A wrapper changed by hand is left alone: an attention line
    in the menu, a dim row in the settings. */
 "menu.usage.modified" = "Usage line edited by hand";
+"menu.usage.modified.antigravity" = "Antigravity usage line edited by hand";
 "menu.usage.hint" = "Wraps your Claude Code status line; open sessions relay usage from their next message.";
 
 /* The remote machines: servers reached over ssh whose sessions show on the
@@ -319,6 +320,7 @@
 "setup.item.claudeHooks" = "Claude Code";
 "setup.item.codexHooks" = "Codex";
 "setup.item.usageRelay" = "Claude usage line";
+"setup.item.antigravityUsageRelay" = "Antigravity usage line";
 "setup.item.commandLink" = "evlat command";
 "setup.item.loginItem" = "Open at login";
 "setup.status.installed" = "✓ Installed";
@@ -510,6 +512,7 @@
 "setup.flow.summary.right" = "Bar on the right edge";
 "setup.flow.summary.claudeHooks" = "Claude Code hooks";
 "setup.flow.summary.usageRelay" = "Usage line";
+"setup.flow.summary.antigravityUsageRelay" = "Antigravity usage line";
 "setup.flow.summary.codexHooks" = "Codex hooks";
 "setup.flow.summary.manual" = "{item}: to be added by hand";
 "setup.flow.summary.skipped" = "{item}: skipped";

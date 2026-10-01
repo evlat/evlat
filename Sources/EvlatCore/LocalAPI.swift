@@ -71,6 +71,7 @@ public enum LocalAPI {
         case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
         case ("POST", AgentSource.antigravity.hookPath): return .hook(.antigravity)
         case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
+        case ("POST", let path) where AgentSource.antigravity.usagePath == path: return .usage(.antigravity)
         case ("POST", PermissionHook.path): return .permission
         case ("POST", ApprovalHook.path): return .approval
         case ("POST", SignalReport.path): return .signal
@@ -264,14 +265,15 @@ public enum LocalAPI {
             // application/json`, which is not JSON. Nothing reads this body
             // yet, so it was corrected rather than carried over.
             return Outcome(response: Response(status: .ok, body: "{\"ok\":true}"), delivery: nil)
-        case .usage:
-            // Only Claude has a usage route (`AgentSource.usagePath`), so the
-            // body is its status line input.
+        case .usage(let source):
+            // The body is that agent's status line input; each has its own
+            // reader, and anything else in it is let go there.
             guard let json = jsonObject(request.body) else { return badRequest }
+            let report = source == .antigravity
+                ? UsageReport(antigravityStatusLine: json) : UsageReport(claudeStatusLine: json)
             // `{}` for the same reason as a hook: the relay throws the answer
             // away, and nothing from this body is ever sent back anywhere.
-            return Outcome(response: Response(status: .ok, body: "{}"),
-                           delivery: .usage(UsageReport(claudeStatusLine: json)))
+            return Outcome(response: Response(status: .ok, body: "{}"), delivery: .usage(report))
         case .hook(let source):
             guard var json = jsonObject(request.body) else { return badRequest }
             // These two keys are written **only** here, from the headers, and a

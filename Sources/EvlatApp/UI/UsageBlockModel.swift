@@ -58,10 +58,12 @@ enum UsageFreshness: Equatable {
 /// open bar's block observes it; nothing on the closed bar does.
 @MainActor
 final class UsageBlockModel: ObservableObject {
-    /// The most lines the block draws: today's two sources and one remote
-    /// machine's Claude, each a heading and two windows. The envelope
-    /// is sized for this once (`AppController.envelopeSize`); a second
-    /// machine falls off whole, like any group past the cap.
+    /// The most lines the block draws: three groups of a heading and two
+    /// windows. The envelope is sized for this once
+    /// (`AppController.envelopeSize`). Sized for Claude, Codex and one remote
+    /// machine's Claude; with Antigravity's Gemini a third local group, a
+    /// machine's group falls off whole when all three are there, like any
+    /// group past the cap (local groups sort first, `Snapshot`).
     nonisolated static let maxLines = 9
     /// An observation older than this is stale.
     nonisolated static let staleAfter: TimeInterval = 60 * 60

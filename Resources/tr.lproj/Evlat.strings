@@ -60,6 +60,7 @@
 "menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";
 
 "menu.usage.modified" = "Kullanım satırı elle değiştirilmiş";
+"menu.usage.modified.antigravity" = "Antigravity kullanım satırı elle değiştirilmiş";
 "menu.usage.hint" = "Claude Code durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";
 
 "remote.empty.title" = "Henüz uzak makine yok";
@@ -262,6 +263,7 @@
 "setup.item.claudeHooks" = "Claude Code";
 "setup.item.codexHooks" = "Codex";
 "setup.item.usageRelay" = "Claude kullanım satırı";
+"setup.item.antigravityUsageRelay" = "Antigravity kullanım satırı";
 "setup.item.commandLink" = "evlat komutu";
 "setup.item.loginItem" = "Oturum açınca başlat";
 "setup.status.installed" = "✓ Kurulu";
@@ -452,6 +454,7 @@
 "setup.flow.summary.right" = "Bar sağ kenarda";
 "setup.flow.summary.claudeHooks" = "Claude Code hook'ları";
 "setup.flow.summary.usageRelay" = "Kullanım satırı";
+"setup.flow.summary.antigravityUsageRelay" = "Antigravity kullanım satırı";
 "setup.flow.summary.codexHooks" = "Codex hook'ları";
 "setup.flow.summary.manual" = "{item} elle kurulacak";
 "setup.flow.summary.skipped" = "{item} atlandı";

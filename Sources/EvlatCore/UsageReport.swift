@@ -27,6 +27,8 @@ public struct UsageReport: Equatable {
         }
     }
 
+    /// Whose status line said it: the provider it goes to.
+    public let source: AgentSource
     public let windows: [Window]
     /// Keys under `rate_limits` this adapter does not draw — `spend_limit`
     /// today, which has no length. Named so a new window is **visible**
@@ -34,7 +36,8 @@ public struct UsageReport: Equatable {
     /// `SessionsProvider.unrecognizedStatuses` keeps an unknown status.
     public let unrecognizedWindows: Set<String>
 
-    public init(windows: [Window], unrecognizedWindows: Set<String>) {
+    public init(windows: [Window], unrecognizedWindows: Set<String>, source: AgentSource = .claude) {
+        self.source = source
         self.windows = windows
         self.unrecognizedWindows = unrecognizedWindows
     }
@@ -60,6 +63,44 @@ public struct UsageReport: Equatable {
                           resetsAt: Date(timeIntervalSince1970: resets))
         }
         self.init(windows: windows, unrecognizedWindows: Set(limits.keys).subtracting(known))
+    }
+
+    /// The Antigravity CLI's Gemini windows, and how long each one is.
+    /// Its `quota` holds two pools of the same two lengths: `gemini-*` and
+    /// `3p-*` (the other vendors' models it offers). Only Gemini's is
+    /// drawn — the bar has room for one more group of two windows
+    /// (`UsageBlockModel.maxLines`) — so `3p-*` stays unrecognized and
+    /// visible in `--capture`.
+    static let antigravityWindows: [(key: String, minutes: Int)] = [("gemini-5h", 300), ("gemini-weekly", 10080)]
+
+    /// Reads the Antigravity CLI's status line JSON (`agy` 1.2.14, measured;
+    /// undocumented): `quota.<bucket>.remaining_fraction` (0–1) and
+    /// `reset_time` (RFC 3339). Used is the rest of the fraction. Like
+    /// Claude's, a missing `quota` is an empty report and a broken window is
+    /// left out alone.
+    public init(antigravityStatusLine json: [String: Any]) {
+        guard let quota = json["quota"] as? [String: Any] else {
+            self.init(windows: [], unrecognizedWindows: [], source: .antigravity)
+            return
+        }
+        let known = Set(Self.antigravityWindows.map(\.key))
+        let windows = Self.antigravityWindows.compactMap { entry -> Window? in
+            guard let fields = quota[entry.key] as? [String: Any],
+                  let remaining = Self.number(fields["remaining_fraction"]),
+                  let text = fields["reset_time"] as? String,
+                  let resets = Self.date(text) else { return nil }
+            return Window(minutes: entry.minutes, usedPercent: (1 - remaining) * 100, resetsAt: resets)
+        }
+        self.init(windows: windows, unrecognizedWindows: Set(quota.keys).subtracting(known),
+                  source: .antigravity)
+    }
+
+    /// RFC 3339, with or without fractional seconds.
+    static func date(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: text)
     }
 
     /// A JSON number and nothing else. `JSONSerialization` hands booleans
