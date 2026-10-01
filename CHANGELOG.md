@@ -20,6 +20,16 @@ Markdown; keep it to a few bullets.
   branch instead of a number. A session's card always shows its branch.
   Settings → Sessions → Git branch turns this off, or on for every session.
   Sessions on remote machines show no branch.
+- **Connect to servers that ask for a password.** A remote machine no
+  longer needs an ssh key: when the server asks for a password, Evlat shows
+  the question in a small window, and **Remember in Keychain** (on by
+  default) lets it reconnect on its own after sleep or a dropped network.
+  A one-time code or a key's passphrase is asked every time and never kept.
+  A password the server refuses is tried once, not again: the machine waits
+  for you, and the menu says so — **Enter Password…** in Settings → Remote
+  Machines. Removing a machine removes its saved password.
+- Pasting with ⌘V now works in the line that **Other…** opens on a
+  question's card.
 
 ## 0.1.8
 
