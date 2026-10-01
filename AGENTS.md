@@ -270,7 +270,11 @@ is lost with the process.
   but in its source, and was seen working on 0.64.25). Terminal and Ghostty
   publish no link: their
   tab would take Apple Events. All are read from the agent's exec-time
-  environment (`KERN_PROCARGS2`) — no permission. The value is checked
+  environment (`KERN_PROCARGS2`) — no permission — or, in a herdr pane, from
+  the herdr client's. A herdr pane is then selected inside the tab with
+  `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`): the one process
+  `[Go to session]` runs — the server's own executable, fixed arguments, a
+  checked id, no shell, and a command that only selects. The value is checked
   (`TabLink`): `metalterm://tab/restart` is an action, not a tab.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
@@ -605,6 +609,15 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   host until `SessionHost.helperBundle` named it. Its `reveal` link wants the
   whole `ITERM_SESSION_ID` (`w0t0p0:<UUID>`); the UUID alone only brought
   the app forward.
+- **herdr's panes hang off a server parented to launchd, with no app at
+  all** (`herdr server`, herdr 0.9.1): the walk reached launchd and found
+  "no terminal" for every session in it. The terminal is wherever a `herdr`
+  client of the same session runs (`HERDR_SESSION` in the server's
+  environment, `--session` in the client's arguments), so
+  `SessionHost.viaHerdr` walks that client instead. The pane's environment
+  is the server's, from the terminal the server was **first** started in —
+  a cmux tab long closed, or Ghostty while the client is in cmux — so the
+  tab link is read from the client.
 
 ### SwiftUI and AppKit
 
