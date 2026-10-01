@@ -31,7 +31,7 @@ Markdown; keep it to a few bullets.
 - Pasting with ⌘V now works in the line that **Other…** opens on a
   question's card.
 - **Go to session finds sessions inside herdr and tmux.** It opens the
-  terminal tab you last attached from, never one that has since closed, and
+  terminal tab you last used, never one that has since closed, and
   in herdr it also switches to the session's pane, in any workspace. Thanks
   to @gabeperez (#5).
 

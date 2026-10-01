@@ -273,12 +273,13 @@ is lost with the process.
   environment (`KERN_PROCARGS2`) — no permission — or, in a herdr or tmux
   pane, from the client's: herdr's newest client connected to its server's
   client socket and with a terminal, tmux's client of the pane's session
-  that did something last (asked of the server's own `tmux`, 0.5 s at
+  that did something last (asked of the server's own `tmux`, 0.25 s at
   most). A pane whose client is not found opens no tab: the app comes
-  forward only. A herdr pane is then selected inside the tab with
-  `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`): the one process
-  `[Go to session]` runs — the server's own executable, fixed arguments, a
-  checked id, no shell, and a command that only selects. The value is checked
+  forward only if the walk still reaches one. A herdr pane is then selected inside the tab with
+  `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`). That and the tmux
+  query above are the only processes Evlat runs to find and open a
+  session: each the server's own executable, fixed arguments, checked
+  values, no shell, and a command that only reads or selects. The value is checked
   (`TabLink`): `metalterm://tab/restart` is an action, not a tab.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,

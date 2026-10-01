@@ -97,47 +97,44 @@ enum SessionHost: Equatable {
     static func resolve(pid: Int32?, _ probe: Probe) -> SessionHost {
         guard let agent = pid else { return .notFound }
         switch walk(pid: agent, probe) {
-        case (.app(var app), let terminal):
+        case (.app(var app), let terminal, let passedServer):
             // The environment is read only for an app that has a tab link,
             // and only its own variables are kept. It is the agent's, or
             // the client's when the session runs in a herdr or tmux pane.
-            // A pane whose client was not found names no tab: what it has
-            // is the terminal its server was first started from, which may
-            // since have closed (a closed tab's herdr client was seen alive
-            // and still attached, deaf to TERM and HUP).
-            if TabLink.of(app.bundleID) != nil {
-                let environment = probe.environment(terminal)
-                if terminal != agent || !isMultiplexed(environment) {
-                    app.tab = TabLink.url(bundleID: app.bundleID, environment: environment)
-                }
+            // An agent whose walk passed a herdr or tmux server without
+            // finding its client names no tab: what it has is the terminal
+            // that server was first started from, which may since have
+            // closed (a closed tab's herdr client was seen alive and still
+            // attached, deaf to TERM and HUP). The walk decides, not the
+            // agent's variables: a terminal started from a pane inherits
+            // them too.
+            if TabLink.of(app.bundleID) != nil, terminal != agent || !passedServer {
+                app.tab = TabLink.url(bundleID: app.bundleID, environment: probe.environment(terminal))
             }
             return .app(app)
-        case (let other, _):
+        case (let other, _, _):
             return other
         }
     }
 
-    /// Whether an agent's environment says it runs in a herdr or tmux pane.
-    static func isMultiplexed(_ environment: [String]) -> Bool {
-        environment.contains { line in
-            line == "HERDR_ENV=1" || line == "TERM_PROGRAM=herdr"
-                || (line.hasPrefix("TMUX=") && line.count > "TMUX=".count)
-        }
-    }
-
-    /// The host, and the process whose environment names its tab.
+    /// The host, the process whose environment names its tab, and whether
+    /// the walk went through a herdr or tmux server on the way.
     private static func walk(pid: Int32, _ probe: Probe,
-                             throughServers: Bool = true) -> (host: SessionHost, terminal: Int32) {
+                             throughServers: Bool = true) -> (host: SessionHost, terminal: Int32, passedServer: Bool) {
         var current = pid
         var paths: [String] = []
+        var passedServer = false
         for _ in 0..<maxSteps {
             guard current > 1 else { break }
-            if let app = probe.regularApp(current) { return (.app(app), pid) }
+            if let app = probe.regularApp(current) { return (.app(app), pid, passedServer) }
             if current != pid, let path = probe.executablePath(current) {
                 paths.append(path)
+                if isHerdrServer(current, path: path, probe) || (path as NSString).lastPathComponent == "tmux" {
+                    passedServer = true
+                }
                 if throughServers, let found = viaHerdr(server: current, path: path, agent: pid, probe)
                     ?? viaTmux(server: current, path: path, agent: pid, probe) {
-                    return found
+                    return (found.host, found.terminal, true)
                 }
             }
             guard let up = probe.parent(current), up != current else { break }
@@ -146,10 +143,16 @@ enum SessionHost: Equatable {
         for path in paths.reversed() {
             let bundle = outermostApp(in: path).flatMap(probe.bundle) ?? helperBundle(path)
             guard let bundle else { continue }
-            if let app = probe.running(bundle.bundleID) { return (.app(app), pid) }
-            return (.closed(name: bundle.name), pid)
+            if let app = probe.running(bundle.bundleID) { return (.app(app), pid, passedServer) }
+            return (.closed(name: bundle.name), pid, passedServer)
         }
-        return (.notFound, pid)
+        return (.notFound, pid, passedServer)
+    }
+
+    /// A `herdr` whose first argument is `server`. A tmux ancestor is always
+    /// its server: a client is never the parent of a pane's process.
+    private static func isHerdrServer(_ pid: Int32, path: String, _ probe: Probe) -> Bool {
+        (path as NSString).lastPathComponent == "herdr" && probe.arguments(pid).dropFirst().first == "server"
     }
 
     /// herdr runs its panes under a server it parents to launchd, so the
@@ -170,24 +173,28 @@ enum SessionHost: Equatable {
     /// and ends `notFound`, or names a client's closed app.
     static func viaHerdr(server: Int32, path: String, agent: Int32,
                          _ probe: Probe) -> (host: SessionHost, terminal: Int32)? {
-        guard (path as NSString).lastPathComponent == "herdr",
-              probe.arguments(server).dropFirst().first == "server" else { return nil }
-        let session = herdrSession(environment: probe.environment(server))
-        let accepted = probe.unixSockets(server).map { sockets in
-            Set(sockets.filter { ($0.path.map { ($0 as NSString).lastPathComponent }) == "herdr-client.sock" }
-                .map(\.pcb))
+        guard isHerdrServer(server, path: path, probe) else { return nil }
+        // The connection proves the session, whatever the client's
+        // arguments; without the sockets (unreadable, or none by that name)
+        // the arguments and `HERDR_SESSION` are what is left.
+        let accepted = probe.unixSockets(server).flatMap { sockets -> Set<UInt64>? in
+            let named = sockets.filter { $0.path.map { ($0 as NSString).lastPathComponent } == "herdr-client.sock" }
+            return named.isEmpty ? nil : Set(named.map(\.pcb))
         }
+        let session = accepted == nil ? herdrSession(environment: probe.environment(server)) : ""
         let clients = probe.processes().filter { client in
             guard client != server, let executable = probe.executablePath(client),
                   (executable as NSString).lastPathComponent == "herdr",
-                  let named = herdrClientSession(arguments: probe.arguments(client)),
-                  (named ?? herdrSession(environment: probe.environment(client))) == session,
                   probe.hasTerminal(client) != false else { return false }
-            guard let accepted else { return true }
-            return (probe.unixSockets(client) ?? []).contains { accepted.contains($0.peer) }
+            if let accepted {
+                return (probe.unixSockets(client) ?? []).contains { accepted.contains($0.peer) }
+            }
+            guard let named = herdrClientSession(arguments: probe.arguments(client)) else { return false }
+            return (named ?? herdrSession(environment: probe.environment(client))) == session
         }
+        let started = Dictionary(uniqueKeysWithValues: clients.map { ($0, probe.startedAt($0)) })
         let newestFirst = clients.sorted { a, b in
-            switch (probe.startedAt(a), probe.startedAt(b)) {
+            switch (started[a] ?? nil, started[b] ?? nil) {
             case let (x?, y?) where x != y: return x > y
             case (_?, nil): return true
             case (nil, _?): return false
@@ -455,10 +462,13 @@ enum SessionHost: Equatable {
         var environment: [String] = []
         while index < buffer.endIndex {
             let end = buffer[index...].firstIndex(of: 0) ?? buffer.endIndex
-            if end == index { break }
             let string = String(decoding: buffer[index..<end], as: UTF8.self)
+            // An empty argument is one (`claude --flag ""`); an empty string
+            // after the arguments ends the environment.
             if arguments.count < argc {
                 arguments.append(string)
+            } else if end == index {
+                break
             } else {
                 environment.append(string)
             }
@@ -622,15 +632,17 @@ struct TabLink {
 struct HerdrPane: Equatable {
     let executable: String
     let pane: String
-    let socket: String?
+    let socket: String
 
     /// `nil` when the environment names no pane, or a value that is not one.
     static func of(herdr executable: String, environment: [String]) -> HerdrPane? {
         func value(_ name: String) -> String? {
             environment.first { $0.hasPrefix(name + "=") }.map { String($0.dropFirst(name.count + 1)) }
         }
-        guard executable.hasPrefix("/"), let pane = value("HERDR_PANE_ID"), isPaneID(pane) else { return nil }
-        let socket = value("HERDR_SOCKET_PATH").flatMap { $0.hasPrefix("/") ? $0 : nil }
+        // Without its socket the command would ask the default session,
+        // whose panes are numbered on their own: `w1:p1` is in every one.
+        guard executable.hasPrefix("/"), let pane = value("HERDR_PANE_ID"), isPaneID(pane),
+              let socket = value("HERDR_SOCKET_PATH"), socket.hasPrefix("/") else { return nil }
         return HerdrPane(executable: executable, pane: pane, socket: socket)
     }
 
@@ -645,7 +657,7 @@ struct HerdrPane: Equatable {
     var arguments: [String] { ["agent", "focus", pane] }
 
     /// Only the socket is passed: the pane's session is the socket's.
-    var environment: [String: String] { socket.map { ["HERDR_SOCKET_PATH": $0] } ?? [:] }
+    var environment: [String: String] { ["HERDR_SOCKET_PATH": socket] }
 
     /// Fire and forget: a pane closed since is herdr's error, not Evlat's.
     func focus() {
@@ -692,9 +704,10 @@ struct TmuxQuery: Equatable {
          "list-clients", "-F", "#{client_pid} #{client_activity} #{session_id}"]
     }
 
-    /// How long the card waits for tmux. It answers from memory; a server
-    /// that does not is not waited for.
-    static let timeout: TimeInterval = 0.5
+    /// How long the card waits for tmux, on the main thread. It answers from
+    /// memory (6.8 ms median, 8.3 ms at most over 20 runs, tmux 3.7c); a
+    /// server that does not is not waited for.
+    static let timeout: TimeInterval = 0.25
 
     static func run(_ query: TmuxQuery) -> TmuxReply? {
         let process = Process()

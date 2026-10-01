@@ -440,12 +440,12 @@ extension SessionHostTests {
                                                             "HERDR_SOCKET_PATH=/s/herdr.sock"]))
         XCTAssertEqual(pane.arguments, ["agent", "focus", "w4:p2"])
         XCTAssertEqual(pane.environment, ["HERDR_SOCKET_PATH": "/s/herdr.sock"])
-        XCTAssertEqual(HerdrPane.of(herdr: Self.herdr, environment: ["HERDR_PANE_ID=w1:p1"])?.environment, [:],
-                       "no socket: herdr's default")
+        XCTAssertNil(HerdrPane.of(herdr: Self.herdr, environment: ["HERDR_PANE_ID=w1:p1"]),
+                     "no socket: herdr's default session, whose `w1:p1` is another pane")
         XCTAssertNil(HerdrPane.of(herdr: Self.herdr, environment: []), "not in a pane")
         XCTAssertNil(HerdrPane.of(herdr: "herdr", environment: ["HERDR_PANE_ID=w1:p1"]), "a path, not a name")
         XCTAssertNil(HerdrPane.of(herdr: Self.herdr, environment: ["HERDR_SOCKET_PATH=relative",
-                                                                    "HERDR_PANE_ID=w1:p1"])?.socket)
+                                                                    "HERDR_PANE_ID=w1:p1"]))
         for bad in ["", "--help", "-w1", "w1 p1", "w1;rm", "w1/p1", String(repeating: "a", count: 65)] {
             XCTAssertFalse(HerdrPane.isPaneID(bad), bad)
         }
@@ -504,6 +504,16 @@ extension SessionHostTests {
     }
 
     /// The real reads: this process's arguments, and its pid among all.
+    /// An empty argument is an argument: it does not end the reading.
+    func testAnEmptyArgumentKeepsTheRestAndTheEnvironment() {
+        var buffer: [UInt8] = [3, 0, 0, 0]
+        for string in ["/bin/claude", "", "", "claude", "", "--flag", "TMUX_PANE=%1", "", "junk"] {
+            buffer += Array(string.utf8) + [0]
+        }
+        XCTAssertEqual(SessionHost.arguments(procArgs: buffer), ["claude", "", "--flag"])
+        XCTAssertEqual(SessionHost.environment(procArgs: buffer), ["TMUX_PANE=%1"])
+    }
+
     func testTheRealArgumentsAndProcessesIncludeThisOne() {
         let me = ProcessInfo.processInfo.processIdentifier
         XCTAssertEqual(SessionHost.arguments(me).count, CommandLine.arguments.count)
@@ -546,7 +556,8 @@ extension SessionHostTests {
     }
 
     private var herdrInBateriEnvironment: [Int32: [String]] {
-        [92981: Self.bateriTab(Self.closedTab) + ["HERDR_ENV=1", "HERDR_PANE_ID=w5:p1", "TERM_PROGRAM=herdr"],
+        [92981: Self.bateriTab(Self.closedTab) + ["HERDR_ENV=1", "HERDR_PANE_ID=w5:p1",
+                                                     "HERDR_SOCKET_PATH=/Users/u/.config/herdr/herdr.sock", "TERM_PROGRAM=herdr"],
          37880: Self.bateriTab(Self.closedTab),
          37020: Self.bateriTab(Self.newerTab),
          22670: Self.bateriTab(Self.olderTab)]
@@ -617,12 +628,37 @@ extension SessionHostTests {
         XCTAssertEqual(host, .app(bateri), "the app only: no tab, no herdr pane")
     }
 
-    func testAMultiplexedEnvironmentIsRecognised() {
-        XCTAssertTrue(SessionHost.isMultiplexed(["HERDR_ENV=1"]))
-        XCTAssertTrue(SessionHost.isMultiplexed(["TERM_PROGRAM=herdr"]))
-        XCTAssertTrue(SessionHost.isMultiplexed(["TMUX=/tmp/tmux-501/default,123,0"]))
-        XCTAssertFalse(SessionHost.isMultiplexed(["TMUX="]))
-        XCTAssertFalse(SessionHost.isMultiplexed(["TERM_PROGRAM=bateri", "HERDR_ENV=0"]))
+    /// The walk decides, not the variables: an agent in a terminal that was
+    /// itself started from a tmux pane inherits `TMUX` but passes no server.
+    func testInheritedPaneVariablesAloneKeepTheTab() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 580, path: "/bin/zsh"),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+        ]
+        let host = SessionHost.resolve(pid: 900, probe(table, environment: [900: Self.bateriTab(Self.newerTab)
+                                                                                + Self.tmuxEnvironment
+                                                                                + ["HERDR_ENV=1"]]))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
+    }
+
+    /// Connected to the client socket is enough: arguments herdr may add
+    /// later do not hide a client.
+    func testAConnectedClientIsAClientWhateverItsArguments() {
+        var arguments = herdrInBateriArguments
+        arguments[37020] = ["herdr", "--some-new-flag"]
+        let probe = probe(herdrInBateri, environment: herdrInBateriEnvironment, arguments: arguments,
+                          sockets: herdrInBateriSockets, terminals: [37880: false, 37020: true, 22670: true],
+                          started: [37880: 1_000, 22670: 3_100, 37020: 3_700])
+        XCTAssertEqual(tab(of: SessionHost.resolve(pid: 92981, probe)), "bateri://tab/\(Self.newerTab)")
+    }
+
+    /// A server whose sockets read but none is named `herdr-client.sock`
+    /// (another version's name) rules nobody out by them.
+    func testNoClientSocketByThatNameFallsBackToTheArguments() {
+        let sockets: [Int32: [SessionHost.UnixSocket]] = [37881: [SessionHost.UnixSocket(pcb: 0xe3bf, peer: 0)]]
+        let host = SessionHost.resolve(pid: 92981, herdrInBateriProbe(sockets: sockets))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
     }
 
     // MARK: tmux
