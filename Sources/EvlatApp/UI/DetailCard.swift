@@ -130,6 +130,13 @@ struct DetailCard: View {
     private func content(_ detail: SessionDetail) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             header(detail)
+            if let branch = detail.branch {
+                // A line of its own under the header, as the first mockup
+                // drew it. Beside the name in the header the two fought for
+                // one line and the name lost: a 260 pt card cut `shop-api` to
+                // "s…" next to `feat/checkout-v2` and "Claude Code".
+                branchLine(branch)
+            }
             HStack(spacing: 6) {
                 Circle().fill(Self.color(detail.phase)).frame(width: 7, height: 7)
                 Text(verbatim: Self.title(phase: detail.phase,
@@ -183,6 +190,21 @@ struct DetailCard: View {
                     .modifier(PressFeedback(model: model, button: .go))
             }
         }
+    }
+
+    /// The session's branch: its mark and its name, cut in the middle when
+    /// longer than the card, where `feature/PROJ-1234-…` names differ least.
+    private func branchLine(_ branch: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 9, weight: .medium))
+            Text(verbatim: branch)
+                .font(Self.sourceFont)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+            .foregroundStyle(BarPalette.textSecondary)
+            .padding(.top, -4)
     }
 
     /// "Color · 1/2": the question's tab title, and where it is among them
@@ -503,20 +525,6 @@ struct DetailCard: View {
                 .foregroundStyle(BarPalette.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            if let branch = detail.branch {
-                // After the name, as on the row; cut in the middle like it,
-                // and before the name is, since it is the part that differs.
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 9, weight: .medium))
-                    Text(verbatim: branch)
-                        .font(Self.sourceFont)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                    .foregroundStyle(BarPalette.textSecondary)
-                    .layoutPriority(1)
-            }
             Spacer(minLength: 8)
             if let tag = detail.traits.tag.text(machine: detail.machine, sender: detail.sender, inCard: true) {
                 // The column's tag — the machine, an outside job's sender,

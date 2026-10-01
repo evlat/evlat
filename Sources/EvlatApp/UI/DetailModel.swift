@@ -31,7 +31,7 @@ public struct SessionDetail: Equatable {
     /// the card comes up and on the click, not on every snapshot; never for
     /// a remote session.
     var host: SessionHost = .notFound
-    /// The git branch of the session's folder, for the header. Unlike the
+    /// The git branch of the session's folder, on a line under the header. Unlike the
     /// row, which draws one only between same-named sessions, the card has
     /// room and says it always. Resolved with `host`, and never for a remote
     /// session: its folder is on its server.
