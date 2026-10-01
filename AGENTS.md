@@ -131,6 +131,19 @@ prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
 | `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
 | `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
 
+An agent can be switched off (Settings → Agents, its card's switch; the
+setup's agent step). The set is `agents.enabled` (`EnabledAgents`): nothing
+stored is the agents found, asked live each time, and it is written only by
+the user's change — an isolated process (`EVLAT_PORT`) keeps it in memory.
+An agent off has no session row: `Registry.signals()` drops it **after**
+the merge, `kind == .session` only, by asking whether the row's `source` is
+in the set (a file row and a hook row go together; a remote machine's rows
+are not this Mac's set). Its usage provider is unregistered, so its windows
+go with it. An `/approval` request with no switched-on agent that takes
+approvals is answered `{}` at once and the held ones are let go. Its
+attention lines go quiet. Turning off an agent with Evlat's parts in its
+files asks whether they go too (the default) or stay.
+
 Remote machines add no provider type: each machine gets its own `hooks`,
 `claude-usage` and `signal` *instances*, fed through an `ssh -R` reverse
 tunnel. Identity comes from the listener, never from the request body; remote
@@ -494,7 +507,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, and `ssh` passwords stay in memory, never in the keychain |
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`) |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |

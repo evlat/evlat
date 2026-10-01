@@ -74,8 +74,9 @@ final class SetupFlowModel: ObservableObject {
         setup.reload()
         if let open = setup.manualOpen { setup.toggleManual(open) }
         // Everything there is to write, but "Open at login": that one is
-        // off unless turned on (R5).
-        setup.queued = Set(setup.rows.filter { $0.action?.installs == true && $0.item != .loginItem }.map(\.item))
+        // off unless turned on (R5), and an agent the user switched off.
+        setup.queued = Set(setup.rows.filter { $0.action?.installs == true && $0.item != .loginItem && $0.enabled }
+            .map(\.item))
         look()
         self.step = step
         if step == .edge || step == .done { blinks += 1 }
@@ -105,6 +106,7 @@ final class SetupFlowModel: ObservableObject {
     /// The primary button: "Install" writes and stays; "Finish" writes and
     /// moves on; "Close" closes; the rest move on.
     func primary() {
+        if step == .sessions { chooseAgents() }
         switch step {
         case .sessions where !installConsent.isEmpty:
             setup.applyQueue(only: Self.sessionItems)
@@ -122,6 +124,7 @@ final class SetupFlowModel: ObservableObject {
     /// "Not now": the next step, nothing written.
     func skip() {
         guard showsSkip else { return }
+        if step == .sessions { chooseAgents() }
         move(to: Self.after(step))
     }
 
@@ -181,6 +184,19 @@ final class SetupFlowModel: ObservableObject {
 
     func setQueued(_ item: SetupItem, _ on: Bool) {
         if on { setup.queued.insert(item) } else { setup.queued.remove(item) }
+    }
+
+    /// "Which agents do you use?" answered: a card that offered its switch
+    /// turns the agent on or off with it. A card with nothing to write
+    /// offered no choice and keeps the agent as it is. Only a change is
+    /// written (`AppController.setEnabled`), so pressing on with what was
+    /// found keeps the live default.
+    private func chooseAgents() {
+        for row in sessionRows where row.action?.installs == true {
+            guard let source = row.item.agent else { continue }
+            let on = setup.queued.contains(row.item)
+            if on != row.enabled { setup.choose(source, on) }
+        }
     }
 
     /// Above "Install": what it writes, one line per file.

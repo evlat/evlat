@@ -100,6 +100,14 @@ final class ApprovalStore {
         return true
     }
 
+    /// Every held request let go: the agent that asked was switched off,
+    /// so no card will answer it. `{}`, as for one answered elsewhere.
+    func releaseAll() {
+        guard !pending.isEmpty else { return }
+        pending.map(\.id).forEach(release)
+        onChange()
+    }
+
     /// The request a session's card speaks for: the oldest held.
     func request(forSession session: String) -> PermissionHook.Request? {
         pending.first { $0.sessionID == session }

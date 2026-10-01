@@ -108,6 +108,9 @@ struct SetupRow: Identifiable, Equatable {
     var parts: [SetupPart] = []
     /// The agent's usage line is Evlat's and can be taken out alone.
     var removesRelay = false
+    /// An agent's switch (`EnabledAgents`): off, the card folds to its
+    /// name and switch, and asks for nothing.
+    var enabled = true
 
     var id: String { item.id }
 
@@ -194,6 +197,9 @@ final class SetupModel: ObservableObject {
         /// Names of the machines whose tunnel waits for the user's password.
         var machinesNeedingPassword: () -> [String] = { [] }
 
+        /// An agent's switch, read and written (`AppController.setEnabled`).
+        var isEnabled: (AgentSource) -> Bool = { _ in true }
+        var setEnabled: (AgentSource, Bool) -> Void = { _, _ in }
         /// An agent's parts installed (or updated) or removed, as one.
         var setAgent: (AgentSource, Bool) -> Void
         /// The agent's usage line alone, taken out.
@@ -213,6 +219,9 @@ final class SetupModel: ObservableObject {
     /// The one open "by hand" block. Opening another closes it.
     @Published private(set) var manualOpen: SetupItem?
     @Published private(set) var attention: [SetupAttention] = []
+    /// The agent whose switch was turned off while Evlat's parts are in
+    /// its files: its card asks whether they go too before anything moves.
+    @Published private(set) var turningOff: AgentSource?
 
     private let host: Host
     let lang: String
@@ -300,8 +309,18 @@ final class SetupModel: ObservableObject {
 
     /// One agent's card: every catalogue agent has one, dim when it is not
     /// on this Mac. Only an old hook part asks for attention; a missing
-    /// usage line is offered by the card alone.
+    /// usage line is offered by the card alone. An agent switched off asks
+    /// for none: the user said it is not followed.
     private func agentRow(_ source: AgentSource, home: URL, attention: inout [SetupAttention]) -> SetupRow {
+        let enabled = host.isEnabled(source)
+        var own: [SetupAttention] = []
+        var result = readAgentRow(source, home: home, attention: &own)
+        result.enabled = enabled
+        if enabled { attention += own }
+        return result
+    }
+
+    private func readAgentRow(_ source: AgentSource, home: URL, attention: inout [SetupAttention]) -> SetupRow {
         let item = SetupItem.agent(source)
         let files = AgentIntegration.files(home: home, for: source).map { "~/" + Self.relative($0, to: home) }
             .joined(separator: " · ")
@@ -506,7 +525,7 @@ final class SetupModel: ObservableObject {
 
     /// The row's button: the action its status offers, then a fresh read.
     func perform(_ item: SetupItem) {
-        guard let action = row(item)?.action else { return }
+        guard let row = row(item), row.enabled, let action = row.action else { return }
         write(item, action)
         reload()
     }
@@ -541,6 +560,47 @@ final class SetupModel: ObservableObject {
         case .loginItem: host.setLoginItem(action.installs)
         }
     }
+
+    // MARK: - The switch
+
+    /// An agent's switch. On, at once. Off, at once while none of Evlat's
+    /// parts are in the agent's files; with some there, the card asks first
+    /// whether they go too (`turningOff`), and nothing moves until it is
+    /// answered.
+    func setEnabled(_ source: AgentSource, _ on: Bool) {
+        turningOff = nil
+        if !on, let status = row(.agent(source))?.status, status == .installed || status == .outdated {
+            turningOff = source
+            return
+        }
+        host.setEnabled(source, on)
+        reload()
+    }
+
+    /// The question's answer: off, and Evlat's parts taken out (`remove`,
+    /// the card's first choice) or left in the files. A removal that is
+    /// refused leaves the agent on: an off card draws no failure, and the
+    /// parts still in the files would go unsaid.
+    func confirmTurnOff(remove: Bool) {
+        guard let source = turningOff else { return }
+        turningOff = nil
+        if remove, host.home() != nil {
+            host.setAgent(source, false)
+            guard host.agentFailure(source) == nil else { return reload() }
+        }
+        host.setEnabled(source, false)
+        reload()
+    }
+
+    /// The setup's agent step: its switch is the answer to "which agents
+    /// do you use?", and it asks nothing more — files are left as they are.
+    func choose(_ source: AgentSource, _ on: Bool) {
+        host.setEnabled(source, on)
+        reload()
+    }
+
+    /// "Cancel": the switch stays on, nothing written.
+    func cancelTurnOff() { turningOff = nil }
 
     // MARK: - By hand
 
@@ -606,6 +666,8 @@ final class SetupModel: ObservableObject {
            "setup.login.detail", "setup.login.copy", "setup.login.needsApproval", "setup.login.failed",
            "setup.agent.part.hooks", "setup.agent.part.hooksApprovals", "setup.agent.part.usage",
            "setup.agent.details", "setup.agent.removeUsage", "setup.agent.usageModified", "setup.agent.failure",
+           "setup.agent.off", "setup.agent.turnOff.title", "setup.agent.turnOff.body", "setup.agent.turnOff.remove",
+           "setup.agent.turnOff.keep", "setup.agent.turnOff.cancel",
            "setup.consent.title", "setup.consent.line", "setup.consent.and", "setup.consent.backup",
            "setup.consent.nothing", "setup.consent.wraps",
            "setup.consent.what.hooks", "setup.consent.what.usage", "setup.consent.what.hooks.remove",
@@ -644,34 +706,101 @@ struct SetupRowView: View {
 
     private var lang: String { model.lang }
 
+    /// The settings' agent card carries the agent's switch; the setup's
+    /// switch is its queue's.
+    private var switches: Bool { showsButton && queued == nil && row.item.agent != nil }
+
     var body: some View {
         RowBox {
-            HStack(alignment: .center, spacing: 10) {
-                RowTitle(name: row.name, detail: row.detail, monospaced: monospaced,
-                         code: row.item == .commandLink)
-                trailing
+            if switches, !row.enabled, let source = row.item.agent {
+                offCard(source)
+            } else {
+                card
             }
-            .opacity(row.status == .foreign || row.status == .notFound ? 0.55 : 1)
-            if let note = row.note {
-                Text(note).font(.system(size: 11.5))
-                    .foregroundStyle(row.item.agent != nil ? SettingsPalette.wait : SettingsPalette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
-            if let failure = row.failure {
-                Text(failure).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if showsButton, !row.parts.isEmpty {
-                partsPart
-            }
-            if showsButton, let action = row.action, model.manualOpen != row.item {
-                ConsentAction(lines: model.consent(row.item, action), title: L10n.t(action.key, in: lang)) {
-                    model.perform(row.item)
-                }
-            }
-            manualPart
         }
+    }
+
+    /// Switched off: the name, what off means, the switch — no state, no
+    /// button, no parts. Nothing of the agent is followed, so nothing of it
+    /// is offered.
+    private func offCard(_ source: AgentSource) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(SettingsPalette.muted)
+                Text(L10n.t("setup.agent.off", in: lang)).font(.system(size: 12))
+                    .foregroundStyle(SettingsPalette.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            agentSwitch(source)
+        }
+    }
+
+    private func agentSwitch(_ source: AgentSource) -> some View {
+        Toggle("", isOn: Binding(get: { row.enabled && model.turningOff != source },
+                                 set: { model.setEnabled(source, $0) }))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .labelsHidden()
+            .accessibilityLabel(row.name)
+    }
+
+    /// "Turn off Codex?": Evlat's parts can go with the switch, and do
+    /// unless the user leaves them.
+    private func turnOffQuestion() -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(L10n.t("setup.agent.turnOff.title", ["agent": row.name], in: lang))
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(SettingsPalette.ink)
+            Text(L10n.t("setup.agent.turnOff.body", in: lang))
+                .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Button(L10n.t("setup.agent.turnOff.remove", in: lang)) { model.confirmTurnOff(remove: true) }
+                    .buttonStyle(SmallButtonStyle(primary: true))
+                Button(L10n.t("setup.agent.turnOff.keep", in: lang)) { model.confirmTurnOff(remove: false) }
+                    .buttonStyle(SmallButtonStyle())
+                Button(L10n.t("setup.agent.turnOff.cancel", in: lang)) { model.cancelTurnOff() }
+                    .buttonStyle(SmallButtonStyle())
+            }
+            .padding(.top, 4)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(SettingsPalette.consent))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(SettingsPalette.consentLine))
+    }
+
+    @ViewBuilder private var card: some View {
+        HStack(alignment: .center, spacing: 10) {
+            RowTitle(name: row.name, detail: row.detail, monospaced: monospaced,
+                     code: row.item == .commandLink)
+            trailing
+            if switches, let source = row.item.agent { agentSwitch(source) }
+        }
+        .opacity(row.status == .foreign || row.status == .notFound ? 0.55 : 1)
+        if let note = row.note {
+            Text(note).font(.system(size: 11.5))
+                .foregroundStyle(row.item.agent != nil ? SettingsPalette.wait : SettingsPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        if let failure = row.failure {
+            Text(failure).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let source = row.item.agent, switches, model.turningOff == source {
+            turnOffQuestion()
+        }
+        if showsButton, !row.parts.isEmpty {
+            partsPart
+        }
+        if showsButton, let action = row.action, model.manualOpen != row.item {
+            ConsentAction(lines: model.consent(row.item, action), title: L10n.t(action.key, in: lang)) {
+                model.perform(row.item)
+            }
+        }
+        manualPart
     }
 
     /// The status, or in the setup the switch: a missing row says nothing

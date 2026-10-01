@@ -688,11 +688,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let setupSeenKey = "setup.seen"
 
     /// Whether the setup opens by itself at this launch (`SetupTrigger`):
-    /// storage and a home, never shown, no edge ever stored, no agent's
-    /// hooks installed (or old), not isolated. Reads, writes nothing.
+    /// storage and a home, never shown, no edge ever stored, no switched-on
+    /// agent's hooks installed (or old), not isolated. Reads, writes nothing.
     func shouldOpenSetup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         let states = home.map { home in
-            Self.presentSources(home: home).map { source in
+            AgentSource.allCases.filter(enabledAgents.contains).map { source in
                 (try? LocalHooks.state(at: source.settingsFile(home: home), for: source)) ?? .missing
             }
         } ?? []
@@ -706,12 +706,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func markSetupSeen(environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard !Isolation.isIsolated(environment) else { return }
         defaults?.set(true, forKey: Self.setupSeenKey)
-    }
-
-    /// The agents whose directory exists under `home`: an agent that is not
-    /// there has no entry and no row.
-    nonisolated static func presentSources(home: URL) -> [AgentSource] {
-        AgentSource.allCases.filter { $0.isPresent(home: home) }
     }
 
     /// The edge the user chose, `right` or `left`; anything else — nothing
@@ -1193,8 +1187,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // the bar opens, not here.
         // Memory only, no file: safe without a home. Before Codex so the
         // block's order does not hang on registration (it sorts by group).
-        for source in AgentSource.allCases { if let usage = statusLineUsage[source] { registry.register(usage) } }
-        if let home { registry.register(CodexUsageProvider(home: home)) }
+        if let home { codexUsage = CodexUsageProvider(home: home) }
+        // Only the switched-on agents' (Settings → Agents); the switch
+        // registers and takes them away from here on.
+        applyEnabledAgents()
         registry.register(chats.provider)
         // Memory only; its rows come from the listener below.
         registry.register(signals)
@@ -1791,6 +1787,92 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         toggleChat()
     }
 
+    // MARK: - Agents switched on
+
+    /// Without storage — every test, and an isolated process
+    /// (`EVLAT_PORT`), which must not change the user's choice — the choice
+    /// is kept here; `nil` is never changed, as in the defaults.
+    private var agentsUnstored: [String]?
+    private var agentsDefaults: UserDefaults? {
+        Self.keepsAgentsInMemory(ProcessInfo.processInfo.environment) ? nil : defaults
+    }
+
+    /// A process on a port of its own is a measurement or a look by eye:
+    /// its switches are its own and leave the user's alone.
+    nonisolated static func keepsAgentsInMemory(_ environment: [String: String]) -> Bool {
+        !(environment["EVLAT_PORT"]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+    }
+
+    private var storedAgents: [String]? {
+        agentsDefaults.map { $0.stringArray(forKey: EnabledAgents.key) } ?? agentsUnstored
+    }
+
+    /// The agents followed now (`EnabledAgents`). With no home — every test
+    /// that hands none — nothing is known to be missing, so every agent is.
+    var enabledAgents: Set<AgentSource> {
+        EnabledAgents.resolve(stored: storedAgents, isPresent: isPresent)
+    }
+
+    private func isPresent(_ source: AgentSource) -> Bool {
+        home.map(source.isPresent(home:)) ?? true
+    }
+
+    /// The user's switch (Settings → Agents, the setup's agent step), and
+    /// the one writer of `agents.enabled`. Leaves the files alone: taking
+    /// Evlat's parts out is `setAgent`'s, asked for by the card.
+    func setEnabled(_ source: AgentSource, _ on: Bool) {
+        guard let value = EnabledAgents.changing(source, to: on, stored: storedAgents, isPresent: isPresent) else {
+            return
+        }
+        if let agentsDefaults { agentsDefaults.set(value, forKey: EnabledAgents.key) } else { agentsUnstored = value }
+        applyEnabledAgents()
+        scheduleRefresh()
+    }
+
+    /// Codex's usage, read from its own file; `nil` without a home.
+    private var codexUsage: CodexUsageProvider?
+    /// Each agent's usage provider, registered in `registry` while the
+    /// agent is on.
+    private var usageProviders: [AgentSource: Provider] {
+        var providers: [AgentSource: Provider] = statusLineUsage
+        providers[CodexUsageProvider.source] = codexUsage
+        return providers
+    }
+    private var registeredUsage: Set<AgentSource> = []
+    /// The registry follows the switches: set by the first apply (launch;
+    /// a test that wants it), so a controller that never applied them keeps
+    /// the providers its test registered by hand.
+    private var followsAgents = false
+
+    /// Brings the registry in line with the switches: a usage provider per
+    /// agent on, none for an agent off — its windows go with it, the
+    /// session filter leaves usage alone — and the sessions filtered
+    /// through the same set. With no agent left that answers approvals,
+    /// the held ones are let go.
+    func applyEnabledAgents() {
+        followsAgents = true
+        let enabled = enabledAgents
+        registry.enabledSources = { [weak self] in
+            MainActor.assumeIsolated { self?.enabledAgents }
+        }
+        for (source, provider) in usageProviders {
+            let on = enabled.contains(source)
+            guard on != registeredUsage.contains(source) else { continue }
+            if on {
+                registry.register(provider)
+                registeredUsage.insert(source)
+            } else {
+                registry.unregister(provider as AnyObject)
+                registeredUsage.remove(source)
+            }
+        }
+        if !holdsApprovals { approvals.releaseAll() }
+    }
+
+    /// Whether a terminal's approval request is held for a card: some agent
+    /// switched on installs the approval hook.
+    var holdsApprovals: Bool { enabledAgents.contains { $0.supportsApprovals } }
+
     // MARK: - Permission mode
 
     /// A new chat's mode, stored by its CLI value; none stored is auto.
@@ -2179,6 +2261,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                     RemoteMachinesModel.offersPassword(remote.state(of: machine.id)) ? machine.name : nil
                 }
             },
+            isEnabled: { [weak self] in self?.enabledAgents.contains($0) ?? true },
+            setEnabled: { [weak self] in self?.setEnabled($0, $1) },
             setAgent: { [weak self] source, installed in self?.setAgent(source, installed: installed) },
             removeUsageRelay: { [weak self] in self?.removeUsageRelay($0) },
             setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
@@ -2451,7 +2535,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .hook(let event):
             handleHookEvent(event)
         case .approval(let request):
-            approvals.asked(request)
+            // An agent switched off shows no card: `{}` at once, and its
+            // terminal's own dialog decides, as with Evlat closed.
+            if holdsApprovals {
+                approvals.asked(request)
+            } else {
+                approvals.respond(request.id, ApprovalStore.released)
+            }
         case .usage(let report):
             // Not `hookDiagnostics`: that bucket is the hooks' and nothing of
             // the status line's body belongs in it.
@@ -2544,16 +2634,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// silently — the app keeps working and simply re-evaluates the bar at
     /// event rate.
     func refresh() {
+        // An agent installed or removed while nothing is stored moves the
+        // live set: its usage provider follows it here, as its rows do.
+        if followsAgents { applyEnabledAgents() }
         let snapshot = registry.snapshot(seen: seen)
         lastSnapshot = snapshot
         // Pruned when the row leaves, not when its key does: while the merge
         // holds a finish back (the file says `busy`) its key is missing for a
         // while and comes back unchanged, and it must come back seen and told.
-        let present = snapshot.layers
-        if seen.contains(where: { present[$0.entity] == nil }) { seen = seen.filter { present[$0.entity] != nil } }
-        if announced.contains(where: { present[$0.entity] == nil }) {
-            announced = announced.filter { present[$0.entity] != nil }
+        // A row hidden by its agent's switch has not left either.
+        let gone = { (finish: Finish) in
+            snapshot.layers[finish.entity] == nil && !snapshot.switchedOff.contains(finish.entity)
         }
+        if seen.contains(where: gone) { seen = seen.filter { !gone($0) } }
+        if announced.contains(where: gone) { announced = announced.filter { !gone($0) } }
         if mascot.phase != snapshot.aggregate {
             // The only trace the seam leaves in the field. `--capture` shows
             // the events and `--list` the file rows, but neither runs in this

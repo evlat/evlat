@@ -330,6 +330,12 @@
 "setup.agent.removeUsage" = "Kullanım satırını kaldır";
 "setup.agent.usageModified" = "Kullanım satırın elle değiştirilmiş; Evlat ona dokunmaz.";
 "setup.agent.failure" = "{part}: {reason}";
+"setup.agent.off" = "Kapalı: oturumları, kullanımı ve onayları gösterilmez.";
+"setup.agent.turnOff.title" = "{agent} kapatılsın mı?";
+"setup.agent.turnOff.body" = "Oturumları bardan kalkar. Evlat'ın dosyalarındaki parçaları da kaldırılabilir.";
+"setup.agent.turnOff.remove" = "Kapat ve kaldır";
+"setup.agent.turnOff.keep" = "Kapat, dosyalara dokunma";
+"setup.agent.turnOff.cancel" = "Vazgeç";
 "setup.consent.wraps" = "statusLine komutun sarılır: yine aynı şeyi yazar, aldığı girdi Evlat'a da gider.";
 "setup.attention.usageModified" = "{source} kullanım satırı elle değiştirilmiş";
 "setup.flow.summary.agent" = "{agent} bağlandı";

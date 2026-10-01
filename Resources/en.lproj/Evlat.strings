@@ -387,6 +387,12 @@
 "setup.agent.removeUsage" = "Remove the usage line";
 "setup.agent.usageModified" = "Your usage line was edited by hand; Evlat leaves it as it is.";
 "setup.agent.failure" = "{part}: {reason}";
+"setup.agent.off" = "Off: its sessions, usage and approvals are not shown.";
+"setup.agent.turnOff.title" = "Turn off {agent}?";
+"setup.agent.turnOff.body" = "Its sessions leave the bar. Evlat's parts in its files can go too.";
+"setup.agent.turnOff.remove" = "Turn off and remove";
+"setup.agent.turnOff.keep" = "Turn off, leave the files";
+"setup.agent.turnOff.cancel" = "Cancel";
 "setup.consent.wraps" = "Your statusLine command is wrapped: it prints what it printed, and Evlat also gets what it is given.";
 "setup.attention.usageModified" = "{source} usage line edited by hand";
 "setup.flow.summary.agent" = "{agent} connected";

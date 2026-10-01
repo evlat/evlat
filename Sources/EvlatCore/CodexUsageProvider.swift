@@ -13,12 +13,15 @@ import Foundation
 /// the bar opens. `currentSignals()` answers from memory — it is asked every
 /// 1.5 s and on every hook event, and the newest rollout can be tens of MB.
 public final class CodexUsageProvider: Provider, Reloadable {
+    /// The agent whose windows these are: its switch registers this
+    /// provider (`EnabledAgents`).
+    public static let source = AgentSource.codex
     /// The definition's (`AgentSource.usage`), like the status line
     /// providers' ids.
-    public static let id = AgentSource.codex.usage.providerID
+    public static let id = source.usage.providerID
     public var id: String { Self.id }
     /// The name the windows are grouped under on the bar.
-    public static let group = AgentSource.codex.usage.group
+    public static let group = source.usage.group
     /// How much of the newest file is read, from its end. Never the whole
     /// file: a long session's rollout was measured at 62 MB.
     public static let tailBytes = 256 * 1024

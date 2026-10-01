@@ -157,19 +157,22 @@ struct StatusText: View {
     }
 }
 
-/// The small grey button (`.btn.sm`), or its warning form.
+/// The small grey button (`.btn.sm`), its warning form, or the dark one
+/// a question's first choice is (`.btn.pri`).
 struct SmallButtonStyle: ButtonStyle {
     var warn = false
+    var primary = false
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: warn ? .medium : .regular))
-            .foregroundStyle(warn ? SettingsPalette.warnInk : SettingsPalette.ink)
+            .font(.system(size: 12, weight: warn || primary ? .medium : .regular))
+            .foregroundStyle(warn ? SettingsPalette.warnInk : primary ? SettingsPalette.selectedInk : SettingsPalette.ink)
             .padding(.vertical, 4)
             .padding(.horizontal, 9)
             .background(RoundedRectangle(cornerRadius: 7).fill(
                 warn ? SettingsPalette.warn
+                     : primary ? SettingsPalette.selected.opacity(configuration.isPressed ? 0.8 : 1)
                      : configuration.isPressed ? SettingsPalette.buttonPressed : SettingsPalette.button))
             .opacity(isEnabled ? 1 : 0.45)
             .fixedSize()

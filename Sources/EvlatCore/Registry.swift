@@ -38,6 +38,11 @@ public struct Finish: Hashable {
 public final class Registry {
     private var providers: [Provider] = []
 
+    /// The agents whose sessions are drawn (`EnabledAgents`), asked on
+    /// every scan; `nil` draws every agent's. The shell owns the choice and
+    /// the storage; the rule that reads it is here.
+    public var enabledSources: () -> Set<AgentSource>? = { nil }
+
     public init() {}
 
     public func register(_ provider: Provider) {
@@ -81,6 +86,12 @@ public final class Registry {
     /// as "the file owns the list, the hook only refines it" would make Codex
     /// invisible the day it arrives.
     public func signals() -> [Signal] {
+        let enabled = enabledSources()
+        return merged().filter { Self.shows($0, enabled: enabled) }
+    }
+
+    /// Every entity's one row, before the enabled set is asked.
+    private func merged() -> [Signal] {
         // First-appearance order, so the same inputs always produce the same
         // list; display order is `Snapshot`'s job either way.
         var order: [String] = []
@@ -90,6 +101,24 @@ public final class Registry {
             rows[signal.entity, default: []].append(signal)
         }
         return order.compactMap { rows[$0].flatMap(Self.reconcile) }
+    }
+
+    /// Whether a merged row is drawn under the enabled set: one question,
+    /// "is its agent in the set", asked of no agent by name.
+    ///
+    /// **After the merge, never before.** The same session arrives from its
+    /// file and from its hooks; filtering the parts would let one of them
+    /// stand alone with the other's phase vetoed for nothing. Filtered whole,
+    /// both go and both come back.
+    ///
+    /// Only sessions: a usage window leaves with its provider's
+    /// registration, and a chat or an outside job belongs to no agent's
+    /// switch. A session with no agent named passes, as does a remote
+    /// machine's — a machine keeps its own set, not this Mac's.
+    static func shows(_ signal: Signal, enabled: Set<AgentSource>?) -> Bool {
+        guard let enabled, signal.kind == .session, signal.machine == nil,
+              let source = signal.source else { return true }
+        return enabled.contains(source)
     }
 
     /// Reduces one entity's rows to the single line the bar shows.
@@ -287,12 +316,17 @@ public final class Registry {
         /// dimmed row does not enter it either, for the same budget: it is
         /// listed, not live.
         public let hasLive: Bool
+        /// The sessions of agents switched off: not drawn, but still there.
+        /// A caller that forgets what leaves (the seen finishes) keeps
+        /// these, so switching an agent back on retells nothing.
+        public let switchedOff: Set<String>
         /// The usage windows, apart from the session line: this Mac's groups
         /// first, then remote machines'; within each by group, then by window
         /// length, then by `entity` — deterministic, never by stamp.
         public let usage: [Signal]
 
-        public init(signals: [Signal], seen: Set<Finish> = []) {
+        public init(signals: [Signal], seen: Set<Finish> = [], switchedOff: Set<String> = []) {
+            self.switchedOff = switchedOff
             // Split on `kind`, never on the provider's name: a usage source
             // nobody has written yet lands here too, and none of them reaches
             // the order, the aggregate or `hasLive`.
@@ -342,6 +376,9 @@ public final class Registry {
     /// One directory scan, every derived value. The only reading API callers
     /// should need.
     public func snapshot(seen: Set<Finish> = []) -> Snapshot {
-        Snapshot(signals: signals(), seen: seen)
+        let enabled = enabledSources()
+        let rows = merged()
+        return Snapshot(signals: rows.filter { Self.shows($0, enabled: enabled) }, seen: seen,
+                        switchedOff: Set(rows.filter { !Self.shows($0, enabled: enabled) }.map(\.entity)))
     }
 }
