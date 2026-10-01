@@ -80,7 +80,7 @@ struct RowTraits: Equatable {
     }
 }
 
-/// Settings → Sessions → Git branch: when a session's branch is drawn.
+/// Settings → Agents → Git branch: when a session's branch is drawn.
 /// Nothing stored is `auto`, which is what the bar did before the setting.
 public enum BranchDisplay: CaseIterable, Equatable {
     /// Never: no row, no card, and no file read for it.

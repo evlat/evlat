@@ -107,7 +107,7 @@ Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
 - `activity`, `usage` and `machine` are not phases and never change priority.
   Usage signals are split out by `kind` and never reach the mascot, the rings
   or `hasLive`. A window not observed for an hour (`UsageBlockModel.staleAfter`)
-  is drawn dimmed; Settings → Sessions → Usage → "Hide usage not seen for an
+  is drawn dimmed; Settings → Usage → "Hide usage not seen for an
   hour" (`usage.hideStale`, off by default) leaves it out instead, before the
   block's cap, so a tool not in use frees its lines until it reports again.
 - `Fidelity` (`official | derived | manual`) reaches the UI: derived and manual
@@ -364,10 +364,21 @@ The status-line relay (`StatusLineRelay`) is the second installed contract: a
 `sh -c` wrapper that preserves the user's original command's output and exit
 code byte for byte (`StatusLineRelayTests`).
 
+On this Mac an agent is one card in Settings → Agents and one unit to
+install (`AgentIntegration`): its hooks, its approval hook where it has one,
+and its usage relay where it has a status line here (Claude; Antigravity
+only with its CLI). The parts' states make one: all current → installed,
+none → not installed, anything between → needs update. Parts in the same
+file are one write (Claude's three in `settings.json`); a refused write names
+its part. A relay edited by hand is not a part — never written over, never
+taken out — and a missing relay wants no attention: only an old hook does.
+The card's details remove the relay alone. Every agent in the catalogue has
+a card; one not on this Mac is dim with nothing to press.
+
 The approval hook (`ApprovalHook`) is another installed contract: one
 `type: "http"` `PermissionRequest` group pointing at `/approval`
 (`ApprovalHookTests.testTheInstalledHookIsUnchanged`). On this Mac it is
-part of the Claude Code row, installed and removed with the command as one
+part of the Claude Code card, installed and removed with the command as one
 (`LocalHooks`); the command alone reads outdated, which is how a copy from
 before it is offered the update. A server's hooks never include it
 (`RemoteSettings` calls `LocalHooks` with `approvals: false`). It is the one hook

@@ -57,10 +57,9 @@ final class SetupFlowTests: XCTestCase {
     private func flow(_ controller: AppController, claude: String? = "/usr/local/bin/claude",
                       step: SetupFlowModel.Step = .hello) -> SetupFlowModel {
         var setup = controller.setupHost
-        let hooks = setup.setHooks, usage = setup.setUsageRelay
+        let agent = setup.setAgent
         let link = setup.setCommandLink, loginItem = setup.setLoginItem
-        setup.setHooks = { [unowned self] in writes.append("hooks \($0.rawValue) \($1)"); hooks($0, $1) }
-        setup.setUsageRelay = { [unowned self] in writes.append("usage \($0)"); usage($0) }
+        setup.setAgent = { [unowned self] in writes.append("agent \($0.rawValue) \($1)"); agent($0, $1) }
         setup.setCommandLink = { [unowned self] in writes.append("link \($0)"); link($0, $1) }
         setup.setLoginItem = { [unowned self] in writes.append("login \($0)"); loginItem($0) }
         var settings = controller.settingsHost
@@ -128,31 +127,44 @@ final class SetupFlowTests: XCTestCase {
         let before = writes
         flow.back()
         XCTAssertEqual(flow.step, .sessions)
-        XCTAssertEqual(flow.setup.row(.claudeHooks)?.status, .installed)
+        XCTAssertEqual(flow.setup.row(.agent(.claude))?.status, .installed)
         XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
         XCTAssertEqual(writes, before, "back undoes nothing")
     }
 
     // MARK: - Sessions
 
-    /// "Install" writes the lines above it and nothing else: an item turned
-    /// off, one set up by hand and the optional step's items stay unwritten.
+    private let wraps = "Your statusLine command is wrapped: it prints what it printed, and Evlat also gets what it is given."
+
+    /// The step's cards are the catalogue's, in its order: no fixed list of
+    /// agents. The ones found are switched on, one not found is dim.
+    func testTheCardsComeFromTheCatalogue() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .sessions)
+        XCTAssertEqual(SetupFlowModel.sessionItems, Set(AgentSource.allCases.map(SetupItem.agent)))
+        XCTAssertEqual(flow.sessionRows.map(\.item), AgentSource.allCases.map(SetupItem.agent))
+        XCTAssertEqual(flow.sessionRows.map(\.status), [.missing, .missing, .notFound])
+        XCTAssertTrue(flow.isQueued(.agent(.claude)))
+        XCTAssertTrue(flow.isQueued(.agent(.codex)))
+        XCTAssertFalse(flow.isQueued(.agent(.antigravity)), "not on this Mac: nothing to queue")
+    }
+
+    /// "Install" writes the lines above it and nothing else: an agent
+    /// turned off, one set up by hand and the optional step's items stay
+    /// unwritten. Claude's hooks and usage line are one write.
     func testInstallWritesOnlyWhatItsConsentLists() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        XCTAssertEqual(flow.sessionRows.map(\.item), [.claudeHooks, .usageRelay, .codexHooks])
-        XCTAssertTrue(flow.isQueued(.claudeHooks))
-        XCTAssertTrue(flow.isQueued(.usageRelay))
-        XCTAssertTrue(flow.isQueued(.codexHooks))
         XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line",
-                                             "~/.codex/hooks.json · hooks"])
-        flow.setQueued(.usageRelay, false)
-        flow.setup.toggleManual(.codexHooks)
-        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks"])
+                                             "~/.codex/hooks.json · hooks", wraps])
+        flow.setup.toggleManual(.agent(.codex))
+        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line", wraps])
         flow.primary()
-        XCTAssertEqual(writes, ["hooks claude true"], "only the consent's line")
-        XCTAssertEqual(flow.setup.row(.codexHooks)?.status, .missing)
+        XCTAssertEqual(writes, ["agent claude true"], "only the consent's line")
+        XCTAssertEqual(flow.setup.row(.agent(.claude))?.status, .installed)
+        XCTAssertEqual(flow.setup.row(.agent(.codex))?.status, .missing)
         XCTAssertEqual(flow.setup.row(.commandLink)?.status, .missing, "the optional step's item is not this step's")
         XCTAssertEqual(flow.setup.row(.loginItem)?.status, .missing)
     }
@@ -163,10 +175,10 @@ final class SetupFlowTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        flow.setQueued(.codexHooks, false)
+        flow.setQueued(.agent(.codex), false)
         flow.primary()
         XCTAssertEqual(flow.installConsent, [])
-        flow.setQueued(.codexHooks, true)
+        flow.setQueued(.agent(.codex), true)
         XCTAssertEqual(flow.primaryKey, "setup.flow.install")
         XCTAssertEqual(flow.installConsent, ["~/.codex/hooks.json · hooks"], "the lines of the next press")
     }
@@ -177,18 +189,18 @@ final class SetupFlowTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        flow.setup.toggleManual(.claudeHooks)
-        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        flow.setup.toggleManual(.agent(.claude))
+        try AgentIntegration.install(home: home, for: .claude)
         flow.setup.check()
         XCTAssertNil(flow.setup.manualOpen)
-        XCTAssertTrue(flow.summary.contains { $0.mark == .done && $0.text == "Claude Code hooks" })
+        XCTAssertTrue(flow.summary.contains { $0.mark == .done && $0.text == "Claude Code connected" })
     }
 
     func testNothingToWriteIsContinue() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        for item in [SetupItem.claudeHooks, .usageRelay, .codexHooks] { flow.setQueued(item, false) }
+        for source in [AgentSource.claude, .codex] { flow.setQueued(.agent(source), false) }
         XCTAssertEqual(flow.installConsent, [])
         XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
         flow.primary()
@@ -196,13 +208,13 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(writes, [])
     }
 
-    func testCodexHasNoRowWithoutItsDirectory() throws {
+    func testCodexIsDimWithoutItsDirectory() throws {
         try FileManager.default.removeItem(at: home.appendingPathComponent(".codex"))
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        XCTAssertEqual(flow.sessionRows.map(\.item), [.claudeHooks, .usageRelay])
-        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line"])
+        XCTAssertEqual(flow.setup.row(.agent(.codex))?.status, .notFound)
+        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line", wraps])
     }
 
     // MARK: - Chat, edge

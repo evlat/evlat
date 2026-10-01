@@ -42,7 +42,7 @@ final class SettingsModel: ObservableObject {
         var setBodyMode: (BodyPresence.Mode) -> Void = { _ in }
         var bodyToggles: () -> BodyPresence.Toggles = { BodyPresence.Toggles() }
         var setBodyToggles: (BodyPresence.Toggles) -> Void = { _ in }
-        /// Sessions' "Git branch": when a session's branch is drawn.
+        /// Agents' "Git branch": when a session's branch is drawn.
         var branchDisplay: () -> BranchDisplay = { .auto }
         var setBranchDisplay: (BranchDisplay) -> Void = { _ in }
         /// General's "Waiting reminder": minutes, 0 is off.
@@ -50,7 +50,7 @@ final class SettingsModel: ObservableObject {
         var setNudgeMinutes: (Int) -> Void = { _ in }
         var nudgeSound: () -> Bool = { true }
         var setNudgeSound: (Bool) -> Void = { _ in }
-        /// Sessions' "Usage": leave out what was not seen for the hour.
+        /// Usage's switch: leave out what was not seen for the hour.
         var hidesStaleUsage: () -> Bool = { false }
         var setHidesStaleUsage: (Bool) -> Void = { _ in }
         var nudgeNotify: () -> Bool = { false }
@@ -351,9 +351,8 @@ final class SettingsModel: ObservableObject {
         "settings.general.body.peekWaiting", "settings.general.body.peekWaiting.detail",
         "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.bare",
         "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
-        "settings.sessions.agents", "settings.sessions.agents.note", "settings.sessions.usage",
-        "settings.sessions.usage.hideStale", "settings.sessions.usage.hideStale.detail",
-        "settings.sessions.none",
+        "settings.agents.group", "settings.agents.note", "settings.usage.bar",
+        "settings.usage.hideStale", "settings.usage.hideStale.detail",
         "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",
         "settings.chat.hotkey.change", "settings.chat.hotkey.cancel", "settings.chat.hotkey.recording",
         "settings.chat.hotkey.off",

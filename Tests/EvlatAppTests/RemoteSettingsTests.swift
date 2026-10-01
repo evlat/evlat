@@ -423,15 +423,15 @@ final class RemoteSettingsTests: XCTestCase {
         try seed(.claude, nil)
         try seed(.codex, nil)
         try HookSettings.install(at: claude(local), for: .claude)
-        XCTAssertEqual(Data(RemoteSettings.manual.claudeHooks.utf8), bytes(claude(local)))
+        XCTAssertEqual(Data(RemoteSettings.manual.hooks(for: .claude).utf8), bytes(claude(local)))
         try HookSettings.install(at: codex(local), for: .codex)
-        XCTAssertEqual(Data(RemoteSettings.manual.codexHooks.utf8), bytes(codex(local)))
+        XCTAssertEqual(Data(RemoteSettings.manual.hooks(for: .codex).utf8), bytes(codex(local)))
         try FileManager.default.removeItem(at: claude(local))
         try StatusLineRelay.install(at: claude(local), source: .claude)
         XCTAssertEqual(Data(RemoteSettings.manual.statusLine.utf8), bytes(claude(local)))
         XCTAssertEqual(RemoteSettings.manual.wrapping,
                        StatusLineRelay.command(wrapping: RemoteSettings.Manual.placeholder, source: .claude))
-        XCTAssertTrue(RemoteSettings.manual.claudeHooks.contains(RemoteSettings.manual.marker))
+        XCTAssertTrue(RemoteSettings.manual.hooks(for: .claude).contains(RemoteSettings.manual.marker))
         XCTAssertTrue(RemoteSettings.manual.statusLine.contains(RemoteSettings.manual.marker))
     }
 

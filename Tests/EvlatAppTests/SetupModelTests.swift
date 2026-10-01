@@ -57,54 +57,177 @@ final class SetupModelTests: XCTestCase {
         return SetupModel(host: h, lang: "en")
     }
 
+    private let wraps = "Your statusLine command is wrapped: it prints what it printed, and Evlat also gets what it is given."
+
     func testEveryItemReadsFresh() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        XCTAssertEqual(model.rows.map(\.item), [.claudeHooks, .usageRelay, .codexHooks, .commandLink, .loginItem])
-        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .missing, .missing, .missing])
+        XCTAssertEqual(model.rows.map(\.item), [.agent(.claude), .agent(.codex), .agent(.antigravity),
+                                                .commandLink, .loginItem], "every agent in the catalogue has a card")
+        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .notFound, .missing, .missing])
         XCTAssertEqual(model.row(.loginItem)?.note, "Opens \(root.path)/this/Evlat.app")
-        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
-        XCTAssertEqual(model.row(.claudeHooks)?.status, .missing, "nothing cached, nothing read unasked")
+        try AgentIntegration.install(home: home, for: .claude)
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .missing, "nothing cached, nothing read unasked")
         model.check()
-        XCTAssertEqual(model.row(.claudeHooks)?.status, .installed, "\"I added it, check\" reads")
-        XCTAssertEqual(model.row(.claudeHooks)?.action, .remove)
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .installed, "\"I added it, check\" reads")
+        XCTAssertEqual(model.row(.agent(.claude))?.action, .remove)
     }
 
-    func testAnAgentThatIsNotThereHasNoRow() throws {
+    /// An agent that is not here is a dim card: nothing to press, nothing
+    /// to write, no attention.
+    func testAnAgentThatIsNotThereIsDimWithNothingToPress() throws {
         try FileManager.default.removeItem(at: home.appendingPathComponent(".codex"))
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        XCTAssertFalse(model(controller).rows.contains { $0.item == .codexHooks })
+        let model = model(controller)
+        let row = try XCTUnwrap(model.row(.agent(.codex)))
+        XCTAssertEqual(row.status, .notFound)
+        XCTAssertNil(row.action)
+        XCTAssertEqual(row.detail, "~/.codex/hooks.json")
+        XCTAssertEqual(model.consent(.agent(.codex), .install), [])
+        XCTAssertEqual(model.attention, [])
     }
 
-    /// The consent line counts only the queued items' files; the manual one
-    /// and the installed ones are left out.
+    /// The consent counts only the queued items' files; the manual one and
+    /// the installed ones are left out. Claude's hooks and usage line are
+    /// one file, one line, and the wrapping is said once, under the files.
     func testTheConsentCountsOnlyTheQueue() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
         XCTAssertEqual(model.queueConsent, [])
-        model.queued = [.claudeHooks]
-        XCTAssertEqual(model.queueConsent, ["~/.claude/settings.json · hooks"])
-        model.queued = [.claudeHooks, .usageRelay, .codexHooks]
+        model.queued = [.agent(.claude)]
+        XCTAssertEqual(model.queueConsent, ["~/.claude/settings.json · hooks and the usage line", wraps])
+        model.queued = [.agent(.claude), .agent(.codex)]
         XCTAssertEqual(model.queueConsent, ["~/.claude/settings.json · hooks and the usage line",
-                                            "~/.codex/hooks.json · hooks"])
-        model.toggleManual(.codexHooks)
-        XCTAssertEqual(model.queueConsent, ["~/.claude/settings.json · hooks and the usage line"],
+                                            "~/.codex/hooks.json · hooks", wraps])
+        model.toggleManual(.agent(.codex))
+        XCTAssertEqual(model.queueConsent, ["~/.claude/settings.json · hooks and the usage line", wraps],
                        "set up by hand: not written")
         model.queued.insert(.commandLink)
         model.queued.insert(.loginItem)
-        XCTAssertEqual(model.queueConsent.count, 3)
+        XCTAssertEqual(model.queueConsent.count, 4)
         XCTAssertEqual(model.queueConsent[1], "~/.local/bin/evlat · a link to this copy of Evlat")
 
         model.applyQueue()
-        XCTAssertEqual(model.row(.claudeHooks)?.status, .installed)
-        XCTAssertEqual(model.row(.usageRelay)?.status, .installed)
-        XCTAssertEqual(model.row(.codexHooks)?.status, .missing, "the manual one was not written")
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .installed)
+        XCTAssertEqual(model.row(.agent(.codex))?.status, .missing, "the manual one was not written")
         XCTAssertEqual(model.row(.commandLink)?.status, .installed)
         XCTAssertEqual(model.row(.loginItem)?.status, .installed)
         XCTAssertEqual(model.queueConsent, [], "nothing left to write")
+    }
+
+    /// Hooks without the usage line: the card offers the rest, the menu
+    /// and the side list stay quiet (no attention, no dot).
+    func testOnlyTheHooksReadsNeedsUpdateAndWantsNoAttention() throws {
+        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        let row = try XCTUnwrap(model.row(.agent(.claude)))
+        XCTAssertEqual(row.status, .outdated)
+        XCTAssertEqual(row.action, .update)
+        XCTAssertEqual(row.parts.map(\.status), [.installed, .missing])
+        XCTAssertEqual(row.parts.map(\.name), ["Hooks and the approval hook", "Usage line"])
+        XCTAssertEqual(model.attention, [])
+        XCTAssertEqual(controller.makeMenu(diagnostics: false, in: "en").items
+                        .filter { $0.representedObject is SetupAttention }, [], "no line in the menu")
+        XCTAssertEqual(model.consent(.agent(.claude), .update), ["~/.claude/settings.json · the usage line", wraps],
+                       "only what the press changes")
+        model.perform(.agent(.claude))
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .installed)
+        XCTAssertEqual(model.consent(.agent(.claude), .remove),
+                       ["~/.claude/settings.json · hooks removed and usage line removed, your previous statusLine back"])
+    }
+
+    /// The usage line goes out alone from the card's details; the card then
+    /// offers it back.
+    func testTheUsageLineCanBeRemovedAlone() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        model.perform(.agent(.claude))
+        XCTAssertEqual(model.row(.agent(.claude))?.removesRelay, true)
+        XCTAssertEqual(model.relayRemovalConsent(.claude),
+                       ["~/.claude/settings.json · usage line removed, your previous statusLine back"])
+        model.removeRelay(.claude)
+        let file = AgentSource.claude.settingsFile(home: home)
+        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .claude), .missing)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current)
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .outdated)
+        XCTAssertEqual(model.row(.agent(.claude))?.removesRelay, false)
+        XCTAssertEqual(model.attention, [])
+    }
+
+    /// A usage line edited by hand is not a part: the hooks go in, the
+    /// line is left byte for byte, and the card and the menu say so.
+    func testAHandEditedUsageLineIsLeftAlone() throws {
+        let file = AgentSource.claude.settingsFile(home: home)
+        let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
+        try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": edited]]).write(to: file)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .missing)
+        XCTAssertEqual(model.consent(.agent(.claude), .install), ["~/.claude/settings.json · hooks"],
+                       "nothing said about a line that is not written")
+        model.perform(.agent(.claude))
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current)
+        let settings = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual((settings["statusLine"] as? [String: Any])?["command"] as? String, edited)
+        let row = try XCTUnwrap(model.row(.agent(.claude)))
+        XCTAssertEqual(row.status, .installed)
+        XCTAssertEqual(row.note, "Your usage line was edited by hand; Evlat leaves it as it is.")
+        XCTAssertEqual(model.attention, [.usageModified(.claude)])
+        XCTAssertEqual(model.text(.usageModified(.claude)), "Claude Code usage line edited by hand")
+    }
+
+    /// The Antigravity app or IDE alone has no status line: the usage line
+    /// is not a part, and the hooks alone are the whole card. Its hooks
+    /// folder is made by the install, so a missing one reads "not installed".
+    func testWithoutTheAntigravityCLITheHooksAreTheCard() throws {
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity"),
+                                                withIntermediateDirectories: true)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        let row = try XCTUnwrap(model.row(.agent(.antigravity)))
+        XCTAssertEqual(row.status, .missing)
+        XCTAssertEqual(row.parts.count, 1)
+        XCTAssertEqual(model.consent(.agent(.antigravity), .install), ["~/.gemini/config/hooks.json · hooks"])
+        model.perform(.agent(.antigravity))
+        XCTAssertEqual(model.row(.agent(.antigravity))?.status, .installed)
+        XCTAssertNil(model.manual(.agent(.antigravity))?.statusLine)
+    }
+
+    /// With the Antigravity CLI there, its usage line is a part in a file of
+    /// its own: the CLI's settings, not the hooks file.
+    func testTheAntigravityCLIsUsageLineIsAPartInItsOwnFile() throws {
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity-cli"),
+                                                withIntermediateDirectories: true)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        let row = try XCTUnwrap(model.row(.agent(.antigravity)))
+        XCTAssertEqual(row.detail, "~/.gemini/config/hooks.json · ~/.gemini/antigravity-cli/settings.json")
+        XCTAssertEqual(model.consent(.agent(.antigravity), .install),
+                       ["~/.gemini/config/hooks.json · hooks", "~/.gemini/antigravity-cli/settings.json · the usage line",
+                        wraps])
+        model.perform(.agent(.antigravity))
+        let file = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
+        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .current)
+        XCTAssertEqual(model.row(.agent(.antigravity))?.status, .installed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
+                       "Claude's file is not touched")
+
+        let empty = root.appendingPathComponent("empty-agy.json")
+        try StatusLineRelay.install(at: empty, source: .antigravity)
+        XCTAssertEqual(model.manual(.agent(.antigravity))?.statusLine, try String(contentsOf: empty))
+
+        model.perform(.agent(.antigravity))
+        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .missing, "removed with the hooks")
+        XCTAssertEqual(model.row(.agent(.antigravity))?.status, .missing)
     }
 
     /// Waiting for approval in System Settings is registered: the switch
@@ -128,78 +251,38 @@ final class SetupModelTests: XCTestCase {
         let controller = try controller(home: nil)
         defer { controller.panel?.close() }
         let model = model(controller) { host in
-            host.setHooks = { source, _ in calls.append("hooks \(source)") }
-            host.setUsageRelay = { _ in calls.append("usage") }
+            host.setAgent = { source, _ in calls.append("agent \(source)") }
+            host.removeUsageRelay = { source in calls.append("relay \(source)") }
             host.setCommandLink = { _, _ in calls.append("link") }
         }
         XCTAssertEqual(model.rows.map(\.item), [.loginItem], "no file row without a home")
         model.queued = Set(SetupItem.allCases)
         for item in SetupItem.allCases where item != .loginItem { model.perform(item) }
+        model.removeRelay(.claude)
         model.applyQueue()
         XCTAssertEqual(calls, [])
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".claude/settings.json").path))
         // The controller's writers say the same on their own.
-        controller.setHooks(.claude, installed: true)
+        controller.setAgent(.claude, installed: true)
         controller.setCommandLink(installed: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".claude/settings.json").path))
     }
 
-    /// With the Antigravity CLI there, its usage line is a row of its own:
-    /// read from and written to the CLI's settings, not the hooks file.
-    func testTheAntigravityUsageLineIsItsOwnRow() throws {
-        for directory in [".gemini/antigravity-cli", ".gemini/config"] {
-            try FileManager.default.createDirectory(at: home.appendingPathComponent(directory),
-                                                    withIntermediateDirectories: true)
-        }
-        let controller = try controller(home: home)
-        defer { controller.panel?.close() }
-        let model = model(controller)
-        XCTAssertEqual(model.rows.map(\.item), [.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks,
-                                                .antigravityUsageRelay, .commandLink, .loginItem])
-        let row = try XCTUnwrap(model.row(.antigravityUsageRelay))
-        XCTAssertEqual(row.status, .missing)
-        XCTAssertEqual(row.detail, "~/.gemini/antigravity-cli/settings.json")
-        XCTAssertEqual(model.consent(.antigravityUsageRelay, .install),
-                       ["~/.gemini/antigravity-cli/settings.json · the usage line"])
-
-        model.perform(.antigravityUsageRelay)
-        let file = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
-        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .current)
-        XCTAssertEqual(model.row(.antigravityUsageRelay)?.status, .installed)
-        XCTAssertEqual(model.row(.usageRelay)?.status, .missing, "Claude's file is not touched")
-
-        let empty = root.appendingPathComponent("empty-agy.json")
-        try StatusLineRelay.install(at: empty, source: .antigravity)
-        XCTAssertEqual(model.manual(.antigravityUsageRelay)?.text, try String(contentsOf: empty))
-
-        model.perform(.antigravityUsageRelay)
-        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .missing)
-    }
-
-    /// The Antigravity app or IDE alone has no status line: no usage row.
-    func testWithoutTheAntigravityCLIThereIsNoUsageRow() throws {
-        try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity"),
-                                                withIntermediateDirectories: true)
-        let controller = try controller(home: home)
-        defer { controller.panel?.close() }
-        let model = model(controller)
-        XCTAssertNotNil(model.row(.antigravityHooks))
-        XCTAssertNil(model.row(.antigravityUsageRelay))
-    }
-
-    /// The block to paste is what the writer writes into an empty file.
+    /// The block to paste is what the writers write into an empty file:
+    /// the hooks and, where it is a part, the usage line.
     func testTheManualBlocksAreTheWritersBytes() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        for (item, source) in [(SetupItem.claudeHooks, AgentSource.claude), (.codexHooks, .codex)] {
+        for source in [AgentSource.claude, .codex] {
             let file = root.appendingPathComponent("empty-\(source.rawValue).json")
             try LocalHooks.install(at: file, for: source)
-            XCTAssertEqual(model.manual(item)?.text, try String(contentsOf: file), "\(item)")
+            XCTAssertEqual(model.manual(.agent(source))?.text, try String(contentsOf: file), "\(source)")
         }
         let file = root.appendingPathComponent("empty-statusline.json")
         try StatusLineRelay.install(at: file, source: .claude)
-        XCTAssertEqual(model.manual(.usageRelay)?.text, try String(contentsOf: file))
+        XCTAssertEqual(model.manual(.agent(.claude))?.statusLine, try String(contentsOf: file))
+        XCTAssertNil(model.manual(.agent(.codex))?.statusLine, "Codex has no status line")
         XCTAssertEqual(model.manual(.commandLink)?.text, CommandLink.manualLine(binary: try XCTUnwrap(controller.executable)))
         XCTAssertNil(model.manual(.loginItem))
     }
@@ -208,7 +291,7 @@ final class SetupModelTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        model.toggleManual(.claudeHooks)
+        model.toggleManual(.agent(.claude))
         model.toggleManual(.commandLink)
         XCTAssertEqual(model.manualOpen, .commandLink)
         model.toggleManual(.commandLink)
@@ -275,18 +358,17 @@ final class SetupModelTests: XCTestCase {
         // A refused write: `hooks.json` is a directory.
         try FileManager.default.createDirectory(at: AgentSource.codex.settingsFile(home: home),
                                                 withIntermediateDirectories: true)
-        controller.setHooks(.codex, installed: true)
+        controller.setAgent(.codex, installed: true)
         let model = model(controller) { host in
             host.hotKeyRefused = { true }
             host.unreachableMachines = { ["devbox"] }
         }
-        XCTAssertEqual(model.row(.claudeHooks)?.status, .outdated)
-        XCTAssertEqual(model.row(.usageRelay)?.status, .foreign, "changed by hand: dim, no button")
-        XCTAssertNil(model.row(.usageRelay)?.action)
-        XCTAssertNotNil(model.row(.codexHooks)?.failure)
-        XCTAssertEqual(model.attention, [.hooksOutdated(.claude), .usageModified, .refused(.codexHooks),
+        XCTAssertEqual(model.row(.agent(.claude))?.status, .outdated)
+        XCTAssertEqual(model.row(.agent(.claude))?.parts.last?.status, .foreign, "changed by hand: not a part")
+        XCTAssertEqual(model.row(.agent(.codex))?.failure, "Hooks: The settings file could not be read")
+        XCTAssertEqual(model.attention, [.hooksOutdated(.claude), .usageModified(.claude), .refused(.agent(.codex)),
                                          .hotKeyUnregistered, .machineUnreachable("devbox")])
-        XCTAssertEqual(model.attention.map(\.section), [.sessions, .sessions, .sessions, .chat, .remote])
+        XCTAssertEqual(model.attention.map(\.section), [.agents, .agents, .agents, .chat, .remote])
         XCTAssertEqual(model.text(.hooksOutdated(.claude)), "Claude Code hooks are old")
         XCTAssertEqual(model.text(.machineUnreachable("devbox")), "devbox: server unreachable")
     }

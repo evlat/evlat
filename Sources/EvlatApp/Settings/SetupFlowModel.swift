@@ -32,10 +32,9 @@ final class SetupFlowModel: ObservableObject {
         let text: String
     }
 
-    /// The sessions step's items, and the optional step's: what "Install"
-    /// and "Finish" may write.
-    static let sessionItems: Set<SetupItem> = [.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks,
-                                               .antigravityUsageRelay]
+    /// The sessions step's items — one per agent in the catalogue — and the
+    /// optional step's: what "Install" and "Finish" may write.
+    static let sessionItems = Set(AgentSource.allCases.map(SetupItem.agent))
     static let optionalItems: Set<SetupItem> = [.commandLink, .loginItem]
 
     @Published private(set) var step: Step = .hello
@@ -174,7 +173,8 @@ final class SetupFlowModel: ObservableObject {
 
     // MARK: - Rows and what they write
 
-    /// The sessions step's rows, in the setup model's order.
+    /// The sessions step's cards, in the catalogue's order: the ones found
+    /// switched on (`start`), the ones not found dim.
     var sessionRows: [SetupRow] { setup.rows.filter { Self.sessionItems.contains($0.item) } }
 
     func isQueued(_ item: SetupItem) -> Bool { setup.queued.contains(item) }
@@ -216,15 +216,17 @@ final class SetupFlowModel: ObservableObject {
     /// What the setup leaves behind, read from the rows as they are now.
     var summary: [SummaryLine] {
         var lines = [SummaryLine(mark: .done, text: t(edge.isLeft ? "setup.flow.summary.left" : "setup.flow.summary.right"))]
-        for item in [SetupItem.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks, .antigravityUsageRelay] {
-            guard let row = setup.row(item) else { continue }
-            let name = t("setup.flow.summary.\(item.rawValue)")
+        // One line per agent found, from the catalogue; one not on this Mac
+        // was never offered.
+        for source in AgentSource.allCases {
+            let item = SetupItem.agent(source)
+            guard let row = setup.row(item), row.status != .notFound else { continue }
             if row.status == .installed || row.status == .outdated {
-                lines.append(SummaryLine(mark: .done, text: name))
+                lines.append(SummaryLine(mark: .done, text: t("setup.flow.summary.agent", ["agent": row.name])))
             } else if setup.manualOpen == item {
-                lines.append(SummaryLine(mark: .pending, text: t("setup.flow.summary.manual", ["item": name])))
-            } else if item.usageSource == nil {
-                lines.append(SummaryLine(mark: .skipped, text: t("setup.flow.summary.skipped", ["item": name])))
+                lines.append(SummaryLine(mark: .pending, text: t("setup.flow.summary.manual", ["item": row.name])))
+            } else {
+                lines.append(SummaryLine(mark: .skipped, text: t("setup.flow.summary.skipped", ["item": row.name])))
             }
         }
         if isHotKeyOn {
@@ -279,8 +281,7 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.remote", "setup.flow.remote.detail", "setup.flow.remote.later",
         "setup.flow.done.note",
         "setup.flow.summary.left", "setup.flow.summary.right",
-        "setup.flow.summary.claudeHooks", "setup.flow.summary.usageRelay", "setup.flow.summary.codexHooks",
-        "setup.flow.summary.antigravityHooks", "setup.flow.summary.antigravityUsageRelay",
+        "setup.flow.summary.agent",
         "setup.flow.summary.manual", "setup.flow.summary.skipped",
         "setup.flow.summary.chat", "setup.flow.summary.chat.mode",
         "setup.flow.summary.login", "setup.flow.summary.command", "setup.flow.summary.command.manual",

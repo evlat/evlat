@@ -559,9 +559,9 @@ final class RemoteMachinesTests: XCTestCase {
         let manual = RemoteSettings.manual
         let blocks = RemoteMachinesModel.blocks
         XCTAssertEqual(blocks.map(\.id), ["claude", "codex", "antigravity", "statusLine", "wrapping"])
-        XCTAssertEqual(blocks[0].text, manual.claudeHooks)
-        XCTAssertEqual(blocks[1].text, manual.codexHooks)
-        XCTAssertEqual(blocks[2].text, manual.antigravityHooks)
+        XCTAssertEqual(blocks[0].text, manual.hooks(for: .claude))
+        XCTAssertEqual(blocks[1].text, manual.hooks(for: .codex))
+        XCTAssertEqual(blocks[2].text, manual.hooks(for: .antigravity))
         XCTAssertEqual(blocks[3].text, manual.statusLine)
         // The wrapper goes inside a JSON string: shown as one, it decodes to
         // the writer's command byte for byte.

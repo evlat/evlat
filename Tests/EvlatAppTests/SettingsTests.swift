@@ -60,8 +60,8 @@ final class SettingsTests: XCTestCase {
             home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
             loginPath: { recorder.loginPath },
             hotKeyRefused: { recorder.hotKeyRefused }, unreachableMachines: { recorder.unreachable },
-            setHooks: { _, _ in }, setUsageRelay: { _ in }, setCommandLink: { _, _ in }, setLoginItem: { _ in },
-            hookFailure: { _ in nil }, usageFailure: { _ in nil }, commandLinkFailure: { nil },
+            setAgent: { _, _ in }, setCommandLink: { _, _ in }, setLoginItem: { _ in },
+            agentFailure: { _ in nil }, commandLinkFailure: { nil },
             loginItemFailed: { false }), lang: "en")
         let remote = RemoteMachinesModel(host: RemoteMachinesModel.Host(
             machines: { [] }, state: { _ in nil }, sessionCounts: { [:] }, add: { _ in .failure(.empty) },
@@ -221,11 +221,11 @@ final class SettingsTests: XCTestCase {
             XCTAssertTrue(entry.target === controller)
             XCTAssertEqual(entry.action, #selector(AppController.openSettingsFromMenu(_:)))
         }
-        controller.openSettings(section: .sessions)
+        controller.openSettings(section: .agents)
         let window = try XCTUnwrap(controller.settingsWindow?.window)
         XCTAssertTrue(window.isVisible)
         XCTAssertTrue(window.canBecomeKey)
-        XCTAssertEqual(controller.settings?.section, .sessions)
+        XCTAssertEqual(controller.settings?.section, .agents)
         XCTAssertFalse(try XCTUnwrap(controller.panel).canBecomeKey, "the bar stays a non-activating panel")
     }
 

@@ -21,8 +21,6 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
-"setup.item.antigravityHooks" = "Antigravity";
-"setup.flow.summary.antigravityHooks" = "Antigravity hook'ları";
 "setup.manual.remove.antigravity" = "Kaldırmak için \"evlat\" girdisini sil.";
 "card.tools.one" = "1 araç";
 "card.tools" = "{count} araç";
@@ -62,8 +60,6 @@
 "menu.hooks.error.changedUnderneath" = "Dosya yazılırken değişti; yeniden dene";
 "menu.hooks.error.unwritable" = "Ayar dosyası yazılamadı";
 
-"menu.usage.modified" = "Kullanım satırı elle değiştirilmiş";
-"menu.usage.modified.antigravity" = "Antigravity kullanım satırı elle değiştirilmiş";
 "menu.usage.hint" = "Claude Code durum satırını sarar; açık oturumlar kullanımı bir sonraki iletiden itibaren iletir.";
 
 "remote.empty.title" = "Henüz uzak makine yok";
@@ -282,14 +278,10 @@
 
 /* Kurulumun ve ayarlar penceresinin satırları (`014`): kalem, durumu,
    düğmesinin ne yazacağı ve elle yapıştırılacak blok. */
-"setup.item.claudeHooks" = "Claude Code";
-"setup.item.codexHooks" = "Codex";
-"setup.item.usageRelay" = "Claude kullanım satırı";
-"setup.item.antigravityUsageRelay" = "Antigravity kullanım satırı";
 "setup.item.commandLink" = "evlat komutu";
 "setup.item.loginItem" = "Oturum açınca başlat";
 "setup.status.installed" = "✓ Kurulu";
-"setup.status.outdated" = "Eski";
+"setup.status.outdated" = "Güncellenmeli";
 "setup.status.missing" = "Kurulu değil";
 "setup.status.foreign" = "Evlat'ın değil";
 "setup.status.unknown" = "Bilinmiyor";
@@ -323,6 +315,24 @@
 "setup.consent.command.remove" = "{file} · bağlantı kaldırılır";
 "setup.consent.login.on" = "Evlat giriş öğelerine eklenir (Sistem Ayarları → Genel → Giriş Öğeleri)";
 "setup.consent.login.off" = "Evlat giriş öğelerinden çıkar — Evlat'ın her kopyası için: hepsi tek öğeyi paylaşır";
+"settings.section.agents" = "Ajanlar";
+"settings.section.usage" = "Kullanım";
+"settings.agents.group" = "Bu Mac'teki ajanlar";
+"settings.agents.note" = "İlk yazımdan önce dosyanın yanına .evlat.bak yedeği alınır. Açık Claude oturumlarında değişiklik /hooks ile yüklenir.";
+"settings.usage.bar" = "Barda";
+"settings.usage.hideStale" = "Bir saattir görülmeyen kullanımı gizle";
+"settings.usage.hideStale.detail" = "Son zamanlarda kullanmadığın bir araç, yeniden bildirene kadar çubuktan kalkar.";
+"setup.status.notFound" = "Bu Mac'te bulunamadı";
+"setup.agent.details" = "Neye yazar";
+"setup.agent.part.hooks" = "Hook'lar";
+"setup.agent.part.hooksApprovals" = "Hook'lar ve onay hook'u";
+"setup.agent.part.usage" = "Kullanım satırı";
+"setup.agent.removeUsage" = "Kullanım satırını kaldır";
+"setup.agent.usageModified" = "Kullanım satırın elle değiştirilmiş; Evlat ona dokunmaz.";
+"setup.agent.failure" = "{part}: {reason}";
+"setup.consent.wraps" = "statusLine komutun sarılır: yine aynı şeyi yazar, aldığı girdi Evlat'a da gider.";
+"setup.attention.usageModified" = "{source} kullanım satırı elle değiştirilmiş";
+"setup.flow.summary.agent" = "{agent} bağlandı";
 "setup.manual.open" = "Elle kurmak istiyorum";
 "setup.manual.copy" = "Kopyala";
 "setup.manual.copied" = "Kopyalandı";
@@ -343,7 +353,6 @@
 "menu.settings" = "Ayarlar…";
 "settings.window.title" = "Evlat Ayarları";
 "settings.section.general" = "Genel";
-"settings.section.sessions" = "Oturumlar";
 "settings.section.chat" = "Sohbet";
 "settings.section.command" = "Komut satırı";
 "settings.section.remote" = "Uzak makineler";
@@ -386,12 +395,6 @@
 "notify.waiting.title" = "{name} seni bekliyor";
 "notify.waiting.body" = "Bir izin ya da soru {n} dakikadır bekliyor.";
 "notify.waiting.unnamed" = "Bir oturum";
-"settings.sessions.agents" = "Ajanlar";
-"settings.sessions.agents.note" = "İlk yazımdan önce dosyanın yanına .evlat.bak yedeği alınır. Açık Claude oturumlarında değişiklik /hooks ile yüklenir.";
-"settings.sessions.usage" = "Kullanım";
-"settings.sessions.usage.hideStale" = "Bir saattir görülmeyen kullanımı gizle";
-"settings.sessions.usage.hideStale.detail" = "Son zamanlarda kullanmadığın bir araç, yeniden bildirene kadar çubuktan kalkar.";
-"settings.sessions.none" = "Bu Mac'te Claude Code da Codex de yok. Biri kurulunca satırı burada çıkar.";
 "settings.sessions.branch" = "Git branch";
 "settings.sessions.branch.note" = "Oturumun bu Mac'teki klasöründen okunur. Uzak makinelerdeki oturumlarda görünmez.";
 "settings.sessions.branch.show" = "Branch'i göster";
@@ -476,9 +479,9 @@
 "setup.flow.edge.body" = "Seçtiğin an bar oraya geçer. Ok tuşlarıyla da seçebilirsin.";
 "setup.flow.edge.left" = "Sol kenar";
 "setup.flow.edge.right" = "Sağ kenar";
-"setup.flow.sessions.title" = "Oturumları görmesi için";
-"setup.flow.sessions.body" = "Evlat, ajanın ayar dosyasına küçük bir bildirim komutu ekler ve dosyanın geri kalanına dokunmaz. İstediğin an Ayarlar → Oturumlar'dan kaldırırsın.";
-"setup.flow.sessions.none" = "Bu Mac'te Claude Code da Codex de yok. Biri kurulunca Ayarlar → Oturumlar'dan bağlarsın.";
+"setup.flow.sessions.title" = "Hangi ajanları kullanıyorsun?";
+"setup.flow.sessions.body" = "Evlat seçtiğin her ajanın ayarlarına küçük bir bildirim komutu ekler ve kullanım için status line'ını sarar; dosyanın geri kalanına dokunmaz. İstediğin an Ayarlar → Ajanlar'dan kaldırırsın.";
+"setup.flow.sessions.none" = "Bu Mac'te Evlat'ın tanıdığı bir ajan yok. Biri kurulunca Ayarlar → Ajanlar'dan bağlarsın.";
 "setup.flow.sessions.hint" = "Açık Claude oturumlarında /hooks'u bir kez aç ya da oturumu yeniden başlat; yeni açılanlar hemen görünür.";
 "setup.flow.chat.title" = "Maskotla konuş";
 "setup.flow.chat.body" = "Maskota tıkla ya da kısayola bas: bir balon açılır, iş senin claude kurulumunla koşar. Dosyayı maskota bırakabilirsin.";
@@ -491,10 +494,6 @@
 "setup.flow.done.note" = "Bir Claude oturumu aç; barda halkası belirir. Kurulumu menüden yeniden açabilirsin.";
 "setup.flow.summary.left" = "Bar sol kenarda";
 "setup.flow.summary.right" = "Bar sağ kenarda";
-"setup.flow.summary.claudeHooks" = "Claude Code hook'ları";
-"setup.flow.summary.usageRelay" = "Kullanım satırı";
-"setup.flow.summary.antigravityUsageRelay" = "Antigravity kullanım satırı";
-"setup.flow.summary.codexHooks" = "Codex hook'ları";
 "setup.flow.summary.manual" = "{item} elle kurulacak";
 "setup.flow.summary.skipped" = "{item} atlandı";
 "setup.flow.summary.chat" = "Sohbet {key}";

@@ -137,7 +137,7 @@ final class AntigravityHooksTests: XCTestCase {
         let removed = try XCTUnwrap(try RemoteSettings.plan(.hooks(.antigravity), .remove, original: write.contents))
         let left = try XCTUnwrap(JSONSerialization.jsonObject(with: removed.contents) as? [String: Any])
         XCTAssertNil(left["evlat"])
-        XCTAssertTrue(RemoteSettings.manual.antigravityHooks.contains("/hook/antigravity"))
+        XCTAssertTrue(RemoteSettings.manual.hooks(for: .antigravity).contains("/hook/antigravity"))
     }
 
     func testItIsPresentWithTheAppsOrTheCLIsDirectory() throws {

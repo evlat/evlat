@@ -32,8 +32,6 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
-"setup.item.antigravityHooks" = "Antigravity";
-"setup.flow.summary.antigravityHooks" = "Antigravity hooks";
 "setup.manual.remove.antigravity" = "To remove, delete the \"evlat\" entry.";
 /* The card's footer: tools started in this turn. A count that began mid-turn
    is shown with a leading "~". */
@@ -99,8 +97,6 @@
 /* The usage line wraps the user's status line command so its JSON also
    reaches Evlat. A wrapper changed by hand is left alone: an attention line
    in the menu, a dim row in the settings. */
-"menu.usage.modified" = "Usage line edited by hand";
-"menu.usage.modified.antigravity" = "Antigravity usage line edited by hand";
 "menu.usage.hint" = "Wraps your Claude Code status line; open sessions relay usage from their next message.";
 
 /* The remote machines: servers reached over ssh whose sessions show on the
@@ -339,14 +335,10 @@
 
 /* The setup's and the settings window's rows (`014`): an item, its state,
    what its button writes, and the block to paste by hand. */
-"setup.item.claudeHooks" = "Claude Code";
-"setup.item.codexHooks" = "Codex";
-"setup.item.usageRelay" = "Claude usage line";
-"setup.item.antigravityUsageRelay" = "Antigravity usage line";
 "setup.item.commandLink" = "evlat command";
 "setup.item.loginItem" = "Open at login";
 "setup.status.installed" = "✓ Installed";
-"setup.status.outdated" = "Old";
+"setup.status.outdated" = "Needs update";
 "setup.status.missing" = "Not installed";
 "setup.status.foreign" = "Not Evlat's";
 "setup.status.unknown" = "Unknown";
@@ -380,6 +372,24 @@
 "setup.consent.command.remove" = "{file} · the link is removed";
 "setup.consent.login.on" = "Evlat is added to your login items (System Settings → General → Login Items)";
 "setup.consent.login.off" = "Evlat leaves your login items — for every copy of Evlat: they share one item";
+"settings.section.agents" = "Agents";
+"settings.section.usage" = "Usage";
+"settings.agents.group" = "Agents on this Mac";
+"settings.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Open Claude sessions load the change with /hooks.";
+"settings.usage.bar" = "On the bar";
+"settings.usage.hideStale" = "Hide usage not seen for an hour";
+"settings.usage.hideStale.detail" = "A tool you have not used lately leaves the bar until it reports again.";
+"setup.status.notFound" = "Not on this Mac";
+"setup.agent.details" = "What it writes";
+"setup.agent.part.hooks" = "Hooks";
+"setup.agent.part.hooksApprovals" = "Hooks and the approval hook";
+"setup.agent.part.usage" = "Usage line";
+"setup.agent.removeUsage" = "Remove the usage line";
+"setup.agent.usageModified" = "Your usage line was edited by hand; Evlat leaves it as it is.";
+"setup.agent.failure" = "{part}: {reason}";
+"setup.consent.wraps" = "Your statusLine command is wrapped: it prints what it printed, and Evlat also gets what it is given.";
+"setup.attention.usageModified" = "{source} usage line edited by hand";
+"setup.flow.summary.agent" = "{agent} connected";
 "setup.manual.open" = "I want to set it up by hand";
 "setup.manual.copy" = "Copy";
 "setup.manual.copied" = "Copied";
@@ -400,7 +410,6 @@
 "menu.settings" = "Settings…";
 "settings.window.title" = "Evlat Settings";
 "settings.section.general" = "General";
-"settings.section.sessions" = "Sessions";
 "settings.section.chat" = "Chat";
 "settings.section.command" = "Command Line";
 "settings.section.remote" = "Remote Machines";
@@ -443,12 +452,6 @@
 "notify.waiting.title" = "{name} is waiting for you";
 "notify.waiting.body" = "A permission or a question has waited {n} min.";
 "notify.waiting.unnamed" = "A session";
-"settings.sessions.agents" = "Agents";
-"settings.sessions.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Open Claude sessions load the change with /hooks.";
-"settings.sessions.usage" = "Usage";
-"settings.sessions.usage.hideStale" = "Hide usage not seen for an hour";
-"settings.sessions.usage.hideStale.detail" = "A tool you have not used lately leaves the bar until it reports again.";
-"settings.sessions.none" = "Neither Claude Code nor Codex is on this Mac. Their rows appear once one is installed.";
 "settings.sessions.branch" = "Git branch";
 "settings.sessions.branch.note" = "Read from the session's folder on this Mac. Sessions on remote machines show none.";
 "settings.sessions.branch.show" = "Show branch";
@@ -534,9 +537,9 @@
 "setup.flow.edge.body" = "The bar moves there the moment you choose. The arrow keys choose too.";
 "setup.flow.edge.left" = "Left edge";
 "setup.flow.edge.right" = "Right edge";
-"setup.flow.sessions.title" = "So it can see your sessions";
-"setup.flow.sessions.body" = "Evlat adds a small notifying command to the agent’s settings file and leaves the rest of the file alone. You can take it out any time in Settings → Sessions.";
-"setup.flow.sessions.none" = "Neither Claude Code nor Codex is on this Mac. Once one is installed, connect it in Settings → Sessions.";
+"setup.flow.sessions.title" = "Which agents do you use?";
+"setup.flow.sessions.body" = "Evlat adds a small notifying command to each chosen agent's settings and wraps its status line for usage; the rest of the file is left alone. You can take it out any time in Settings → Agents.";
+"setup.flow.sessions.none" = "No agent Evlat knows is on this Mac. Once one is installed, connect it in Settings → Agents.";
 "setup.flow.sessions.hint" = "In open Claude sessions, open /hooks once or restart the session; new ones show up at once.";
 "setup.flow.chat.title" = "Talk to the mascot";
 "setup.flow.chat.body" = "Click the mascot or press the shortcut: a balloon opens and the work runs with your own claude. You can drop a file on the mascot.";
@@ -549,10 +552,6 @@
 "setup.flow.done.note" = "Open a Claude session; its ring appears on the bar. You can open the setup again from the menu.";
 "setup.flow.summary.left" = "Bar on the left edge";
 "setup.flow.summary.right" = "Bar on the right edge";
-"setup.flow.summary.claudeHooks" = "Claude Code hooks";
-"setup.flow.summary.usageRelay" = "Usage line";
-"setup.flow.summary.antigravityUsageRelay" = "Antigravity usage line";
-"setup.flow.summary.codexHooks" = "Codex hooks";
 "setup.flow.summary.manual" = "{item}: to be added by hand";
 "setup.flow.summary.skipped" = "{item}: skipped";
 "setup.flow.summary.chat" = "Chat {key}";

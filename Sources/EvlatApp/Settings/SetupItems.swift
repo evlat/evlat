@@ -4,54 +4,48 @@ import EvlatCore
 
 // The setup's and the settings window's shared parts: one row
 // value, one row view, and the model behind both. There is no protocol over
-// the items: each reads its own thing (a settings file, the link, the login
+// the items: each reads its own thing (an agent's files, the link, the login
 // item) and reduces it to `SetupStatus`.
 
-/// What the user can have Evlat set up here.
-enum SetupItem: String, CaseIterable, Identifiable {
-    case claudeHooks, codexHooks, antigravityHooks, usageRelay, antigravityUsageRelay, commandLink, loginItem
+/// What the user can have Evlat set up here. An agent is one item: its
+/// hooks, approval hook and usage line are installed together
+/// (`AgentIntegration`), so the catalogue (`AgentSource.allCases`) is the
+/// list and nothing here names an agent.
+enum SetupItem: Hashable, Identifiable {
+    case agent(AgentSource), commandLink, loginItem
 
-    var id: String { rawValue }
+    static var allCases: [SetupItem] { AgentSource.allCases.map(SetupItem.agent) + [.commandLink, .loginItem] }
 
-    /// The agent whose status line the row wraps; `nil` for the others.
-    var usageSource: AgentSource? {
+    var id: String {
         switch self {
-        case .usageRelay: return .claude
-        case .antigravityUsageRelay: return .antigravity
-        default: return nil
+        case .agent(let source): return "agent." + source.rawValue
+        case .commandLink: return "commandLink"
+        case .loginItem: return "loginItem"
         }
     }
 
-    static func usage(for source: AgentSource) -> SetupItem {
-        source == .antigravity ? .antigravityUsageRelay : .usageRelay
-    }
-
-    /// The agent whose hooks the row installs; `nil` for the others.
+    /// The agent the row installs; `nil` for the others.
     var agent: AgentSource? {
+        if case .agent(let source) = self { return source }
+        return nil
+    }
+
+    /// An agent's row is named by the agent (`source.*`, the names the bar
+    /// uses too).
+    var nameKey: String {
         switch self {
-        case .claudeHooks: return .claude
-        case .codexHooks: return .codex
-        case .antigravityHooks: return .antigravity
-        case .usageRelay, .antigravityUsageRelay, .commandLink, .loginItem: return nil
+        case .agent(let source): return "source.\(source.rawValue)"
+        case .commandLink: return "setup.item.commandLink"
+        case .loginItem: return "setup.item.loginItem"
         }
     }
-
-    static func hooks(for source: AgentSource) -> SetupItem {
-        switch source {
-        case .claude: return .claudeHooks
-        case .codex: return .codexHooks
-        case .antigravity: return .antigravityHooks
-        }
-    }
-
-    var nameKey: String { "setup.item.\(rawValue)" }
 }
 
 /// How a row reads at a glance.
 enum SetupStatus: Equatable {
     case installed
-    /// There, but not what this Evlat would write: an old hook command,
-    /// another copy's or a broken link.
+    /// There, but not what this Evlat would write: an old hook command, an
+    /// agent with a part missing, another copy's or a broken link.
     case outdated
     case missing
     /// Someone else's (a `evlat` that is not Evlat's) or changed by hand
@@ -60,6 +54,9 @@ enum SetupStatus: Equatable {
     /// Could not be read (a settings file that is not JSON), or a login item
     /// waiting for the user's approval.
     case unknown
+    /// An agent whose folder is not on this Mac: drawn dim, nothing to
+    /// press.
+    case notFound
 
     var key: String {
         switch self {
@@ -68,6 +65,7 @@ enum SetupStatus: Equatable {
         case .missing: return "setup.status.missing"
         case .foreign: return "setup.status.foreign"
         case .unknown: return "setup.status.unknown"
+        case .notFound: return "setup.status.notFound"
         }
     }
 }
@@ -87,47 +85,63 @@ enum SetupAction: Equatable {
     var installs: Bool { self != .remove }
 }
 
+/// One of an agent's parts, as its card's "What it writes" lists it.
+struct SetupPart: Equatable {
+    let name: String
+    let file: String
+    let status: SetupStatus
+}
+
 /// One row, read fresh: nothing here is cached between reads.
 struct SetupRow: Identifiable, Equatable {
     let item: SetupItem
     let status: SetupStatus
     let name: String
-    /// The file it writes, or what it is.
+    /// The files it writes, or what it is.
     let detail: String
     /// A second line: where another copy's link goes, `PATH` missing the
-    /// link's directory, the login item's copy.
+    /// link's directory, the login item's copy, a usage line changed by hand.
     let note: String?
     /// The last refused write, until one succeeds.
     let failure: String?
+    /// An agent's parts, each with its file.
+    var parts: [SetupPart] = []
+    /// The agent's usage line is Evlat's and can be taken out alone.
+    var removesRelay = false
 
-    var id: String { item.rawValue }
+    var id: String { item.id }
 
-    /// `nil`: nothing to press (someone else's, unreadable).
+    /// `nil`: nothing to press (someone else's, unreadable, not here).
     var action: SetupAction? {
         switch status {
         case .missing: return .install
         case .outdated: return .update
         case .installed: return .remove
-        case .foreign, .unknown: return nil
+        case .foreign, .unknown, .notFound: return nil
         }
     }
 }
 
 /// A block to paste instead of the automatic write, and how to take it out.
 struct SetupManual: Equatable {
-    /// The writer's own bytes (`RemoteSettings.manual`, `CommandLink`).
+    /// The writer's own bytes (`LocalHooks.manual`, `CommandLink`).
     let text: String
     /// For the status line: the wrapper around a command the user already
     /// has, with a placeholder in its place.
     let wrapping: String?
     let removal: String
+    /// An agent's `statusLine`, when its usage line is a part: a second
+    /// block under the hooks'.
+    var statusLine: String? = nil
 }
 
 /// Something the menu's dim lines and the settings list's dot are made of.
 enum SetupAttention: Equatable {
+    /// The agent's hooks are an old copy's. A missing usage line is not
+    /// attention: the card offers it, the menu stays quiet.
     case hooksOutdated(AgentSource)
-    case usageModified
-    case antigravityUsageModified
+    /// The agent's usage line was edited by hand and is left alone.
+    case usageModified(AgentSource)
     case refused(SetupItem)
     case hotKeyUnregistered
     case machineUnreachable(String)
@@ -138,15 +152,15 @@ enum SetupAttention: Equatable {
     /// Where the settings window shows it: its sections, in the side
     /// list's order. The raw value is `EVLAT_SETTINGS`'.
     enum Section: String, CaseIterable, Equatable {
-        case general, sessions, chat, commandLine = "command", remote
+        case general, agents, usage, chat, commandLine = "command", remote
     }
 
     var section: Section {
         switch self {
-        case .hooksOutdated, .usageModified, .antigravityUsageModified: return .sessions
+        case .hooksOutdated, .usageModified: return .agents
         case .refused(let item):
             switch item {
-            case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay, .antigravityUsageRelay: return .sessions
+            case .agent: return .agents
             case .commandLink: return .commandLine
             case .loginItem: return .general
             }
@@ -180,16 +194,15 @@ final class SetupModel: ObservableObject {
         /// Names of the machines whose tunnel waits for the user's password.
         var machinesNeedingPassword: () -> [String] = { [] }
 
-        var setHooks: (AgentSource, Bool) -> Void
-        var setUsageRelay: (Bool) -> Void
-        /// The Antigravity CLI's relay; a no-op unless the host writes it.
-        var setAntigravityUsageRelay: (Bool) -> Void = { _ in }
+        /// An agent's parts installed (or updated) or removed, as one.
+        var setAgent: (AgentSource, Bool) -> Void
+        /// The agent's usage line alone, taken out.
+        var removeUsageRelay: (AgentSource) -> Void = { _ in }
         /// Installed?, replacing another copy's or a broken link?
         var setCommandLink: (Bool, Bool) -> Void
         var setLoginItem: (Bool) -> Void
 
-        var hookFailure: (AgentSource) -> SettingsFile.Failure?
-        var usageFailure: (AgentSource) -> SettingsFile.Failure?
+        var agentFailure: (AgentSource) -> AgentIntegration.Failure?
         var commandLinkFailure: () -> CommandLinkWriter.Failure?
         var loginItemFailed: () -> Bool
     }
@@ -206,6 +219,9 @@ final class SetupModel: ObservableObject {
     /// The link's state as last read: the consent line and the write must
     /// agree on whether another copy's link is replaced.
     private var linkState: CommandLink.State?
+    /// Each agent's parts as last read: the consent lists only the parts
+    /// the press changes, and the press is the one the row offered.
+    private var agentStates: [AgentSource: AgentIntegration.State] = [:]
 
     init(host: Host, lang: String = L10n.language) {
         self.host = host
@@ -221,37 +237,10 @@ final class SetupModel: ObservableObject {
         var attention: [SetupAttention] = []
         let home = host.home()
         linkState = nil
+        agentStates = [:]
         if let home {
-            for source in AppController.presentSources(home: home) {
-                let item = SetupItem.hooks(for: source)
-                let status: SetupStatus
-                switch try? LocalHooks.state(at: source.settingsFile(home: home), for: source) {
-                case .current?: status = .installed
-                case .outdated?: status = .outdated; attention.append(.hooksOutdated(source))
-                case .missing?: status = .missing
-                case nil: status = .unknown
-                }
-                rows.append(row(item, status, detail: "~/" + source.settingsPath,
-                                failure: host.hookFailure(source).map { L10n.t(AppController.failureKey($0), in: lang) }))
-                if host.hookFailure(source) != nil { attention.append(.refused(item)) }
-                // Antigravity's status line is the CLI's alone: no row for
-                // the app or IDE without it.
-                guard let path = source.statusLinePath, let file = source.statusLineFile(home: home),
-                      source.hasStatusLine(home: home) else { continue }
-                let usageItem = SetupItem.usage(for: source)
-                let usage: SetupStatus
-                switch try? StatusLineRelay.state(at: file, source: source) {
-                case .current?: usage = .installed
-                case .modified?:
-                    usage = .foreign
-                    attention.append(source == .claude ? .usageModified : .antigravityUsageModified)
-                case .missing?: usage = .missing
-                case nil: usage = .unknown
-                }
-                let failure = host.usageFailure(source)
-                rows.append(row(usageItem, usage, detail: "~/" + path,
-                                failure: failure.map { L10n.t(AppController.failureKey($0), in: lang) }))
-                if failure != nil { attention.append(.refused(usageItem)) }
+            for source in AgentSource.allCases {
+                rows.append(agentRow(source, home: home, attention: &attention))
             }
             if let binary = host.binary() {
                 let state = CommandLink.state(at: CommandLink.link(home: home), binary: binary)
@@ -309,6 +298,81 @@ final class SetupModel: ObservableObject {
         }
     }
 
+    /// One agent's card: every catalogue agent has one, dim when it is not
+    /// on this Mac. Only an old hook part asks for attention; a missing
+    /// usage line is offered by the card alone.
+    private func agentRow(_ source: AgentSource, home: URL, attention: inout [SetupAttention]) -> SetupRow {
+        let item = SetupItem.agent(source)
+        let files = AgentIntegration.files(home: home, for: source).map { "~/" + Self.relative($0, to: home) }
+            .joined(separator: " · ")
+        guard source.isPresent(home: home) else {
+            return row(item, .notFound, detail: files, failure: nil)
+        }
+        let failure = host.agentFailure(source).map(failureText)
+        if failure != nil { attention.append(.refused(item)) }
+        guard let state = try? AgentIntegration.state(home: home, for: source) else {
+            return row(item, .unknown, detail: files, failure: failure)
+        }
+        agentStates[source] = state
+        if state.hooks == .outdated { attention.append(.hooksOutdated(source)) }
+        var note: String?
+        if state.relay == .modified {
+            attention.append(.usageModified(source))
+            note = L10n.t("setup.agent.usageModified", in: lang)
+        }
+        let status: SetupStatus
+        switch state.status {
+        case .current: status = .installed
+        case .outdated: status = .outdated
+        case .missing: status = .missing
+        }
+        var parts = [SetupPart(name: L10n.t(Self.hooksPartKey(source), in: lang), file: "~/" + source.settingsPath,
+                               status: Self.status(state.hooks))]
+        if let relay = state.relay, let path = source.statusLinePath {
+            parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: "~/" + path,
+                                   status: Self.status(relay)))
+        }
+        var result = row(item, status, detail: files, note: note, failure: failure)
+        result.parts = parts
+        result.removesRelay = state.relay == .current
+        return result
+    }
+
+    private static func hooksPartKey(_ source: AgentSource) -> String {
+        source.supportsApprovals ? "setup.agent.part.hooksApprovals" : "setup.agent.part.hooks"
+    }
+
+    private static func status(_ hooks: LocalHooks.State) -> SetupStatus {
+        switch hooks {
+        case .current: return .installed
+        case .outdated: return .outdated
+        case .missing: return .missing
+        }
+    }
+
+    private static func status(_ relay: StatusLineRelay.State) -> SetupStatus {
+        switch relay {
+        case .current: return .installed
+        case .missing: return .missing
+        case .modified: return .foreign
+        }
+    }
+
+    /// `file` under `home`, as the catalogue's paths spell it.
+    private static func relative(_ file: URL, to home: URL) -> String {
+        let base = home.standardizedFileURL.path + "/"
+        let path = file.standardizedFileURL.path
+        return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
+    }
+
+    /// "Hooks: <reason>": the part a refused write stopped in.
+    private func failureText(_ failure: AgentIntegration.Failure) -> String {
+        let part = failure.part == .hooks ? "setup.agent.part.hooks" : "setup.agent.part.usage"
+        return L10n.t("setup.agent.failure", ["part": L10n.t(part, in: lang),
+                                              "reason": L10n.t(AppController.failureKey(failure.reason), in: lang)],
+                      in: lang)
+    }
+
     /// The machines' part of the attention list moves with their tunnels:
     /// read again only when it would read differently, so the settings
     /// window's refresh reads no file while nothing changed.
@@ -353,9 +417,7 @@ final class SetupModel: ObservableObject {
     /// is written before the press; nothing but these lines is.
     func consent(_ item: SetupItem, _ action: SetupAction) -> [String] {
         switch item {
-        case .claudeHooks, .codexHooks, .antigravityHooks, .usageRelay, .antigravityUsageRelay:
-            let file = item.usageSource?.statusLinePath ?? (item.agent ?? .claude).settingsPath
-            return [L10n.t("setup.consent.line", ["file": "~/" + file, "what": what(item, action)], in: lang)]
+        case .agent(let source): return agentConsent(source, action)
         case .commandLink:
             guard action.installs else {
                 return [L10n.t("setup.consent.command.remove", ["file": CommandLink.displayPath], in: lang)]
@@ -373,12 +435,43 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    private func what(_ item: SetupItem, _ action: SetupAction) -> String {
-        let hooks = item.usageSource == nil
-        switch action {
-        case .install, .update: return L10n.t(hooks ? "setup.consent.what.hooks" : "setup.consent.what.usage", in: lang)
-        case .remove: return L10n.t(hooks ? "setup.consent.what.hooks.remove" : "setup.consent.what.usage.remove", in: lang)
+    /// One line per file the press changes, naming only the parts that
+    /// change there; and, when the usage line goes in, that the user's
+    /// status line is wrapped (R3.4).
+    private func agentConsent(_ source: AgentSource, _ action: SetupAction) -> [String] {
+        guard let state = agentStates[source] else { return [] }
+        var files: [(file: String, what: [String])] = []
+        func add(_ file: String, _ key: String) {
+            let what = L10n.t(key, in: lang)
+            if let index = files.firstIndex(where: { $0.file == file }) {
+                files[index].what.append(what)
+            } else {
+                files.append((file, [what]))
+            }
         }
+        let hooksFile = "~/" + source.settingsPath
+        let relayFile = source.statusLinePath.map { "~/" + $0 }
+        if action.installs {
+            if state.hooks != .current { add(hooksFile, "setup.consent.what.hooks") }
+            if state.installsRelay, let relayFile { add(relayFile, "setup.consent.what.usage") }
+        } else {
+            if state.hooks != .missing { add(hooksFile, "setup.consent.what.hooks.remove") }
+            if state.relay == .current, let relayFile { add(relayFile, "setup.consent.what.usage.remove") }
+        }
+        var lines = files.map {
+            L10n.t("setup.consent.line", ["file": $0.file,
+                                          "what": $0.what.joined(separator: L10n.t("setup.consent.and", in: lang))],
+                   in: lang)
+        }
+        if action.installs && state.installsRelay { lines.append(L10n.t("setup.consent.wraps", in: lang)) }
+        return lines
+    }
+
+    /// The usage line's own "Remove": its file alone.
+    func relayRemovalConsent(_ source: AgentSource) -> [String] {
+        guard let path = source.statusLinePath else { return [] }
+        return [L10n.t("setup.consent.line", ["file": "~/" + path,
+                                              "what": L10n.t("setup.consent.what.usage.remove", in: lang)], in: lang)]
     }
 
     /// The queued items one press would install: each row still missing or
@@ -390,33 +483,23 @@ final class SetupModel: ObservableObject {
             .map(\.item)
     }
 
-    /// The queue's consent: the queued items' files and nothing else. Two
-    /// items in one file are one line ("hooks and the usage line").
+    /// The queue's consent: the queued items' files and nothing else, each
+    /// line once, the files first and the status line's wrapping under them.
     var queueConsent: [String] { queueConsent() }
 
     func queueConsent(only items: Set<SetupItem> = Set(SetupItem.allCases)) -> [String] {
-        let writes = queuedWrites(only: items)
         var lines: [String] = []
-        var claude: [String] = []
-        for item in writes {
-            switch item {
-            case .claudeHooks, .usageRelay: claude.append(what(item, .install))
-            default: lines += consent(item, .install)
-            }
+        for item in queuedWrites(only: items) {
+            for line in consent(item, .install) where !lines.contains(line) { lines.append(line) }
         }
-        if !claude.isEmpty {
-            let joined = claude.joined(separator: L10n.t("setup.consent.and", in: lang))
-            lines.insert(L10n.t("setup.consent.line", ["file": "~/" + AgentSource.claude.settingsPath,
-                                                        "what": joined], in: lang), at: 0)
-        }
-        return lines
+        let wraps = L10n.t("setup.consent.wraps", in: lang)
+        return lines.filter { $0 != wraps } + lines.filter { $0 == wraps }
     }
 
     /// Whether a line about the `.evlat.bak` copy belongs under the consent:
     /// only a settings file is backed up.
     func backsUp(_ items: [SetupItem]) -> Bool {
-        items.contains { [.claudeHooks, .codexHooks, .antigravityHooks, .usageRelay,
-                          .antigravityUsageRelay].contains($0) }
+        items.contains { $0.agent != nil }
     }
 
     // MARK: - Writing
@@ -425,6 +508,14 @@ final class SetupModel: ObservableObject {
     func perform(_ item: SetupItem) {
         guard let action = row(item)?.action else { return }
         write(item, action)
+        reload()
+    }
+
+    /// The card's "Remove the usage line": the relay alone, then a fresh
+    /// read. The card then reads "needs update", which puts it back.
+    func removeRelay(_ source: AgentSource) {
+        guard host.home() != nil, row(.agent(source))?.removesRelay == true else { return }
+        host.removeUsageRelay(source)
         reload()
     }
 
@@ -439,11 +530,7 @@ final class SetupModel: ObservableObject {
         // The login item is not a file; everything else needs a home.
         guard item == .loginItem || host.home() != nil else { return }
         switch item {
-        case .claudeHooks: host.setHooks(.claude, action.installs)
-        case .codexHooks: host.setHooks(.codex, action.installs)
-        case .antigravityHooks: host.setHooks(.antigravity, action.installs)
-        case .usageRelay: host.setUsageRelay(action.installs)
-        case .antigravityUsageRelay: host.setAntigravityUsageRelay(action.installs)
+        case .agent(let source): host.setAgent(source, action.installs)
         case .commandLink:
             let replacing: Bool
             switch linkState {
@@ -466,23 +553,22 @@ final class SetupModel: ObservableObject {
     func check() { reload() }
 
     /// The block to paste: the bytes the writer would write into an empty
-    /// file (`RemoteSettings.manual` — the name says remote, the bytes are
-    /// the writers'), or the link's `ln -s` line.
+    /// file — this Mac's, so Claude's include the approval hook, which a
+    /// server's (`RemoteSettings.manual`) never do — and, where the usage
+    /// line is a part, its `statusLine`; or the link's `ln -s` line.
     func manual(_ item: SetupItem) -> SetupManual? {
-        let manual = RemoteSettings.manual
-        let hooksRemoval = L10n.t("setup.manual.remove.hooks", ["marker": manual.marker], in: lang)
         switch item {
-        // This Mac's bytes: Claude's include the approval hook, which a
-        // server's (`RemoteSettings.manual`) never do.
-        case .claudeHooks: return SetupManual(text: LocalHooks.manual(for: .claude), wrapping: nil, removal: hooksRemoval)
-        case .codexHooks: return SetupManual(text: LocalHooks.manual(for: .codex), wrapping: nil, removal: hooksRemoval)
-        case .antigravityHooks:
-            return SetupManual(text: LocalHooks.manual(for: .antigravity), wrapping: nil,
-                               removal: L10n.t("setup.manual.remove.antigravity", in: lang))
-        case .usageRelay, .antigravityUsageRelay:
-            guard let source = item.usageSource, let line = RemoteSettings.Manual.statusLine(for: source) else { return nil }
-            return SetupManual(text: line.text, wrapping: line.wrapping,
-                               removal: L10n.t("setup.manual.remove.usage", in: lang))
+        case .agent(let source):
+            // An agent whose file has a shape of its own names its own way
+            // out (`setup.manual.remove.<agent>`); the rest share one.
+            let own = "setup.manual.remove.\(source.rawValue)"
+            var removal = L10n.catalog.tables[Catalog.source]?[own] != nil
+                ? L10n.t(own, in: lang)
+                : L10n.t("setup.manual.remove.hooks", ["marker": RemoteSettings.manual.marker], in: lang)
+            let relay = agentStates[source]?.relay != nil ? RemoteSettings.Manual.statusLine(for: source) : nil
+            if relay != nil { removal += " " + L10n.t("setup.manual.remove.usage", in: lang) }
+            return SetupManual(text: LocalHooks.manual(for: source), wrapping: relay?.wrapping, removal: removal,
+                               statusLine: relay?.text)
         case .commandLink:
             guard let binary = host.binary() else { return nil }
             return SetupManual(text: CommandLink.manualLine(binary: binary), wrapping: nil,
@@ -498,8 +584,8 @@ final class SetupModel: ObservableObject {
         switch attention {
         case .hooksOutdated(let source):
             return L10n.t("setup.attention.hooksOutdated", ["source": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
-        case .usageModified: return L10n.t("menu.usage.modified", in: lang)
-        case .antigravityUsageModified: return L10n.t("menu.usage.modified.antigravity", in: lang)
+        case .usageModified(let source):
+            return L10n.t("setup.attention.usageModified", ["source": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
         case .refused(let item):
             return L10n.t("setup.attention.refused", ["item": L10n.t(item.nameKey, in: lang)], in: lang)
         case .hotKeyUnregistered: return L10n.t("setup.attention.hotKey", in: lang)
@@ -512,14 +598,16 @@ final class SetupModel: ObservableObject {
 
     /// Every key this file asks the catalogue for (`L10nTests`' pattern).
     static let keys: [String] = SetupItem.allCases.map(\.nameKey)
-        + [SetupStatus.installed, .outdated, .missing, .foreign, .unknown].map(\.key)
+        + [SetupStatus.installed, .outdated, .missing, .foreign, .unknown, .notFound].map(\.key)
         + [SetupAction.install, .update, .remove].map(\.key)
         + ["setup.command.otherCopy", "setup.command.broken", "setup.command.foreign", "setup.command.notOnPath",
            "setup.command.error.foreign", "setup.command.error.changed", "setup.command.error.nothingToRemove",
            "setup.command.error.unwritable",
            "setup.login.detail", "setup.login.copy", "setup.login.needsApproval", "setup.login.failed",
+           "setup.agent.part.hooks", "setup.agent.part.hooksApprovals", "setup.agent.part.usage",
+           "setup.agent.details", "setup.agent.removeUsage", "setup.agent.usageModified", "setup.agent.failure",
            "setup.consent.title", "setup.consent.line", "setup.consent.and", "setup.consent.backup",
-           "setup.consent.nothing",
+           "setup.consent.nothing", "setup.consent.wraps",
            "setup.consent.what.hooks", "setup.consent.what.usage", "setup.consent.what.hooks.remove",
            "setup.consent.what.usage.remove",
            "setup.consent.command", "setup.consent.command.replace", "setup.consent.command.broken",
@@ -528,16 +616,16 @@ final class SetupModel: ObservableObject {
            "setup.manual.auto", "setup.manual.wrapping",
            "setup.manual.remove.hooks", "setup.manual.remove.antigravity", "setup.manual.remove.usage",
            "setup.manual.remove.command",
-           "setup.attention.hooksOutdated", "setup.attention.refused", "setup.attention.hotKey",
-           "setup.attention.machine", "setup.attention.machinePassword", "setup.attention.commandLink",
-           "menu.usage.modified", "menu.usage.modified.antigravity"]
+           "setup.attention.hooksOutdated", "setup.attention.usageModified", "setup.attention.refused",
+           "setup.attention.hotKey", "setup.attention.machine", "setup.attention.machinePassword",
+           "setup.attention.commandLink"]
         + [HookSettings.Failure.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
             .map(AppController.failureKey)
 }
 
 /// One row as both windows draw it: name and file, status; the button
-/// inside a box that lists what it writes;
-/// the "by hand" block. Holds no state of its own but "Copied"; the model
+/// inside a box that lists what it writes; an agent's parts under "What it
+/// writes"; the "by hand" block. Holds no state of its own but "Copied"; the model
 /// says what is open.
 struct SetupRowView: View {
     let row: SetupRow
@@ -551,6 +639,8 @@ struct SetupRowView: View {
     /// while there is something to write and the row is not set up by hand.
     var queued: Binding<Bool>?
     @State private var copied = false
+    /// An agent's "What it writes" is open.
+    @State private var details = false
 
     private var lang: String { model.lang }
 
@@ -561,15 +651,19 @@ struct SetupRowView: View {
                          code: row.item == .commandLink)
                 trailing
             }
-            .opacity(row.status == .foreign ? 0.55 : 1)
+            .opacity(row.status == .foreign || row.status == .notFound ? 0.55 : 1)
             if let note = row.note {
-                Text(note).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
+                Text(note).font(.system(size: 11.5))
+                    .foregroundStyle(row.item.agent != nil ? SettingsPalette.wait : SettingsPalette.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
             if let failure = row.failure {
                 Text(failure).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if showsButton, !row.parts.isEmpty {
+                partsPart
             }
             if showsButton, let action = row.action, model.manualOpen != row.item {
                 ConsentAction(lines: model.consent(row.item, action), title: L10n.t(action.key, in: lang)) {
@@ -600,8 +694,35 @@ struct SetupRowView: View {
         }
     }
 
+    /// "What it writes": each part with its file and state, and the usage
+    /// line's own "Remove" while it is Evlat's (R3.4).
+    @ViewBuilder private var partsPart: some View {
+        Button((details ? "▾ " : "▸ ") + L10n.t("setup.agent.details", in: lang)) { details.toggle() }
+            .buttonStyle(LinkButtonStyle())
+        if details {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(row.parts, id: \.name) { part in
+                    HStack(spacing: 10) {
+                        RowTitle(name: part.name, detail: part.file, monospaced: true)
+                        StatusText(status: part.status, text: L10n.t(part.status.key, in: lang))
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(SettingsPalette.consent))
+            if row.removesRelay, let source = row.item.agent {
+                ConsentAction(lines: model.relayRemovalConsent(source),
+                              title: L10n.t("setup.agent.removeUsage", in: lang)) {
+                    model.removeRelay(source)
+                }
+            }
+        }
+    }
+
     @ViewBuilder private var manualPart: some View {
-        if let manual = model.manual(row.item), row.status != .installed, row.status != .foreign {
+        if let manual = model.manual(row.item), row.status != .installed, row.status != .foreign,
+           row.status != .notFound {
             if model.manualOpen == row.item {
                 ManualBox(text: manual.text, footnote: manual.removal) {
                     Button(L10n.t(copied ? "setup.manual.copied" : "setup.manual.copy", in: lang)) {
@@ -614,6 +735,11 @@ struct SetupRowView: View {
                         .buttonStyle(SmallButtonStyle())
                     Button(L10n.t("setup.manual.auto", in: lang)) { model.toggleManual(row.item) }
                         .buttonStyle(LinkButtonStyle())
+                }
+                if let statusLine = manual.statusLine {
+                    ManualBox(lead: L10n.t("setup.agent.part.usage", in: lang), text: statusLine, maxHeight: 60) {
+                        EmptyView()
+                    }
                 }
                 if let wrapping = manual.wrapping {
                     ManualBox(lead: L10n.t("setup.manual.wrapping", in: lang), text: wrapping, maxHeight: 60) {

@@ -308,7 +308,7 @@ private struct ServerItemRow: View {
         switch status {
         case .missing, .outdated, .unknown: return .install
         case .installed: return .remove
-        case .foreign: return nil
+        case .foreign, .notFound: return nil
         }
     }
 

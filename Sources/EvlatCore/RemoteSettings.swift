@@ -523,12 +523,9 @@ public enum RemoteSettings {
         /// Stands for the user's own statusLine command in `wrapping`.
         public static let placeholder = "YOUR-STATUSLINE-COMMAND"
 
-        /// `~/.claude/settings.json`'s `hooks`, as a whole file's JSON.
-        public let claudeHooks: String
-        /// `~/.codex/hooks.json`, as a whole file's JSON.
-        public let codexHooks: String
-        /// `~/.gemini/config/hooks.json`, as a whole file's JSON.
-        public let antigravityHooks: String
+        /// Each agent's hooks file (`AgentSource.settingsPath`), as a whole
+        /// file's JSON.
+        let hooks: [AgentSource: String]
         /// The `statusLine` for a file that has none.
         public let statusLine: String
         /// The wrapper around an existing command, `placeholder` in its place.
@@ -536,6 +533,9 @@ public enum RemoteSettings {
         /// Every command Evlat writes contains this; removing by hand is
         /// taking out the entries that do.
         public let marker: String
+
+        /// The agent's hooks file, as a whole file's JSON.
+        public func hooks(for source: AgentSource) -> String { hooks[source] ?? "" }
 
         /// An agent's `statusLine` for a file that has none, and its wrapper
         /// with `placeholder` in the user's command's place; `nil` for an
@@ -554,14 +554,11 @@ public enum RemoteSettings {
     }
 
     public static var manual: Manual {
-        func hooks(_ source: AgentSource) -> String {
-            Manual.text(LocalHooks.installing(into: [:], for: source, approvals: false))
-        }
         let statusLine = Manual.statusLine(for: statusLineSource)
         return Manual(
-            claudeHooks: hooks(.claude),
-            codexHooks: hooks(.codex),
-            antigravityHooks: hooks(.antigravity),
+            hooks: Dictionary(uniqueKeysWithValues: AgentSource.allCases.map { source in
+                (source, Manual.text(LocalHooks.installing(into: [:], for: source, approvals: false)))
+            }),
             statusLine: statusLine?.text ?? "",
             wrapping: statusLine?.wrapping ?? "",
             marker: "127.0.0.1:\(LocalAPI.defaultPort)")

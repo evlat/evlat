@@ -89,7 +89,7 @@ final class UsageBlockModel: ObservableObject {
     /// A signal with no window, or no usable number, cannot be drawn and is
     /// left out; `--list` still prints it.
     ///
-    /// `hidingStale` (Settings → Sessions → Usage) drops stale windows the
+    /// `hidingStale` (Settings → Usage) drops stale windows the
     /// same way, before the cap: a tool not used for the hour leaves the
     /// block, and its group with it, until it reports again.
     nonisolated static func lines(from usage: [Signal], now: Date, hidingStale: Bool = false) -> [UsageLine] {

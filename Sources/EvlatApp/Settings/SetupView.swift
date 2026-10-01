@@ -332,7 +332,7 @@ private struct SessionsStep: View {
         VStack(alignment: .leading, spacing: 12) {
             StepHead(title: model.t(SetupFlowModel.titleKey(.sessions)), text: model.t("setup.flow.sessions.body"))
             let rows = model.sessionRows
-            if rows.isEmpty {
+            if !rows.contains(where: { $0.status != .notFound }) {
                 Paragraph(text: model.t("setup.flow.sessions.none"), small: true)
             } else {
                 SettingsRows {

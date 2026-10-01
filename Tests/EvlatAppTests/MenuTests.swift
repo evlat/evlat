@@ -249,7 +249,7 @@ final class MenuTests: XCTestCase {
 
         menu.performActionForItem(at: menu.index(of: line))
         XCTAssertEqual(controller.settingsWindow?.isVisible, true)
-        XCTAssertEqual(controller.settings?.section, .sessions)
+        XCTAssertEqual(controller.settings?.section, .agents)
         XCTAssertEqual(try Data(contentsOf: AgentSource.claude.settingsFile(home: home)), before,
                        "the click only opens: nothing is written")
     }
@@ -263,15 +263,15 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
 
-        controller.setHooks(.claude, installed: true)
+        controller.setAgent(.claude, installed: true)
         XCTAssertEqual(try Data(contentsOf: file), broken, "the file is left as it was")
-        XCTAssertEqual(controller.hookFailure(.claude), .malformed)
+        XCTAssertEqual(controller.agentFailure(.claude), AgentIntegration.Failure(part: .hooks, reason: .malformed))
         let lines = attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
-        XCTAssertEqual(lines.map { $0.representedObject as? SetupAttention }, [.refused(.claudeHooks)])
+        XCTAssertEqual(lines.map { $0.representedObject as? SetupAttention }, [.refused(.agent(.claude))])
         XCTAssertEqual(lines.first?.title, "Claude Code: the last change was refused")
 
         try Data("{}".utf8).write(to: file)
-        controller.setHooks(.claude, installed: true)
+        controller.setAgent(.claude, installed: true)
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")), [],
                        "the line goes with the success")
         XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
@@ -293,8 +293,8 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
         let lines = attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
-        XCTAssertEqual(lines.map(\.title), ["Usage line edited by hand"])
-        XCTAssertEqual((lines.first?.representedObject as? SetupAttention)?.section, .sessions)
+        XCTAssertEqual(lines.map(\.title), ["Claude Code usage line edited by hand"])
+        XCTAssertEqual((lines.first?.representedObject as? SetupAttention)?.section, .agents)
         XCTAssertEqual(try Data(contentsOf: file), bytes)
     }
 
@@ -308,7 +308,7 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
 
-        controller.setHooks(.claude, installed: true)
+        controller.setAgent(.claude, installed: true)
         let golden = LocalAPI.installedHookCommand(for: .claude)
         let hooks = try XCTUnwrap(try settings(.claude)["hooks"] as? [String: Any])
         XCTAssertEqual(Set(hooks.keys), Set(AgentSource.claude.hookEvents))
@@ -320,12 +320,13 @@ final class MenuTests: XCTestCase {
         }
         XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .current)
 
-        controller.setHooks(.claude, installed: false)
+        controller.setAgent(.claude, installed: false)
         let after = try settings(.claude)
         XCTAssertEqual(after["model"] as? String, "opus")
         let left = try XCTUnwrap(after["hooks"] as? [String: Any])
         XCTAssertEqual(Array(left.keys), ["Stop"], "only Evlat's groups went")
         XCTAssertEqual(try HookSettings.state(at: file, for: .claude), .missing)
+        XCTAssertNil(after["statusLine"], "the usage line went with them")
     }
 
     /// Like the edge: the file is written, the open list closes, and Evlat
@@ -343,7 +344,7 @@ final class MenuTests: XCTestCase {
         }
         controller.hover.openNow()
 
-        controller.setHooks(.claude, installed: true)
+        controller.setAgent(.claude, installed: true)
         XCTAssertEqual(try HookSettings.state(at: AgentSource.claude.settingsFile(home: home), for: .claude),
                        .current)
         XCTAssertFalse(controller.barState.isOpen, "the open list closes")
@@ -352,7 +353,9 @@ final class MenuTests: XCTestCase {
         XCTAssertFalse(panel.isKeyWindow)
     }
 
-    func testTheUsageWriterInstallsThenRemoves() throws {
+    /// The usage line goes in with the hooks and can go out alone, the
+    /// user's status line back as it was.
+    func testTheUsageLineComesWithTheHooksAndGoesAlone() throws {
         try agentDirectory(.claude)
         let file = AgentSource.claude.settingsFile(home: home)
         let original = #"{"model": "opus", "statusLine": {"type": "command", "command": "bash ~/s.sh", "padding": 0}}"#
@@ -360,16 +363,19 @@ final class MenuTests: XCTestCase {
         let controller = controller(home: home)
         defer { controller.panel?.close() }
 
-        controller.setUsageRelay(installed: true, source: .claude)
+        controller.setAgent(.claude, installed: true)
         let line = try XCTUnwrap(try settings(.claude)["statusLine"] as? [String: Any])
         XCTAssertEqual(line["command"] as? String, StatusLineRelay.command(wrapping: "bash ~/s.sh", source: .claude))
         XCTAssertEqual(line["padding"] as? Int, 0)
         XCTAssertEqual(try StatusLineRelay.state(at: file, source: .claude), .current)
 
-        controller.setUsageRelay(installed: false, source: .claude)
-        let back = try JSONSerialization.jsonObject(with: Data(original.utf8)) as? [String: Any]
-        XCTAssertTrue(NSDictionary(dictionary: try settings(.claude)).isEqual(to: try XCTUnwrap(back)))
-        XCTAssertNil(controller.usageRelayFailure(.claude))
+        controller.removeUsageRelay(.claude)
+        let back = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(original.utf8)) as? [String: Any])
+        let now = try settings(.claude)
+        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(now["statusLine"] as? [String: Any]))
+            .isEqual(to: try XCTUnwrap(back["statusLine"] as? [String: Any])))
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current, "the hooks stay")
+        XCTAssertNil(controller.agentFailure(.claude))
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")), [], "no failure line")
     }
 
@@ -378,10 +384,13 @@ final class MenuTests: XCTestCase {
         try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: AgentSource.claude.settingsFile(home: home))
         let controller = controller(home: home)
         defer { controller.panel?.close() }
-        controller.setUsageRelay(installed: true, source: .claude)
-        XCTAssertEqual(controller.usageRelayFailure(.claude), .malformed)
+        controller.setAgent(.claude, installed: true)
+        XCTAssertEqual(controller.agentFailure(.claude), AgentIntegration.Failure(part: .usage, reason: .malformed),
+                       "the part that was refused is named")
+        XCTAssertEqual(try LocalHooks.state(at: AgentSource.claude.settingsFile(home: home), for: .claude), .current,
+                       "the hooks of the same write went in")
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
-                        .map { $0.representedObject as? SetupAttention }, [.refused(.usageRelay)])
+                        .map { $0.representedObject as? SetupAttention }, [.refused(.agent(.claude))])
     }
 
     // MARK: - The home

@@ -644,10 +644,9 @@ final class RemoteMachinesModel: ObservableObject {
         let wrapping = (try? JSONSerialization.data(withJSONObject: manual.wrapping,
                                                     options: [.fragmentsAllowed, .withoutEscapingSlashes]))
             .map { String(decoding: $0, as: UTF8.self) } ?? manual.wrapping
-        return [
-            Block(id: "claude", captionKey: "remote.manual.claude", text: manual.claudeHooks),
-            Block(id: "codex", captionKey: "remote.manual.codex", text: manual.codexHooks),
-            Block(id: "antigravity", captionKey: "remote.manual.antigravity", text: manual.antigravityHooks),
+        return AgentSource.allCases.map {
+            Block(id: $0.rawValue, captionKey: "remote.manual.\($0.rawValue)", text: manual.hooks(for: $0))
+        } + [
             Block(id: "statusLine", captionKey: "remote.manual.statusLine", text: manual.statusLine),
             Block(id: "wrapping", captionKey: "remote.manual.wrapping", text: wrapping),
         ]

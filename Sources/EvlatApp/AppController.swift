@@ -24,12 +24,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// one (`resolvedHome`), so a test never reads or writes `~/.claude` or
     /// `~/.codex`. `nil` draws no hook entry and never calls the writer.
     private let home: URL?
-    /// The one thing kept about the hook entries: each source's last refused
-    /// write, drawn as a dim line under its entry until a write succeeds.
-    /// The state itself is read from the file every time a menu is built.
-    private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
-    /// The same for each agent's status line relay entry.
-    private var usageFailures: [AgentSource: SettingsFile.Failure] = [:]
+    /// The one thing kept about the agents' cards: each agent's last refused
+    /// write and the part it stopped in, drawn as a dim line on its card
+    /// until a write succeeds. The state itself is read from the files every
+    /// time a menu is built.
+    private var agentFailures: [AgentSource: AgentIntegration.Failure] = [:]
     /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
@@ -188,7 +187,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before the chime (Settings → General);
     /// 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
-    /// Settings → Sessions → Git branch (`BranchDisplay`). Handed to the
+    /// Settings → Agents → Git branch (`BranchDisplay`). Handed to the
     /// rows, and read by the card's reader so that `off` reads nothing.
     var branchDisplay: BranchDisplay = .auto {
         didSet { sessionRows.branchDisplay = branchDisplay }
@@ -197,7 +196,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// notification (off unless turned on, which asks macOS first).
     var nudgeSound = true
     var nudgeNotify = false
-    /// Settings → Sessions → Usage: leave out a window not seen for the
+    /// Settings → Usage: leave out a window not seen for the
     /// hour (`UsageBlockModel.lines`). Off unless turned on.
     var hidesStaleUsage = false
     private var waitingNudge = WaitingNudge()
@@ -601,7 +600,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Where the chats are kept (`ChatStore.root`) — only with a home: a
     /// controller built without one (every test) never touches disk, the
-    /// rule `hookFailures`' writer follows.
+    /// rule `agentFailures`' writer follows.
     nonisolated static func chatRoot(
         home: URL?, environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
@@ -2180,13 +2179,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                     RemoteMachinesModel.offersPassword(remote.state(of: machine.id)) ? machine.name : nil
                 }
             },
-            setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
-            setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0, source: .claude) },
-            setAntigravityUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0, source: .antigravity) },
+            setAgent: { [weak self] source, installed in self?.setAgent(source, installed: installed) },
+            removeUsageRelay: { [weak self] in self?.removeUsageRelay($0) },
             setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
             setLoginItem: { [weak self] in self?.setLoginItem(on: $0) },
-            hookFailure: { [weak self] in self?.hookFailure($0) },
-            usageFailure: { [weak self] in self?.usageRelayFailure($0) },
+            agentFailure: { [weak self] in self?.agentFailure($0) },
             commandLinkFailure: { [weak self] in self?.commandLinkFailure },
             loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
     }
@@ -2288,7 +2285,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     @objc func openSettingsFromMenu(_ sender: Any?) { openSettings() }
 
     /// `EVLAT_SETTINGS=<section>` opens the settings at launch at that
-    /// section (`general`, `sessions`, `chat`, `command`, `remote`) — for
+    /// section (`general`, `agents`, `usage`, `chat`, `command`, `remote`) — for
     /// looking at one, the same pattern as `EVLAT_SELECT`. It only reads:
     /// nothing is pressed. An unknown value opens nothing.
     nonisolated static func forcedSettings(
@@ -3167,7 +3164,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The nudge's minutes. Choosing one plays the chime, so the sound is
     /// known before it comes unannounced.
-    /// Settings → Sessions → Git branch. Stored, then drawn at once: the
+    /// Settings → Agents → Git branch. Stored, then drawn at once: the
     /// branches are read again so a switch to `on` shows every row's.
     func setBranchDisplay(_ display: BranchDisplay) {
         defaults?.set(display.storedValue, forKey: Self.branchDisplayKey)
@@ -3442,41 +3439,37 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     // failure each leaves is kept here, read by the windows and the menus'
     // attention lines. Without a home (every test) none writes.
 
-    /// A source's hooks installed or removed; the outcome is kept for the
+    /// An agent's parts — hooks, approval hook, usage line — installed or
+    /// removed as one (`AgentIntegration`); the outcome is kept for the
     /// next reader — no dialog, no success message; the state changing is
     /// the answer. Like the edge, the open list closes and nothing is
     /// activated.
-    func setHooks(_ source: AgentSource, installed: Bool) {
+    func setAgent(_ source: AgentSource, installed: Bool) {
         guard let home else { return }
-        let file = source.settingsFile(home: home)
-        do {
+        record(source) {
             if installed {
-                try LocalHooks.install(at: file, for: source)
+                try AgentIntegration.install(home: home, for: source)
             } else {
-                try LocalHooks.remove(at: file, for: source)
+                try AgentIntegration.remove(home: home, for: source)
             }
-            hookFailures[source] = nil
-        } catch {
-            hookFailures[source] = error as? HookSettings.Failure ?? .unwritable
         }
-        closeListAfterWrite()
     }
 
-    /// The status line relay, as `setHooks` does it: Claude's, or the
-    /// Antigravity CLI's.
-    func setUsageRelay(installed: Bool, source: AgentSource) {
-        guard let home, let file = source.statusLineFile(home: home) else { return }
-        var failure: SettingsFile.Failure?
+    /// The agent's usage line alone, taken out: its card's way to keep the
+    /// hooks without the relay.
+    func removeUsageRelay(_ source: AgentSource) {
+        guard let home else { return }
+        record(source) { try AgentIntegration.removeRelay(home: home, for: source) }
+    }
+
+    private func record(_ source: AgentSource, _ write: () throws -> Void) {
         do {
-            if installed {
-                try StatusLineRelay.install(at: file, source: source)
-            } else {
-                try StatusLineRelay.remove(at: file, source: source)
-            }
+            try write()
+            agentFailures[source] = nil
         } catch {
-            failure = error as? SettingsFile.Failure ?? .unwritable
+            agentFailures[source] = error as? AgentIntegration.Failure
+                ?? AgentIntegration.Failure(part: .hooks, reason: error as? SettingsFile.Failure ?? .unwritable)
         }
-        usageFailures[source] = failure
         closeListAfterWrite()
     }
 
@@ -3510,8 +3503,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    func hookFailure(_ source: AgentSource) -> SettingsFile.Failure? { hookFailures[source] }
-    func usageRelayFailure(_ source: AgentSource) -> SettingsFile.Failure? { usageFailures[source] }
+    func agentFailure(_ source: AgentSource) -> AgentIntegration.Failure? { agentFailures[source] }
 
     /// The intent may already have believed the bar closed.
     private func closeListAfterWrite() {

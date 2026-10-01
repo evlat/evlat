@@ -3,7 +3,7 @@ import SwiftUI
 import EvlatCore
 
 /// The settings window: the
-/// five sections on the left, a dot on the ones that want attention; the
+/// six sections on the left, a dot on the ones that want attention; the
 /// open section on the right under its title.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
@@ -49,7 +49,8 @@ struct SettingsView: View {
     @ViewBuilder private var section: some View {
         switch model.section {
         case .general: GeneralSection(model: model, setup: setup)
-        case .sessions: SessionsSection(model: model, setup: setup)
+        case .agents: AgentsSection(model: model, setup: setup)
+        case .usage: UsageSection(model: model)
         case .chat: ChatSection(model: model, recorder: model.recorder, setup: setup)
         case .commandLine: CommandSection(model: model, setup: setup)
         case .remote: RemoteSection(model: model.remote, settings: model)
@@ -308,42 +309,47 @@ private struct LoginRow: View {
     }
 }
 
-// MARK: - Sessions
+// MARK: - Agents
 
-private struct SessionsSection: View {
+/// A card for every agent in the catalogue: found or not, one state and
+/// one button each; and the git branch, which is the sessions'.
+private struct AgentsSection: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var setup: SetupModel
 
     var body: some View {
         let agents = setup.rows.filter { $0.item.agent != nil }
-        if agents.isEmpty {
-            Text(model.t("settings.sessions.none"))
-                .font(.system(size: 12.5))
-                .foregroundStyle(SettingsPalette.body)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            SettingsGroup(title: model.t("settings.sessions.agents"), note: model.t("settings.sessions.agents.note")) {
+        if !agents.isEmpty {
+            SettingsGroup(title: model.t("settings.agents.group"), note: model.t("settings.agents.note")) {
                 ForEach(agents) { SetupRowView(row: $0, model: setup) }
-            }
-        }
-        SettingsGroup(title: model.t("settings.sessions.usage")) {
-            ForEach([SetupItem.usageRelay, .antigravityUsageRelay].compactMap(setup.row)) {
-                SetupRowView(row: $0, model: setup)
-            }
-            RowBox {
-                HStack(spacing: 10) {
-                    RowTitle(name: model.t("settings.sessions.usage.hideStale"),
-                             detail: model.t("settings.sessions.usage.hideStale.detail"))
-                    Toggle("", isOn: Binding(get: { model.hidesStaleUsage }, set: { model.setHidesStaleUsage($0) }))
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .labelsHidden()
-                        .accessibilityLabel(model.t("settings.sessions.usage.hideStale"))
-                }
             }
         }
         SettingsGroup(title: model.t("settings.sessions.branch"), note: model.t("settings.sessions.branch.note")) {
             BranchRow(model: model)
+        }
+    }
+}
+
+// MARK: - Usage
+
+/// What the bar's usage block leaves out. The windows' order is not chosen
+/// here yet: the block draws them in its own order.
+private struct UsageSection: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        SettingsGroup(title: model.t("settings.usage.bar")) {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.usage.hideStale"),
+                             detail: model.t("settings.usage.hideStale.detail"))
+                    Toggle("", isOn: Binding(get: { model.hidesStaleUsage }, set: { model.setHidesStaleUsage($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.usage.hideStale"))
+                }
+            }
         }
     }
 }
