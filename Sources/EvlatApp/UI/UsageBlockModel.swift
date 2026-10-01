@@ -72,8 +72,8 @@ final class UsageBlockModel: ObservableObject {
 
     /// Writes what is drawn, and only when it changed. `now` is handed in —
     /// `refresh()` passes the clock, a test its own date.
-    func update(from usage: [Signal], now: Date) {
-        let next = Self.lines(from: usage, now: now)
+    func update(from usage: [Signal], now: Date, hidingStale: Bool = false) {
+        let next = Self.lines(from: usage, now: now, hidingStale: hidingStale)
         if lines != next { lines = next }
     }
 
@@ -86,12 +86,16 @@ final class UsageBlockModel: ObservableObject {
     ///
     /// A signal with no window, or no usable number, cannot be drawn and is
     /// left out; `--list` still prints it.
-    nonisolated static func lines(from usage: [Signal], now: Date) -> [UsageLine] {
+    ///
+    /// `hidingStale` (Settings → Sessions → Usage) drops stale windows the
+    /// same way, before the cap: a tool not used for the hour leaves the
+    /// block, and its group with it, until it reports again.
+    nonisolated static func lines(from usage: [Signal], now: Date, hidingStale: Bool = false) -> [UsageLine] {
         var groups: [(name: String, windows: [UsageWindow])] = []
         for signal in usage {
-            guard let window = window(signal),
-                  freshness(observedAt: window.observedAt, resetsAt: window.resetsAt, now: now) != .expired
-            else { continue }
+            guard let window = window(signal) else { continue }
+            let freshness = freshness(observedAt: window.observedAt, resetsAt: window.resetsAt, now: now)
+            guard freshness != .expired, !(hidingStale && freshness == .stale) else { continue }
             if groups.last?.name == window.group {
                 groups[groups.count - 1].windows.append(window)
             } else {

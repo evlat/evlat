@@ -129,6 +129,34 @@ final class UsageBlockTests: XCTestCase {
         XCTAssertLessThanOrEqual(lines.count, UsageBlockModel.maxLines)
     }
 
+    /// Hidden stale windows go before the cap like reset ones: the group of
+    /// a tool not used for the hour leaves whole, and drawn otherwise.
+    func testHidingStaleLeavesOutAToolNotSeenForTheHour() {
+        let staleAgo = UsageBlockModel.staleAfter + 60
+        let signals = [usage("Claude", 300), usage("Claude", 10080),
+                       usage("Codex", 300, seenAgo: staleAgo), usage("Codex", 10080, seenAgo: staleAgo),
+                       usage("Gemini", 300, seenAgo: 60)]
+        XCTAssertEqual(UsageBlockModel.lines(from: signals, now: now, hidingStale: true).map(\.id),
+                       ["group:Claude", "usage:Claude:300", "usage:Claude:10080",
+                        "group:Gemini", "usage:Gemini:300"])
+        XCTAssertEqual(UsageBlockModel.lines(from: signals, now: now).count, 8, "off: drawn dimmed, as before")
+    }
+
+    func testHidingStaleIsAStoredSetting() throws {
+        let suite = "evlat.tests.usage.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = AppController(defaults: defaults)
+        XCTAssertFalse(controller.hidesStaleUsage, "off unless turned on")
+        controller.setHidesStaleUsage(true)
+        XCTAssertTrue(defaults.bool(forKey: AppController.hideStaleUsageKey))
+        let host = controller.settingsHost
+        XCTAssertTrue(host.hidesStaleUsage(), "the settings window reads the controller's")
+        host.setHidesStaleUsage(false)
+        XCTAssertFalse(controller.hidesStaleUsage)
+        XCTAssertFalse(defaults.bool(forKey: AppController.hideStaleUsageKey))
+    }
+
     /// A number that cannot be drawn is left out, not drawn as zero.
     func testAWindowWithoutANumberIsLeftOut() {
         let lines = UsageBlockModel.lines(from: [usage("Claude", 300, nil),
