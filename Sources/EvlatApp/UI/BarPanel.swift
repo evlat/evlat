@@ -24,6 +24,15 @@ public final class BarPanel: NSPanel {
             reposition()
         }
     }
+    /// The screen the bar is pinned to, by `BarDisplay.id`; `nil` is the
+    /// main screen. Changed in place like `edge`. A pinned screen that is
+    /// not connected leaves the bar on the main one, and the value stays:
+    /// the next `reposition` after the screen returns puts the bar back.
+    public var display: String? {
+        didSet {
+            if display != oldValue { reposition() }
+        }
+    }
     /// The two sizes the window can take. The panel is their only owner: the
     /// hosting view never resizes the window (see `sizingOptions` below). The
     /// app builds both at the envelope's size and never resizes; the
@@ -126,19 +135,25 @@ public final class BarPanel: NSPanel {
     public override var canBecomeKey: Bool { false }
     public override var canBecomeMain: Bool { false }
 
-    /// Places the bar on `screen`, or else on the **main screen** — the
-    /// first, the one with the menu bar. Not `NSScreen.main`, which is the
-    /// key window's screen and moves with focus, and not the window's own
-    /// screen, which is no screen at all once its display is gone. With no
-    /// screen the bar stays where it is.
+    /// Places the bar on the pinned screen (`display`) while it is
+    /// connected, or else on the **main screen** — the first, the one with
+    /// the menu bar. Not `NSScreen.main`, which is the key window's screen
+    /// and moves with focus, and not the window's own screen, which is no
+    /// screen at all once its display is gone. With no screen the bar stays
+    /// where it is. A `screen` handed in wins over both.
     public func reposition(on screen: NSScreen? = nil) {
-        let screens = screen.map { [$0] } ?? NSScreen.screens
+        let frames: (frame: NSRect, visibleFrame: NSRect)
+        if let screen {
+            frames = (screen.frame, screen.visibleFrame)
+        } else if let chosen = BarDisplay.chosen(display, among: BarDisplay.connected) {
+            frames = (chosen.frame, chosen.visibleFrame)
+        } else {
+            return
+        }
         // The size it has now, not the one it was built with: a screen
         // change while the bar is open keeps it open.
-        guard let origin = Self.origin(edge: edge,
-                                       screens: screens.map { ($0.frame, $0.visibleFrame) },
-                                       size: frame.size, anchorLength: anchorLength) else { return }
-        setFrameOrigin(origin)
+        setFrameOrigin(Self.origin(edge: edge, visibleFrame: frames.visibleFrame, frame: frames.frame,
+                                   size: frame.size, anchorLength: anchorLength))
     }
 
     /// The origin on the first of `screens`; `nil` without one. Apart from

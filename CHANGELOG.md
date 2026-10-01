@@ -8,6 +8,14 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.1.9
+
+- **Choose the screen the bar sits on** (Settings → General → Screen, or
+  **Screen** in the mascot's menu), shown when more than one screen is
+  connected. Unplug the chosen screen and the bar waits on the main one;
+  plug it back in and the bar returns. If the bar's edge borders another
+  screen, Settings says the bar may be hard to open there.
+
 ## 0.1.8
 
 - **Answer Claude's questions from the bar.** When Claude Code asks you a

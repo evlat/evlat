@@ -17,6 +17,11 @@ final class SettingsModel: ObservableObject {
     struct Host {
         var edge: () -> BarPanel.Edge
         var setEdge: (BarPanel.Edge) -> Void
+        /// General's "Screen": the connected screens (main first), the
+        /// pinned one with its name (`nil` is the main screen), and its writer.
+        var displays: () -> [BarDisplay] = { [] }
+        var display: () -> (id: String, name: String)? = { nil }
+        var setDisplay: (String?) -> Void = { _ in }
         var isHotKeyOn: () -> Bool
         var setHotKey: (Bool) -> Void
         var hotKey: () -> HotKeyCombination
@@ -116,6 +121,52 @@ final class SettingsModel: ObservableObject {
         host.setEdge(edge)
         objectWillChange.send()
     }
+
+    /// One entry of the screen picker. `id` `nil` is the main screen.
+    struct DisplayChoice: Equatable, Identifiable {
+        let id: String?
+        let title: String
+    }
+
+    /// The screen row is shown only when there is a choice: more than one
+    /// screen, or a pinned one that is unplugged. One screen is no choice.
+    var showsDisplay: Bool {
+        host.displays().count > 1 || (host.display().map { pin in
+            !host.displays().contains { $0.id == pin.id }
+        } ?? false)
+    }
+
+    /// The main screen, each connected one by name (a repeated name
+    /// numbered), and the pinned one while it is unplugged — said so, and
+    /// still selected, so the picker never shows a choice that is not stored.
+    var displayChoices: [DisplayChoice] {
+        let connected = host.displays()
+        var choices = [DisplayChoice(id: nil, title: t("settings.general.display.main"))]
+        choices += zip(connected, BarDisplay.titles(connected)).map { DisplayChoice(id: $0.id, title: $1) }
+        if let pin = host.display(), !connected.contains(where: { $0.id == pin.id }) {
+            choices.append(DisplayChoice(id: pin.id, title: t("settings.general.display.missing", ["name": pin.name])))
+        }
+        return choices
+    }
+
+    var display: String? { host.display()?.id }
+
+    func setDisplay(_ id: String?) {
+        guard id != host.display()?.id else { return }
+        host.setDisplay(id)
+        objectWillChange.send()
+    }
+
+    /// Whether the bar, where it is now — the pinned screen if connected,
+    /// else the main one — sits on a seam between two screens.
+    var displayOnSeam: Bool {
+        let connected = host.displays()
+        guard let screen = BarDisplay.chosen(display, among: connected) else { return false }
+        return BarDisplay.hasNeighbour(beyond: edge, of: screen, among: connected)
+    }
+
+    /// A screen came or went: the row lists what is connected now.
+    func screensChanged() { objectWillChange.send() }
 
     var bodyMode: BodyPresence.Mode { host.bodyMode() }
     var bodyToggles: BodyPresence.Toggles { host.bodyToggles() }
@@ -271,6 +322,8 @@ final class SettingsModel: ObservableObject {
         "settings.window.title",
         "settings.general.bar", "settings.general.edge", "settings.general.edge.detail",
         "settings.general.edge.left", "settings.general.edge.right", "settings.general.start",
+        "settings.general.display", "settings.general.display.detail", "settings.general.display.main",
+        "settings.general.display.missing", "settings.general.display.seam",
         "settings.general.body", "settings.general.body.detail", "settings.general.body.always",
         "settings.general.body.smart", "settings.general.body.hidden",
         "settings.general.body.sliver", "settings.general.body.sliver.detail",

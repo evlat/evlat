@@ -41,9 +41,19 @@ final class MenuTests: XCTestCase {
         func currentSignals() -> [Signal] { signals }
     }
 
+    /// Screens this Mac may not have: the menus' titles must not depend on
+    /// how many monitors the machine running the tests has.
+    nonisolated static let builtIn = BarDisplay(id: "BUILT-IN", name: "Built-in Retina Display",
+                                    frame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+                                    visibleFrame: NSRect(x: 0, y: 0, width: 1512, height: 949))
+    nonisolated static let dell = BarDisplay(id: "DELL", name: "DELL U2720Q",
+                                 frame: NSRect(x: 1512, y: 0, width: 2560, height: 1440),
+                                 visibleFrame: NSRect(x: 1512, y: 0, width: 2560, height: 1440))
+
     private func controller(edge: BarPanel.Edge = .right, rows: Int = 0,
-                            home: URL? = nil) -> AppController {
+                            home: URL? = nil, displays: [BarDisplay] = [builtIn]) -> AppController {
         let controller = AppController(defaults: defaults, home: home)
+        controller.displays = { displays }
         let provider = Stub()
         controller.registry.register(provider)
         controller.installPanel(edge: edge)
@@ -447,6 +457,75 @@ final class MenuTests: XCTestCase {
         defer { controller.panel?.close() }
         try edgeMenu(controller.makeMenu(diagnostics: false, in: "en")).performActionForItem(at: 1)
         XCTAssertEqual(controller.panel?.edge, .left, "applied without storage too")
+    }
+
+    // MARK: - The screen
+
+    private func displayMenu(_ menu: NSMenu) throws -> NSMenu {
+        try XCTUnwrap(menu.items.first { $0.title == "Screen" }?.submenu, "a Screen entry")
+    }
+
+    /// One screen is no choice: the menu stays as it was.
+    func testOneScreenHasNoScreenEntry() {
+        let controller = controller()
+        defer { controller.panel?.close() }
+        XCTAssertFalse(titles(controller.makeMenu(diagnostics: false, in: "en")).contains("Screen"))
+    }
+
+    func testTwoScreensAddAScreenEntryAfterTheEdge() throws {
+        let controller = controller(displays: [Self.builtIn, Self.dell])
+        defer { controller.panel?.close() }
+        let menu = controller.makeMenu(diagnostics: false, in: "en")
+        XCTAssertEqual(titles(menu), ["Edge", "Screen", "Shortcut: ⇧⌘Space", "—",
+                                      "Settings…", "Setup…", "Quit Evlat"])
+        let screens = try displayMenu(menu)
+        XCTAssertEqual(titles(screens), ["Main screen", "—", "Built-in Retina Display", "DELL U2720Q"])
+        XCTAssertEqual(screens.items.map(\.state), [.on, .off, .off, .off], "nothing stored is the main screen")
+        let tr = controller.makeMenu(diagnostics: false, in: "tr")
+        XCTAssertEqual(tr.items[1].title, "Ekran")
+        XCTAssertEqual(tr.items[1].submenu?.items.first?.title, "Ana ekran")
+    }
+
+    /// The entry stores the screen's id and name, pins the panel and
+    /// activates nothing; the main screen stores nothing again.
+    func testChoosingAScreenStoresItPinsAndTakesNoFocus() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let controller = controller(displays: [Self.builtIn, Self.dell])
+        let panel = try XCTUnwrap(controller.panel)
+        defer { panel.close() }
+        panel.show()
+        XCTAssertFalse(isFrontmost(), "precondition: the test runner is not frontmost")
+
+        try displayMenu(controller.makeMenu(diagnostics: false, in: "en")).performActionForItem(at: 3)
+        XCTAssertEqual(defaults.string(forKey: AppController.displayKey), "DELL")
+        XCTAssertEqual(defaults.string(forKey: AppController.displayNameKey), "DELL U2720Q")
+        XCTAssertEqual(panel.display, "DELL")
+        XCTAssertEqual(try displayMenu(controller.makeMenu(diagnostics: false, in: "en")).items.map(\.state),
+                       [.off, .off, .off, .on])
+        XCTAssertFalse(isFrontmost(), "choosing a screen must not activate Evlat")
+        XCTAssertFalse(panel.isKeyWindow)
+
+        try displayMenu(controller.makeMenu(diagnostics: false, in: "en")).performActionForItem(at: 0)
+        XCTAssertNil(defaults.object(forKey: AppController.displayKey))
+        XCTAssertNil(defaults.object(forKey: AppController.displayNameKey))
+        XCTAssertNil(panel.display)
+    }
+
+    /// Unplugged, the pinned screen is still the choice: listed by the name
+    /// it was chosen under, marked, and kept in storage — even with one
+    /// screen left, so the user can let go of it.
+    func testAnUnpluggedScreenStaysPinnedAndListed() throws {
+        defaults.set("DELL", forKey: AppController.displayKey)
+        defaults.set("DELL U2720Q", forKey: AppController.displayNameKey)
+        let controller = AppController(defaults: defaults)
+        controller.displays = { [Self.builtIn] }
+        controller.installPanel(display: defaults.string(forKey: AppController.displayKey))
+        defer { controller.panel?.close() }
+        let screens = try displayMenu(controller.makeMenu(diagnostics: false, in: "en"))
+        XCTAssertEqual(titles(screens), ["Main screen", "—", "Built-in Retina Display",
+                                         "DELL U2720Q (not connected)"])
+        XCTAssertEqual(screens.items.map(\.state), [.off, .off, .off, .on])
+        XCTAssertEqual(defaults.string(forKey: AppController.displayKey), "DELL", "reading forgets nothing")
     }
 
     // MARK: - Right click

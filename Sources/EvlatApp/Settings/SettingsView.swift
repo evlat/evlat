@@ -115,6 +115,9 @@ private struct GeneralSection: View {
                     .accessibilityLabel(model.t("settings.general.edge"))
                 }
             }
+            if model.showsDisplay {
+                DisplayRow(model: model)
+            }
             BodyRows(model: model)
         }
         SettingsGroup(title: model.t("settings.general.nudge")) {
@@ -132,6 +135,35 @@ private struct GeneralSection: View {
                     Button(model.t("settings.general.setup.open")) { model.openSetup() }
                         .buttonStyle(SmallButtonStyle())
                 }
+            }
+        }
+    }
+}
+
+/// "Screen": the main screen or one pinned by name. Shown only when
+/// there is a choice (`SettingsModel.showsDisplay`).
+private struct DisplayRow: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.general.display"), detail: model.t("settings.general.display.detail"))
+                Picker("", selection: Binding(get: { model.display }, set: { model.setDisplay($0) })) {
+                    ForEach(model.displayChoices) { choice in
+                        Text(choice.title).tag(choice.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(model.t("settings.general.display"))
+            }
+            // A seam needs two screens, so this row is always there for it.
+            if model.displayOnSeam {
+                Text(model.t("settings.general.display.seam"))
+                    .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

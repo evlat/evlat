@@ -74,6 +74,9 @@
 "menu.edge" = "Edge";
 "menu.edge.right" = "Right";
 "menu.edge.left" = "Left";
+"menu.display" = "Screen";
+"menu.display.main" = "Main screen";
+"menu.display.missing" = "{name} (not connected)";
 "menu.quit" = "Quit Evlat";
 /* The menu-bar icon's only: a diagnostic that fixes the mascot on one phase
    (the phases are the status line's words), and the entry that lets it go. */
@@ -385,6 +388,11 @@
 "settings.general.edge.detail" = "Which edge of the screen the bar sits on.";
 "settings.general.edge.left" = "Left";
 "settings.general.edge.right" = "Right";
+"settings.general.display" = "Screen";
+"settings.general.display.detail" = "Which screen the bar sits on. If it is unplugged, the bar waits on the main screen.";
+"settings.general.display.main" = "Main screen (menu bar)";
+"settings.general.display.missing" = "{name} (not connected)";
+"settings.general.display.seam" = "This edge borders another screen. The cursor won't stop there, so the bar may be hard to open.";
 "settings.general.start" = "Startup";
 "settings.general.body" = "Body";
 "settings.general.body.detail" = "How the bar sits on the edge of the screen.";

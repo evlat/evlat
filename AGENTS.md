@@ -229,6 +229,14 @@ is lost with the process.
 
 - The bar is an `NSPanel` with `.nonactivatingPanel`: **clicking the bar must
   never take focus from the front app.**
+- **The bar sits on the main screen** (the menu bar's, `NSScreen.screens`'
+  first — never `NSScreen.main`, which follows focus) unless the user pins
+  another (Settings → General → Screen, the menu's *Screen ▸*; both shown
+  only with a choice). A pin is the display's UUID (`BarDisplay`,
+  `bar.display`), not its `CGDirectDisplayID`, which can change on a
+  replug. An unplugged pin is kept: the bar waits on the main screen and
+  the screen observer puts it back. An edge with another screen past it
+  is a seam the cursor runs through; Settings says so, nothing prevents it.
 - Windows that do take keyboard focus (Settings, Setup, the chat bubble) return
   focus to the previous app when they close.
 - `[Go to session]` brings the session's app forward (`SessionHost`). In

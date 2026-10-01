@@ -37,13 +37,18 @@ final class SettingsTests: XCTestCase {
         var loginPath: String?
         var bodyMode = BodyPresence.Mode.always
         var bodyToggles = BodyPresence.Toggles()
+        var displays: [BarDisplay] = []
+        var display: (id: String, name: String)?
+        var edge = BarPanel.Edge.right
         /// Runs in the `claude` lookup, before its answer.
         var onLookup: () -> Void = {}
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
         let host = SettingsModel.Host(
-            edge: { .right }, setEdge: { _ in }, isHotKeyOn: { true }, setHotKey: { _ in },
+            edge: { recorder.edge }, setEdge: { recorder.edge = $0 },
+            displays: { recorder.displays }, display: { recorder.display },
+            setDisplay: { id in recorder.display = id.map { id in (id, recorder.displays.first { $0.id == id }?.name ?? id) } }, isHotKeyOn: { true }, setHotKey: { _ in },
             hotKey: { .standard }, defaultMode: { recorder.mode }, setDefaultMode: { recorder.mode = $0 },
             locateClaude: { recorder.onLookup(); $0(recorder.claude) },
             memoryCount: { recorder.memory },
@@ -64,6 +69,65 @@ final class SettingsTests: XCTestCase {
             installer: RemoteInstaller(sshPath: "/nonexistent"), lang: "en")
         return SettingsModel(host: host, setup: setup, remote: remote,
                              recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }), lang: "en")
+    }
+
+    private static func screen(_ id: String, _ name: String, x: CGFloat) -> BarDisplay {
+        let frame = NSRect(x: x, y: 0, width: 1920, height: 1080)
+        return BarDisplay(id: id, name: name, frame: frame, visibleFrame: frame)
+    }
+
+    /// One screen is no choice: no row.
+    func testTheScreenRowWaitsForASecondScreen() {
+        let recorder = Recorder()
+        recorder.displays = [Self.screen("A", "Built-in", x: 0)]
+        let model = model(recorder)
+        XCTAssertFalse(model.showsDisplay)
+        recorder.displays.append(Self.screen("B", "DELL", x: 1920))
+        XCTAssertTrue(model.showsDisplay)
+        XCTAssertEqual(model.displayChoices.map(\.title), ["Main screen (menu bar)", "Built-in", "DELL"])
+        XCTAssertEqual(model.displayChoices.map(\.id), [nil, "A", "B"])
+        XCTAssertNil(model.display)
+    }
+
+    func testTheScreenRowGoesToTheWriter() {
+        let recorder = Recorder()
+        recorder.displays = [Self.screen("A", "Built-in", x: 0), Self.screen("B", "DELL", x: 1920)]
+        let model = model(recorder)
+        model.setDisplay("B")
+        XCTAssertEqual(recorder.display?.id, "B")
+        XCTAssertEqual(model.display, "B")
+        model.setDisplay(nil)
+        XCTAssertNil(recorder.display)
+    }
+
+    /// Unplugged, the pinned screen stays the selection, said so; the row
+    /// stays even with one screen left, so it can be let go of.
+    func testAnUnpluggedScreenStaysTheSelection() {
+        let recorder = Recorder()
+        recorder.displays = [Self.screen("A", "Built-in", x: 0)]
+        recorder.display = ("B", "DELL")
+        let model = model(recorder)
+        XCTAssertTrue(model.showsDisplay)
+        XCTAssertEqual(model.displayChoices.last, .init(id: "B", title: "DELL (not connected)"))
+        XCTAssertEqual(model.display, "B")
+    }
+
+    /// The seam note follows the edge and the screen in force: the left
+    /// screen's right edge is a seam, its left edge a wall; an unplugged
+    /// pin is judged on the main screen the bar waits on.
+    func testTheSeamNoteFollowsTheEdgeAndTheScreen() {
+        let recorder = Recorder()
+        recorder.displays = [Self.screen("L", "Left", x: 0), Self.screen("R", "Right", x: 1920)]
+        let model = model(recorder)
+        XCTAssertTrue(model.displayOnSeam, "main is the left screen, docked right")
+        model.setEdge(.left)
+        XCTAssertFalse(model.displayOnSeam)
+        model.setDisplay("R")
+        XCTAssertTrue(model.displayOnSeam, "the right screen's left edge")
+        model.setEdge(.right)
+        XCTAssertFalse(model.displayOnSeam)
+        recorder.display = ("GONE", "Old")
+        XCTAssertTrue(model.displayOnSeam, "waiting on the main one, docked right")
     }
 
     func testTheDotsFollowTheAttentionList() {

@@ -46,6 +46,9 @@
 "menu.edge" = "Kenar";
 "menu.edge.right" = "Sağ";
 "menu.edge.left" = "Sol";
+"menu.display" = "Ekran";
+"menu.display.main" = "Ana ekran";
+"menu.display.missing" = "{name} (bağlı değil)";
 "menu.quit" = "Evlat'tan Çık";
 "menu.force" = "Durumu zorla";
 "menu.force.follow" = "Oturumları izle";
@@ -328,6 +331,11 @@
 "settings.general.edge.detail" = "Bar ekranın hangi kenarında dursun.";
 "settings.general.edge.left" = "Sol";
 "settings.general.edge.right" = "Sağ";
+"settings.general.display" = "Ekran";
+"settings.general.display.detail" = "Bar hangi ekranda dursun. Ekran çıkarılırsa bar ana ekranda bekler.";
+"settings.general.display.main" = "Ana ekran (menü çubuğu)";
+"settings.general.display.missing" = "{name} (bağlı değil)";
+"settings.general.display.seam" = "Bu kenar başka bir ekrana bitişik. İmleç orada durmadığı için barı açmak zorlaşabilir.";
 "settings.general.start" = "Başlangıç";
 "settings.general.body" = "Gövde";
 "settings.general.body.detail" = "Bar ekran kenarında nasıl dursun.";

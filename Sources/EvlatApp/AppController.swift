@@ -675,6 +675,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// prefix keeps the two apart.
     nonisolated static let edgeKey = "bar.edge"
 
+    /// The pinned screen's id (`BarDisplay.id`) and its name when it was
+    /// chosen — the name so Settings can say which screen is missing while
+    /// it is unplugged. Nothing stored is the main screen, today's bar.
+    nonisolated static let displayKey = "bar.display"
+    nonisolated static let displayNameKey = "bar.display.name"
+
     /// The setup was shown: set the first time it opens, so it
     /// opens by itself once. Written only by a process that is not isolated.
     nonisolated static let setupSeenKey = "setup.seen"
@@ -1199,7 +1205,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyForced = Self.forcedBodyMode() != nil
         // The environment over the stored choice, the right over nothing.
         // Read here, never written back: only `setEdge` writes.
-        let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right)
+        let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right,
+                                 display: defaults?.string(forKey: Self.displayKey))
         panel.show()
         hover.onChange = { [weak self] open in
             guard let self else { return }
@@ -1263,6 +1270,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // moves under it would leave it pointing at nothing.
                 self?.closeChat()
                 panel?.reposition()
+                // The screen row lists what is connected now.
+                self?.settings?.screensChanged()
             }
         }
     }
@@ -1279,7 +1288,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The edge is handed in: this reads neither the environment nor the
     /// stored setting, so a test never docks by the user's choice.
     @discardableResult
-    func installPanel(edge: BarPanel.Edge = .right) -> BarPanel {
+    func installPanel(edge: BarPanel.Edge = .right, display: String? = nil) -> BarPanel {
         // The body's edge is written here once, before it is drawn; after
         // this only `dock` writes it.
         barState.edge = edge
@@ -1312,6 +1321,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             self?.drag(drag) ?? false
         }
         rowSwitch.onSelect = { [weak self] entity in self?.select(entity) }
+        panel.display = display
         self.panel = panel
         // The hover areas are the rule's to set, from the first one on.
         applyPresence()
@@ -2105,6 +2115,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         SettingsModel.Host(
             edge: { [weak self] in self?.barState.edge ?? .right },
             setEdge: { [weak self] in self?.setEdge($0) },
+            displays: { [weak self] in self?.displays() ?? [] },
+            display: { [weak self] in self?.pinnedDisplay },
+            setDisplay: { [weak self] in self?.setDisplay($0) },
             isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
@@ -3139,6 +3152,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Every title the menus ask the catalogue for; the phases' are
     /// `StatusLine`'s and the attention lines' `SetupModel`'s.
     static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
+                           "menu.display", "menu.display.main", "menu.display.missing",
                            "menu.hotkey", "menu.hotkey.change", "menu.hotkey.off", "menu.hotkey.on",
                            "menu.quit", "menu.force", "menu.force.follow", "menu.settings", "menu.setup"]
 
@@ -3176,6 +3190,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let edgeItem = menu.addItem(withTitle: L10n.t("menu.edge", in: lang), action: nil,
                                     keyEquivalent: "")
         edgeItem.submenu = edges
+        addDisplayEntry(to: menu, in: lang)
         addHotKeyEntry(to: menu, in: lang)
 
         if diagnostics {
@@ -3381,6 +3396,75 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func setEdge(_ edge: BarPanel.Edge) {
         defaults?.set(Self.storedValue(edge), forKey: Self.edgeKey)
         dock(edge)
+    }
+
+    /// The connected screens, main first. A seam so a test can hand in
+    /// screens it does not have.
+    var displays: () -> [BarDisplay] = { BarDisplay.connected }
+
+    /// The pinned screen, connected or not, with the name it was chosen
+    /// under; `nil` is the main screen.
+    var pinnedDisplay: (id: String, name: String)? {
+        guard let id = panel?.display else { return nil }
+        let name = displays().first { $0.id == id }?.name
+            ?? defaults?.string(forKey: Self.displayNameKey) ?? id
+        return (id, name)
+    }
+
+    /// The screen, for every surface: stored, then applied at once — the
+    /// same panel moves, like `dock`. `nil` goes back to the main screen
+    /// and stores nothing. Activates nothing.
+    func setDisplay(_ id: String?) {
+        guard id != panel?.display else { return }
+        if let id {
+            defaults?.set(id, forKey: Self.displayKey)
+            if let name = displays().first(where: { $0.id == id })?.name {
+                defaults?.set(name, forKey: Self.displayNameKey)
+            }
+        } else {
+            defaults?.removeObject(forKey: Self.displayKey)
+            defaults?.removeObject(forKey: Self.displayNameKey)
+        }
+        closeChat()
+        hover.closeNow()
+        if barState.isOpen { closeBar() }
+        panel?.display = id
+        applyPresence()
+    }
+
+    /// *Screen ▸*: only when there is a choice — more than one screen, or
+    /// a pinned one that is unplugged. The main screen first, then each
+    /// connected one, then the missing pinned one, which can be left.
+    private func addDisplayEntry(to menu: NSMenu, in lang: String) {
+        let connected = displays()
+        let pinned = pinnedDisplay
+        let missing = pinned.flatMap { pin in connected.contains { $0.id == pin.id } ? nil : pin }
+        guard connected.count > 1 || missing != nil else { return }
+        let screens = NSMenu()
+        let main = screens.addItem(withTitle: L10n.t("menu.display.main", in: lang),
+                                   action: #selector(chooseDisplay(_:)), keyEquivalent: "")
+        main.state = pinned == nil ? .on : .off
+        main.target = self
+        screens.addItem(.separator())
+        for (display, title) in zip(connected, BarDisplay.titles(connected)) {
+            let entry = screens.addItem(withTitle: title, action: #selector(chooseDisplay(_:)), keyEquivalent: "")
+            entry.representedObject = display.id
+            entry.state = pinned?.id == display.id ? .on : .off
+            entry.target = self
+        }
+        if let missing {
+            let entry = screens.addItem(withTitle: L10n.t("menu.display.missing", ["name": missing.name], in: lang),
+                                        action: #selector(chooseDisplay(_:)), keyEquivalent: "")
+            entry.representedObject = missing.id
+            entry.state = .on
+            entry.target = self
+        }
+        let item = menu.addItem(withTitle: L10n.t("menu.display", in: lang), action: nil, keyEquivalent: "")
+        item.submenu = screens
+    }
+
+    @objc private func chooseDisplay(_ sender: NSMenuItem) {
+        setDisplay(sender.representedObject as? String)
     }
 
     @objc private func clearOverride() {
