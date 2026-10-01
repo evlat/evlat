@@ -80,6 +80,37 @@ struct RowTraits: Equatable {
     }
 }
 
+/// Settings → Sessions → Git branch: when a session's branch is drawn.
+/// Nothing stored is `auto`, which is what the bar did before the setting.
+public enum BranchDisplay: CaseIterable, Equatable {
+    /// Never: no row, no card, and no file read for it.
+    case off
+    /// On the card; on a row only where same-named sessions are on
+    /// different branches — the worktrees case (`SessionRowsModel.names`).
+    case auto
+    /// On the card and on every row whose folder is in a repository.
+    case on
+
+    /// The stored form (`rows.branch`). Anything else reads as `nil` and the
+    /// caller falls back to `auto`.
+    public init?(stored raw: String?) {
+        switch raw {
+        case "off": self = .off
+        case "auto": self = .auto
+        case "on": self = .on
+        default: return nil
+        }
+    }
+
+    public var storedValue: String {
+        switch self {
+        case .off: return "off"
+        case .auto: return "auto"
+        case .on: return "on"
+        }
+    }
+}
+
 /// One indicator's worth of a session: what is drawn, and nothing else.
 ///
 /// There is no stamp here on purpose. A hook row's stamp moves on every
@@ -96,9 +127,9 @@ public struct SessionRow: Equatable, Identifiable {
     /// 0, or this row's number among rows with the same name in the same tool
     /// on the same machine (2, 3, …). The first of them keeps the bare name.
     public let duplicate: Int
-    /// The git branch drawn after the name, when it is what tells this row
-    /// from another of the same name (`SessionRowsModel.names`); `nil`
-    /// otherwise, which is most rows.
+    /// The git branch drawn after the name, as the setting says
+    /// (`BranchDisplay`, `SessionRowsModel.names`); `nil` on most rows under
+    /// the default, which draws one only between same-named sessions.
     public let branch: String?
     /// When the column saw this row enter its phase; `nil` when it was first
     /// seen already in it — how long is not known, and the status line says
@@ -286,6 +317,10 @@ public final class SessionRowsModel: ObservableObject {
         branches.removeAll()
     }
 
+    /// When a branch is drawn (`BranchDisplay`). The shell sets it from the
+    /// setting and refreshes; the next `update` draws by it.
+    public var branchDisplay: BranchDisplay = .auto
+
     deinit { clock?.invalidate() }
 
     public var isBeating: Bool { clock != nil }
@@ -335,13 +370,17 @@ public final class SessionRowsModel: ObservableObject {
     /// order, so a number does not change when the rows reorder or
     /// scroll into the count.
     nonisolated static func duplicateNumbers(_ signals: [Signal]) -> [String: Int] {
-        names(signals, branch: { _ in nil }).mapValues(\.number).filter { $0.value > 0 }
+        names(signals, display: .off, branch: { _ in nil }).mapValues(\.number).filter { $0.value > 0 }
     }
 
     /// What tells same-named rows apart: a branch where they are on
     /// different ones, a number where nothing else does.
     ///
-    /// **A branch is drawn only inside a group of the same name** (tool and
+    /// `display` is the setting. `.off` draws no branch and reads nothing:
+    /// the numbers are today's. `.on` draws every row's branch it can read,
+    /// a row alone under its name included. `.auto` is the rule below.
+    ///
+    /// **Under `.auto` a branch is drawn only inside a group of the same name** (tool and
     /// tag, as for the numbers), and only when the group holds more than one
     /// branch — "no branch" counting as one. A row alone under its name stays
     /// bare, as it does today: most people run one session per repository and
@@ -352,9 +391,10 @@ public final class SessionRowsModel: ObservableObject {
     /// The numbers then run within (name, drawn branch): `shop-api ⑂ feat`
     /// twice is `shop-api` and `shop-api²`, both with the branch.
     ///
-    /// `branch` is asked only for the rows of a group of two or more, so a
-    /// column of distinct names touches no file.
-    nonisolated static func names(_ signals: [Signal], branch: (Signal) -> String?)
+    /// Under `.auto`, `branch` is asked only for the rows of a group of two
+    /// or more, so a column of distinct names touches no file.
+    nonisolated static func names(_ signals: [Signal], display: BranchDisplay,
+                                  branch: (Signal) -> String?)
         -> [String: (number: Int, branch: String?)] {
         // A struct, not a joined string: a sender may hold any separator.
         struct Group: Hashable {
@@ -367,9 +407,11 @@ public final class SessionRowsModel: ObservableObject {
             groups[key, default: []].append(signal)
         }
         var result: [String: (number: Int, branch: String?)] = [:]
-        for members in groups.values where members.count > 1 {
-            let read = Dictionary(uniqueKeysWithValues: members.map { ($0.entity, branch($0)) })
-            let drawn = Set(read.values).count > 1
+        for members in groups.values where members.count > 1 || display == .on {
+            let read = Dictionary(uniqueKeysWithValues: members.map {
+                ($0.entity, display == .off ? nil : branch($0))
+            })
+            let drawn = display == .on || (display == .auto && Set(read.values).count > 1)
             var byBranch: [String?: [String]] = [:]
             for member in members {
                 byBranch[drawn ? read[member.entity] ?? nil : nil, default: []].append(member.entity)
@@ -444,7 +486,7 @@ public final class SessionRowsModel: ObservableObject {
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity
         }
-        let names = Self.names(signals, branch: branch(of:))
+        let names = Self.names(signals, display: branchDisplay, branch: branch(of:))
         let folders = Set(signals.compactMap(\.detail))
         branches = branches.filter { folders.contains($0.key) }
         let next = ordered.map {

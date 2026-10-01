@@ -60,11 +60,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public let sessionRows = SessionRowsModel(readBranch: GitHead.branch(in:))
     /// The card's facts for the selected session. Written only while one is
     /// selected (`syncSelection`), observed by the card alone.
-    public let detail: DetailModel = {
-        let model = DetailModel()
-        model.resolveBranch = GitHead.branch(in:)
-        return model
-    }()
+    public let detail = DetailModel()
     /// The usage block's lines. Fed from the same snapshot in `refresh()`,
     /// observed by the open bar's block alone.
     let usageBlock = UsageBlockModel()
@@ -186,6 +182,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before the chime (Settings → General);
     /// 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
+    /// Settings → Sessions → Git branch (`BranchDisplay`). Handed to the
+    /// rows, and read by the card's reader so that `off` reads nothing.
+    var branchDisplay: BranchDisplay = .auto {
+        didSet { sessionRows.branchDisplay = branchDisplay }
+    }
     /// How the reminder tells a wait: the chime (on unless turned off) and a
     /// notification (off unless turned on, which asks macOS first).
     var nudgeSound = true
@@ -738,6 +739,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let bodyPeekWaitingKey = "bar.body.peekWaiting"
     nonisolated static let bodyPeekDoneKey = "bar.body.peekDone"
     nonisolated static let nudgeKey = "nudge.waitingMinutes"
+    /// When a session's branch is drawn; nothing stored is `auto`, the bar's
+    /// behaviour before the setting existed.
+    nonisolated static let branchDisplayKey = "rows.branch"
     nonisolated static let nudgeSoundKey = "nudge.sound"
     nonisolated static let nudgeNotifyKey = "nudge.notify"
     /// What the setting offers; 0 is off.
@@ -748,6 +752,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static func storedNudgeMinutes(_ defaults: UserDefaults?) -> Int {
         let minutes = defaults?.integer(forKey: nudgeKey) ?? 0
         return nudgeChoices.contains(minutes) ? minutes : 0
+    }
+
+    /// The stored branch display; nothing stored or an unknown value is `auto`.
+    nonisolated static func storedBranchDisplay(_ defaults: UserDefaults?) -> BranchDisplay {
+        BranchDisplay(stored: defaults?.string(forKey: branchDisplayKey)) ?? .auto
     }
 
     /// The stored mode; nothing stored or an unknown value is `always`.
@@ -1204,6 +1213,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         nudgeMinutes = Self.storedNudgeMinutes(defaults)
         nudgeSound = defaults?.object(forKey: Self.nudgeSoundKey) as? Bool ?? true
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
+        branchDisplay = Self.storedBranchDisplay(defaults)
+        detail.resolveBranch = { [weak self] folder in
+            self?.branchDisplay == .off ? nil : GitHead.branch(in: folder)
+        }
         notifier = WaitingNotifier.make()
         notifier?.onClick = { [weak self] entity in self?.select(entity) }
         bodyToggles = Self.storedBodyToggles(defaults)
@@ -2147,6 +2160,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
             setBodyToggles: { [weak self] in self?.setBodyToggles($0) },
+            branchDisplay: { [weak self] in self?.branchDisplay ?? .auto },
+            setBranchDisplay: { [weak self] in self?.setBranchDisplay($0) },
             nudgeMinutes: { [weak self] in self?.nudgeMinutes ?? 0 },
             setNudgeMinutes: { [weak self] in self?.setNudgeMinutes($0) },
             nudgeSound: { [weak self] in self?.nudgeSound ?? true },
@@ -3037,6 +3052,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The nudge's minutes. Choosing one plays the chime, so the sound is
     /// known before it comes unannounced.
+    /// Settings → Sessions → Git branch. Stored, then drawn at once: the
+    /// branches are read again so a switch to `on` shows every row's.
+    func setBranchDisplay(_ display: BranchDisplay) {
+        defaults?.set(display.storedValue, forKey: Self.branchDisplayKey)
+        branchDisplay = display
+        sessionRows.forgetBranches()
+        refresh()
+    }
+
     func setNudgeMinutes(_ minutes: Int) {
         defaults?.set(minutes, forKey: Self.nudgeKey)
         nudgeMinutes = minutes

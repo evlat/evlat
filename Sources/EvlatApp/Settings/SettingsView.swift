@@ -331,6 +331,42 @@ private struct SessionsSection: View {
                 SetupRowView(row: usage, model: setup)
             }
         }
+        SettingsGroup(title: model.t("settings.sessions.branch"), note: model.t("settings.sessions.branch.note")) {
+            BranchRow(model: model)
+        }
+    }
+}
+
+/// "Git branch": one choice, and under its name a line that says what the
+/// chosen one does — the three are told apart by what they show, not by
+/// their names.
+private struct BranchRow: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.sessions.branch.show"),
+                         detail: model.t(Self.detailKey(model.branchDisplay)))
+                Picker("", selection: Binding(get: { model.branchDisplay }, set: { model.setBranchDisplay($0) })) {
+                    Text(model.t("settings.sessions.branch.off")).tag(BranchDisplay.off)
+                    Text(model.t("settings.sessions.branch.auto")).tag(BranchDisplay.auto)
+                    Text(model.t("settings.sessions.branch.on")).tag(BranchDisplay.on)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(model.t("settings.sessions.branch.show"))
+            }
+        }
+    }
+
+    static func detailKey(_ display: BranchDisplay) -> String {
+        switch display {
+        case .off: return "settings.sessions.branch.off.detail"
+        case .auto: return "settings.sessions.branch.auto.detail"
+        case .on: return "settings.sessions.branch.on.detail"
+        }
     }
 }
 

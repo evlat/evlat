@@ -42,6 +42,9 @@ final class SettingsModel: ObservableObject {
         var setBodyMode: (BodyPresence.Mode) -> Void = { _ in }
         var bodyToggles: () -> BodyPresence.Toggles = { BodyPresence.Toggles() }
         var setBodyToggles: (BodyPresence.Toggles) -> Void = { _ in }
+        /// Sessions' "Git branch": when a session's branch is drawn.
+        var branchDisplay: () -> BranchDisplay = { .auto }
+        var setBranchDisplay: (BranchDisplay) -> Void = { _ in }
         /// General's "Waiting reminder": minutes, 0 is off.
         var nudgeMinutes: () -> Int = { 0 }
         var setNudgeMinutes: (Int) -> Void = { _ in }
@@ -167,6 +170,14 @@ final class SettingsModel: ObservableObject {
 
     /// A screen came or went: the row lists what is connected now.
     func screensChanged() { objectWillChange.send() }
+
+    var branchDisplay: BranchDisplay { host.branchDisplay() }
+
+    func setBranchDisplay(_ display: BranchDisplay) {
+        guard display != host.branchDisplay() else { return }
+        host.setBranchDisplay(display)
+        objectWillChange.send()
+    }
 
     var bodyMode: BodyPresence.Mode { host.bodyMode() }
     var bodyToggles: BodyPresence.Toggles { host.bodyToggles() }

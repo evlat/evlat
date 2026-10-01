@@ -15,6 +15,11 @@ Markdown; keep it to a few bullets.
   connected. Unplug the chosen screen and the bar waits on the main one;
   plug it back in and the bar returns. If the bar's edge borders another
   screen, Settings says the bar may be hard to open there.
+- **Tell worktrees apart.** When sessions of the same repository share a
+  name but sit on different branches, each row on the bar now shows its
+  branch instead of a number. A session's card always shows its branch.
+  Settings → Sessions → Git branch turns this off, or on for every session.
+  Sessions on remote machines show no branch.
 
 ## 0.1.8
 

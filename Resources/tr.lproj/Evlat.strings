@@ -368,6 +368,15 @@
 "settings.sessions.agents.note" = "İlk yazımdan önce dosyanın yanına .evlat.bak yedeği alınır. Açık Claude oturumlarında değişiklik /hooks ile yüklenir.";
 "settings.sessions.usage" = "Kullanım";
 "settings.sessions.none" = "Bu Mac'te Claude Code da Codex de yok. Biri kurulunca satırı burada çıkar.";
+"settings.sessions.branch" = "Git branch";
+"settings.sessions.branch.note" = "Oturumun bu Mac'teki klasöründen okunur. Uzak makinelerdeki oturumlarda görünmez.";
+"settings.sessions.branch.show" = "Branch'i göster";
+"settings.sessions.branch.off" = "Kapalı";
+"settings.sessions.branch.auto" = "Otomatik";
+"settings.sessions.branch.on" = "Açık";
+"settings.sessions.branch.off.detail" = "Hiç gösterilmez.";
+"settings.sessions.branch.auto.detail" = "Kartta gösterilir. Barda yalnızca aynı adlı oturumlar farklı branch'lerdeyse.";
+"settings.sessions.branch.on.detail" = "Kartta ve git deposundaki her oturumun yanında gösterilir.";
 "settings.chat.open" = "Açmak";
 "settings.chat.hotkey" = "Kısayol";
 "settings.chat.hotkey.detail" = "Sistemin kullandığı bir tuşu kabul etmez. Maskota tıklamak her zaman açar.";

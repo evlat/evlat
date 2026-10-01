@@ -558,6 +558,47 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.rows.first { $0.entity == "s1" }?.branch, "feat/new")
     }
 
+    /// `off` draws no branch and reads no file: the numbers are today's.
+    func testOffDrawsNoBranchAndReadsNothing() {
+        var reads = 0
+        let model = SessionRowsModel(readBranch: { reads += 1; return self.worktrees[$0] })
+        model.branchDisplay = .off
+        model.update(from: [inFolder("s1", "/w/a/shop-api"), inFolder("s2", "/w/b/shop-api")])
+        XCTAssertEqual(model.rows.map(\.branch), [nil, nil])
+        XCTAssertEqual(Set(model.rows.map(\.duplicate)), [0, 2], "numbered, as before the branch")
+        XCTAssertEqual(reads, 0)
+    }
+
+    /// `on` draws the branch of a row alone under its name too, and of two
+    /// on the same branch, numbered beside it; a folder outside git stays bare.
+    func testOnDrawsEveryRowsBranch() {
+        let model = SessionRowsModel(readBranch: { $0 == "/tmp/x" ? nil : "main" })
+        model.branchDisplay = .on
+        model.update(from: [inFolder("s1", "/p/evlat", label: "evlat"),
+                            inFolder("s2", "/w/a/shop-api"), inFolder("s3", "/w/b/shop-api"),
+                            inFolder("s4", "/tmp/x", label: "x")])
+        let byEntity = Dictionary(uniqueKeysWithValues: model.rows.map { ($0.entity, $0) })
+        XCTAssertEqual(byEntity["s1"]?.branch, "main", "alone under its name")
+        XCTAssertEqual(byEntity["s2"]?.branch, "main")
+        XCTAssertEqual(byEntity["s3"]?.branch, "main")
+        XCTAssertEqual(Set([byEntity["s2"]?.duplicate, byEntity["s3"]?.duplicate]), [0, 2])
+        XCTAssertNil(byEntity["s4"]?.branch, "no repository, no branch")
+    }
+
+    /// Nothing stored is `auto`: an upgrading user's bar draws what it did
+    /// before the setting. An unknown value is `auto` too.
+    func testTheStoredBranchDisplayDefaultsToAuto() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "branch-display-\(UUID().uuidString)"))
+        XCTAssertEqual(AppController.storedBranchDisplay(defaults), .auto)
+        XCTAssertEqual(AppController.storedBranchDisplay(nil), .auto)
+        defaults.set("sometimes", forKey: AppController.branchDisplayKey)
+        XCTAssertEqual(AppController.storedBranchDisplay(defaults), .auto)
+        for display in BranchDisplay.allCases {
+            defaults.set(display.storedValue, forKey: AppController.branchDisplayKey)
+            XCTAssertEqual(AppController.storedBranchDisplay(defaults), display)
+        }
+    }
+
     /// The body is fitted to the branch as drawn: never past a long name's
     /// width, since a long branch is cut at `branchMaxWidth`.
     func testTheOpenBodyHoldsTheBranchWithinItsCap() {

@@ -425,6 +425,15 @@
 "settings.sessions.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Open Claude sessions load the change with /hooks.";
 "settings.sessions.usage" = "Usage";
 "settings.sessions.none" = "Neither Claude Code nor Codex is on this Mac. Their rows appear once one is installed.";
+"settings.sessions.branch" = "Git branch";
+"settings.sessions.branch.note" = "Read from the session's folder on this Mac. Sessions on remote machines show none.";
+"settings.sessions.branch.show" = "Show branch";
+"settings.sessions.branch.off" = "Off";
+"settings.sessions.branch.auto" = "Auto";
+"settings.sessions.branch.on" = "On";
+"settings.sessions.branch.off.detail" = "Never shown.";
+"settings.sessions.branch.auto.detail" = "On the card. On the bar only when sessions share a name but are on different branches.";
+"settings.sessions.branch.on.detail" = "On the card and beside every session in a git repository.";
 "settings.chat.open" = "Opening";
 "settings.chat.hotkey" = "Shortcut";
 "settings.chat.hotkey.detail" = "A key the system uses is not accepted. Clicking the mascot always opens it.";
