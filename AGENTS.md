@@ -133,6 +133,25 @@ tunnel. Identity comes from the listener, never from the request body; remote
 entities are namespaced (`remote:<machine>:<session>`,
 `signal:<machine>:<id>`) so they can never merge with local rows.
 
+Each machine's tunnel is Evlat's **own `ssh` master** (`-M -S <socket>
+-o ControlPersist=no`, socket under `$TMPDIR/evlat`, its path a parameter
+that must fit `RemoteTunnel.socketPathLimit`); the installs and reads ride
+it (`-S <socket> -o ControlMaster=no -o BatchMode=yes`) and connect on their
+own when there is none. Its stdin is the dead man's switch. `ssh` gets
+Evlat's environment, `SSH_AUTH_SOCK` kept, plus — only while this Mac's
+listener is bound — the askpass variables (`SSH_ASKPASS` = this binary,
+`SSH_ASKPASS_REQUIRE=force`, `EVLAT_ASKPASS=<port>:<token>`), with
+`BatchMode=no` and `NumberOfPasswordPrompts=1`; without them `BatchMode=yes`.
+At launch the first try waits for that listener to settle, so it does not
+run without askpass by accident. A try is **quiet** (on the schedule, after
+a wake, at launch: only a stored password answers, and only a password
+prompt) or **interactive** (a machine just added, "Enter Password…": the
+prompt window, `AnswerPanel`'s `PromptView`). A prompt held open keeps the
+tunnel from `connected`. One password is one login: a refused one, or a quiet try's
+password prompt for a machine that has a stored password or last connected
+with one, stops at `needsUser` — sticky across wakes, left only by the
+user's press (`RemoteTunnel`).
+
 ### The merge rule
 
 The same Claude session arrives from two sources (hooks and the session file)
@@ -276,6 +295,22 @@ sound still works. `UNUserNotificationCenter` needs a bundle, so under
 that needs Accessibility, Screen Recording, Apple Events or a new permission is
 an architecture decision, not an implementation detail.
 
+**Evlat keeps one secret**: a remote machine's `ssh` password, when the
+prompt window's "Remember in Keychain" is on (`KeychainPasswordStore`). One
+internet password per machine in the classic login keychain (not the data
+protection one — no entitlement): account the machine's id, protocol `ssh`,
+server its host, label `Evlat — <target>`. It is written only once the try
+is connected, and deleted when the server refuses it, when the machine is
+removed, or when a connect is made with "Remember" off. Security calls run on
+their own serial queue, never the main one (an access question blocks the
+caller); the `security` command is not used. It is not a permission, but an
+ad-hoc signed build (`make run`, a default `make install`) is asked for
+keychain access after every build; a Developer ID build is not after an
+update. An app thrown away without removing its machines leaves the entries
+behind. Tests (XCTest present, `make test-desktop` included) and an
+isolated process (`EVLAT_PORT`) keep passwords in memory
+(`MemoryPasswordStore`) and never touch the keychain.
+
 ## Contracts
 
 ### Hook contract
@@ -338,6 +373,7 @@ but a POST to the LAN address is refused). Default port **48151**.
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
 | `POST /approval` | opt-in hook of terminal sessions (`ApprovalHook`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; `404` through a tunnel |
 | `POST /signal` | external jobs; requires `X-Evlat-Key` |
+| `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel |
 
 `/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
 ≤ 1 h), `phase` (`working·waiting·done·failed`), `label`, `progress` 0…1,
@@ -370,6 +406,10 @@ refuses (`WatchTests`, against the compiled binary). `argv` is classified by
 `LaunchMode.of`: the app opens only with no arguments or with what the system
 adds (`-psn_…`, `-NS…`/`-Apple…` pairs); an unknown word prints usage and exits
 `2` — a new subcommand not added there does **not** fall through to the app.
+With `EVLAT_ASKPASS=<port>:<token>` in the environment the binary is `ssh`'s
+askpass helper instead: `argv[1]` is the prompt itself (no subcommand word),
+the answer goes to stdout, and no answer exits non-zero with nothing
+written. A prompt-shaped `argv` without the mark is still a usage error.
 
 The server-side script (`RemoteCommand.script`, POSIX `sh` + `curl`, installed
 to a remote machine's `~/.local/bin/evlat`) is the third installed contract:
@@ -384,6 +424,9 @@ the script bumps its version.
 and login items belong to the
 user. **Agents do not write them.** Writers are tested against a temporary root
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
+So does the login keychain: no test or trial writes an Evlat entry to it.
+The masters' sockets (`$TMPDIR/evlat`, `0700`) are Evlat's own; a stale one
+is cleared, a live one — another process's master — is left alone.
 
 Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 
@@ -420,7 +463,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, and no persistent chat store exists unless `EVLAT_CHATS` is given |
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, and `ssh` passwords stay in memory, never in the keychain |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |
@@ -653,6 +696,17 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   another process's master, left alone. A master that ends on its stdin's
   EOF removes the file itself. The path must fit 104 − 17 − 1 bytes
   (`RemoteTunnel.socketPathLimit`); a test's `$TMPDIR` + UUID does not.
+
+- **`ssh`'s askpass gets the prompt alone in `argv[1]`** and, with
+  `SSH_ASKPASS_REQUIRE=force`, is run with no `DISPLAY` (OpenSSH 10.2p1,
+  user-level `sshd`, 2026-10-01). Seen prompts: the host key question
+  (several lines, ending `(yes/no/[fingerprint])? `) and
+  `<user>@<host>'s password: `. An askpass that exits `1` sends **no**
+  password — the server logged `Failed none`, no `Failed password`.
+- **A wrong password is three failed logins by default.** With
+  `NumberOfPasswordPrompts=1` it is one `Failed password`; without it,
+  three (`Permission denied, please try again.` twice). Hence one password
+  per try and no retry after a refusal.
 
 - **`ditto -c -k` keeps extended attributes as `._` files in the zip.**
   The framework's symlinks carry `com.apple.provenance`, which cannot be

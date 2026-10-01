@@ -43,6 +43,8 @@ final class RemoteTunnels {
         var controlPath: String?
         /// The first try asks the user: the machine was just added.
         var startInteractive = false
+        /// The tunnel was started: once, when both listeners were ready.
+        var started = false
         /// A password is in the store for the machine, as last read or
         /// written: what a quiet try's refused prompt is weighed against.
         var hasStoredPassword = false
@@ -110,6 +112,11 @@ final class RemoteTunnels {
     struct AskpassRoute {
         let binary: String
         let port: () -> UInt16?
+        /// Whether that listener is done binding — bound, or refused its
+        /// port. Until then no try starts: one started now would run
+        /// without askpass, and a password server would fail it for
+        /// nothing. `askpassSettled()` is the call that says it changed.
+        var settled: () -> Bool = { true }
     }
 
     /// `sshPath` is handed in, never looked up here: a test gives the fake's
@@ -231,13 +238,13 @@ final class RemoteTunnels {
             port: 0,
             origin: .tunneled,
             signalKey: { _ in key },
-            onStatus: { [weak link] status in
+            onStatus: { [weak self, weak link] status in
                 guard let link else { return }
                 switch status {
                 case .listening(let port) where link.port == nil:
                     link.port = port
                     NSLog("Evlat: machine %@ listening on 127.0.0.1:%d", link.machine.name, Int(port))
-                    link.tunnel?.start(interactive: link.startInteractive)
+                    self?.startIfReady(link)
                 case .unavailable:
                     NSLog("Evlat: machine %@ listener %@", link.machine.name, status.text)
                 default:
@@ -283,6 +290,8 @@ final class RemoteTunnels {
         order.removeAll { $0 == id }
         endAttempt(of: link, generation: nil)
         close(link)
+        // Its password goes with it; an id is never reused.
+        store.delete(for: id)
         registry.unregister(link.hooks)
         registry.unregister(link.usage)
         registry.unregister(link.signals)
@@ -293,6 +302,20 @@ final class RemoteTunnels {
     /// anyway when this process goes; this is the orderly half.
     func stopAll() {
         links.values.forEach(close)
+    }
+
+    /// This Mac's listener is done binding (`AskpassRoute.settled`): the
+    /// tries that waited for it start.
+    func askpassSettled() {
+        order.compactMap { links[$0] }.forEach(startIfReady)
+    }
+
+    /// The first try, once the machine's listener has its port and this
+    /// Mac's listener is settled — whichever comes last starts it.
+    private func startIfReady(_ link: Link) {
+        guard !link.started, link.port != nil, askpass?.settled() ?? true else { return }
+        link.started = true
+        link.tunnel?.start(interactive: link.startInteractive)
     }
 
     func sleep() {
@@ -362,11 +385,17 @@ final class RemoteTunnels {
     }
 
     /// A password typed on this try, with "Remember" on, is stored once the
-    /// try connected — never before: a refused one is never kept.
+    /// try connected — never before: a refused one is never kept. With
+    /// "Remember" off, the one stored before goes: the user chose not to
+    /// keep a password for the machine.
     private func keepTypedPassword(_ link: Link) {
         guard let typed = link.typed else { return }
         link.typed = nil
-        guard typed.remember else { return }
+        guard typed.remember else {
+            link.hasStoredPassword = false
+            store.delete(for: link.machine.id)
+            return
+        }
         store.save(typed.password, for: link.machine.id, target: link.machine.target)
         link.hasStoredPassword = true
     }

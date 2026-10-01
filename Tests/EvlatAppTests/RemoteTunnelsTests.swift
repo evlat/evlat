@@ -369,7 +369,8 @@ final class RemoteTunnelsTests: XCTestCase {
 
     private func makeAsking(ssh path: String, log: URL, environment extra: [String: String],
                             store: SSHPasswordStore = MemoryPasswordStore(),
-                            port: Bool = true, confirmAfter: TimeInterval = 0.2) throws -> RemoteTunnels {
+                            port: Bool = true, confirmAfter: TimeInterval = 0.2,
+                            settled: @escaping () -> Bool = { true }) throws -> RemoteTunnels {
         var tunnelsRef: RemoteTunnels?
         let listener = HookListener(port: 0, onAbandoned: { id in tunnelsRef?.abandoned(id) }) { delivery in
             if case .askpass(let request) = delivery { tunnelsRef?.ask(request) }
@@ -384,7 +385,8 @@ final class RemoteTunnelsTests: XCTestCase {
         let made = RemoteTunnels(registry: Registry(), sshPath: path, platform: .unknown,
                                  now: Date.init, socketDirectory: sockets, environment: environment,
                                  workspace: NotificationCenter(), confirmAfter: confirmAfter,
-                                 askpass: RemoteTunnels.AskpassRoute(binary: helper, port: { port ? bound : nil }),
+                                 askpass: RemoteTunnels.AskpassRoute(binary: helper, port: { port ? bound : nil },
+                                                                     settled: settled),
                                  store: store, onChange: {})
         made.respond = { [weak listener] id, response in listener?.answer(id, with: response) }
         tunnelsRef = made
@@ -529,6 +531,178 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertEqual(answered.map(\.0), ["r-1"])
         XCTAssertEqual(answered.first?.1, LocalAPI.noAnswer)
         XCTAssertTrue(tunnels.prompts.isEmpty)
+    }
+
+    /// What a store was asked, in order; answers from memory like
+    /// `MemoryPasswordStore`.
+    private final class RecordingStore: SSHPasswordStore {
+        private(set) var calls: [String] = []
+        private var passwords: [String: String]
+
+        init(_ passwords: [String: String] = [:]) { self.passwords = passwords }
+
+        func password(for id: String, completion: @escaping (String?) -> Void) {
+            completion(passwords[id])
+        }
+
+        func save(_ password: String, for id: String, target: String) {
+            calls.append("save \(id) \(password) \(target)")
+            passwords[id] = password
+        }
+
+        func delete(for id: String) {
+            calls.append("delete \(id)")
+            passwords[id] = nil
+        }
+
+        var saves: [String] { calls.filter { $0.hasPrefix("save") } }
+    }
+
+    // MARK: - Keeping the password
+
+    /// A typed password is written only once the try is connected: not
+    /// while its question waits, not when the server refuses it — that one
+    /// goes, and with it whatever was stored.
+    func testATypedPasswordIsStoredOnlyOnceConnected() throws {
+        let fake = try promptingSSH()
+        let store = RecordingStore()
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "right"],
+                                     store: store, confirmAfter: 3)
+        tunnels.add(machine, key: key, interactive: true)
+        waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
+        XCTAssertEqual(store.calls, [], "nothing is written while the question waits")
+
+        tunnels.answer(try XCTUnwrap(tunnels.prompts.first).id, with: "wrong", remember: true)
+        waitUntil("refused", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: true) }
+        XCTAssertEqual(store.saves, [], "a refused password is never kept")
+        XCTAssertEqual(store.calls, ["delete fake"])
+    }
+
+    /// "Remember" off: the try connects with the typed password, and the
+    /// one stored before goes — it is the one the user chose not to keep.
+    func testRememberOffForgetsTheStoredPasswordOnceConnected() throws {
+        let fake = try promptingSSH()
+        let store = RecordingStore(["fake": "old"])
+        // The stored one answers the first prompt; the second is the user's.
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
+                                                   "FAKE_SSH_PROMPT2": passwordPrompt],
+                                     store: store, confirmAfter: 3)
+        tunnels.add(machine, key: key, interactive: true)
+        waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
+        tunnels.answer(try XCTUnwrap(tunnels.prompts.first).id, with: "typed", remember: false)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        XCTAssertEqual(store.calls, ["delete fake"])
+    }
+
+    /// A machine removed takes its stored password with it.
+    func testRemovingAMachineForgetsItsPassword() throws {
+        let fake = try fakeSSH(.connect)
+        let store = RecordingStore(["fake": "s3cr€t"])
+        let made = RemoteTunnels(registry: Registry(), sshPath: fake.path, platform: .unknown,
+                                 now: Date.init, socketDirectory: sockets, environment: base,
+                                 workspace: NotificationCenter(), confirmAfter: 0.2,
+                                 store: store, onChange: {})
+        tunnels = made
+        made.add(machine, key: key)
+        waitUntil("connected") { made.state(of: "fake")?.isConnected == true }
+        made.remove(id: "fake")
+        XCTAssertEqual(store.calls, ["delete fake"])
+    }
+
+    // MARK: - Waking
+
+    /// After a wake the quiet try logs in with the stored password; the
+    /// user is asked nothing.
+    func testAWakeLogsInQuietlyWithTheStoredPassword() throws {
+        let fake = try promptingSSH()
+        let store = RecordingStore(["fake": "s3cr€t"])
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "s3cr€t"],
+                                     store: store)
+        var asked = false
+        tunnels.onPromptsChanged = { asked = true }
+        tunnels.add(machine, key: key)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        tunnels.sleep()
+        waitUntil("process gone") { tunnels.isProcessRunning(of: "fake") == false }
+        tunnels.wake()
+        waitUntil("connected again", timeout: 15) {
+            tunnels.state(of: "fake")?.isConnected == true && self.runs(in: fake.log).count == 2
+        }
+        XCTAssertEqual(askpassLines(fake.log), ["askpass 0 s3cr€t", "askpass 0 s3cr€t"])
+        XCTAssertFalse(asked, "no window")
+        XCTAssertEqual(store.calls, [])
+    }
+
+    /// A machine last connected with a typed password not kept: the wake's
+    /// quiet try stops for the user instead of retrying a prompt it cannot
+    /// answer.
+    func testAWakeWithoutAStoredPasswordWaitsForTheUser() throws {
+        let fake = try promptingSSH()
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "typed"],
+                                     store: RecordingStore(), confirmAfter: 3)
+        tunnels.add(machine, key: key, interactive: true)
+        waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
+        tunnels.answer(try XCTUnwrap(tunnels.prompts.first).id, with: "typed", remember: false)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        tunnels.sleep()
+        waitUntil("process gone") { tunnels.isProcessRunning(of: "fake") == false }
+        tunnels.wake()
+        waitUntil("waiting for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: false) }
+        XCTAssertTrue(tunnels.prompts.isEmpty)
+    }
+
+    // MARK: - Launching
+
+    /// At launch this Mac's listener may still be binding: a try started
+    /// then would run without askpass (`BatchMode=yes`) and a password
+    /// server would fail it for nothing. The try waits until the listener
+    /// is settled, then asks.
+    func testTheFirstTryWaitsForThisMacsListener() throws {
+        let fake = try promptingSSH()
+        var settled = false
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:], settled: { settled })
+        tunnels.add(machine, key: key)
+        waitUntil("the machine's listener is up") {
+            if case .listening? = tunnels.listenerStatus(of: "fake") { return true }
+            return false
+        }
+        // The listener's report reaches the main queue after its status.
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 5)
+        XCTAssertNil(tunnels.isProcessRunning(of: "fake"), "no ssh before this Mac's listener is settled")
+
+        settled = true
+        tunnels.askpassSettled()
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        let run = try XCTUnwrap(runs(in: fake.log).first)
+        XCTAssertTrue(run.contains("BatchMode=no"))
+        XCTAssertEqual(runs(in: fake.log).count, 1)
+    }
+
+    // MARK: - Which store
+
+    /// Only a launch that is neither a test nor isolated keeps passwords in
+    /// the Keychain; making the store touches nothing.
+    func testTheKeychainIsOnlyForAProcessThatIsNotIsolated() {
+        XCTAssertTrue(AppController.passwordStore(underTests: true, environment: [:]) is MemoryPasswordStore)
+        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: ["EVLAT_PORT": "48999"])
+                      is MemoryPasswordStore)
+        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: ["EVLAT_PORT": ""])
+                      is KeychainPasswordStore)
+        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: [:]) is KeychainPasswordStore)
+    }
+
+    @MainActor
+    func testUnderXCTestTheStoreIsInMemory() {
+        let controller = AppController(defaults: nil)
+        controller.startRemoteTunnels(configuration: RemoteMachine.Configuration(machines: [], fromEnvironment: true,
+                                                                                 rejected: []))
+        XCTAssertTrue(controller.passwordStore is MemoryPasswordStore)
     }
 
     // MARK: - Which machines

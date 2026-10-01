@@ -127,6 +127,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The remote machines' listeners and `ssh` processes; `nil` until
     /// launch. Its providers are registered in `registry` by it.
     private(set) var remote: RemoteTunnels?
+    /// The tunnels' password store (`passwordStore(underTests:environment:)`).
+    private(set) var passwordStore: SSHPasswordStore?
     /// The machines came from `EVLAT_MACHINES` (or none, because of
     /// `EVLAT_PORT`): then adding or removing one is not written back.
     private var remoteFromEnvironment = true
@@ -2003,8 +2005,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // Binding is asynchronous, so the outcome cannot be returned from
             // here. It is not swallowed either: `Evlat --list` reads the port
             // back over `/health` and says who holds it.
-            onStatus: { status in
+            onStatus: { [weak self] status in
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
+                // The tunnels' first tries waited for `/askpass` (bound) or
+                // for knowing there is none (refused).
+                if status != .stopped { MainActor.assumeIsolated { self?.remote?.askpassSettled() } }
             },
             // A chat turn's held permission request that went away unanswered,
             // or a tunnel's askpass prompt whose `ssh` gave up.
@@ -2058,6 +2063,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         (NSTemporaryDirectory() as NSString).appendingPathComponent("evlat")
     }
 
+    /// Where the machines' passwords are remembered: the login keychain,
+    /// except in a test and in an isolated process (`EVLAT_PORT`), whose
+    /// store keeps nothing past the process — the `/signal` key's rule. A
+    /// test is told by XCTest's presence, not `WindowStage`: `make
+    /// test-desktop` puts windows on the screen, never passwords in the
+    /// keychain.
+    nonisolated static func passwordStore(
+        underTests: Bool = NSClassFromString("XCTestCase") != nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SSHPasswordStore {
+        let isolated = !(environment["EVLAT_PORT"] ?? "").isEmpty
+        return underTests || isolated ? MemoryPasswordStore() : KeychainPasswordStore()
+    }
+
     /// Internal so a test hands its own machines and the fake `ssh`; the
     /// launch reads both from the environment and the stored list. A test
     /// also shortens `confirmAfter`: the default outwaits a slow login.
@@ -2066,7 +2085,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                             socketDirectory: String = AppController.socketDirectory,
                             confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter,
                             askpassBinary: String? = Bundle.main.executableURL?.path,
-                            passwords: SSHPasswordStore = MemoryPasswordStore()) {
+                            passwords: SSHPasswordStore? = nil) {
+        let passwords = passwords ?? Self.passwordStore()
+        passwordStore = passwords
         let configuration = configuration ?? Self.remoteConfiguration(defaults: defaults)
         for target in configuration.rejected {
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
@@ -2092,6 +2113,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             askpass: askpassBinary.map { binary in
                 RemoteTunnels.AskpassRoute(binary: binary, port: { [weak self] in
                     MainActor.assumeIsolated { self?.hookListener?.boundPort }
+                }, settled: { [weak self] in
+                    // No listener at all (a test) waits for nothing.
+                    MainActor.assumeIsolated { self?.hookListener.map { $0.status != .stopped } ?? true }
                 })
             },
             store: passwords,
