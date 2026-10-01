@@ -259,7 +259,7 @@ public enum RemoteSettings {
         let wraps = relays(source) && StatusLineRelay.state(of: settings, source: source) == .missing
         if wraps, let wrapped = StatusLineRelay.installing(into: next, source: source) { next = wrapped }
         guard !NSDictionary(dictionary: next).isEqual(to: settings) else {
-            let relayMissing = relays(source) && StatusLineRelay.state(of: settings, source: source) == .missing
+            let relayMissing = relays(source) && AgentIntegration.relayState(of: settings, source: source) == .missing
             if LocalHooks.state(of: settings, for: source, approvals: false) != .current || relayMissing {
                 throw SettingsFile.Failure.malformed
             }
@@ -362,7 +362,8 @@ public enum RemoteSettings {
             found(source) { settings in
                 AgentIntegration.State(
                     hooks: LocalHooks.state(of: settings, for: source, approvals: false),
-                    relay: RemoteSettings.relays(source) ? StatusLineRelay.state(of: settings, source: source) : nil)
+                    relay: RemoteSettings.relays(source)
+                        ? AgentIntegration.relayState(of: settings, source: source) : nil)
             }
         }
 

@@ -92,6 +92,23 @@ final class AgentIntegrationTests: XCTestCase {
                        "nor taken out")
     }
 
+    /// A `statusLine` the relay will not wrap is the user's own, like a
+    /// wrapper changed by hand: the hooks complete the unit, and a second
+    /// press is not refused.
+    func testAStatusLineInAShapeNotOursIsNotAPart() throws {
+        try directory(".claude")
+        let file = AgentSource.claude.settingsFile(home: home)
+        for value: Any in ["bash s.sh", ["type": "static", "command": "cat"]] {
+            try JSONSerialization.data(withJSONObject: ["statusLine": value]).write(to: file)
+            XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).relay, .modified, "\(value)")
+            try AgentIntegration.install(home: home, for: .claude)
+            XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).status, .current, "\(value)")
+            try AgentIntegration.install(home: home, for: .claude)
+            XCTAssertTrue(NSDictionary(dictionary: ["v": try json(file)["statusLine"] as Any]).isEqual(to: ["v": value]),
+                          "left as it is: \(value)")
+        }
+    }
+
     /// The Antigravity app alone: no status line, so the hooks are the
     /// unit, and its missing hooks folder is made by the install.
     func testAntigravityWithoutItsCLIIsItsHooks() throws {
@@ -125,14 +142,31 @@ final class AgentIntegrationTests: XCTestCase {
 
     /// A refused part is named: the relay's shape is not ours, the hooks of
     /// the same write still went in.
+    /// A relay installed with no hooks (an earlier version's own row):
+    /// the missing hooks folder does not keep the relay from going.
+    func testRemovingWithoutTheHooksFolderStillTakesTheRelay() throws {
+        try directory(".gemini/antigravity-cli")
+        try AgentIntegration.install(home: home, for: .antigravity)
+        try FileManager.default.removeItem(at: home.appendingPathComponent(".gemini/config"))
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .antigravity),
+                       AgentIntegration.State(hooks: .missing, relay: .current))
+        try AgentIntegration.remove(home: home, for: .antigravity)
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .antigravity).status, .missing)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".gemini/config").path),
+                       "nothing made to take nothing out")
+    }
+
     func testARefusedPartIsNamed() throws {
-        try directory(".claude")
-        let file = AgentSource.claude.settingsFile(home: home)
-        try Data(#"{"statusLine":"bash s.sh"}"#.utf8).write(to: file)
-        XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .claude)) { error in
+        try directory(".gemini/antigravity-cli")
+        let relay = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
+        try Data("{ not json".utf8).write(to: relay)
+        XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .antigravity)) { error in
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .usage, reason: .malformed))
         }
-        XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current)
+        XCTAssertEqual(try LocalHooks.state(at: AgentSource.antigravity.settingsFile(home: home), for: .antigravity),
+                       .current, "the hooks' own file is written before")
+        try directory(".claude")
+        let file = AgentSource.claude.settingsFile(home: home)
         try Data("{ not json".utf8).write(to: file)
         XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .claude)) { error in
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .hooks, reason: .malformed))

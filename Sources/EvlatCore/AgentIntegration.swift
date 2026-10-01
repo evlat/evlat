@@ -68,6 +68,18 @@ public enum AgentIntegration {
         }
     }
 
+    /// The relay's state as the unit counts it. A `statusLine` in a shape
+    /// the relay will not wrap (a bare string, a non-command `type`) is the
+    /// user's own line, like a wrapper changed by hand: not a part. Read as
+    /// missing, it held the unit at outdated after hooks were written, and
+    /// a second press could only be refused. Meaningful only where the
+    /// relay is a part (`relayFile`, `RemoteSettings.relays`).
+    public static func relayState(of settings: [String: Any], source: AgentSource) -> StatusLineRelay.State {
+        let state = StatusLineRelay.state(of: settings, source: source)
+        guard state == .missing, StatusLineRelay.installing(into: settings, source: source) == nil else { return state }
+        return .modified
+    }
+
     // MARK: - Files
 
     /// The status line file, when the relay is a part here.
@@ -94,7 +106,7 @@ public enum AgentIntegration {
         } catch SettingsFile.Failure.noDirectory where source.opensHooksDirectory {
             hooks = .missing
         }
-        let relay = try relayFile(home: home, for: source).map { try StatusLineRelay.state(at: $0, source: source) }
+        let relay = try relayFile(home: home, for: source).map { relayState(of: try SettingsFile.read($0), source: source) }
         return State(hooks: hooks, relay: relay)
     }
 
@@ -113,7 +125,7 @@ public enum AgentIntegration {
         }
         try write(.hooks) { try LocalHooks.install(at: hooksFile, for: source) }
         try write(.usage) {
-            guard try StatusLineRelay.state(at: relayFile, source: source) != .modified else { return }
+            guard relayState(of: try SettingsFile.read(relayFile), source: source) != .modified else { return }
             try StatusLineRelay.install(at: relayFile, source: source)
         }
     }
@@ -136,7 +148,12 @@ public enum AgentIntegration {
             }
             return
         }
-        try write(.hooks) { try LocalHooks.remove(at: hooksFile, for: source) }
+        try write(.hooks) {
+            // A hooks folder the install would make, and has not: no hooks
+            // to take out, as `state` reads it — the relay still goes.
+            do { try LocalHooks.remove(at: hooksFile, for: source) }
+            catch SettingsFile.Failure.noDirectory where source.opensHooksDirectory {}
+        }
         // No folder, no relay: the CLI was never here.
         guard (try? StatusLineRelay.state(at: relayFile, source: source)) == .current else { return }
         try write(.usage) { try StatusLineRelay.remove(at: relayFile, source: source) }
@@ -157,7 +174,7 @@ public enum AgentIntegration {
         let backup = file.appendingPathExtension(StatusLineRelay.backupExtension)
         do {
             _ = try SettingsFile.apply(at: file, backUp: { settings, mode in
-                guard StatusLineRelay.state(of: settings, source: source) == .missing else { return }
+                guard relayState(of: settings, source: source) == .missing else { return }
                 try SettingsFile.replace(backup, with: try StatusLineRelay.backupContents(of: settings), mode: mode)
             }) { settings in
                 let hooks = LocalHooks.installing(into: settings, for: source, approvals: true)
@@ -172,7 +189,7 @@ public enum AgentIntegration {
         if LocalHooks.state(of: settings, for: source, approvals: true) != .current {
             throw Failure(part: .hooks, reason: .malformed)
         }
-        if StatusLineRelay.state(of: settings, source: source) == .missing {
+        if relayState(of: settings, source: source) == .missing {
             throw Failure(part: .usage, reason: .malformed)
         }
     }

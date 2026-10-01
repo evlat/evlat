@@ -59,6 +59,23 @@ final class RemoteSettingsPlanTests: XCTestCase {
         }
     }
 
+    /// A server's `statusLine` the relay will not wrap counts as the local
+    /// card counts it: not a part. The hooks are written once, the unit then
+    /// reads current, and a second press writes nothing instead of failing.
+    func testAServersStatusLineNotOursDoesNotHoldTheUnit() throws {
+        let original = Data(#"{"statusLine":"bash s.sh"}"#.utf8)
+        let write = try XCTUnwrap(try RemoteSettings.plan(.agent(.claude), .install, original: original))
+        let settings = try SettingsFile.parse(write.contents)
+        XCTAssertEqual(settings["statusLine"] as? String, "bash s.sh")
+        XCTAssertNil(write.backup, "nothing wrapped")
+        XCTAssertNil(try RemoteSettings.plan(.agent(.claude), .install, original: write.contents))
+        let reading = RemoteSettings.Reading(
+            files: [.claude: .success(RemoteSettings.Snapshot(bytes: write.contents, checksum: "1 1"))],
+            command: .missing)
+        XCTAssertEqual(reading.unit(.claude), .state(AgentIntegration.State(hooks: .current, relay: .modified)))
+        XCTAssertEqual(AgentIntegration.State(hooks: .current, relay: .modified).status, .current)
+    }
+
     /// The script carries a quoted path; the only `$` is the server's `HOME`.
     func testThePathIsTheServersHome() {
         let script = RemoteSettings.readScript(path: AgentSource.claude.settingsPath, nonce: "N")

@@ -379,18 +379,19 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")), [], "no failure line")
     }
 
-    func testARefusedUsageWriteIsALine() throws {
+    /// A `statusLine` the relay will not wrap is the user's own line: not a
+    /// part, so no refusal — the hooks go in and the line says it is left.
+    func testAStatusLineNotOursIsALineNotARefusal() throws {
         try agentDirectory(.claude)
         try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: AgentSource.claude.settingsFile(home: home))
         let controller = controller(home: home)
         defer { controller.panel?.close() }
         controller.setAgent(.claude, installed: true)
-        XCTAssertEqual(controller.agentFailure(.claude), AgentIntegration.Failure(part: .usage, reason: .malformed),
-                       "the part that was refused is named")
+        XCTAssertNil(controller.agentFailure(.claude))
         XCTAssertEqual(try LocalHooks.state(at: AgentSource.claude.settingsFile(home: home), for: .claude), .current,
-                       "the hooks of the same write went in")
+                       "the hooks went in")
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
-                        .map { $0.representedObject as? SetupAttention }, [.refused(.agent(.claude))])
+                        .map { $0.representedObject as? SetupAttention }, [.usageModified(.claude)])
     }
 
     // MARK: - The home

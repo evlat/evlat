@@ -53,7 +53,9 @@ struct SetupView: View {
         // After "Install" the box goes, unless there is something to write
         // again (a switch turned back on, a refused write): whenever the
         // button says "Install", its lines are above it.
-        case .sessions where !model.sessionRows.isEmpty && (!model.installed || !model.installConsent.isEmpty):
+        // Every agent has a card, found or not: the box is for an agent found.
+        case .sessions where model.sessionRows.contains(where: { $0.status != .notFound })
+            && (!model.installed || !model.installConsent.isEmpty):
             SetupConsent(model: model, button: model.t("setup.flow.install"), lines: model.installConsent,
                          backup: true)
         case .optional where !model.finishConsent.isEmpty:
