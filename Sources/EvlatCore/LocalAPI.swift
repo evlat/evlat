@@ -34,10 +34,12 @@ public enum LocalAPI {
         /// An outside program's row (`SignalReport`). Keyed: the
         /// listener's key decides, not the route (`Listener`).
         case signal
+        /// An `ssh` askpass helper's prompt (`Askpass`).
+        case askpass
         case health
     }
 
-    /// The table is eight rows and it is this `switch`.
+    /// The table is ten rows and it is this `switch`.
     ///
     /// v1's generic route table (`Route.required`, `read`/`action`/`mac` kinds,
     /// a semaphore answering on the main queue) is **not** ported: every
@@ -74,6 +76,7 @@ public enum LocalAPI {
         case ("POST", PermissionHook.path): return .permission
         case ("POST", ApprovalHook.path): return .approval
         case ("POST", SignalReport.path): return .signal
+        case ("POST", Askpass.path): return .askpass
         case ("GET", "/health"): return .health
         default: return .notFound
         }
@@ -145,6 +148,9 @@ public enum LocalAPI {
         case approval(PermissionHook.Request)
         /// An outside program's row, read and cleaned; the key has passed.
         case signal(SignalReport)
+        /// A tunnel's `ssh` asking for a password or a yes/no, held like
+        /// `permission` until it is answered (`Askpass`).
+        case askpass(Askpass.Request)
     }
 
     /// The answer, plus what the app should hand to the main queue. The
@@ -235,6 +241,24 @@ public enum LocalAPI {
                 return Outcome(response: Response(status: .ok, body: "{}"), delivery: nil)
             }
             return Outcome(response: nil, delivery: .approval(asked))
+        case .askpass:
+            // This Mac's own tunnels only: what a helper is answered may be
+            // a password, and a remote machine must never be able to ask
+            // for one — keyed or not.
+            guard origin == .local else { return notFound }
+            guard let token = request.askpassToken else {
+                return Outcome(response: Response(status: .forbidden,
+                                                  body: error("forbidden", "an askpass token is expected")),
+                               delivery: nil)
+            }
+            // The prompt is the body as text, not JSON: that is all `ssh`
+            // hands its helper.
+            guard let prompt = String(data: request.body, encoding: .utf8) else {
+                return Outcome(response: Response(status: .badRequest,
+                                                  body: error("badRequest", "a UTF-8 prompt is expected")),
+                               delivery: nil)
+            }
+            return Outcome(response: nil, delivery: .askpass(Askpass.Request(token: token, prompt: prompt)))
         case .signal:
             // A tunnel without its machine's key does not have the route, and
             // its existence is not shown to it (as `/permission`). With the
@@ -316,6 +340,11 @@ public enum LocalAPI {
     /// A permission request whose token names no running turn.
     public static let unknownToken = Response(status: .forbidden,
                                               body: error("forbidden", "no turn holds this permission token"))
+
+    /// An askpass prompt nobody answers: the helper exits non-zero and `ssh`
+    /// sends no password at all. Never `200`, which is an answer.
+    public static let noAnswer = Response(status: .forbidden,
+                                          body: error("noAnswer", "the prompt was not answered"))
 
     /// No route by that name — also what a listener that answers no
     /// permissions says to one (`HookListener`).

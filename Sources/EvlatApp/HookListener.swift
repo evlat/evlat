@@ -340,11 +340,12 @@ public final class HookListener {
         DispatchQueue.main.async { deliver(delivery) }
     }
 
-    /// The request whose answer is the user's: a chat turn's or a terminal
-    /// session's (`ApprovalHook`).
+    /// The request whose answer is the user's: a chat turn's, a terminal
+    /// session's (`ApprovalHook`), or a tunnel's `ssh` prompt (`Askpass`).
     private static func heldID(_ delivery: LocalAPI.Delivery?) -> String? {
         switch delivery {
         case .permission(let asked)?, .approval(let asked)?: return asked.id
+        case .askpass(let asked)?: return asked.id
         default: return nil
         }
     }

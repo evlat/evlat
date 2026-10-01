@@ -1027,6 +1027,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 print("permission request refused: \(request.tool)")
             case .approval(let request):
                 print("approval request refused: \(request.tool)")
+            case .askpass:
+                // The prompt is not printed: it names a user and a host.
+                print("askpass request refused")
             case .signal(let report):
                 print(signalCaptureLine(report))
             }
@@ -2004,6 +2007,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
             },
             // A chat turn's held permission request that went away unanswered.
+            // An askpass prompt's id comes here too; none is held past its
+            // delivery yet, so nothing has one to drop.
             onAbandoned: { [weak self] id in
                 MainActor.assumeIsolated {
                     self?.chats?.permissionAbandoned(id)
@@ -2394,6 +2399,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // the status line's body belongs in it.
             claudeUsage.handle(report)
             scheduleRefresh()
+        case .askpass(let request):
+            // No tunnel asks yet: every prompt is refused, and `ssh` sends
+            // no password.
+            hookListener?.answer(request.id, with: LocalAPI.noAnswer)
         case .permission(let request):
             // The store matches it to a turn, or refuses it.
             if let chats { chats.permissionAsked(request) } else {

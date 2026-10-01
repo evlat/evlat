@@ -20,12 +20,13 @@ final class LocalAPITests: XCTestCase {
 
     // MARK: - The table
 
-    /// Seven routes, and the reason each one is there. `/hook` is the path
+    /// The routes, and the reason each one is there. `/hook` is the path
     /// inside the command already installed in the user's settings file;
     /// `/hook/claude` is the synonym v1 accepted, and dropping it would change
     /// the contract silently. `/usage/claude` is the status line's relay,
-    /// `/signal` the way in for outside programs.
-    func testTheTableIsSevenRoutes() {
+    /// `/signal` the way in for outside programs, `/askpass` the tunnel's
+    /// `ssh` asking for a password.
+    func testTheTable() {
         XCTAssertEqual(dispatch("POST", "/hook"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/claude"), .hook(.claude))
         XCTAssertEqual(dispatch("POST", "/hook/codex"), .hook(.codex))
@@ -35,6 +36,9 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(dispatch("GET", "/permission"), .notFound)
         XCTAssertEqual(dispatch("POST", "/signal"), .signal)
         XCTAssertEqual(dispatch("GET", "/signal"), .notFound, "no reading surface")
+        XCTAssertEqual(dispatch("POST", "/askpass"), .askpass)
+        XCTAssertEqual(dispatch("GET", "/askpass"), .notFound)
+        XCTAssertEqual(dispatch("POST", "/askpass/"), .notFound)
         // v1's action, read and `/mac/` endpoints are out of scope for v2 and
         // were not ported: they answer nothing at all.
         for target in ["/status", "/ask?q=hi", "/panel/toggle", "/mac/screenshot", "/motions", "/hook/nope"] {
@@ -374,6 +378,73 @@ final class LocalAPITests: XCTestCase {
         let request = HTTPRequest(method: "POST", target: "/permission", body: Data(permissionBody.utf8),
                                   origin: "https://example.com", host: "127.0.0.1:48151", permissionToken: "T-1")
         XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
+    }
+
+    // MARK: - /askpass
+
+    private let askpassToken = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+    private func askpass(_ prompt: Data = Data("nobodyx@127.0.0.1's password: ".utf8), token: String? = nil,
+                         origin: LocalAPI.Origin = .local, browser: String? = nil,
+                         signalKey: String? = nil) -> LocalAPI.Outcome {
+        LocalAPI.handle(HTTPRequest(method: "POST", target: Askpass.path, body: prompt,
+                                    origin: browser, host: "127.0.0.1:48151",
+                                    askpassToken: token ?? askpassToken),
+                        listener: LocalAPI.Listener(origin: origin, signalKey: signalKey))
+    }
+
+    /// The prompt goes to the app with its token; the answer is held, the
+    /// user's (or a stored password's) to give.
+    func testAnAskpassRequestIsHeld() {
+        let outcome = askpass()
+        XCTAssertNil(outcome.response, "the answer waits")
+        guard case .askpass(let request)? = outcome.delivery else { return XCTFail("no request") }
+        XCTAssertEqual(request.token, askpassToken)
+        XCTAssertEqual(request.prompt, "nobodyx@127.0.0.1's password: ")
+        XCTAssertFalse(request.id.isEmpty)
+        // The body is the prompt as text, not JSON: several lines pass whole.
+        guard case .askpass(let multi)? = askpass(Data("line one\nAre you sure (yes/no)? ".utf8)).delivery
+        else { return XCTFail("no request") }
+        XCTAssertEqual(multi.prompt, "line one\nAre you sure (yes/no)? ")
+    }
+
+    /// A remote machine never asks this Mac for a password, keyed or not.
+    func testATunneledAskpassIsNotFound() {
+        for listenerKey in [nil, key] {
+            let outcome = askpass(origin: .tunneled, signalKey: listenerKey)
+            XCTAssertEqual(outcome.response?.status, .notFound)
+            XCTAssertNil(outcome.delivery)
+        }
+    }
+
+    func testAnAskpassWithoutATokenIsForbidden() {
+        let request = HTTPRequest(method: "POST", target: Askpass.path, body: Data("Password:".utf8),
+                                  host: "127.0.0.1:48151")
+        let outcome = LocalAPI.handle(request)
+        XCTAssertEqual(outcome.response?.status, .forbidden)
+        XCTAssertNil(outcome.delivery)
+    }
+
+    func testABrowserCannotAskForAPassword() {
+        let outcome = askpass(browser: "https://example.com")
+        XCTAssertEqual(outcome.response?.status, .forbidden)
+        XCTAssertNil(outcome.delivery)
+    }
+
+    func testAPromptThatIsNotTextIsABadRequest() {
+        let outcome = askpass(Data([0xff, 0xfe, 0x00]))
+        XCTAssertEqual(outcome.response?.status, .badRequest)
+        XCTAssertNil(outcome.delivery)
+        XCTAssertNotEqual(LocalAPI.noAnswer.status, .ok, "a refusal is never an answer")
+    }
+
+    func testTheAskpassTokenIsReadOffTheWire() throws {
+        let request = try XCTUnwrap(HTTPRequest.parse(Data(
+            "POST /askpass HTTP/1.1\r\n\(Askpass.header): \(askpassToken)\r\nContent-Length: 9\r\n\r\nPassword:".utf8)))
+        XCTAssertEqual(request.askpassToken, askpassToken)
+        XCTAssertEqual(request.body, Data("Password:".utf8))
+        let empty = try XCTUnwrap(HTTPRequest.parse(Data("POST /askpass HTTP/1.1\r\n\(Askpass.header):\r\n\r\n".utf8)))
+        XCTAssertNil(empty.askpassToken)
     }
 
     // MARK: - /signal

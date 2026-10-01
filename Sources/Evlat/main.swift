@@ -2,11 +2,17 @@ import EvlatApp
 import EvlatCore
 import Foundation
 
-// `argv` picks what this process is, from `argv[1]` (`LaunchMode`).
+// `argv` picks what this process is, from `argv[1]` (`LaunchMode`) — or, for
+// `ssh`'s askpass helper, from the mark in the environment.
 // The bar opens only on no arguments or on what the system adds
 // (`-psn_…`, `-AppleLanguages …`): it holds the hook port and dials every
 // stored machine, so `Evlat --help` or a typo must never reach it.
-switch LaunchMode.of(CommandLine.arguments) {
+switch LaunchMode.of(CommandLine.arguments, environment: ProcessInfo.processInfo.environment) {
+case .askpass(let mark):
+    // Run by a tunnel's `ssh` with the prompt in `argv[1]`: asks the Evlat
+    // that started it and prints the answer, or exits non-zero silently.
+    AskpassHelper.run(CommandLine.arguments, mark: mark)
+
 case .command:
     // `Evlat watch …` and `Evlat signal …`: a wrapped command's own
     // `--capture 5` or `--list` is its argument, not a request for

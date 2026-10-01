@@ -166,9 +166,10 @@ final class RemoteTunnels {
                 switch delivery {
                 case .hook(let event): link.hooks.handle(event)
                 case .usage(let report): link.usage.handle(report)
-                // A tunnel answers `/permission` with `404` (`LocalAPI`):
-                // a remote machine never puts a card in front of this user.
-                case .permission, .approval: break
+                // A tunnel answers `/permission` and `/askpass` with `404`
+                // (`LocalAPI`): a remote machine never puts a card in front
+                // of this user, nor asks for a password.
+                case .permission, .approval, .askpass: break
                 // The machine's own outside row: the listener has
                 // already checked the machine's key. A dropped row is said on
                 // stderr like a local one, with the machine's name.

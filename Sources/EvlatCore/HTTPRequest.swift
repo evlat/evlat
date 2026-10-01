@@ -6,12 +6,13 @@ import Foundation
 /// whole contract be tested without opening one. The transport that feeds this
 /// lives in `EvlatApp`.
 ///
-/// Only six headers are read, and each has a job: `X-Evlat-Task` and
+/// Only these headers are read, and each has a job: `X-Evlat-Task` and
 /// `X-Evlat-Pid` are what the installed hook command sends, `Origin` and `Host`
 /// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`),
 /// `X-Evlat-Permission` is the token a chat's own permission hook carries
 /// (`PermissionHook`), and `X-Evlat-Key` is an outside program's key
-/// for `/signal`.
+/// for `/signal`, `X-Evlat-Askpass` the token an `ssh` askpass helper
+/// carries (`Askpass`).
 public struct HTTPRequest: Equatable {
     public let method: String
     /// The request line's target: path **and** query, exactly as written.
@@ -39,11 +40,15 @@ public struct HTTPRequest: Equatable {
     /// `X-Evlat-Event`: the hook's event name, for an agent whose body does
     /// not carry one (Antigravity). Used only where the body has none.
     public let event: String?
+    /// `X-Evlat-Askpass`: which tunnel attempt an askpass prompt belongs to
+    /// (`Askpass.header`). Matched on the main queue, like the permission
+    /// token; empty counts as absent.
+    public let askpassToken: String?
 
     public init(method: String, target: String, body: Data = Data(),
                 taskID: String? = nil, pid: String? = nil,
                 origin: String? = nil, host: String? = nil, permissionToken: String? = nil,
-                signalKey: String? = nil, event: String? = nil) {
+                signalKey: String? = nil, event: String? = nil, askpassToken: String? = nil) {
         self.method = method
         self.target = target
         self.body = body
@@ -54,6 +59,7 @@ public struct HTTPRequest: Equatable {
         self.permissionToken = permissionToken
         self.signalKey = signalKey
         self.event = event
+        self.askpassToken = askpassToken
     }
 
     /// `nil` means "not yet": either the header block has not arrived or the
@@ -88,6 +94,7 @@ public struct HTTPRequest: Equatable {
         var permissionToken: String?
         var signalKey: String?
         var event: String?
+        var askpassToken: String?
         for line in lines.dropFirst() {
             // Empty pieces are kept: a valueless `Origin:` line is a browser's
             // mark too, and dropping it let the defence be walked past.
@@ -108,6 +115,7 @@ public struct HTTPRequest: Equatable {
             case "x-evlat-permission": permissionToken = value.isEmpty ? nil : value
             case "x-evlat-key": signalKey = value.isEmpty ? nil : value
             case "x-evlat-event": event = value.isEmpty ? nil : value
+            case "x-evlat-askpass": askpassToken = value.isEmpty ? nil : value
             default: continue
             }
         }
@@ -119,6 +127,7 @@ public struct HTTPRequest: Equatable {
                            // belongs to the next request on the connection.
                            body: data.subdata(in: bodyStart..<(bodyStart + contentLength)),
                            taskID: taskID, pid: pid, origin: origin, host: host,
-                           permissionToken: permissionToken, signalKey: signalKey, event: event)
+                           permissionToken: permissionToken, signalKey: signalKey, event: event,
+                           askpassToken: askpassToken)
     }
 }

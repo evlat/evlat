@@ -59,4 +59,34 @@ final class LaunchModeTests: XCTestCase {
             XCTAssertTrue(LaunchMode.usage.contains(word), word)
         }
     }
+
+    // MARK: - Askpass
+
+    private let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    private let prompt = "nobodyx@127.0.0.1's password: "
+
+    /// `ssh` calls its askpass with the prompt alone in `argv[1]`; only the
+    /// mark Evlat puts in the tunnel's environment makes that a helper.
+    func testAMarkedEnvironmentIsTheAskpassHelper() {
+        let marked = [Askpass.environmentKey: "48151:\(token)"]
+        let mark = Askpass.Mark(port: 48151, token: token)
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat", prompt], environment: marked), .askpass(mark))
+        // Whatever argv says: the mark is read first.
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat"], environment: marked), .askpass(mark))
+        XCTAssertEqual(LaunchMode.of(["/x/evlat"], environment: marked), .askpass(mark))
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat", "--help"], environment: marked), .askpass(mark))
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat", "watch", "ls"], environment: marked), .askpass(mark))
+    }
+
+    /// A prompt without the mark, or with a broken one, is a stray word: never
+    /// the bar, never a helper.
+    func testAPromptWithoutAValidMarkIsAUsageError() {
+        for environment in [[:], [Askpass.environmentKey: ""], [Askpass.environmentKey: "48151"],
+                            [Askpass.environmentKey: "0:\(token)"], [Askpass.environmentKey: "48151:abc"]] {
+            XCTAssertEqual(LaunchMode.of(["/x/Evlat", prompt], environment: environment),
+                           .usageError("unknown command \(prompt)"), "\(environment)")
+            XCTAssertEqual(LaunchMode.of(["/x/Evlat"], environment: environment), .app, "\(environment)")
+        }
+        XCTAssertEqual(LaunchMode.of(["/x/Evlat", "Password:"]), .usageError("unknown command Password:"))
+    }
 }

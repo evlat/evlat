@@ -21,6 +21,10 @@ public enum LaunchMode: Equatable {
     case help
     /// Anything else: one line and the usage on stderr, exit 2.
     case usageError(String)
+    /// `ssh`'s askpass helper: the environment carries a valid
+    /// `EVLAT_ASKPASS` mark (`Askpass`). Read **before** `argv`, which then
+    /// holds only the prompt.
+    case askpass(Askpass.Mark)
 
     /// The diagnostics' words, read from `argv[1]` only.
     public static let diagnosticsWords: Set<String> = ["--list", "--capture"]
@@ -32,7 +36,11 @@ public enum LaunchMode: Equatable {
     /// that inherits the terminal's Claude markers (`AGENTS.md` → Pitfalls).
     public static let linkName = "evlat"
 
-    public static func of(_ argv: [String]) -> LaunchMode {
+    /// `environment` is read for the askpass mark only. Without a valid
+    /// one, a prompt in `argv[1]` (`user@host's password: `) is an unknown
+    /// word like any other: `ssh` must never open the bar by running Evlat.
+    public static func of(_ argv: [String], environment: [String: String] = [:]) -> LaunchMode {
+        if let mark = Askpass.mark(in: environment) { return .askpass(mark) }
         let arguments = Array(argv.dropFirst())
         guard let first = arguments.first else {
             // Exactly the link's name: the bundle's `Evlat` and `open` keep
