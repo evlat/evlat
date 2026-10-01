@@ -254,10 +254,13 @@ final class RemoteMachinesModel: ObservableObject {
     /// A password server with no tunnel up: the setup buttons cannot reach
     /// it (they ride the tunnel's master), so the row says to connect first.
     /// A running `ssh` is not enough: at a prompt its master socket is not
-    /// open yet.
+    /// open yet; "connected" comes after the login, when it is. A tunnel
+    /// up without a master (a socket path too long, another's live socket)
+    /// is not asked to connect again — no press would change it; the
+    /// buttons run and their own login's refusal is what the row says.
     func needsConnectionFirst(_ id: String) -> Bool {
         guard host.asksForPassword(id) else { return false }
-        return host.controlPath(id) == nil || host.state(id)?.isConnected != true
+        return host.state(id)?.isConnected != true
     }
 
     // MARK: - Removing

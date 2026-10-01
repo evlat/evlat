@@ -511,6 +511,8 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertTrue(model.needsConnectionFirst(id), "an ssh still at its prompt has no master yet")
         recorder.states[id] = .connected(since: Date())
         XCTAssertFalse(model.needsConnectionFirst(id), "the tunnel's master is up: the setup rides it")
+        recorder.sockets[id] = nil
+        XCTAssertFalse(model.needsConnectionFirst(id), "up without a master: no press would change it")
 
         model.reload()
         XCTAssertEqual(model.rows.first?.enterPassword, false)

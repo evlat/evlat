@@ -299,9 +299,14 @@ an architecture decision, not an implementation detail.
 prompt window's "Remember in Keychain" is on (`KeychainPasswordStore`). One
 internet password per machine in the classic login keychain (not the data
 protection one — no entitlement): account the machine's id, protocol `ssh`,
-server its host, label `Evlat — <target>`. It is written only once the try
-is connected, and deleted when the server refuses it, when the machine is
-removed, or when a connect is made with "Remember" off. Security calls run on
+server its host, label `Evlat — <target>`, comment the prompt it was typed
+at. It answers that prompt only — a `ProxyJump`'s nested `ssh` inherits the
+askpass variables, and the jump host's prompt must never get it; the prompt
+is compared, not its host, because an `ssh_config` alias prompts with its
+`HostName`. It is written only once the try is connected, and deleted when
+the server refuses it with no other question after it (a second factor
+leaves it), when the machine is removed, or when a connect is made with
+"Remember" off. Security calls run on
 their own serial queue, never the main one (an access question blocks the
 caller); the `security` command is not used. It is not a permission, but an
 ad-hoc signed build (`make run`, a default `make install`) is asked for
@@ -373,7 +378,7 @@ but a POST to the LAN address is refused). Default port **48151**.
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
 | `POST /approval` | opt-in hook of terminal sessions (`ApprovalHook`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; `404` through a tunnel |
 | `POST /signal` | external jobs; requires `X-Evlat-Key` |
-| `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel |
+| `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
 
 `/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
 ≤ 1 h), `phase` (`working·waiting·done·failed`), `label`, `progress` 0…1,

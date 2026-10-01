@@ -412,6 +412,9 @@ public final class RemoteTunnel {
     private struct Attempt {
         var sentPassword = false
         var refusedPassword = false
+        /// Another question came after the password (a second factor): a
+        /// refused login then says nothing about the password.
+        var askedAfterPassword = false
         var heldPrompts = 0
     }
     private var current = Attempt()
@@ -476,6 +479,7 @@ public final class RemoteTunnel {
     /// password (stored or typed). The wait for the connection starts over.
     public func promptAnswered(sentPassword: Bool) {
         guard running else { return }
+        if current.sentPassword, !sentPassword { current.askedAfterPassword = true }
         if sentPassword { current.sentPassword = true }
         promptClosed()
     }
@@ -484,6 +488,7 @@ public final class RemoteTunnel {
     /// password prompt.
     public func promptRefused(password: Bool) {
         guard running else { return }
+        if current.sentPassword, !password { current.askedAfterPassword = true }
         if password { current.refusedPassword = true }
         promptClosed()
     }
@@ -552,8 +557,10 @@ public final class RemoteTunnel {
         // sent it. One wrong password is one failed login on the server.
         // Even when the timer had called it connected: a login refused
         // after 15 s (a slow PAM) never was.
+        // Unless a second factor came after it: the password may have been
+        // right, so it is kept and the user is asked again (`rejected: false`).
         if attempt.sentPassword, failure == .authentication {
-            state = .needsUser(rejected: true)
+            state = .needsUser(rejected: !attempt.askedAfterPassword)
             return
         }
         // A quiet try met a password prompt it could not answer.

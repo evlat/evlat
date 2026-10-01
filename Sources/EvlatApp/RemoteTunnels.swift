@@ -50,12 +50,15 @@ final class RemoteTunnels {
         var hasStoredPassword = false
         /// The running try's launch.
         var generation = 0
-        /// The stored password went to this try's first password prompt;
-        /// never to a second.
+        /// The stored password was looked up for this try's first password
+        /// prompt; never for a second.
         var usedStoredPassword = false
-        /// What the user typed at this try's password prompt, and whether to
-        /// keep it: kept in memory for the try alone, stored once connected.
-        var typed: (password: String, remember: Bool)?
+        /// The stored password went: a password typed on the same try is
+        /// another host's (a jump host's), never the machine's to keep.
+        var sentStoredPassword = false
+        /// What the user typed at this try's password prompt, the prompt, and
+        /// whether to keep it: in memory for the try alone, stored once connected.
+        var typed: (password: String, prompt: String, remember: Bool)?
 
         init(machine: RemoteMachine, hooks: HooksProvider, usage: ClaudeUsageProvider,
              signals: SignalsProvider, signalKey: String) {
@@ -337,6 +340,7 @@ final class RemoteTunnels {
         link.controlPath = controlPath
         link.generation = generation
         link.usedStoredPassword = false
+        link.sentStoredPassword = false
         link.typed = nil
         let asking = askpassEnvironment(for: link, generation: generation)
         let process = SSHProcess(path: sshPath,
@@ -387,16 +391,19 @@ final class RemoteTunnels {
     /// A password typed on this try, with "Remember" on, is stored once the
     /// try connected — never before: a refused one is never kept. With
     /// "Remember" off, the one stored before goes: the user chose not to
-    /// keep a password for the machine.
+    /// keep a password for the machine. A try that also sent the stored one
+    /// logged in with two passwords; the stored one stays as it is.
     private func keepTypedPassword(_ link: Link) {
         guard let typed = link.typed else { return }
         link.typed = nil
+        guard !link.sentStoredPassword else { return }
         guard typed.remember else {
             link.hasStoredPassword = false
             store.delete(for: link.machine.id)
             return
         }
-        store.save(typed.password, for: link.machine.id, target: link.machine.target)
+        store.save(StoredPassword(password: typed.password, prompt: typed.prompt),
+                   for: link.machine.id, target: link.machine.target)
         link.hasStoredPassword = true
     }
 }
@@ -405,8 +412,8 @@ final class RemoteTunnels {
 
 extension RemoteTunnels {
     /// A helper's prompt (`/askpass`, already held by the listener). A token
-    /// no running try has is refused. A password prompt takes the stored
-    /// password, once per try; on a quiet try every other prompt is refused;
+    /// no running try has is refused. The prompt the stored password was
+    /// typed at takes it, once per try; on a quiet try every other prompt is refused;
     /// on an interactive one it waits for the user (`prompts`).
     func ask(_ request: Askpass.Request) {
         // A try halted by a sleep keeps its token until its exit is
@@ -429,12 +436,16 @@ extension RemoteTunnels {
                 self?.respond(request.id, LocalAPI.noAnswer)
                 return
             }
-            guard let stored else {
-                link.hasStoredPassword = false
+            guard let stored, stored.answers(request.prompt) else {
+                // Another host's prompt (a jump host's) is asked as if
+                // nothing were stored; the machine's own may still follow.
+                link.hasStoredPassword = stored != nil
+                link.usedStoredPassword = false
                 return self.route(request, link: link, generation: generation, password: true)
             }
             link.hasStoredPassword = true
-            self.respond(request.id, LocalAPI.Response(status: .ok, body: stored))
+            link.sentStoredPassword = true
+            self.respond(request.id, LocalAPI.Response(status: .ok, body: stored.password))
             link.tunnel?.promptAnswered(sentPassword: true)
         }
     }
@@ -465,7 +476,7 @@ extension RemoteTunnels {
             return
         }
         respond(id, LocalAPI.Response(status: .ok, body: text))
-        if prompt.isPassword { link.typed = (text, remember) }
+        if prompt.isPassword { link.typed = (text, prompt.text, remember) }
         link.tunnel?.promptAnswered(sentPassword: prompt.isPassword)
     }
 

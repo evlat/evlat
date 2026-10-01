@@ -406,7 +406,7 @@ final class RemoteTunnelsTests: XCTestCase {
     /// that refused the stored one is not tried again.
     func testTheStoredPasswordGoesToTheFirstPasswordPromptOnce() throws {
         let fake = try promptingSSH()
-        let store = MemoryPasswordStore(["fake": "s3cr€t"])
+        let store = MemoryPasswordStore(["fake": StoredPassword(password: "s3cr€t", prompt: passwordPrompt)])
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
                                                    "FAKE_SSH_PROMPT2": passwordPrompt],
@@ -422,7 +422,7 @@ final class RemoteTunnelsTests: XCTestCase {
         // The refused stored password is forgotten: "Enter Password…" asks
         // the user instead of sending it again.
         var kept: String? = "unread"
-        store.password(for: "fake") { kept = $0 }
+        store.password(for: "fake") { kept = $0?.password }
         XCTAssertNil(kept)
         tunnels.retryByUser(id: "fake")
         waitUntil("the user is asked", timeout: 15) { !tunnels.prompts.isEmpty }
@@ -495,14 +495,14 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertTrue(prompt.isPassword)
         XCTAssertEqual(tunnels.state(of: "fake"), .connecting, "not connected while the question waits")
         var kept: String?
-        store.password(for: "fake") { kept = $0 }
+        store.password(for: "fake") { kept = $0?.password }
         XCTAssertNil(kept)
 
         tunnels.answer(prompt.id, with: "typed", remember: true)
         XCTAssertTrue(tunnels.prompts.isEmpty)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
         XCTAssertEqual(askpassLines(fake.log), ["askpass 0 typed"])
-        store.password(for: "fake") { kept = $0 }
+        store.password(for: "fake") { kept = $0?.password }
         XCTAssertEqual(kept, "typed")
         XCTAssertGreaterThanOrEqual(changes, 2)
     }
@@ -537,17 +537,20 @@ final class RemoteTunnelsTests: XCTestCase {
     /// `MemoryPasswordStore`.
     private final class RecordingStore: SSHPasswordStore {
         private(set) var calls: [String] = []
-        private var passwords: [String: String]
+        private var passwords: [String: StoredPassword]
 
-        init(_ passwords: [String: String] = [:]) { self.passwords = passwords }
+        /// Each password stored at `prompt`, the fake `ssh`'s by default.
+        init(_ passwords: [String: String] = [:], prompt: String = "ben@fake's password: ") {
+            self.passwords = passwords.mapValues { StoredPassword(password: $0, prompt: prompt) }
+        }
 
-        func password(for id: String, completion: @escaping (String?) -> Void) {
+        func password(for id: String, completion: @escaping (StoredPassword?) -> Void) {
             completion(passwords[id])
         }
 
-        func save(_ password: String, for id: String, target: String) {
-            calls.append("save \(id) \(password) \(target)")
-            passwords[id] = password
+        func save(_ stored: StoredPassword, for id: String, target: String) {
+            calls.append("save \(id) \(stored.password) \(target)")
+            passwords[id] = stored
         }
 
         func delete(for id: String) {
@@ -583,17 +586,47 @@ final class RemoteTunnelsTests: XCTestCase {
     /// one stored before goes — it is the one the user chose not to keep.
     func testRememberOffForgetsTheStoredPasswordOnceConnected() throws {
         let fake = try promptingSSH()
-        let store = RecordingStore(["fake": "old"])
-        // The stored one answers the first prompt; the second is the user's.
+        // Stored at another prompt: it answers nothing, the user is asked.
+        let store = RecordingStore(["fake": "old"], prompt: "ben@old's password: ")
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
-                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
-                                                   "FAKE_SSH_PROMPT2": passwordPrompt],
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt],
                                      store: store, confirmAfter: 3)
         tunnels.add(machine, key: key, interactive: true)
         waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
         tunnels.answer(try XCTUnwrap(tunnels.prompts.first).id, with: "typed", remember: false)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
         XCTAssertEqual(store.calls, ["delete fake"])
+    }
+
+    /// A `ProxyJump`'s nested `ssh` asks through the same helper, and its
+    /// jump host's prompt may come first: the machine's stored password
+    /// never goes there, and is not forgotten for it.
+    func testAnotherHostsPromptNeverGetsTheStoredPassword() throws {
+        let fake = try promptingSSH()
+        let store = RecordingStore(["fake": "s3cr€t"])
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": "jim@jump's password: ",
+                                                   "FAKE_SSH_PROMPT2": passwordPrompt],
+                                     store: store)
+        tunnels.add(machine, key: key)
+        waitUntil("stopped for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: false) }
+        XCTAssertEqual(askpassLines(fake.log), ["askpass 1 "])
+        XCTAssertEqual(store.calls, [], "the stored password stays")
+    }
+
+    /// A second factor after the stored password: a quiet try cannot answer
+    /// it, and the login's refusal does not cost the password.
+    func testASecondFactorRefusedKeepsTheStoredPassword() throws {
+        let fake = try promptingSSH()
+        let store = RecordingStore(["fake": "s3cr€t"])
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
+                                     environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
+                                                   "FAKE_SSH_PROMPT2": "Verification code: "],
+                                     store: store)
+        tunnels.add(machine, key: key)
+        waitUntil("stopped for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: false) }
+        XCTAssertEqual(askpassLines(fake.log), ["askpass 0 s3cr€t", "askpass 1 "])
+        XCTAssertEqual(store.calls, [])
     }
 
     /// A machine removed takes its stored password with it.

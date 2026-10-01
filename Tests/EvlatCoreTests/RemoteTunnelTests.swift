@@ -412,6 +412,23 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertEqual(h.pending, [], "no retry")
     }
 
+    /// A second factor after the password, refused or answered wrong: the
+    /// login's refusal says nothing about the password, so the user is
+    /// asked again and nothing reads as "password refused".
+    func testARefusalAfterASecondFactorIsNotAPasswordRefused() {
+        for refused in [true, false] {
+            let h = Harness()
+            h.tunnel.start()
+            h.tunnel.promptOpened()
+            h.tunnel.promptAnswered(sentPassword: true)
+            h.tunnel.promptOpened()
+            if refused { h.tunnel.promptRefused(password: false) } else { h.tunnel.promptAnswered(sentPassword: false) }
+            h.tunnel.exited(generation: 1, stderr: "Permission denied (keyboard-interactive).")
+            XCTAssertEqual(h.tunnel.state, .needsUser(rejected: false), "refused: \(refused)")
+            XCTAssertEqual(h.pending, [])
+        }
+    }
+
     /// A slow server refuses after the timer called the try connected: the
     /// password was still refused, and is not sent again.
     func testARefusalAfterTheTimerIsStillARefusal() {
