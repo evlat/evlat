@@ -25,9 +25,11 @@ Package.swift
 CHANGELOG.md         release notes, `## x.y.z` per version; shown on the release
                      page and in the update window
 Sources/EvlatCore/   pure core: Foundation + Dispatch only
+Sources/EvlatAgents/ what is particular to each agent; Foundation + the core only
 Sources/EvlatApp/    AppKit + SwiftUI shell; the NWListener transport lives here
 Sources/Evlat/       main.swift — classifies argv (app, `watch`, `signal`, help)
 Tests/EvlatCoreTests/
+Tests/EvlatAgentsTests/ the agents' tests, the installed contracts' golden strings among them
 Tests/EvlatAppTests/
 Tests/Fixtures/      fake `claude`, fake `ssh`
 Resources/{en,tr}.lproj/Evlat.strings
