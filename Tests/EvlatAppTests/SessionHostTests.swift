@@ -23,13 +23,16 @@ final class SessionHostTests: XCTestCase {
     private func probe(_ table: [Int32: Proc],
                        bundles: [String: (bundleID: String, name: String)] = [:],
                        running: [String: SessionHost.App] = [:],
-                       environment: [Int32: [String]] = [:]) -> SessionHost.Probe {
+                       environment: [Int32: [String]] = [:],
+                       arguments: [Int32: [String]] = [:]) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
                           regularApp: { table[$0]?.app },
                           executablePath: { table[$0]?.path },
                           bundle: { bundles[$0] },
                           running: { running[$0] },
-                          environment: { environment[$0] ?? [] })
+                          environment: { environment[$0] ?? [] },
+                          arguments: { arguments[$0] ?? [] },
+                          processes: { Array(table.keys) })
     }
 
     func testADirectTerminal() {
@@ -382,5 +385,121 @@ extension SessionHostTests {
         XCTAssertNil(TabLink.url(bundleID: "com.cmuxterm.app", environment: [workspace]), "half a tab is none")
         XCTAssertNil(TabLink.url(bundleID: "com.cmuxterm.app",
                                  environment: [workspace, "CMUX_SURFACE_ID=../restart"]))
+    }
+}
+
+extension SessionHostTests {
+    private static let herdr = "/Users/u/.local/bin/herdr"
+    private static let staleTab = ["CMUX_WORKSPACE_ID=11111111-1111-4111-8111-111111111111",
+                                   "CMUX_SURFACE_ID=22222222-2222-4222-8222-222222222222"]
+    private static let clientTab = ["CMUX_WORKSPACE_ID=018D3A58-43C5-4E55-A360-EB03CCDED11B",
+                                    "CMUX_SURFACE_ID=5B3AB033-593B-4832-8B68-87D1AFEDD607"]
+
+    private var cmux: SessionHost.App { SessionHost.App(bundleID: "com.cmuxterm.app", name: "cmux", pid: 400) }
+
+    /// As measured with herdr 0.9.1: claude → -zsh → `herdr server`, parented
+    /// to launchd, and the `herdr` client in a cmux tab elsewhere. The pane
+    /// still carries the tab the server was first started from.
+    private var herdrInCmux: [Int32: Proc] {
+        [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 700, path: "/bin/zsh"),
+            700: Proc(parent: 1, path: Self.herdr),
+            650: Proc(parent: 640, path: Self.herdr),
+            640: Proc(parent: 630, path: "/bin/zsh"),
+            630: Proc(parent: 400, path: "/usr/bin/login"),
+            400: Proc(parent: 1, path: "/Applications/cmux.app/Contents/MacOS/cmux", app: cmux),
+        ]
+    }
+
+    func testAHerdrPaneIsHostedWhereItsClientRuns() {
+        let pane = ["HERDR_PANE_ID=w4:p2", "HERDR_SOCKET_PATH=/Users/u/.config/herdr/herdr.sock"]
+        let host = SessionHost.resolve(pid: 900, probe(herdrInCmux,
+                                                       environment: [900: Self.staleTab + pane, 650: Self.clientTab],
+                                                       arguments: [700: [Self.herdr, "server"], 650: ["herdr"]]))
+        var expected = cmux
+        expected.tab = URL(string: "cmux://workspace/018D3A58-43C5-4E55-A360-EB03CCDED11B/surface/5B3AB033-593B-4832-8B68-87D1AFEDD607")
+        expected.herdr = HerdrPane(executable: Self.herdr, pane: "w4:p2",
+                                   socket: "/Users/u/.config/herdr/herdr.sock")
+        XCTAssertEqual(host, .app(expected), "the client's tab, not the one the pane inherited, and the agent's pane")
+    }
+
+    /// The pane is selected by the server's own executable, with fixed
+    /// arguments and only the socket in its environment.
+    func testAHerdrPaneIsFocusedByItsId() throws {
+        let pane = try XCTUnwrap(HerdrPane.of(herdr: Self.herdr,
+                                              environment: ["TERM=x", "HERDR_PANE_ID=w4:p2",
+                                                            "HERDR_SOCKET_PATH=/s/herdr.sock"]))
+        XCTAssertEqual(pane.arguments, ["agent", "focus", "w4:p2"])
+        XCTAssertEqual(pane.environment, ["HERDR_SOCKET_PATH": "/s/herdr.sock"])
+        XCTAssertEqual(HerdrPane.of(herdr: Self.herdr, environment: ["HERDR_PANE_ID=w1:p1"])?.environment, [:],
+                       "no socket: herdr's default")
+        XCTAssertNil(HerdrPane.of(herdr: Self.herdr, environment: []), "not in a pane")
+        XCTAssertNil(HerdrPane.of(herdr: "herdr", environment: ["HERDR_PANE_ID=w1:p1"]), "a path, not a name")
+        XCTAssertNil(HerdrPane.of(herdr: Self.herdr, environment: ["HERDR_SOCKET_PATH=relative",
+                                                                    "HERDR_PANE_ID=w1:p1"])?.socket)
+        for bad in ["", "--help", "-w1", "w1 p1", "w1;rm", "w1/p1", String(repeating: "a", count: 65)] {
+            XCTAssertFalse(HerdrPane.isPaneID(bad), bad)
+        }
+        XCTAssertTrue(HerdrPane.isPaneID("w12:p3"))
+    }
+
+    func testAHerdrServerWithNoClientIsNotFound() {
+        var table = herdrInCmux
+        table[650] = nil
+        let host = SessionHost.resolve(pid: 900, probe(table, arguments: [700: [Self.herdr, "server"]]))
+        XCTAssertEqual(host, .notFound)
+    }
+
+    /// `herdr pane list` run in a cmux tab is the CLI, not a client.
+    func testHerdrsOwnSubcommandsAreNotClients() {
+        let host = SessionHost.resolve(pid: 900, probe(herdrInCmux,
+                                                       arguments: [700: [Self.herdr, "server"],
+                                                                   650: ["herdr", "pane", "list"]]))
+        XCTAssertEqual(host, .notFound)
+    }
+
+    /// Only a `herdr` that is a server is passed through: a client in the
+    /// chain is just a process.
+    func testOnlyAHerdrServerIsFollowed() {
+        let host = SessionHost.resolve(pid: 900, probe(herdrInCmux,
+                                                       arguments: [700: [Self.herdr], 650: ["herdr"]]))
+        XCTAssertEqual(host, .notFound)
+    }
+
+    /// Two sessions: a named server's own client is taken, never another
+    /// session's — whose client here is the newer pid and in another app.
+    func testAHerdrClientOfAnotherSessionIsNotTaken() {
+        var table = herdrInCmux
+        table[660] = Proc(parent: 500, path: Self.herdr)
+        table[500] = Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm)
+        let arguments: [Int32: [String]] = [700: [Self.herdr, "server"],
+                                            650: ["herdr", "--session", "work"],
+                                            660: ["herdr"]]
+        let named = probe(table, environment: [700: ["HERDR_SESSION=work"]], arguments: arguments)
+        XCTAssertEqual(SessionHost.resolve(pid: 900, named), .app(cmux))
+        let unnamed = probe(table, arguments: arguments)
+        XCTAssertEqual(SessionHost.resolve(pid: 900, unnamed), .app(metalterm), "the default session's client")
+    }
+
+    func testAHerdrClientsSessionIsReadFromItsArguments() {
+        XCTAssertEqual(SessionHost.herdrClientSession(arguments: ["herdr"]), .some(nil))
+        XCTAssertEqual(SessionHost.herdrClientSession(arguments: ["herdr", "--session", "w"]), .some("w"))
+        XCTAssertEqual(SessionHost.herdrClientSession(arguments: ["herdr", "--session=w"]), .some("w"))
+        XCTAssertEqual(SessionHost.herdrClientSession(arguments: ["herdr", "session", "attach", "w"]), .some("w"))
+        XCTAssertNil(SessionHost.herdrClientSession(arguments: ["herdr", "pane", "list"]))
+        XCTAssertNil(SessionHost.herdrClientSession(arguments: ["herdr", "server"]))
+        XCTAssertNil(SessionHost.herdrClientSession(arguments: ["herdr", "--session="]))
+        XCTAssertEqual(SessionHost.herdrSession(environment: ["HERDR_SESSION=w"]), "w")
+        XCTAssertEqual(SessionHost.herdrSession(environment: ["HERDR_SESSION="]), "default")
+        XCTAssertEqual(SessionHost.herdrSession(environment: []), "default")
+    }
+
+    /// The real reads: this process's arguments, and its pid among all.
+    func testTheRealArgumentsAndProcessesIncludeThisOne() {
+        let me = ProcessInfo.processInfo.processIdentifier
+        XCTAssertEqual(SessionHost.arguments(me).count, CommandLine.arguments.count)
+        XCTAssertTrue(SessionHost.allPIDs().contains(me))
+        XCTAssertEqual(SessionHost.arguments(Int32.max), [])
     }
 }
