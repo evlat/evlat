@@ -548,7 +548,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `sysctl`/`kinfo_proc` answers both — `p_stat` reveals the zombie. v1
     /// walks the same path (`SessionHost.parentPID`) and needs no permission.
     nonisolated static func isProcessAlive(_ pid: Int32) -> Bool {
-        guard let info = procInfo(pid) else { return false }
+        guard let info = SessionHost.kinfo(pid) else { return false }
         return info.kp_proc.p_stat != SZOMB
     }
 
@@ -556,20 +556,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// carries its own `startedAt`, and if the two disagree some other process
     /// now owns that pid.
     nonisolated static func processStartedAt(_ pid: Int32) -> Date? {
-        guard let info = procInfo(pid) else { return nil }
-        let tv = info.kp_proc.p_un.__p_starttime
-        return Date(timeIntervalSince1970: Double(tv.tv_sec) + Double(tv.tv_usec) / 1_000_000)
-    }
-
-    private nonisolated static func procInfo(_ pid: Int32) -> kinfo_proc? {
-        guard pid > 0 else { return nil }
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else {
-            return nil
-        }
-        return info
+        SessionHost.startedAt(pid)
     }
 
     /// The provider bound to the real location. Path and liveness both come

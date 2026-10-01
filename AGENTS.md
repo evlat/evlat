@@ -279,7 +279,9 @@ is lost with the process.
   client socket and with a terminal, tmux's client of the pane's session
   that did something last (asked of the server's own `tmux`, 0.25 s at
   most). A pane whose client is not found opens no tab: the app comes
-  forward only if the walk still reaches one. A herdr pane is then selected inside the tab with
+  forward only if the walk still reaches one. Each multiplexer is one
+  type conforming to `Multiplexer` (`Herdr`, `Tmux`), listed in
+  `SessionHost.multiplexers`. A herdr pane is then selected inside the tab with
   `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`). That and the tmux
   query above are the only processes Evlat runs to find and open a
   session: each the server's own executable, fixed arguments, checked
