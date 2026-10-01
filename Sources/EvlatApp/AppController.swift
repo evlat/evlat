@@ -30,6 +30,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var hookFailures: [AgentSource: HookSettings.Failure] = [:]
     /// The same for the status line relay's entry.
     private var usageFailure: SettingsFile.Failure?
+    private var antigravityUsageFailure: SettingsFile.Failure?
     /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
@@ -82,6 +83,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     lazy var claudeUsage = ClaudeUsageProvider(now: { [unowned self] in
         MainActor.assumeIsolated { self.now() }
     })
+    /// The Antigravity CLI's Gemini windows, the same way from its own
+    /// status line.
+    lazy var antigravityUsage = ClaudeUsageProvider(now: { [unowned self] in
+        MainActor.assumeIsolated { self.now() }
+    }, source: .antigravity)
     /// Outside programs' rows, as `POST /signal` left them. Stamped
     /// with this controller's clock, like the usage windows: a row's life is
     /// read against it.
@@ -986,7 +992,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let windows = report.windows.map { "\($0.minutes)m \(percentText($0.usedPercent))" }
         let unrecognized = report.unrecognizedWindows.isEmpty
             ? "" : "  (unrecognised: \(report.unrecognizedWindows.sorted().joined(separator: ", ")))"
-        return "  usage    claude  \(windows.isEmpty ? "no windows" : windows.joined(separator: ", "))\(unrecognized)"
+        return "  usage    \(report.source.rawValue)  \(windows.isEmpty ? "no windows" : windows.joined(separator: ", "))\(unrecognized)"
     }
 
     /// The hook endpoint's own diagnostics.
@@ -1204,6 +1210,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Memory only, no file: safe without a home. Before Codex so the
         // block's order does not hang on registration (it sorts by group).
         registry.register(claudeUsage)
+        registry.register(antigravityUsage)
         if let home { registry.register(CodexUsageProvider(home: home)) }
         registry.register(chats.provider)
         // Memory only; its rows come from the listener below.
@@ -2191,10 +2198,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             setHooks: { [weak self] source, installed in self?.setHooks(source, installed: installed) },
             setUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0) },
+            setAntigravityUsageRelay: { [weak self] in self?.setUsageRelay(installed: $0, source: .antigravity) },
             setCommandLink: { [weak self] in self?.setCommandLink(installed: $0, replacing: $1) },
             setLoginItem: { [weak self] in self?.setLoginItem(on: $0) },
             hookFailure: { [weak self] in self?.hookFailure($0) },
             usageFailure: { [weak self] in self?.usageRelayFailure },
+            antigravityUsageFailure: { [weak self] in self?.antigravityUsageRelayFailure },
             commandLinkFailure: { [weak self] in self?.commandLinkFailure },
             loginItemFailed: { [weak self] in self?.loginItemFailed ?? false })
     }
@@ -2466,7 +2475,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .usage(let report):
             // Not `hookDiagnostics`: that bucket is the hooks' and nothing of
             // the status line's body belongs in it.
-            claudeUsage.handle(report)
+            (report.source == .antigravity ? antigravityUsage : claudeUsage).handle(report)
             scheduleRefresh()
         case .askpass(let request):
             // The tunnels match it to a try; without them it is refused and
@@ -3470,20 +3479,21 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         closeListAfterWrite()
     }
 
-    /// The status line relay, as `setHooks` does it.
-    func setUsageRelay(installed: Bool) {
-        guard let home else { return }
-        let file = AgentSource.claude.settingsFile(home: home)
+    /// The status line relay, as `setHooks` does it: Claude's, or the
+    /// Antigravity CLI's.
+    func setUsageRelay(installed: Bool, source: AgentSource = .claude) {
+        guard let home, let file = source.statusLineFile(home: home) else { return }
+        var failure: SettingsFile.Failure?
         do {
             if installed {
-                try StatusLineRelay.install(at: file)
+                try StatusLineRelay.install(at: file, source: source)
             } else {
-                try StatusLineRelay.remove(at: file)
+                try StatusLineRelay.remove(at: file, source: source)
             }
-            usageFailure = nil
         } catch {
-            usageFailure = error as? SettingsFile.Failure ?? .unwritable
+            failure = error as? SettingsFile.Failure ?? .unwritable
         }
+        if source == .antigravity { antigravityUsageFailure = failure } else { usageFailure = failure }
         closeListAfterWrite()
     }
 
@@ -3519,6 +3529,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     func hookFailure(_ source: AgentSource) -> SettingsFile.Failure? { hookFailures[source] }
     var usageRelayFailure: SettingsFile.Failure? { usageFailure }
+    var antigravityUsageRelayFailure: SettingsFile.Failure? { antigravityUsageFailure }
 
     /// The intent may already have believed the bar closed.
     private func closeListAfterWrite() {

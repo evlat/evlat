@@ -1,7 +1,10 @@
 import Foundation
 
 /// Claude Code's rate-limit windows, as its status line reports them through
-/// `POST /usage/claude`.
+/// `POST /usage/claude` — and, with `source: .antigravity`, the Antigravity
+/// CLI's Gemini windows through `POST /usage/antigravity`. The two differ
+/// only in how their status line is read (`UsageReport`); what is kept, and
+/// how a window is merged and dropped, is the same.
 ///
 /// `Fidelity` is `.official`: the fields are Claude Code's documented status
 /// line input, unlike Codex's rollout file. Held in memory only — nothing is
@@ -24,6 +27,12 @@ public final class ClaudeUsageProvider: Provider {
     /// catalogue text (`Signal.Usage.group`).
     public static let group = "Claude"
 
+    /// Antigravity's: its windows are Gemini's pool, and the group is named
+    /// for it. "Gemini" also sorts after Claude and Codex
+    /// (`Snapshot`'s order), so the bar's cap drops it before either.
+    public static let antigravityID = "antigravity-usage"
+    public static let antigravityGroup = "Gemini"
+
     /// `claude-usage`, or `claude-usage@{machine id}` for a remote machine's
     /// status line: its own entities, so a remote window never overwrites
     /// the local one even when both are the same account.
@@ -44,11 +53,13 @@ public final class ClaudeUsageProvider: Provider {
 
     /// The clock is injected (`HooksProvider`'s pattern): the observation
     /// stamp is the provider's, since `LocalAPI` has no clock.
-    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil) {
+    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil,
+                source: AgentSource = .claude) {
         self.now = now
         self.machine = machine
-        id = machine.map { "\(Self.id)@\($0.id)" } ?? Self.id
-        group = machine.map { "\(Self.group) · \($0.name)" } ?? Self.group
+        let base = source == .antigravity ? (Self.antigravityID, Self.antigravityGroup) : (Self.id, Self.group)
+        id = machine.map { "\(base.0)@\($0.id)" } ?? base.0
+        group = machine.map { "\(base.1) · \($0.name)" } ?? base.1
     }
 
     public func handle(_ report: UsageReport) {

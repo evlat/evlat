@@ -144,6 +144,49 @@ final class SetupModelTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".claude/settings.json").path))
     }
 
+    /// With the Antigravity CLI there, its usage line is a row of its own:
+    /// read from and written to the CLI's settings, not the hooks file.
+    func testTheAntigravityUsageLineIsItsOwnRow() throws {
+        for directory in [".gemini/antigravity-cli", ".gemini/config"] {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(directory),
+                                                    withIntermediateDirectories: true)
+        }
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        XCTAssertEqual(model.rows.map(\.item), [.claudeHooks, .usageRelay, .codexHooks, .antigravityHooks,
+                                                .antigravityUsageRelay, .commandLink, .loginItem])
+        let row = try XCTUnwrap(model.row(.antigravityUsageRelay))
+        XCTAssertEqual(row.status, .missing)
+        XCTAssertEqual(row.detail, "~/.gemini/antigravity-cli/settings.json")
+        XCTAssertEqual(model.consent(.antigravityUsageRelay, .install),
+                       ["~/.gemini/antigravity-cli/settings.json · the usage line"])
+
+        model.perform(.antigravityUsageRelay)
+        let file = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
+        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .current)
+        XCTAssertEqual(model.row(.antigravityUsageRelay)?.status, .installed)
+        XCTAssertEqual(model.row(.usageRelay)?.status, .missing, "Claude's file is not touched")
+
+        let empty = root.appendingPathComponent("empty-agy.json")
+        try StatusLineRelay.install(at: empty, source: .antigravity)
+        XCTAssertEqual(model.manual(.antigravityUsageRelay)?.text, try String(contentsOf: empty))
+
+        model.perform(.antigravityUsageRelay)
+        XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .missing)
+    }
+
+    /// The Antigravity app or IDE alone has no status line: no usage row.
+    func testWithoutTheAntigravityCLIThereIsNoUsageRow() throws {
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity"),
+                                                withIntermediateDirectories: true)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let model = model(controller)
+        XCTAssertNotNil(model.row(.antigravityHooks))
+        XCTAssertNil(model.row(.antigravityUsageRelay))
+    }
+
     /// The block to paste is what the writer writes into an empty file.
     func testTheManualBlocksAreTheWritersBytes() throws {
         let controller = try controller(home: home)

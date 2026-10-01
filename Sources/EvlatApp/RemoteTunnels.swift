@@ -262,7 +262,10 @@ final class RemoteTunnels {
                 link.tunnel?.heard()
                 switch delivery {
                 case .hook(let event): link.hooks.handle(event)
-                case .usage(let report): link.usage.handle(report)
+                // A machine's tunnel carries Claude's windows only: its
+                // instance is Claude's, and Antigravity's relay is not
+                // installed on a server.
+                case .usage(let report): if report.source == .claude { link.usage.handle(report) }
                 // A tunnel answers `/permission` and `/askpass` with `404`
                 // (`LocalAPI`): a remote machine never puts a card in front
                 // of this user, nor asks for a password.

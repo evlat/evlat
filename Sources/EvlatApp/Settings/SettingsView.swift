@@ -327,8 +327,8 @@ private struct SessionsSection: View {
             }
         }
         SettingsGroup(title: model.t("settings.sessions.usage")) {
-            if let usage = setup.row(.usageRelay) {
-                SetupRowView(row: usage, model: setup)
+            ForEach([SetupItem.usageRelay, .antigravityUsageRelay].compactMap(setup.row)) {
+                SetupRowView(row: $0, model: setup)
             }
             RowBox {
                 HStack(spacing: 10) {

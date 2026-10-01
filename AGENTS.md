@@ -123,6 +123,7 @@ prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
 | `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (`AgentSource`, `CodexHookAdapter`, `AntigravityHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
 | `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid | derived |
 | `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept | official |
+| `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`ClaudeUsageProvider(source:)`) | official |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens | derived |
 | `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
 | `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
@@ -608,6 +609,15 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   (`ENOENT`). The launch path is in the argument area (`KERN_PROCARGS2`). Being
   inside a `.app` does not make a path a terminal — `claude` itself runs from
   one.
+- **The Antigravity CLI's status line carries its quota** (`agy` 1.2.14,
+  undocumented, measured): `quota.{gemini,3p}-{5h,weekly}` with
+  `remaining_fraction` (0–1, remaining, not used) and `reset_time`
+  (RFC 3339). `3p` is the other vendors' models it offers, a separate pool.
+  Its `statusLine` is Claude's shape (`type`, `command`, JSON on stdin) but
+  lives in the CLI's own `settings.json`, not the hooks file; the app and
+  IDE have none. A relay that prints nothing would **replace** the CLI's
+  built-in line with an empty one: `stack_with_default: true` keeps both
+  (`StatusLineRelay.installing`).
 - **iTerm's sessions hang off a server outside its bundle**
   (`~/Library/Application Support/iTerm2/iTermServer-<version>`, parented to
   launchd): no path in the chain names `iTerm.app`, and the walk found no

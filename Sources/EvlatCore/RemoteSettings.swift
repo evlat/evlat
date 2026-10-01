@@ -292,7 +292,7 @@ public enum RemoteSettings {
         }
 
         public var statusLine: Found<StatusLineRelay.State> {
-            found(.claude, StatusLineRelay.state(of:))
+            found(.claude) { StatusLineRelay.state(of: $0) }
         }
 
         private func found<State>(_ source: AgentSource, _ state: ([String: Any]) -> State) -> Found<State> {
@@ -499,6 +499,10 @@ public enum RemoteSettings {
         public let statusLine: String
         /// The wrapper around an existing command, `placeholder` in its place.
         public let wrapping: String
+        /// The Antigravity CLI's `statusLine` for a file that has none, and
+        /// its wrapper. This Mac's only: a server gets no Antigravity relay.
+        public let antigravityStatusLine: String
+        public let antigravityWrapping: String
         /// Every command Evlat writes contains this; removing by hand is
         /// taking out the entries that do.
         public let marker: String
@@ -515,6 +519,8 @@ public enum RemoteSettings {
             antigravityHooks: text(AntigravityHooks.installing(into: [:])),
             statusLine: text(StatusLineRelay.installing(into: [:]) ?? [:]),
             wrapping: StatusLineRelay.command(wrapping: Manual.placeholder),
+            antigravityStatusLine: text(StatusLineRelay.installing(into: [:], source: .antigravity) ?? [:]),
+            antigravityWrapping: StatusLineRelay.command(wrapping: Manual.placeholder, source: .antigravity),
             marker: "127.0.0.1:\(LocalAPI.defaultPort)")
     }
 }

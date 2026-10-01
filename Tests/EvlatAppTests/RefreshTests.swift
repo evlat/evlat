@@ -132,6 +132,20 @@ final class RefreshTests: XCTestCase {
         XCTAssertTrue(snapshot.ordered.isEmpty, "a usage window is not a session")
     }
 
+    /// Antigravity's report goes to its own provider, never Claude's.
+    func testAnAntigravityUsageDeliveryReachesItsOwnProvider() {
+        let controller = AppController()
+        let seen = Date(timeIntervalSince1970: 1_790_200_000)
+        controller.now = { seen }
+        let report = UsageReport(windows: [UsageReport.Window(minutes: 10080, usedPercent: 8,
+                                                              resetsAt: seen + 3600)],
+                                 unrecognizedWindows: [], source: .antigravity)
+
+        controller.handleDelivery(.usage(report))
+        XCTAssertEqual(controller.antigravityUsage.currentSignals().map(\.usage?.group), ["Gemini"])
+        XCTAssertEqual(controller.claudeUsage.currentSignals(), [], "Claude's windows are untouched")
+    }
+
     // MARK: - Opening reads
 
     /// A provider whose reading only moves when it is told to.
