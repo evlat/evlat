@@ -33,7 +33,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# The string tables (Resources/{en,tr}.lproj/Evlat.strings) are checked before
+# The string tables (Resources/*.lproj/Evlat.strings) are checked before
 # the bundle is torn down: one broken line drops a whole table at runtime.
 shopt -s nullglob
 for f in Resources/*.lproj/*.strings; do

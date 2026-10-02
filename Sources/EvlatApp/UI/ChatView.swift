@@ -76,6 +76,9 @@ struct ChatView: View {
 
     var body: some View {
         balloon
+            // Its words are read as it is drawn, with nothing observed
+            // to change when the language does: built again instead.
+            .id(model.language)
             .padding(.top, ChatPanel.outerMargin)
             .padding(isLeft ? .leading : .trailing, ChatPanel.barSideMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: head)

@@ -8,13 +8,40 @@ import EvlatCore
 final class L10nTests: XCTestCase {
     private var catalog: Catalog { L10n.catalog }
 
-    func testBothTablesAreFoundAndCarryTheSameKeys() {
+    /// The languages shipped. A table that does not parse is dropped at
+    /// runtime without a word, so the set is named here rather than read from
+    /// the folder.
+    static let languages = ["en", "tr", "de", "es", "fr", "pt-BR", "ru", "uk", "ja", "ko", "zh-Hans", "zh-Hant"]
+
+    func testEveryTableIsFoundAndCarriesTheSameKeys() {
         let en = catalog.tables["en"] ?? [:]
-        let tr = catalog.tables["tr"] ?? [:]
         XCTAssertFalse(en.isEmpty, "the source table was not found under \(String(describing: L10n.root()))")
-        XCTAssertFalse(tr.isEmpty, "the Turkish table was not found")
-        XCTAssertEqual(Set(en.keys).subtracting(tr.keys), [], "keys missing from tr")
-        XCTAssertEqual(Set(tr.keys).subtracting(en.keys), [], "keys missing from en")
+        XCTAssertEqual(Set(catalog.tables.keys), Set(Self.languages))
+        for lang in Self.languages where lang != "en" {
+            let table = catalog.tables[lang] ?? [:]
+            XCTAssertFalse(table.isEmpty, "the \(lang) table was not found or did not parse")
+            XCTAssertEqual(Set(en.keys).subtracting(table.keys), [], "keys missing from \(lang)")
+            XCTAssertEqual(Set(table.keys).subtracting(en.keys), [], "keys \(lang) has and en does not")
+        }
+    }
+
+    /// A placeholder renamed or dropped in a translation stays `{…}` on
+    /// screen, or loses the number, in that language only.
+    func testEveryTranslationKeepsTheSourcePlaceholders() throws {
+        let regex = try NSRegularExpression(pattern: Catalog.placeholderPattern)
+        // A set: a translation may say a name twice ("{agent}" in tr).
+        func names(_ text: String) -> Set<String> {
+            let ns = text as NSString
+            return Set(regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+                .map { ns.substring(with: $0.range) })
+        }
+        let en = catalog.tables["en"] ?? [:]
+        for lang in Self.languages where lang != "en" {
+            for (key, text) in catalog.tables[lang] ?? [:] {
+                guard let source = en[key] else { continue }
+                XCTAssertEqual(names(text), names(source), "\(lang) \(key)")
+            }
+        }
     }
 
     /// Every key the code can ask for is in the table. The keys are literals
@@ -29,7 +56,7 @@ final class L10nTests: XCTestCase {
         keys.append(StatusLine.statusKey(phase: .waiting, waitKind: .approval))
         keys.append(StatusLine.statusKey(phase: .waiting, waitKind: .answer))
         keys += Signal.Machine.Reason.allCases.map(StatusLine.dimKey)
-        for lang in ["en", "tr"] {
+        for lang in Self.languages {
             for key in keys {
                 XCTAssertNotNil(catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }
@@ -37,7 +64,7 @@ final class L10nTests: XCTestCase {
     }
 
     func testEveryKeyTheSummaryAsksForExists() {
-        for lang in ["en", "tr"] {
+        for lang in Self.languages {
             for key in SummaryLine.keys {
                 XCTAssertNotNil(catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }
@@ -64,6 +91,23 @@ final class L10nTests: XCTestCase {
                        "2 sessions · 1 working", "a dimmed row is listed, not counted as working")
     }
 
+    /// Every table names itself, each differently: a table copied from
+    /// another without its name would show twice in Settings' list.
+    func testEveryTableNamesItself() {
+        let names = Self.languages.map(catalog.name(of:))
+        XCTAssertEqual(Set(names).count, Self.languages.count, "\(names)")
+        XCTAssertEqual(catalog.name(of: "tr"), "Türkçe")
+        XCTAssertEqual(catalog.name(of: "zh-Hant"), "繁體中文")
+    }
+
+    /// A choice names a table; one that names none — a language removed
+    /// since — falls to the system's.
+    func testAChoiceResolvesToItsTableOrTheSystems() {
+        XCTAssertEqual(LanguageChoice.resolve("uk", system: ["tr-TR"], catalog: catalog), "uk")
+        XCTAssertEqual(LanguageChoice.resolve(nil, system: ["tr-TR"], catalog: catalog), "tr")
+        XCTAssertEqual(LanguageChoice.resolve("xx", system: ["de-AT"], catalog: catalog), "de")
+    }
+
     func testAMissingKeyReturnsItself() {
         XCTAssertEqual(L10n.t("no.such.key", in: "tr"), "no.such.key")
     }
@@ -84,8 +128,21 @@ final class L10nTests: XCTestCase {
     /// nothing matches.
     func testTheLanguageFallsBackToTheSource() {
         XCTAssertEqual(catalog.available.first, "en")
-        XCTAssertEqual(catalog.resolve(preferred: ["de-DE"]), "en")
+        XCTAssertEqual(catalog.resolve(preferred: ["it-IT"]), "en")
+        XCTAssertEqual(catalog.resolve(preferred: ["en-TR"]), "en")
         XCTAssertEqual(catalog.resolve(preferred: ["tr-TR"]), "tr")
+    }
+
+    /// The system's language with a region, against folders named the way
+    /// Apple names them. Measured: `pt-PT` and a bare `pt` land on `pt-BR`,
+    /// and `zh-TW`, which names no script, on `zh-Hant`.
+    func testARegionReachesItsLanguage() {
+        let cases = ["de-AT": "de", "es-419": "es", "fr-CA": "fr", "pt-PT": "pt-BR", "pt": "pt-BR",
+                     "ru-RU": "ru", "uk-UA": "uk", "ja-JP": "ja", "ko-KR": "ko",
+                     "zh-Hans-CN": "zh-Hans", "zh-Hant-HK": "zh-Hant", "zh-TW": "zh-Hant"]
+        for (preferred, expected) in cases {
+            XCTAssertEqual(catalog.resolve(preferred: [preferred]), expected, preferred)
+        }
     }
 }
 
@@ -134,11 +191,13 @@ final class StatusLineTests: XCTestCase {
     /// The open body is fitted to the widest the line can get, so the body
     /// does not move as the minutes pass.
     func testTheWidestFormIsAtLeastAsWideAsAnyReading() {
-        let widest = SessionColumn.statusWidth(phase: .working, waitKind: nil, in: "en")
-        for seconds: TimeInterval in [0, 60, 59 * 60, 23 * 3600, 99 * 86_400] {
-            let text = line(.working, after: seconds)
-            let width = (text as NSString).size(withAttributes: [.font: SessionColumn.statusFont]).width
-            XCTAssertLessThanOrEqual(ceil(width), widest, text)
+        for lang in L10nTests.languages {
+            let widest = SessionColumn.statusWidth(phase: .working, waitKind: nil, in: lang)
+            for seconds: TimeInterval in [0, 60, 59 * 60, 23 * 3600, 99 * 86_400] {
+                let text = line(.working, after: seconds, in: lang)
+                let width = (text as NSString).size(withAttributes: [.font: SessionColumn.statusFont]).width
+                XCTAssertLessThanOrEqual(ceil(width), widest, "\(lang): \(text)")
+            }
         }
     }
 }

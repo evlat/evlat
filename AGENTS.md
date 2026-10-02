@@ -32,7 +32,7 @@ Tests/EvlatCoreTests/
 Tests/EvlatAgentsTests/ the agents' tests, the installed contracts' golden strings among them
 Tests/EvlatAppTests/
 Tests/Fixtures/      fake `claude`, fake `codex app-server`, fake `ssh`
-Resources/{en,tr}.lproj/Evlat.strings
+Resources/<lang>.lproj/Evlat.strings
 docs/media/          README's banner and screenshots; not bundled into the app
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
                         of the signature (ad-hoc, or EVLAT_SIGN_IDENTITY) and
@@ -580,8 +580,32 @@ dock, the hover opening, focus staying with the front app. Use a real session
 (`canBecomeKey`, `activationPolicy`) goes to XCTest, not to the eye.
 
 Every user-visible string lives in the catalog (`L10n.t("key")`), never in
-code. Source language `en`, translation `tr` with full diacritics; a new string
-enters **both** tables (`L10nTests` keeps the keys paired).
+code. Source language `en`; the translations are `tr` (full diacritics),
+`de`, `es`, `fr`, `pt-BR`, `ru`, `uk`, `ja`, `ko`, `zh-Hans` and `zh-Hant`,
+the website's languages, with its words for the phases. A new string enters
+**every** table (`L10nTests` keeps the keys and their `{placeholders}` paired
+and names the languages, so a table that stops parsing fails a test). A
+`{count}` form is read for every count but one: in `ru` and `uk` it is
+phrased so no plural agreement hangs on the number ("Сессий: {count}").
+A new language is a new `lproj` folder named as Apple names it, its own
+name in its `language.name`, plus its code in `L10nTests.languages`.
+
+The language is the system's unless Settings → General → Language picks
+one. The choice is `AppleLanguages` in the app's own domain
+(`LanguageChoice`), the key macOS's per-app language uses, so what Evlat
+does not draw (Sparkle's window, a text field's menu) follows it from the
+next launch. Measured: written there it is `Locale.preferredLanguages` at
+the next launch, and the global domain keeps the system's list. Not
+measured: that System Settings → Language & Region → Applications lists
+Evlat and writes the same value. Evlat's own text
+changes at once (`AppController.applyLanguage`): `L10n.language` is a
+variable now, so anything read as it is drawn — the menu, a notification —
+needs nothing; the views that keep their words are built again by `.id` on
+the language (the bar's column, card and usage block, the balloon, the
+settings and setup windows), and the models that make lines when they read
+are told (`languageChanged(to:)`). **Never the mascot**: it is outside the
+rebuilt part, or its rhythm and keyframes would start over. A test that
+changes the language puts `L10n.language` back.
 
 ## Isolation
 
@@ -589,7 +613,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`) |
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`) and the language chosen in Settings |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |
@@ -632,8 +656,8 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 
 - Everything in the repository is English: identifiers, comments, test names,
   assertion messages, fixture strings, CLI flags, `make` targets, commit
-  messages (imperative, one-line summary). The only exception is the `tr`
-  string table.
+  messages (imperative, one-line summary). The only exception is the
+  translated string tables.
 - Comments explain **why**; new code matches the surrounding comment density.
 - The store and UI live on the main thread. File watchers and the server run on
   their own queues and reach the store only through `DispatchQueue.main.async`.

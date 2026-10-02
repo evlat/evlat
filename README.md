@@ -111,7 +111,10 @@ version of `evlat watch` / `evlat signal` that reports through the tunnel.
 
 ## Languages
 
-English and Turkish; Evlat follows the system language.
+English, Turkish, German, Spanish, French, Brazilian Portuguese, Ukrainian,
+Russian, Japanese, Korean, and Simplified and Traditional Chinese. Evlat
+follows the system language unless you pick one in Settings → General →
+Language.
 
 ## Contributing
 

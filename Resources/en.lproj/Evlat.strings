@@ -1,5 +1,5 @@
-/* Evlat — the source language. Every key here is in tr.lproj too, in the same
-   order; context comments live only in this table. */
+/* Evlat — the source language. Every key here is in every other table too, in
+   the same order; context comments live only in this table. */
 
 /* The grey line under a session's name on the open bar: "{status} · {time}".
    A row first seen in its phase has no time and shows the status alone. */
@@ -519,6 +519,13 @@
 "settings.general.setup" = "Setup";
 "settings.general.setup.detail" = "Walk through the first launch's steps again.";
 "settings.general.setup.open" = "Open Setup…";
+/* Settings → General → Language: the system's (named in the current
+   language) or one of the tables, each named in its own language by
+   "language.name". */
+"settings.general.language" = "Language";
+"settings.general.language.detail" = "Evlat's own text changes at once; the update window follows the next time Evlat opens.";
+"settings.general.language.system" = "System ({language})";
+"language.name" = "English";
 "setup.window.title" = "Evlat Setup";
 "setup.flow.back" = "‹ Back";
 "setup.flow.skip" = "Not now";

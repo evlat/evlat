@@ -46,6 +46,9 @@ struct SetupView: View {
         .background(SettingsPalette.pane)
         .ignoresSafeArea()
         .frame(width: SetupWindow.width)
+        // Built again in a new language (Settings → General → Language),
+        // as the settings window is; the step is the model's, so it stays.
+        .id(model.lang)
     }
 
     @ViewBuilder private var consent: some View {

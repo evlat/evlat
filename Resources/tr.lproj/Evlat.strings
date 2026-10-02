@@ -463,6 +463,10 @@
 "settings.general.setup" = "Kurulum";
 "settings.general.setup.detail" = "İlk açılıştaki adımları yeniden gez.";
 "settings.general.setup.open" = "Kurulumu aç…";
+"settings.general.language" = "Dil";
+"settings.general.language.detail" = "Evlat'ın kendi yazıları hemen değişir; güncelleme penceresi Evlat bir sonraki açılışında.";
+"settings.general.language.system" = "Sistem ({language})";
+"language.name" = "Türkçe";
 "setup.window.title" = "Evlat kurulumu";
 "setup.flow.back" = "‹ Geri";
 "setup.flow.skip" = "Şimdilik geç";

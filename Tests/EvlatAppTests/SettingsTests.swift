@@ -41,6 +41,8 @@ final class SettingsTests: XCTestCase {
         var displays: [BarDisplay] = []
         var display: (id: String, name: String)?
         var edge = BarPanel.Edge.right
+        var language: String?
+        var systemLanguage = "tr"
         /// Runs in the `claude` lookup, before its answer.
         var onLookup: () -> Void = {}
         /// The second chat backend's program, and the chosen backend.
@@ -53,7 +55,10 @@ final class SettingsTests: XCTestCase {
         let host = SettingsModel.Host(
             edge: { recorder.edge }, setEdge: { recorder.edge = $0 },
             displays: { recorder.displays }, display: { recorder.display },
-            setDisplay: { id in recorder.display = id.map { id in (id, recorder.displays.first { $0.id == id }?.name ?? id) } }, isHotKeyOn: { true }, setHotKey: { _ in },
+            setDisplay: { id in recorder.display = id.map { id in (id, recorder.displays.first { $0.id == id }?.name ?? id) } },
+            language: { recorder.language }, setLanguage: { recorder.language = $0 },
+            systemLanguage: { recorder.systemLanguage },
+            isHotKeyOn: { true }, setHotKey: { _ in },
             hotKey: { .standard },
             chatBackend: { Agents.chatBackends.first { $0.id == recorder.backend }! },
             setChatBackend: { recorder.backend = $0 },
@@ -355,5 +360,66 @@ final class SettingsTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: AppController.bodyModeKey))
         XCTAssertNil(defaults.object(forKey: AppController.bodyPeekWaitingKey))
         XCTAssertNil(defaults.object(forKey: AppController.bodySliverKey))
+    }
+
+    /// "Language": the system's first, named for the table it resolves to
+    /// now, then every table by its own name; the choice goes to the writer.
+    func testTheLanguageRowOffersTheSystemsThenEveryTableByItsOwnName() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        let options = model.languageOptions
+        XCTAssertEqual(options.first, SettingsModel.LanguageOption(id: nil, title: "System (Türkçe)"))
+        XCTAssertEqual(options.dropFirst().compactMap(\.id).sorted(), L10n.catalog.available.sorted())
+        XCTAssertTrue(options.contains(SettingsModel.LanguageOption(id: "uk", title: "Українська")))
+        XCTAssertNil(model.language)
+        model.setLanguage("de")
+        XCTAssertEqual(recorder.language, "de")
+        XCTAssertEqual(model.language, "de")
+    }
+
+    /// The window's words follow a new language, its composed rows too.
+    func testANewLanguageReachesTheWindowsModels() {
+        let model = model(Recorder())
+        XCTAssertEqual(model.t("settings.general.language"), "Language")
+        model.languageChanged(to: "tr")
+        XCTAssertEqual(model.lang, "tr")
+        XCTAssertEqual(model.setup.lang, "tr")
+        XCTAssertEqual(model.remote.lang, "tr")
+        XCTAssertEqual(model.t("settings.general.language"), "Dil")
+    }
+
+    /// The choice is stored where System Settings keeps an app's own
+    /// language (`AppleLanguages` in its domain), drawn at once, and
+    /// "System" takes it out again.
+    func testTheLanguageIsStoredAsTheAppsOwnAndDrawnAtOnce() {
+        let original = L10n.language
+        defer { L10n.language = original }
+        let controller = AppController(defaults: defaults)
+        controller.languageDomain = suiteName
+        let host = controller.settingsHost
+        XCTAssertNil(host.language())
+        host.setLanguage("de")
+        XCTAssertEqual(defaults.persistentDomain(forName: suiteName)?[LanguageChoice.key] as? [String], ["de"])
+        XCTAssertEqual(host.language(), "de")
+        XCTAssertEqual(L10n.language, "de")
+        XCTAssertEqual(controller.barState.language, "de", "the bar's views are built again")
+        XCTAssertEqual(controller.chatModel.language, "de", "the balloon's too")
+        XCTAssertEqual(L10n.t("status.working"), L10n.t("status.working", in: "de"))
+        host.setLanguage(nil)
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?[LanguageChoice.key])
+        XCTAssertNil(host.language())
+        XCTAssertEqual(L10n.language, controller.systemLanguage)
+    }
+
+    /// With no domain named — `swift run`, and every other test — the
+    /// choice is kept in memory and nothing is written.
+    func testWithNoDomainTheLanguageIsNotStored() {
+        let original = L10n.language
+        defer { L10n.language = original }
+        let controller = AppController(defaults: defaults)
+        controller.settingsHost.setLanguage("ja")
+        XCTAssertEqual(controller.settingsHost.language(), "ja")
+        XCTAssertEqual(L10n.language, "ja")
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?[LanguageChoice.key])
     }
 }

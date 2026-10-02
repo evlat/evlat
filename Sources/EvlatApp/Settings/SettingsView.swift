@@ -44,6 +44,10 @@ struct SettingsView: View {
         }
         .ignoresSafeArea()
         .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
+        // A new language builds the window's views again: a menu-style
+        // picker or a view with nothing observed to change keeps the old
+        // words otherwise. The open section is the model's, so it stays.
+        .id(model.lang)
     }
 
     @ViewBuilder private var section: some View {
@@ -136,6 +140,33 @@ private struct GeneralSection: View {
                     Button(model.t("settings.general.setup.open")) { model.openSetup() }
                         .buttonStyle(SmallButtonStyle())
                 }
+            }
+        }
+        SettingsGroup(title: model.t("settings.general.language")) {
+            LanguageRow(model: model)
+        }
+    }
+}
+
+/// "Language": the system's, or one of the tables by its own name. Evlat's
+/// own text follows at once (`AppController.setLanguage`).
+private struct LanguageRow: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.general.language"),
+                         detail: model.t("settings.general.language.detail"))
+                Picker("", selection: Binding(get: { model.language }, set: { model.setLanguage($0) })) {
+                    ForEach(model.languageOptions) { option in
+                        Text(option.title).tag(option.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(model.t("settings.general.language"))
             }
         }
     }

@@ -52,7 +52,9 @@ final class SetupFlowModel: ObservableObject {
     /// The setup's own mascot: its gaze is the chosen edge's and nothing
     /// moves it — no `GazeTracker`, no clip.
     let mascot = MascotModel()
-    let lang: String
+    /// Written by the controller when the language changes; the window
+    /// observes it and draws again.
+    @Published private(set) var lang: String
     private let settings: SettingsModel.Host
     private let close: () -> Void
 
@@ -66,6 +68,12 @@ final class SetupFlowModel: ObservableObject {
     }
 
     func t(_ key: String, _ values: [String: String] = [:]) -> String { L10n.t(key, values, in: lang) }
+
+    func languageChanged(to language: String) {
+        guard language != lang else { return }
+        lang = language
+        setup.languageChanged(to: language)
+    }
 
     /// The window opens (or opens again) at `step`: every row read fresh,
     /// the queue back to its defaults, the chat program looked for.

@@ -23,6 +23,11 @@ final class SettingsModel: ObservableObject {
         var displays: () -> [BarDisplay] = { [] }
         var display: () -> (id: String, name: String)? = { nil }
         var setDisplay: (String?) -> Void = { _ in }
+        /// General's "Language": the table chosen (`nil` is the system's),
+        /// its writer, and what the system's alone would draw in.
+        var language: () -> String? = { nil }
+        var setLanguage: (String?) -> Void = { _ in }
+        var systemLanguage: () -> String = { L10n.catalog.resolve(preferred: Locale.preferredLanguages) }
         var isHotKeyOn: () -> Bool
         var setHotKey: (Bool) -> Void
         var hotKey: () -> HotKeyCombination
@@ -95,7 +100,9 @@ final class SettingsModel: ObservableObject {
     let remote: RemoteMachinesModel
     let recorder: HotKeyRecorder
     private let host: Host
-    let lang: String
+    /// The language the window draws in; the controller writes it when the
+    /// choice changes (`languageChanged(to:)`), and every row reads it again.
+    @Published private(set) var lang: String
 
     init(host: Host, setup: SetupModel, remote: RemoteMachinesModel, recorder: HotKeyRecorder,
          lang: String = L10n.language) {
@@ -108,6 +115,15 @@ final class SettingsModel: ObservableObject {
     }
 
     func t(_ key: String, _ values: [String: String] = [:]) -> String { L10n.t(key, values, in: lang) }
+
+    /// The text's language changed: the composed models make their lines
+    /// again, and the window — observing `lang` — draws them.
+    func languageChanged(to language: String) {
+        guard language != lang else { return }
+        lang = language
+        setup.languageChanged(to: language)
+        remote.languageChanged(to: language)
+    }
 
     /// The window opens: every section reads fresh.
     func reload() {
@@ -170,6 +186,31 @@ final class SettingsModel: ObservableObject {
     }
 
     var display: String? { host.display()?.id }
+
+    /// "Language": the system's first, named with what it resolves to now,
+    /// then every table by its own name, sorted as names are.
+    struct LanguageOption: Equatable, Identifiable {
+        /// `nil`: the system's.
+        let id: String?
+        let title: String
+    }
+
+    var languageOptions: [LanguageOption] {
+        let catalog = L10n.catalog
+        let tables = catalog.available
+            .map { LanguageOption(id: $0, title: catalog.name(of: $0)) }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        let system = t("settings.general.language.system", ["language": catalog.name(of: host.systemLanguage())])
+        return [LanguageOption(id: nil, title: system)] + tables
+    }
+
+    var language: String? { host.language() }
+
+    func setLanguage(_ language: String?) {
+        guard language != host.language() else { return }
+        host.setLanguage(language)
+        objectWillChange.send()
+    }
 
     func setDisplay(_ id: String?) {
         guard id != host.display()?.id else { return }
@@ -441,6 +482,8 @@ final class SettingsModel: ObservableObject {
 
     static let keys: [String] = Section.allCases.map(titleKey) + [
         "settings.window.title",
+        "settings.general.language", "settings.general.language.detail", "settings.general.language.system",
+        "language.name",
         "settings.general.bar", "settings.general.edge", "settings.general.edge.detail",
         "settings.general.edge.left", "settings.general.edge.right", "settings.general.start",
         "settings.general.display", "settings.general.display.detail", "settings.general.display.main",

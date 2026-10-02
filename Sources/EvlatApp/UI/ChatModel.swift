@@ -12,6 +12,9 @@ import EvlatAgents
 final class ChatModel: ObservableObject {
     /// Which side the bar is on: the tail points at it.
     @Published var edge: BarPanel.Edge = .right
+    /// The text's language: a change builds the balloon's views again
+    /// (Settings → General → Language).
+    @Published var language = L10n.language
     @Published private(set) var messages: [ChatSession.Message] = []
     @Published private(set) var isRunning = false
     @Published private(set) var failure: ChatSession.Failure?

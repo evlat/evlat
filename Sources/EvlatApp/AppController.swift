@@ -1802,6 +1802,63 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         toggleChat()
     }
 
+    // MARK: - Language
+
+    /// The domain `defaults` writes into, which `LanguageChoice` reads the
+    /// choice back from: the app's bundle identifier, handed in by
+    /// `launch()` alone; a test names its suite. `nil` — a build with no
+    /// bundle identifier (`swift run`), a test that names none — stores
+    /// nothing.
+    var languageDomain: String?
+    /// Without storage — and in an isolated process, as for the agents'
+    /// switches — the choice is kept here.
+    private var languageUnstored: String?
+    private var languageStore: (defaults: UserDefaults, domain: String)? {
+        guard let defaults = agentsDefaults, let domain = languageDomain else { return nil }
+        return (defaults, domain)
+    }
+
+    /// Settings → General → Language: a table's name, `nil` for the system's.
+    var chosenLanguage: String? {
+        guard let store = languageStore else { return languageUnstored }
+        return LanguageChoice.read(store.defaults, domain: store.domain, catalog: L10n.catalog)
+    }
+
+    /// What the system's list alone would draw in.
+    var systemLanguage: String {
+        L10n.catalog.resolve(preferred: languageStore.map { LanguageChoice.systemLanguages($0.defaults) }
+            ?? Locale.preferredLanguages)
+    }
+
+    func setLanguage(_ choice: String?) {
+        if let store = languageStore {
+            LanguageChoice.write(choice, to: store.defaults)
+        } else {
+            languageUnstored = choice
+        }
+        applyLanguage(LanguageChoice.resolve(choice, system: [systemLanguage], catalog: L10n.catalog))
+    }
+
+    /// Everything Evlat draws, in `language` from now on. What is read as it
+    /// is drawn — the menu, a notification, a card's line — needs nothing
+    /// more than `L10n.language`; what keeps its words is told: the views
+    /// built again (`BarState.language`, `ChatModel.language`, the windows'
+    /// models), the lines made at reading time made again. An open alert or
+    /// prompt keeps its words until it closes; Sparkle's window follows from
+    /// the next launch.
+    func applyLanguage(_ language: String) {
+        guard language != L10n.language else { return }
+        L10n.language = language
+        barState.language = language
+        chatModel.language = language
+        syncChat()
+        settings?.languageChanged(to: language)
+        settingsWindow?.window?.title = L10n.t("settings.window.title")
+        setupFlow?.languageChanged(to: language)
+        setupWindow?.window?.title = L10n.t("setup.window.title")
+        refresh()
+    }
+
     // MARK: - Agents switched on
 
     /// Without storage — every test, and an isolated process
@@ -2347,6 +2404,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             displays: { [weak self] in self?.displays() ?? [] },
             display: { [weak self] in self?.pinnedDisplay },
             setDisplay: { [weak self] in self?.setDisplay($0) },
+            language: { [weak self] in self?.chosenLanguage },
+            setLanguage: { [weak self] in self?.setLanguage($0) },
+            systemLanguage: { [weak self] in
+                self?.systemLanguage ?? L10n.catalog.resolve(preferred: Locale.preferredLanguages)
+            },
             isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
@@ -2601,6 +2663,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 loginItem: LoginItem(service: LoginItem.service(environment: environment)),
                 updater: Updater.feed(info: Bundle.main.infoDictionary ?? [:], environment: environment)
                     .map { Updater.sparkle(feed: $0) })
+            controller.languageDomain = Bundle.main.bundleIdentifier
             app.delegate = controller
             app.run()
         }
@@ -3811,6 +3874,10 @@ final class BarState: ObservableObject {
     /// the first frame and by `dock` after it, nowhere else.
     @Published var edge: BarPanel.Edge = .right
     @Published var isOpen = false
+    /// The text's language. The column, the card and the usage block are
+    /// built again when it changes (`BarBody`); the mascot is not — its
+    /// rhythm and its keyframes would start over.
+    @Published var language = L10n.language
     /// How far the body opens: as wide as the names or the summary line
     /// need, within `SessionColumn`'s bounds (`SessionColumn.openWidth(rows:)`);
     /// with nothing to hold, the closed width (`AppController.openWidth`).
@@ -3995,6 +4062,9 @@ struct BarBody: View {
                 SessionColumn(model: rows, scroll: scroll, edge: state.edge, showsNames: state.isOpen,
                               selected: state.selected, hovered: state.hovered,
                               openWidth: state.openWidth)
+                    // Its words are read as it is drawn, from rows that do
+                    // not change with the language: built again instead.
+                    .id(state.language)
                     .padding(.top, AppController.listTop)
                     .transition(.opacity.animation(BarMotion.namesOut))
             }
@@ -4012,6 +4082,7 @@ struct BarBody: View {
     @ViewBuilder private var card: some View {
         if state.isOpen, state.selected != nil, let slot = state.selectedSlot {
             DetailCard(model: detail, onButtonFrame: onGoButtonFrame, onApprovalFrame: onApprovalFrame)
+                .id(state.language)
                 .animation(BarMotion.cardContent, value: state.selected)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     onCardFrame(rect)
@@ -4031,6 +4102,7 @@ struct BarBody: View {
     @ViewBuilder private var usageBlock: some View {
         if state.isOpen {
             UsageBlock(model: usage, edge: state.edge, width: state.openWidth)
+                .id(state.language)
                 .transition(.asymmetric(insertion: .opacity.animation(BarMotion.namesIn),
                                         removal: .opacity.animation(BarMotion.namesOut)))
                 .padding(.top, state.usageTop)

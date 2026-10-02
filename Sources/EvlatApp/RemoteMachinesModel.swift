@@ -169,7 +169,7 @@ final class RemoteMachinesModel: ObservableObject {
     private let installer: RemoteInstaller
     private let pasteboard: NSPasteboard
     private let now: () -> Date
-    let lang: String
+    private(set) var lang: String
     private var copyToken = 0
 
     init(host: Host, installer: RemoteInstaller, pasteboard: NSPasteboard = .general,
@@ -193,6 +193,14 @@ final class RemoteMachinesModel: ObservableObject {
     /// Re-reads the machines and their tunnels. Called while the window is
     /// on screen at every refresh: written only when a line reads
     /// differently, so an unchanged second redraws nothing.
+    /// Lines are made in `lang` as they are read: a new language reads again.
+    func languageChanged(to language: String) {
+        guard language != lang else { return }
+        lang = language
+        reload()
+        objectWillChange.send()
+    }
+
     func reload() {
         let counts = host.sessionCounts()
         let date = now()

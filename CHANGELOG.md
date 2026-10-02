@@ -31,6 +31,10 @@ Markdown; keep it to a few bullets.
 - **Usage has its own page:** Settings → Usage.
 - **Settings opens in front** of the app you were using and takes the
   keyboard. While it is open, Evlat shows an icon in the Dock.
+- **Ten new languages:** German, Spanish, French, Brazilian Portuguese,
+  Ukrainian, Russian, Japanese, Korean, and Simplified and Traditional
+  Chinese. Evlat follows your Mac's language, or the one you pick in
+  Settings → General → Language, which changes at once.
 
 ## 0.1.9
 

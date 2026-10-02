@@ -230,7 +230,7 @@ final class SetupModel: ObservableObject {
     @Published private(set) var turningOff: AgentID?
 
     private let host: Host
-    let lang: String
+    private(set) var lang: String
     /// The link's state as last read: the consent line and the write must
     /// agree on whether another copy's link is replaced.
     private var linkState: CommandLink.State?
@@ -242,6 +242,14 @@ final class SetupModel: ObservableObject {
         self.host = host
         self.lang = lang
         reload()
+    }
+
+    /// Every line is made in `lang` as it is read: a new language reads again.
+    func languageChanged(to language: String) {
+        guard language != lang else { return }
+        lang = language
+        reload()
+        objectWillChange.send()
     }
 
     // MARK: - Reading
