@@ -217,7 +217,8 @@ final class GoToSessionTests: XCTestCase {
         controller.select("remote:d:\(Self.session)")
         XCTAssertEqual(asked, [DetailModel.RemoteQuery(
             machineID: "d", sessionID: Self.session,
-            records: SessionRecords(directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid"))])
+            records: SessionRecords(directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid",
+                                    startedAtKey: "startedAt"))])
         var detail = try XCTUnwrap(controller.detail.detail)
         XCTAssertTrue(detail.searching)
         XCTAssertFalse(DetailCard.showsButton(detail), "searching draws no button")
@@ -276,6 +277,28 @@ final class GoToSessionTests: XCTestCase {
         controller.select("remote:d:\(Self.session)")
         XCTAssertEqual(asked, [], "an agent without records is not asked about")
         XCTAssertFalse(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+    }
+
+    /// A card that came up while its tunnel was down asks once it is up:
+    /// a call that could not be made is no answer. The answer then holds.
+    func testACardAsksOnceItsTunnelIsUp() throws {
+        let (controller, _) = remoteController([askable()], reachable: false)
+        defer { controller.panel?.close() }
+        controller.select("remote:d:\(Self.session)")
+        XCTAssertFalse(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+        XCTAssertEqual(asked, [])
+
+        controller.detail.findRemote = { [unowned self] query, completion in
+            self.asked.append(query)
+            self.pending.append(completion)
+            return true
+        }
+        controller.refresh()
+        XCTAssertEqual(asked.count, 1, "the tunnel is back: asked")
+        pending[0](found)
+        XCTAssertTrue(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+        controller.refresh()
+        XCTAssertEqual(asked.count, 1, "answered: not asked again")
     }
 
     /// An answer that comes after its card closed draws nothing on the

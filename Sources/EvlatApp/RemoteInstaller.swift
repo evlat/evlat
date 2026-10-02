@@ -167,9 +167,12 @@ final class RemoteInstaller {
 
     /// The process's stdout and exit status. stdin is fed and stderr drained
     /// on their own threads, so no pipe fills while another is waited on.
-    /// Also `RemoteHostLookup`'s, which shares the process and not the lock.
+    /// Also `RemoteHostLookup`'s, which shares the process and not the lock,
+    /// and gives a `deadline`: past it the process is ended and the call is
+    /// unreachable — a server stuck in its script must not hold the lookup's
+    /// queue, and `ConnectTimeout` does not reach a command over a master.
     static func run(_ path: String, _ arguments: [String],
-                            script: String) throws -> (output: Data, status: Int32) {
+                    script: String, deadline: TimeInterval? = nil) throws -> (output: Data, status: Int32) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -182,6 +185,11 @@ final class RemoteInstaller {
         let writer = input.fileHandleForWriting.fileDescriptor
         _ = fcntl(writer, F_SETNOSIGPIPE, 1)
         try process.run()
+        if let deadline {
+            DispatchQueue.global().asyncAfter(deadline: .now() + deadline) {
+                if process.isRunning { process.terminate() }
+            }
+        }
 
         let group = DispatchGroup()
         let data = Data(script.utf8)

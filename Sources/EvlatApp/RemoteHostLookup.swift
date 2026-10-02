@@ -12,6 +12,10 @@ import EvlatCore
 final class RemoteHostLookup {
     private let sshPath: String
     private let queue: DispatchQueue
+    /// The longest one call may take. Over a live master the script took
+    /// 0.19–0.25 s, its tmux question is cut at 2 s; a call still running
+    /// past this is stuck, and the queue is serial.
+    static let deadline: TimeInterval = 10
 
     init(sshPath: String, queue: DispatchQueue = DispatchQueue(label: "evlat.remote-host")) {
         self.sshPath = sshPath
@@ -35,11 +39,11 @@ final class RemoteHostLookup {
 
     /// The call, synchronously.
     static func ask(sessionID: String, records: SessionRecords, target: String, controlPath: String,
-                    ssh: String) -> RemoteHost.Reply? {
+                    ssh: String, deadline: TimeInterval = deadline) -> RemoteHost.Reply? {
         let nonce = UUID().uuidString
         guard let script = RemoteHost.script(sessionID: sessionID, records: records, nonce: nonce),
               let answer = try? RemoteInstaller.run(ssh, RemoteHost.arguments(target: target, controlPath: controlPath),
-                                                    script: script) else { return nil }
+                                                    script: script, deadline: deadline) else { return nil }
         return RemoteHost.reply(exitCode: answer.status, output: answer.output, nonce: nonce, arrivedAt: Date())
     }
 }

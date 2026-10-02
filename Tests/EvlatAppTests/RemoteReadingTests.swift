@@ -381,6 +381,17 @@ final class RemoteReadingTests: XCTestCase {
                              "no answer line is no answer")
     }
 
+    /// A call past its deadline is ended and reads as unreachable, so a
+    /// stuck server does not hold `RemoteHostLookup`'s serial queue.
+    /// `sleep` itself, not under a shell: a shell's child would keep the
+    /// pipe open after the shell ended.
+    func testACallPastItsDeadlineIsEnded() throws {
+        let started = Date()
+        let answer = try RemoteInstaller.run("/bin/sleep", ["30"], script: "", deadline: 0.3)
+        XCTAssertEqual(answer.status, 255)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+    }
+
     // MARK: - The one block
 
     func testTheBlockWritesWhatTheAutomaticInstallWrites() throws {

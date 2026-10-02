@@ -44,7 +44,8 @@ struct Claude: Agent {
     /// `~/.claude/sessions/<pid>.json`, as `SessionsProvider` reads it here:
     /// on a server it finds the process a remote row's session runs in.
     let sessionRecords: SessionRecords? = SessionRecords(
-        directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid")
+        directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid",
+        startedAtKey: "startedAt")
 
     /// Its session records (`~/.claude/sessions`): discovery, name, pid.
     func providers(_ context: ProviderContext) -> [Provider] {

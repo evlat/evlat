@@ -225,11 +225,17 @@ public struct SessionRecords: Equatable {
     public let idKey: String
     /// The key whose number is the session's process id.
     public let pidKey: String
+    /// The key whose number is the process's start, in milliseconds since
+    /// 1970: a record whose pid has been recycled names another process,
+    /// and only its start tells (`Platform.sameProcess`). `nil`, or a
+    /// record without it, is taken on the pid alone.
+    public let startedAtKey: String?
 
-    public init(directory: String, idKey: String, pidKey: String) {
+    public init(directory: String, idKey: String, pidKey: String, startedAtKey: String? = nil) {
         self.directory = directory
         self.idKey = idKey
         self.pidKey = pidKey
+        self.startedAtKey = startedAtKey
     }
 }
 

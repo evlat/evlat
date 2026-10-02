@@ -408,7 +408,9 @@ is lost with the process.
   card, off the main queue (`RemoteHostLookup`): a read-only `sh` script
   (`RemoteHost`), never installed, over the machine's live tunnel master
   only (`ProxyCommand=/usr/bin/false`: a gone master is no call, never a
-  login), with the session id checked as a UUID. It walks the agent's
+  login; a call past 10 s is ended), with the session id checked as a
+  UUID. The record's pid counts only if its process started within 120 s
+  of the record's `startedAt` (pids are recycled). It walks the agent's
   parents to its connection's `sshd` (the one under the listener) and says
   `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock. In a
   tmux or herdr pane it walks from the client instead, by this Mac's rules:
@@ -428,7 +430,8 @@ is lost with the process.
   with other `ssh` riding it is the app alone too. From that
   `ssh` the walk is the local one. The card shows the button only once
   found, says nothing while searching, and keeps the answer for its life:
-  the click walks this Mac again, never asks again. Approvals and the
+  the click walks this Mac again, never asks again. A card that could not
+  ask (no live master) asks on the next snapshot. Approvals and the
   branch stay with local rows.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
@@ -828,6 +831,13 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   host until `SessionHost.helperBundle` named it. Its `reveal` link wants the
   whole `ITERM_SESSION_ID` (`w0t0p0:<UUID>`); the UUID alone only brought
   the app forward.
+- **`/proc/net/unix` names no peer, and `ss -x` prints big inodes
+  negative.** A server's accepted ends carry the socket's path there, a
+  client's end carries nothing, and no column pairs them; `ss -x`'s
+  `Peer Address:Port` does (sock_diag, no privilege). iproute2 6.1 prints
+  an inode above 2^31 as a signed 32-bit number (`-10595714` for
+  `4284371582` in `/proc/net/unix` and `fd` links, seen on Ubuntu, kernel 6.8):
+  add 2^32 before comparing.
 - **herdr's panes hang off a server parented to launchd, with no app at
   all** (`herdr server`, herdr 0.9.1): the walk reached launchd and found
   "no terminal" for every session in it. The terminal is wherever a `herdr`
@@ -838,13 +848,6 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   a cmux tab long closed, or Ghostty while the client is in cmux — so the
   tab link is read from the client.
 - **A closed tab's herdr client lives on, attached** (herdr 0.9.3, Bateri).
-- **`/proc/net/unix` names no peer, and `ss -x` prints big inodes
-  negative.** A server's accepted ends carry the socket's path there, a
-  client's end carries nothing, and no column pairs them; `ss -x`'s
-  `Peer Address:Port` does (sock_diag, no privilege). iproute2 6.1 prints
-  an inode above 2^31 as a signed 32-bit number (`-10595714` for
-  `4284371582` in `/proc/net/unix` and `fd` links, seen on Ubuntu, kernel 6.8):
-  add 2^32 before comparing.
   The tab closed, its `login` sat exiting, and the `herdr` client stayed with
   no terminal (`tty ??`), still connected to the server, ignoring `TERM`
   and `HUP` — only `KILL` ended it. Its pid was the highest and its chain

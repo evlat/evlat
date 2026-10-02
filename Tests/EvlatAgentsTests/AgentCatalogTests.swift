@@ -69,7 +69,8 @@ final class AgentCatalogTests: XCTestCase {
     /// `SessionsProvider` reads here.
     func testOnlyClaudeKeepsSessionRecords() throws {
         let records = try XCTUnwrap(Agents.all[id: AgentID("claude")]?.sessionRecords)
-        XCTAssertEqual(records, SessionRecords(directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid"))
+        XCTAssertEqual(records, SessionRecords(directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid",
+                                              startedAtKey: "startedAt"))
         XCTAssertEqual(SessionsProvider.defaultDirectory(home: URL(fileURLWithPath: "/h")).path,
                        "/h/" + records.directory)
         XCTAssertNil(Agents.all[id: AgentID("codex")]?.sessionRecords)

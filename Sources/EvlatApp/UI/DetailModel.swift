@@ -198,7 +198,8 @@ public final class DetailModel: ObservableObject {
 
     /// Which remote session `remoteHost` is for, and the server's answer —
     /// the remote fact, asked once and kept for the card's life: the click
-    /// walks this Mac again from it, never asks the server again.
+    /// walks this Mac again from it, never asks the server again. A call
+    /// that could not be made (no live master) is no answer and keeps no key.
     private var remoteKey: (entity: String, machine: String)?
     private var remoteReply: RemoteHost.Reply?
     /// `nil` while the server is asked.
@@ -283,7 +284,13 @@ public final class DetailModel: ObservableObject {
             guard let self, self.remoteGeneration == generation else { return }
             self.answered(reply, machine: query.machineID)
         }
-        if !asked { remoteHost = .notFound }
+        if !asked {
+            // No live tunnel to ask through is no answer: the next snapshot
+            // asks again, so a card that came up while it reconnected gets
+            // its button once it is back. Not asking costs nothing.
+            remoteHost = .notFound
+            remoteKey = nil
+        }
     }
 
     /// The server's answer: walked here, and drawn if its card is still up.

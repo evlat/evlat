@@ -9,7 +9,8 @@ import XCTest
 final class RemoteHostTests: XCTestCase {
     private static let shells = ["/bin/sh", "/bin/dash", "/bin/bash"]
     private static let session = "8087b2ed-d738-42da-abf1-8693d1094eda"
-    private static let records = SessionRecords(directory: ".agent/sessions", idKey: "sessionId", pidKey: "pid")
+    private static let records = SessionRecords(directory: ".agent/sessions", idKey: "sessionId", pidKey: "pid",
+                                                  startedAtKey: "startedAt")
 
     private var root: URL!
 
@@ -166,6 +167,40 @@ final class RemoteHostTests: XCTestCase {
 
         try tree(chain: chain, agent: 800, environment: environment, recordedPid: 999)
         XCTAssertEqual(try run("/bin/sh"), "", "a record whose process is gone")
+    }
+
+    /// A record whose pid now names a process started an hour off its own —
+    /// a crash left it, the pid was reused — is not the session's; one within
+    /// `Platform.sameProcess`'s 120 s is. Start ticks 12400 with `btime 1000`
+    /// is 1124 s.
+    func testARecycledPidIsNotTheSessionsProcess() throws {
+        let chain: [(Int, String, Int, Int)] = [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5),
+                                                (800, "claude", 600, 12400)]
+        let environment = ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"]
+
+        try tree(chain: chain, agent: 800, environment: environment, recordedStart: 1_124_000 + 3_600_000)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "", "a stale record, \(shell)")
+        }
+
+        try tree(chain: chain, agent: 800, environment: environment, recordedStart: 1_124_000 + 90_000)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
+        }
+    }
+
+    /// A stale record of the same session is passed over for the live one:
+    /// a resumed session can leave two.
+    func testAStaleRecordGivesWayToTheLiveOne() throws {
+        try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5),
+                         (700, "bash", 1, 9), (800, "claude", 600, 12400)],
+                 agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"], recordedStart: 1_124_000)
+        let stale = home.appendingPathComponent(Self.records.directory).appendingPathComponent("700.json")
+        try #"{"pid":700,"sessionId":"\#(Self.session)","startedAt":5000}"#
+            .write(to: stale, atomically: true, encoding: .utf8)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n ssh 1 22 1000 5 2000.25", shell)
+        }
     }
 
     /// Nothing is written: the tree and the home are byte for byte the same
@@ -418,17 +453,20 @@ final class RemoteHostTests: XCTestCase {
     /// the agent's environment, and its record under the home.
     private func tree(chain: [(pid: Int, name: String, parent: Int, start: Int)], agent: Int,
                       environment: [String], linux: Bool = true,
-                      recordedID: String = RemoteHostTests.session, recordedPid: Int? = nil) throws {
+                      recordedID: String = RemoteHostTests.session, recordedPid: Int? = nil,
+                      recordedStart: Int? = nil) throws {
         let procs = chain.map { Proc($0.pid, $0.name, $0.parent, $0.start,
                                      environment: $0.pid == agent ? environment : nil) }
-        try build(procs, agent: agent, linux: linux, recordedID: recordedID, recordedPid: recordedPid)
+        try build(procs, agent: agent, linux: linux, recordedID: recordedID, recordedPid: recordedPid,
+                  recordedStart: recordedStart)
     }
 
     /// `procs` as a `/proc`, `btime 1000`, and the agent's record under the
     /// home. `date` is a fake on `PATH` that prints `2000.25`: this Mac's
     /// has no `%N`.
     private func build(_ procs: [Proc], agent: Int, linux: Bool = true,
-                       recordedID: String = RemoteHostTests.session, recordedPid: Int? = nil) throws {
+                       recordedID: String = RemoteHostTests.session, recordedPid: Int? = nil,
+                       recordedStart: Int? = nil) throws {
         let fm = FileManager.default
         try? fm.removeItem(at: root)
         try fm.createDirectory(at: proc, withIntermediateDirectories: true)
@@ -467,7 +505,8 @@ final class RemoteHostTests: XCTestCase {
         let records = home.appendingPathComponent(Self.records.directory)
         try fm.createDirectory(at: records, withIntermediateDirectories: true)
         let pid = recordedPid ?? agent
-        try #"{"pid":\#(pid),"sessionId":"\#(recordedID)","cwd":"/root","pidDomain":"linux"}"#
+        let start = recordedStart.map { #","startedAt":\#($0)"# } ?? ""
+        try #"{"pid":\#(pid),"sessionId":"\#(recordedID)"\#(start),"cwd":"/root","pidDomain":"linux"}"#
             .write(to: records.appendingPathComponent("\(pid).json"), atomically: true, encoding: .utf8)
         try #"{"pid":1,"sessionId":"00000000-0000-0000-0000-000000000000"}"#
             .write(to: records.appendingPathComponent("1.json"), atomically: true, encoding: .utf8)

@@ -86,7 +86,10 @@ public enum RemoteHost {
     /// The script, or `nil` for an id that is not a session id.
     ///
     /// It finds a record under `$HOME/<directory>` whose `idKey` is the
-    /// session, takes its live `pidKey`, and reads that process's
+    /// session, takes its live `pidKey` — one whose start is within 120 s of
+    /// the record's `startedAtKey`, when both are there, as
+    /// `Platform.sameProcess` holds it: pids are recycled, and a record a
+    /// crash left behind may name another process — and reads that process's
     /// environment and parents under `proc` (a parameter so a test can hand
     /// it a tree of its own). The process whose connection is said is:
     /// - in a tmux pane (`TMUX`), the client of the pane's session that did
@@ -119,16 +122,8 @@ public enum RemoteHost {
         id=\#(q(sessionID))
         ik=\#(q(records.idKey))
         pk=\#(q(records.pidKey))
+        sk=\#(q(records.startedAtKey ?? ""))
         [ -d "$r/self" ] || exit 0
-        p=
-        for f in "$d"/*.json; do
-          [ -f "$f" ] || continue
-          grep -q "\"$ik\"[[:space:]]*:[[:space:]]*\"$id\"" "$f" 2>/dev/null || continue
-          x=$(sed -n "s/.*\"$pk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
-          if [ -n "$x" ] && [ -d "$r/$x" ]; then p=$x; break; fi
-        done
-        [ -n "$p" ] || exit 0
-        e=$(tr '\000' '\n' < "$r/$p/environ" 2>/dev/null) || exit 0
         st() {
           s=$(cat "$r/$1/stat" 2>/dev/null) || return 1
           C=${s#*\(}
@@ -148,6 +143,24 @@ public enum RemoteHost {
         num() {
           case $1 in ''|*[!0-9]*) return 1 ;; esac
         }
+        b=$(sed -n 's/^btime //p' "$r/stat" 2>/dev/null)
+        p=
+        for f in "$d"/*.json; do
+          [ -f "$f" ] || continue
+          grep -q "\"$ik\"[[:space:]]*:[[:space:]]*\"$id\"" "$f" 2>/dev/null || continue
+          x=$(sed -n "s/.*\"$pk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
+          [ -n "$x" ] && [ -d "$r/$x" ] || continue
+          m=
+          [ -z "$sk" ] || m=$(sed -n "s/.*\"$sk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
+          if num "$m" && [ ${#m} -le 15 ] && num "$b" && st "$x" && num "$T"; then
+            g=$(( (b * 100 + T) / 100 - m / 1000 ))
+            [ "$g" -lt 120 ] && [ "$g" -gt -120 ] || continue
+          fi
+          p=$x
+          break
+        done
+        [ -n "$p" ] || exit 0
+        e=$(tr '\000' '\n' < "$r/$p/environ" 2>/dev/null) || exit 0
         above() {
           x=$1
           k=0

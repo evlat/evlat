@@ -177,7 +177,12 @@ final class RemoteTunnels {
     /// `nil` when there is no such machine or no process has been started.
     func isProcessRunning(of id: String) -> Bool? { links[id]?.process?.isRunning }
 
-    func processIdentifier(of id: String) -> Int32? { links[id]?.process?.processIdentifier }
+    /// The running tunnel's pid; `nil` once it has exited — its pid may be
+    /// another process's by then (`Ssh.candidates` reads its sockets).
+    func processIdentifier(of id: String) -> Int32? {
+        guard let process = links[id]?.process, process.isRunning else { return nil }
+        return process.processIdentifier
+    }
 
     /// The socket of the machine's running master: what its installs and
     /// reads ride (`RemoteInstaller`). `nil` while no process runs or it runs
