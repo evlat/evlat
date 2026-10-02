@@ -635,7 +635,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 
 | when | command |
 |---|---|
-| every change | `make all` (`swift build` + `swift test`) |
+| every change | `make all` (`swift build` + `swift test --parallel`) |
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
@@ -1024,6 +1024,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   passes. Zip with `--norsrc --noextattr`.
 
 ### Measuring and running
+
+- **The tests run in parallel** (`make test`), in worker processes, one per
+  core. A new test takes a free port and a temporary folder, never a
+  fixed one, and a bound on time leaves room for a loaded machine: a 2 s
+  bound on a read that waited on nothing measured 2.5–2.9 s with the suite
+  running beside it.
 
 - **Measure a binary started by absolute path.** A relative path is invisible
   to `pgrep -f` and to the Makefile's guard.

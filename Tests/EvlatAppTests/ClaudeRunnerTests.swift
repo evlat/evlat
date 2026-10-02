@@ -483,19 +483,22 @@ final class ClaudeRunnerTests: XCTestCase {
     }
 
     /// A process started from the rc file that keeps stdout open must not
-    /// hold the answer back: reading stops at the closing marker.
+    /// hold the answer back: reading stops at the closing marker. The child
+    /// holds the pipe far longer than the bound, so a loaded machine (tests
+    /// run in parallel; 2.5–2.9 s were seen against a 2 s bound) still tells
+    /// "did not wait for it" apart from "waited".
     func testTheLoginPathIsReadWhileAChildHoldsThePipe() throws {
         let shell = directory.appendingPathComponent("fake-shell")
         try """
             #!/bin/sh
             printf '\(AgentLocator.marker)/x:/y\(AgentLocator.marker)'
-            sleep 3 &
+            sleep 20 &
 
             """.write(to: shell, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shell.path)
         let started = Date()
-        XCTAssertEqual(AgentLocator.readLoginPath(shell: shell.path, timeout: 5), "/x:/y")
-        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+        XCTAssertEqual(AgentLocator.readLoginPath(shell: shell.path, timeout: 30), "/x:/y")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
     }
 
     /// The store's own row is the chat's; the session record the same turn

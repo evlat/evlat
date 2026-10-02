@@ -3,8 +3,11 @@
 build:
 	swift build
 
+# In parallel: most of the time goes to tests that wait on real processes
+# (`sh` scripts, a fake `ssh`, fake agents), so workers mostly sleep.
+# Measured on 10 cores: ~330 s in series, 112–138 s in parallel.
 test:
-	swift test
+	swift test --parallel
 
 # The app tests with their windows on the real desktop (`WindowStage`): the
 # bar, the balloon and Settings show on the screen, and the balloon takes
