@@ -83,6 +83,25 @@ final class SettingsModel: ObservableObject {
         /// The characters sheet; `nil` with no home or in an isolated
         /// process, which download nothing.
         var packBrowser: () -> SoundPackBrowser? = { nil }
+        /// Mascot's "Appearance": who is drawn, and the Custom look's maker.
+        var character: () -> MascotCharacter = { .cube }
+        var setCharacter: (MascotCharacter) -> Void = { _ in }
+        var characterChoices: () -> [(id: String, title: String)] = { [] }
+        var characterChoice: () -> String = { "cube" }
+        var setCharacterChoice: (String) -> Void = { _ in }
+        var importCharacter: () -> Void = {}
+        var exportCharacter: () -> Void = {}
+        var openCharacterPacks: () -> Void = {}
+        var characterPackError: () -> String? = { nil }
+        var cubeTint: () -> Bool = { false }
+        var setCubeTint: (Bool) -> Void = { _ in }
+        var hasPortrait: () -> Bool = { false }
+        var characterMaking: () -> CharacterMaker.State = { .idle }
+        var createCharacter: () -> Void = {}
+        var importCharacterIcon: () -> Void = {}
+        var hasCharacterPrompt: () -> Bool = { false }
+        var pasteCharacterPrompt: () -> Void = {}
+        var openCharacterPromptSource: () -> Void = {}
         /// Usage's switch: leave out what was not seen for the hour.
         var hidesStaleUsage: () -> Bool = { false }
         var setHidesStaleUsage: (Bool) -> Void = { _ in }
@@ -383,6 +402,70 @@ final class SettingsModel: ObservableObject {
 
     var packBrowser: SoundPackBrowser? { host.packBrowser() }
 
+    var character: MascotCharacter { host.character() }
+    var cubeTint: Bool { host.cubeTint() }
+
+    func setCubeTint(_ on: Bool) {
+        guard on != host.cubeTint() else { return }
+        host.setCubeTint(on)
+        objectWillChange.send()
+    }
+
+    func setCharacter(_ character: MascotCharacter) {
+        guard character != host.character() else { return }
+        host.setCharacter(character)
+        objectWillChange.send()
+    }
+
+    /// The looks offered, in order: the cube, the fairy, the packs, and
+    /// Custom once there is one.
+    var characterChoices: [(id: String, title: String)] { host.characterChoices() }
+    var characterChoice: String { host.characterChoice() }
+    func setCharacterChoice(_ id: String) {
+        guard id != host.characterChoice() else { return }
+        host.setCharacterChoice(id)
+        objectWillChange.send()
+    }
+    func importCharacter() { host.importCharacter() }
+    func exportCharacter() { host.exportCharacter() }
+    func openCharacterPacks() { host.openCharacterPacks() }
+    var characterPackError: String? { host.characterPackError() }
+
+    var hasPortrait: Bool { host.hasPortrait() }
+    var characterMaking: CharacterMaker.State { host.characterMaking() }
+    func createCharacter() { host.createCharacter() }
+    func importCharacterIcon() { host.importCharacterIcon() }
+    var hasCharacterPrompt: Bool { host.hasCharacterPrompt() }
+    func pasteCharacterPrompt() {
+        host.pasteCharacterPrompt()
+        objectWillChange.send()
+    }
+    func openCharacterPromptSource() { host.openCharacterPromptSource() }
+
+    /// The agent that draws a Custom look, by name; `nil` when none can.
+    var imageMakerName: String? { Agents.imageMaker.map { t($0.display.nameKey) } }
+
+    /// The line under "Custom look": what the maker is doing, or why it
+    /// stopped.
+    var characterMakingText: String? {
+        let agent = imageMakerName ?? ""
+        switch characterMaking {
+        case .idle: return nil
+        case .working: return t("settings.mascot.custom.working", ["agent": agent])
+        case .failed(let error):
+            switch error {
+            case .makerMissing: return t("settings.mascot.custom.error.maker", ["agent": agent])
+            case .noPrompt: return t("settings.mascot.custom.error.prompt")
+            case .eyes: return t("settings.mascot.custom.error.eyes")
+            case .unreadable: return t("settings.mascot.custom.error.unreadable")
+            case .unwritable: return t("settings.mascot.custom.error.unwritable")
+            case .generationFailed(let tail):
+                return t("settings.mascot.custom.error.generation",
+                         ["agent": agent, "detail": tail.isEmpty ? "—" : tail])
+            }
+        }
+    }
+
     var hidesStaleUsage: Bool { host.hidesStaleUsage() }
 
     func setHidesStaleUsage(_ on: Bool) {
@@ -622,6 +705,19 @@ final class SettingsModel: ObservableObject {
         "settings.mascot.remind.all", "settings.mascot.remind.all.detail",
         "notify.finished.title", "notify.finished.body", "notify.failed.title", "notify.failed.body",
         "settings.mascot.notify", "settings.mascot.notify.detail",
+        "settings.mascot.look", "settings.mascot.look.row", "settings.mascot.look.detail",
+        "character.cube", "character.fairy", "character.portrait",
+        "settings.mascot.packs.import", "settings.mascot.packs.export", "settings.mascot.packs.folder",
+        "settings.mascot.packs.error", "settings.mascot.packs.error.export",
+        "settings.mascot.cubeTint", "settings.mascot.cubeTint.detail",
+        "settings.mascot.custom", "settings.mascot.custom.detail", "settings.mascot.custom.create",
+        "settings.mascot.custom.import", "settings.mascot.custom.prompt", "settings.mascot.custom.working",
+        "settings.mascot.custom.source", "settings.mascot.custom.credit", "settings.mascot.custom.prompt.set",
+        "settings.mascot.custom.prompt.none", "settings.mascot.custom.create.help",
+        "settings.mascot.custom.import.help", "settings.mascot.custom.prompt.help",
+        "settings.mascot.custom.error.prompt", "settings.mascot.custom.error.maker",
+        "settings.mascot.custom.error.eyes", "settings.mascot.custom.error.unreadable",
+        "settings.mascot.custom.error.unwritable", "settings.mascot.custom.error.generation",
         "packs.title", "packs.intro", "packs.search", "packs.failed", "packs.retry", "packs.install",
         "packs.use", "packs.inUse", "packs.remove", "packs.remove.help", "packs.count", "packs.installed", "packs.unplayable", "packs.unplayable.help",
         "packs.note", "packs.done", "packs.error",
