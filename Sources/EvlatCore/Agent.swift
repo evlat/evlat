@@ -4,7 +4,7 @@ import Foundation
 /// stored switch (`agents.enabled`, a machine's `agents`) and in its name
 /// key (`source.{id}`). Opaque to the core — nothing here knows which words
 /// exist; the catalog does (`EvlatAgents`).
-public struct AgentID: RawRepresentable, Hashable, Codable, CustomStringConvertible {
+public struct AgentID: RawRepresentable, Hashable, Codable, Sendable, CustomStringConvertible {
     public let rawValue: String
 
     public init(rawValue: String) {

@@ -55,7 +55,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     let chatLocators: [AgentID: AgentLocator] = {
         let loginPath = AgentLocator.SharedLoginPath()
         return Dictionary(uniqueKeysWithValues: Agents.chatBackends.map {
-            ($0.id, AgentLocator(name: $0.executable, loginPath: loginPath.value))
+            ($0.id, AgentLocator(name: $0.executable, loginPath: loginPath.value, missed: loginPath.forget))
         })
     }()
     public let mascot = MascotModel()
@@ -1744,11 +1744,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// After a × or a clear: a balloon speaking for a chat that is gone
-    /// goes back to empty.
+    /// goes back to empty — and to the selected backend, whose program is
+    /// looked for again like at every other change of chat.
     private func forgetCurrentIfGone() {
         if let id = currentChat, chats?.chat(id) == nil {
             currentChat = nil
             refreshFolder()
+            if isChatOpen { locateBalloonBackend() }
         }
         syncChat()
     }

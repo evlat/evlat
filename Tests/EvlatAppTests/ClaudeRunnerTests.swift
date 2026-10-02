@@ -455,6 +455,33 @@ final class ClaudeRunnerTests: XCTestCase {
         XCTAssertEqual(second?.executable, bin.appendingPathComponent("claude").path)
     }
 
+    /// The shared login `PATH` is kept across locators, but a miss reads it
+    /// again: a profile may add the program's folder after the first read.
+    func testASharedPathIsReadAgainAfterAMiss() throws {
+        let early = directory.appendingPathComponent("early")
+        let late = directory.appendingPathComponent("late")
+        try FileManager.default.createDirectory(at: early, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: late, withIntermediateDirectories: true)
+        var reads = 0
+        var current = early.path
+        let shared = AgentLocator.SharedLoginPath(read: { reads += 1; return current })
+        let locator = AgentLocator(name: "claude", environment: [:], loginPath: shared.value,
+                                   missed: shared.forget)
+        var first: AgentLocator.Location?
+        locator.locate { first = $0 }
+        waitUntil("the first lookup") { first != nil }
+        XCTAssertNil(first?.executable)
+        FileManager.default.createFile(atPath: late.appendingPathComponent("claude").path,
+                                       contents: Data("#!/bin/sh\n".utf8),
+                                       attributes: [.posixPermissions: 0o755])
+        current = late.path
+        var second: AgentLocator.Location?
+        locator.locate { second = $0 }
+        waitUntil("the second lookup") { second != nil }
+        XCTAssertEqual(second?.executable, late.appendingPathComponent("claude").path)
+        XCTAssertEqual(reads, 2, "the miss let the shared PATH go")
+    }
+
     /// A process started from the rc file that keeps stdout open must not
     /// hold the answer back: reading stops at the closing marker.
     func testTheLoginPathIsReadWhileAChildHoldsThePipe() throws {

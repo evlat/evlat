@@ -77,7 +77,7 @@ Three targets, one direction: `EvlatCore` ← `EvlatAgents` ← `EvlatApp`.
 `EvlatAgents` holds what is particular to each agent — its routes, hooks,
 usage, approvals, files and mark — as the values of one `Agent` each
 (`Claude/`, `Codex/`, `Antigravity/`); the types are `internal` and only the
-catalog, `Agents.all`, is open. The core sees an agent only as an `Agent`
+catalog, `Agents` (`all`, `routes`, `chatBackends`), is open. The core sees an agent only as an `Agent`
 and an opaque `AgentID`; the shell reaches one only through the catalog.
 
 ### Core rules
@@ -754,7 +754,7 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   "no terminal" for every session in it. The terminal is wherever a `herdr`
   client of the same session runs (`HERDR_SESSION` in the server's
   environment, `--session` in the client's arguments), so
-  `SessionHost.viaHerdr` walks that client instead. The pane's environment
+  `SessionHost.viaClient(of:)` walks that client instead. The pane's environment
   is the server's, from the terminal the server was **first** started in —
   a cmux tab long closed, or Ghostty while the client is in cmux — so the
   tab link is read from the client.

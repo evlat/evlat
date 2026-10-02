@@ -116,7 +116,8 @@ final class TurnRunner {
         stdin.async { try? writer.close() }
     }
 
-    /// How long Stop waits after SIGINT before SIGTERM.
+    /// How long a turn is given to end on its own — after SIGINT, an
+    /// in-band stop line or a duplex turn's result — before SIGTERM.
     static let stopGrace: TimeInterval = 5
 
     /// Ends the turn the backend's way (`ChatStopPlan`). In band, `line` is
@@ -187,6 +188,9 @@ final class AgentLocator {
     let name: String
     private let environment: [String: String]
     private let loginPath: () -> String?
+    /// Called on the main queue after a lookup that found nothing: a shared
+    /// login `PATH` is read again next time (`SharedLoginPath.forget`).
+    private let missed: () -> Void
     private var found: Location?
     private var waiting: [(Location) -> Void] = []
     /// The login shell's `PATH` from the last lookup that read one — the
@@ -198,10 +202,12 @@ final class AgentLocator {
     static let marker = "__EVLAT_PATH__"
 
     init(name: String, environment: [String: String] = ProcessInfo.processInfo.environment,
-         loginPath: @escaping () -> String? = { AgentLocator.readLoginPath() }) {
+         loginPath: @escaping () -> String? = { AgentLocator.readLoginPath() },
+         missed: @escaping () -> Void = {}) {
         self.name = name
         self.environment = environment
         self.loginPath = loginPath
+        self.missed = missed
         if let raw = environment[ChatBackends.variable(for: name)]?.trimmingCharacters(in: .whitespaces),
            !raw.isEmpty {
             let path = (raw as NSString).expandingTildeInPath
@@ -231,6 +237,7 @@ final class AgentLocator {
                 // inherited `PATH` alone: turns would run with Finder's
                 // short one for good.
                 if location.executable != nil, location.path != nil { self.found = location }
+                if location.executable == nil { self.missed() }
                 let waiting = self.waiting
                 self.waiting = []
                 waiting.forEach { $0(location) }
@@ -290,11 +297,16 @@ final class AgentLocator {
 
     /// One login `PATH` for every backend's locator: the shell is asked once
     /// at a time, and a `PATH` once read is kept — two locators would
-    /// otherwise each start an interactive login shell, and one whose program
-    /// is missing would start another at every lookup. A shell that gave
-    /// none is asked again next time.
+    /// otherwise each start an interactive login shell. A shell that gave
+    /// none is asked again next time, and so is one whose `PATH` a locator
+    /// found nothing on (`forget`): the program may be installed, along a
+    /// `PATH` the profile only now adds, by the next lookup.
     final class SharedLoginPath {
-        private let lock = NSLock()
+        /// Held across the shell's wait, so one shell runs at a time.
+        private let reading = NSLock()
+        /// Held only to touch `path`: `forget` takes it on the main queue,
+        /// which must never wait for a shell.
+        private let state = NSLock()
         private var path: String?
         private let read: () -> String?
 
@@ -304,11 +316,17 @@ final class AgentLocator {
 
         /// Off the main queue: it may wait for the shell.
         func value() -> String? {
-            lock.withLock {
-                if let path { return path }
-                path = read()
-                return path
+            reading.withLock {
+                if let path = state.withLock({ path }) { return path }
+                let fresh = read()
+                state.withLock { path = fresh }
+                return fresh
             }
+        }
+
+        /// The next `value()` asks the shell again. Never waits for a shell.
+        func forget() {
+            state.withLock { path = nil }
         }
     }
 

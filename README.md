@@ -44,7 +44,7 @@ one to see what it is doing and jump to its terminal.
 - **Remote machines**: sessions and commands on servers you reach over SSH,
   through a reverse tunnel, labelled with the machine's name.
 - **Chat**: click the mascot (or press ⇧⌘Space) to run a task with your own
-  `claude` CLI. Answer permission prompts in the bubble, drop files onto the
+  `claude` or `codex` CLI (Settings → Chat). Answer permission prompts in the bubble, drop files onto the
   mascot, and come back to it from the bar.
 
 Evlat asks for no macOS permissions. Its local API listens only on loopback.
@@ -54,7 +54,7 @@ Evlat asks for no macOS permissions. Its local API listens only on loopback.
 - macOS 14 or later
 - Swift 5.9+ (Xcode or the Command Line Tools)
 - Optional: [Claude Code](https://docs.claude.com/en/docs/claude-code) and/or
-  Codex CLI; the chat bubble needs `claude` on your `PATH`
+  Codex CLI; the chat bubble needs `claude` or `codex` on your `PATH`
 
 ## Install
 
