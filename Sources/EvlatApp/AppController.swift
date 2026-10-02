@@ -150,6 +150,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var remoteSignalKeys: [String: String] = [:]
     /// The `ssh` the tunnels run, which the window's installer runs too.
     private var remoteSSHPath = AppController.sshPath()
+    /// Remote cards' one question to their server (`findRemoteHost`).
+    private var remoteHostLookup: RemoteHostLookup?
     /// The settings window, once opened, and its model.
     private(set) var settingsWindow: AppWindow?
     private(set) var settings: SettingsModel?
@@ -1274,6 +1276,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         detail.resolveBranch = { [weak self] folder in
             self?.branchDisplay == .off ? nil : GitHead.branch(in: folder)
         }
+        detail.findRemote = { [weak self] query, completion in
+            self?.findRemoteHost(query, completion) ?? false
+        }
+        detail.resolveRemote = { [weak self] reply, machine in
+            SessionHost.resolve(remote: reply, tunnel: self?.remote?.processIdentifier(of: machine))
+        }
         hidesStaleUsage = defaults?.bool(forKey: Self.hideStaleUsageKey) ?? false
         notifier = WaitingNotifier.make()
         notifier?.onClick = { [weak self] entity in self?.select(entity) }
@@ -2386,6 +2394,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         registry.machineSources = { [weak tunnels] id in tunnels?.enabledAgents(of: id) }
         remote = tunnels
         remoteSSHPath = sshPath
+    }
+
+    /// Asks a remote session's server where its connection is, over the
+    /// machine's tunnel master and only while it is up: `false`, and no
+    /// call, otherwise (`DetailModel.findRemote`).
+    private func findRemoteHost(_ query: DetailModel.RemoteQuery,
+                                _ completion: @escaping (RemoteHost.Reply?) -> Void) -> Bool {
+        guard let remote, case .connected = remote.state(of: query.machineID),
+              let controlPath = remote.controlPath(of: query.machineID),
+              let target = remote.machines.first(where: { $0.id == query.machineID })?.target else { return false }
+        let lookup = remoteHostLookup ?? RemoteHostLookup(sshPath: remoteSSHPath)
+        remoteHostLookup = lookup
+        return lookup.find(sessionID: query.sessionID, records: query.records, target: target,
+                           controlPath: controlPath, completion: completion)
     }
 
     /// The window's view of the machines (`RemoteMachinesModel.Host`).

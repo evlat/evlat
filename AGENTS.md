@@ -400,9 +400,28 @@ is lost with the process.
   `SessionHost.multiplexers`. A herdr pane is then selected inside the tab with
   `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`). That and the tmux
   query above are the only processes Evlat runs to find and open a
-  session: each the server's own executable, fixed arguments, checked
+  local session: each the server's own executable, fixed arguments, checked
   values, no shell, and a command that only reads or selects. The value is checked
   (`TabLink`): `metalterm://tab/restart` is an action, not a tab.
+  A remote session whose agent keeps session records
+  (`Agent.sessionRecords`; Claude Code's) is asked of its server once per
+  card, off the main queue (`RemoteHostLookup`): a read-only `sh` script
+  (`RemoteHost`), never installed, over the machine's live tunnel master
+  only (`ProxyCommand=/usr/bin/false`: a gone master is no call, never a
+  login), with the session id checked as a UUID. It walks the agent's
+  parents to its connection's `sshd` (the one under the listener) and says
+  `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock; in a
+  tmux or herdr pane it says nothing yet. On this Mac the candidates are the
+  user's `ssh` processes connected to the same end as Evlat's own tunnel
+  `ssh` (`Ssh`, `PROC_PIDFDSOCKETINFO`): the exact client port, else the
+  only one (unless its start is > 10 s off), else the start nearest the
+  connection's (≤ 2 s, every other > 10 s), else the app alone if all are
+  in one, else no button. A pick that is the user's own `ControlMaster`
+  with other `ssh` riding it is the app alone too. From that
+  `ssh` the walk is the local one. The card shows the button only once
+  found, says nothing while searching, and keeps the answer for its life:
+  the click walks this Mac again, never asks again. Approvals and the
+  branch stay with local rows.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
   the effective phase, the finish latch, the peek, the open bar, the balloon
@@ -820,6 +839,18 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   (`unsi_conn_pcb` = the server's accepted `soi_pcb`, what `lsof -U` shows
   as `->0x…`), newest start first. Every client shows the same view: a
   switch in one window was seen in the other at once.
+- **A home NAT rewrites the ssh client port.** The tunnel's
+  `192.168.1.217:60070` reached the server as `31.223.75.17:19656`, a
+  Bateri tab's `:63114` as `:19554` (OpenSSH 9.6p1, 2026-10-02): matching
+  `SSH_CONNECTION`'s port alone never held from that network. Candidates
+  are found by the tunnel's own end instead, and told apart by start: the
+  connection's `sshd` started +0.11 s and −0.19 s from its Mac `ssh`, the
+  clocks were within 0.5 s.
+- **`ssh -S` with a gone master logs in by itself.** `ControlMaster=no`
+  only stops it becoming a master; with no socket it connects directly.
+  `-o ProxyCommand=/usr/bin/false` makes that fail at once (exit 255,
+  ~40 ms, nothing sent) and a live master never runs it; over the master
+  the script took 0.19–0.25 s.
 
 - **macOS cannot play Ogg Vorbis.** An OpenPeon line in Ogg (`Evet_M.ogg`,
   22 kHz mono, from the Turkish villager packs) is opened by `NSSound` and

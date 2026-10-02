@@ -796,9 +796,9 @@ final class SessionRowsTests: XCTestCase {
                                                         stampIsPhaseStart: true, showsProgress: true,
                                                         passiveReadsIdle: false))
         XCTAssertEqual(RowTraits.of(.usage).button, .none)
-        XCTAssertTrue(SessionRow(signal("l", .working)).hasTerminal)
-        XCTAssertFalse(SessionRow(remote("r")).hasTerminal, "a remote session's terminal is elsewhere")
-        XCTAssertFalse(SessionRow(outside("a")).hasTerminal)
+        XCTAssertTrue(SessionRow(signal("l", .working)).hasLocalHost)
+        XCTAssertFalse(SessionRow(remote("r")).hasLocalHost, "a remote session's terminal is elsewhere")
+        XCTAssertFalse(SessionRow(outside("a")).hasLocalHost)
     }
 
     /// With a progress the line says how far instead of how long, `~` for a

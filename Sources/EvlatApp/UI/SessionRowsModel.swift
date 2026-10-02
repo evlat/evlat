@@ -39,8 +39,9 @@ struct RowTraits: Equatable {
 
     let mark: Mark
     let tag: Tag
-    /// `.goToSession` holds on this Mac only: a remote session's terminal is
-    /// on another computer (`SessionRow.hasTerminal`).
+    /// `.goToSession` on this Mac (`SessionRow.hasLocalHost`); a remote
+    /// session's terminal is found through its server
+    /// (`SessionDetail.hasRemoteHost`).
     let button: Button
     let detail: Detail
     /// Whether the signal's stamp is the moment its phase began, so the
@@ -176,8 +177,9 @@ public struct SessionRow: Equatable, Identifiable {
     public var tag: String? { traits.tag.text(machine: machine, sender: sender) }
     public static let jobTag = "Evlat"
 
-    /// Only a session on this Mac has a terminal to look up and go to.
-    public var hasTerminal: Bool { traits.button == .goToSession && machine == nil }
+    /// A session on this Mac: its terminal is looked up here, and only its
+    /// card answers a permission or names a branch.
+    public var hasLocalHost: Bool { traits.button == .goToSession && machine == nil }
 
     /// `Signal.isLive`: false for a remote row nobody can currently hear.
     /// Such a row is listed but does not beat, and sorts under the live ones.

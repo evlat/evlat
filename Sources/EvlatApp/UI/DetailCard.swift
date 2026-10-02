@@ -455,13 +455,17 @@ struct DetailCard: View {
             .onDisappear { onButtonFrame(nil) }
     }
 
-    /// Only a session on this Mac has a terminal to go to. A remote card
-    /// draws no button at all — not a dimmed "terminal not found" — so its
+    /// A session on this Mac always has its button. A remote card has one
+    /// only once its terminal is found here (`Ssh`): searching, or not
+    /// found, it draws none — not a dimmed "terminal not found" — so its
     /// rectangle is never reported and no click lands on it. A chat always
     /// has its way back; an outside job has nothing to press.
     static func showsButton(_ detail: SessionDetail) -> Bool {
         switch detail.traits.button {
-        case .goToSession: return detail.hasTerminal
+        case .goToSession:
+            if detail.hasLocalHost { return true }
+            guard detail.hasRemoteHost, !detail.searching, case .app = detail.host else { return false }
+            return true
         case .backToChat: return true
         case .none: return false
         }

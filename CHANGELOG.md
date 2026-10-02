@@ -39,6 +39,12 @@ Markdown; keep it to a few bullets.
 - **Remind again** (the old waiting reminder) now lives in the Mascot tab
   and can also remind you of finished work you haven't looked at. If you
   used the reminder with its sound, you'll now also hear a wait begin.
+- **Go to session for Claude Code on a server.** A session you started
+  over `ssh` on a remote machine now has the **Go to session** button: it
+  opens the terminal tab that `ssh` runs in on your Mac. When Evlat can't
+  tell two tabs to the same server apart, it brings their app forward
+  instead; sessions inside tmux or herdr on the server don't have the
+  button yet.
 - **Ten new languages:** German, Spanish, French, Brazilian Portuguese,
   Ukrainian, Russian, Japanese, Korean, and Simplified and Traditional
   Chinese. Evlat follows your Mac's language, or the one you pick in

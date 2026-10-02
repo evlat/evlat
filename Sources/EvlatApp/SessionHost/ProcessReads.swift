@@ -78,15 +78,8 @@ extension SessionHost {
     /// a permission for the user's own processes. `nil` when the descriptor
     /// list cannot be read at all.
     static func unixSockets(_ pid: Int32) -> [UnixSocket]? {
-        guard pid > 0 else { return nil }
-        let stride = MemoryLayout<proc_fdinfo>.stride
-        let needed = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard needed > 0 else { return nil }
-        // Room for descriptors opened between the sizing call and the read.
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(needed) / stride + 16)
-        let filled = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
-        guard filled > 0 else { return nil }
-        return fds.prefix(Int(filled) / stride).compactMap { fd -> UnixSocket? in
+        guard let fds = descriptors(pid) else { return nil }
+        return fds.compactMap { fd -> UnixSocket? in
             guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { return nil }
             var info = socket_fdinfo()
             let size = Int32(MemoryLayout<socket_fdinfo>.size)
@@ -99,6 +92,54 @@ extension SessionHost {
             }
             return UnixSocket(pcb: info.psi.soi_pcb, peer: un.unsi_conn_pcb, path: path.isEmpty ? nil : path)
         }
+    }
+
+    /// The process's established TCP connections (`PROC_PIDFDSOCKETINFO`,
+    /// `pri_tcp`), as readable as its unix sockets. A socket closing or
+    /// half-closed is left out: a tab that has gone may leave one behind.
+    static func tcpSockets(_ pid: Int32) -> [TCPSocket]? {
+        guard let fds = descriptors(pid) else { return nil }
+        return fds.compactMap { fd -> TCPSocket? in
+            guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { return nil }
+            var info = socket_fdinfo()
+            let size = Int32(MemoryLayout<socket_fdinfo>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size,
+                  info.psi.soi_kind == Int32(SOCKINFO_TCP) else { return nil }
+            let tcp = info.psi.soi_proto.pri_tcp
+            guard tcp.tcpsi_state == TSI_S_ESTABLISHED else { return nil }
+            let ini = tcp.tcpsi_ini
+            let v6 = ini.insi_vflag & UInt8(INI_IPV6) != 0
+            guard let local = endpoint(v4: ini.insi_laddr.ina_46.i46a_addr4, v6: ini.insi_laddr.ina_6,
+                                       port: ini.insi_lport, isV6: v6),
+                  let remote = endpoint(v4: ini.insi_faddr.ina_46.i46a_addr4, v6: ini.insi_faddr.ina_6,
+                                        port: ini.insi_fport, isV6: v6) else { return nil }
+            return TCPSocket(local: local, remote: remote)
+        }
+    }
+
+    /// An address and a port (network order) as an endpoint.
+    private static func endpoint(v4: in_addr, v6: in6_addr, port: Int32, isV6: Bool) -> Endpoint? {
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        var four = v4, six = v6
+        let written = isV6
+            ? inet_ntop(AF_INET6, &six, &buffer, socklen_t(buffer.count))
+            : inet_ntop(AF_INET, &four, &buffer, socklen_t(buffer.count))
+        guard written != nil else { return nil }
+        return Endpoint(address: String(cString: buffer), port: Int(UInt16(truncatingIfNeeded: port).bigEndian))
+    }
+
+    /// The process's descriptors (`PROC_PIDLISTFDS`); `nil` when the list
+    /// cannot be read.
+    private static func descriptors(_ pid: Int32) -> ArraySlice<proc_fdinfo>? {
+        guard pid > 0 else { return nil }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        let needed = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard needed > 0 else { return nil }
+        // Room for descriptors opened between the sizing call and the read.
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(needed) / stride + 16)
+        let filled = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * stride))
+        guard filled > 0 else { return nil }
+        return fds.prefix(Int(filled) / stride)
     }
 
     /// Whether the process has a controlling terminal (`e_tdev` is not

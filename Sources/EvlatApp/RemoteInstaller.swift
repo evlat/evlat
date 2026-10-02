@@ -167,7 +167,8 @@ final class RemoteInstaller {
 
     /// The process's stdout and exit status. stdin is fed and stderr drained
     /// on their own threads, so no pipe fills while another is waited on.
-    private static func run(_ path: String, _ arguments: [String],
+    /// Also `RemoteHostLookup`'s, which shares the process and not the lock.
+    static func run(_ path: String, _ arguments: [String],
                             script: String) throws -> (output: Data, status: Int32) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)

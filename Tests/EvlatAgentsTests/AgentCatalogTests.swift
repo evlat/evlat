@@ -64,6 +64,18 @@ final class AgentCatalogTests: XCTestCase {
     /// The stored switches and the routes speak the same words as before
     /// the catalog: `agents.enabled` and a machine's `agents` keep their
     /// values.
+    /// Only Claude Code keeps a record per session, so only its remote rows
+    /// can be asked where they run (`RemoteHost`). The values are the ones
+    /// `SessionsProvider` reads here.
+    func testOnlyClaudeKeepsSessionRecords() throws {
+        let records = try XCTUnwrap(Agents.all[id: AgentID("claude")]?.sessionRecords)
+        XCTAssertEqual(records, SessionRecords(directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid"))
+        XCTAssertEqual(SessionsProvider.defaultDirectory(home: URL(fileURLWithPath: "/h")).path,
+                       "/h/" + records.directory)
+        XCTAssertNil(Agents.all[id: AgentID("codex")]?.sessionRecords)
+        XCTAssertNil(Agents.all[id: AgentID("antigravity")]?.sessionRecords)
+    }
+
     func testTheIdsAreTheStoredWords() {
         XCTAssertEqual(Agents.all.ids.map(\.rawValue), ["claude", "codex", "antigravity"])
     }

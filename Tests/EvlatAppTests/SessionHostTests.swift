@@ -29,6 +29,7 @@ final class SessionHostTests: XCTestCase {
                        sockets: [Int32: [SessionHost.UnixSocket]]? = nil,
                        terminals: [Int32: Bool] = [:],
                        started: [Int32: TimeInterval] = [:],
+                       tcp: [Int32: [SessionHost.TCPSocket]] = [:],
                        tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil }) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
                           regularApp: { table[$0]?.app },
@@ -41,7 +42,8 @@ final class SessionHostTests: XCTestCase {
                           unixSockets: { pid in sockets.map { $0[pid] ?? [] } },
                           hasTerminal: { terminals[$0] },
                           startedAt: { started[$0].map(Date.init(timeIntervalSince1970:)) },
-                          tmux: tmux)
+                          tmux: tmux,
+                          tcpSockets: { tcp[$0] ?? [] })
     }
 
     func testADirectTerminal() {

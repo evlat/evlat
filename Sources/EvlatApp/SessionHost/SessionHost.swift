@@ -68,6 +68,23 @@ enum SessionHost: Equatable {
         /// A tmux server asked for a pane's session and its clients
         /// (`TmuxQuery.run`).
         var tmux: (TmuxQuery) -> TmuxReply? = { _ in nil }
+        /// The established TCP connections a process holds: an ssh to a
+        /// server is found by the server's end (`Ssh`). `nil` when they
+        /// cannot be read.
+        var tcpSockets: (Int32) -> [TCPSocket]? = { _ in nil }
+    }
+
+    /// One established TCP connection of a process: its own end and the
+    /// other one.
+    struct TCPSocket: Equatable {
+        let local: Endpoint
+        let remote: Endpoint
+    }
+
+    /// An address as `inet_ntop` writes it, and a port.
+    struct Endpoint: Hashable {
+        let address: String
+        let port: Int
     }
 
     /// One unix socket of a process: its own control block, the one it is
@@ -213,7 +230,7 @@ enum SessionHost: Equatable {
                             executablePath: executablePath, bundle: bundle, running: runningApp,
                             environment: environment, arguments: arguments, processes: allPIDs,
                             unixSockets: unixSockets, hasTerminal: hasTerminal,
-                            startedAt: startedAt, tmux: TmuxQuery.run)
+                            startedAt: startedAt, tmux: TmuxQuery.run, tcpSockets: tcpSockets)
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }
 

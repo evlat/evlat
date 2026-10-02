@@ -44,6 +44,10 @@ public protocol Agent {
     /// The agent as the chat bubble's backend; `nil` when it cannot be one.
     var chat: (any ChatBackend)? { get }
     var display: AgentDisplay { get }
+    /// Its per-session record files, by which a server's shell finds a
+    /// session's process (`RemoteHost`); `nil` when it keeps none, and then
+    /// its remote rows have no `[Go to session]`.
+    var sessionRecords: SessionRecords? { get }
     /// The agent's own providers beside its hooks: what it reads from its
     /// own files. Registered while the agent is switched on.
     func providers(_ context: ProviderContext) -> [Provider]
@@ -51,6 +55,8 @@ public protocol Agent {
 
 extension Agent {
     public var chat: (any ChatBackend)? { nil }
+
+    public var sessionRecords: SessionRecords? { nil }
 
     /// Whether the agent is on this Mac: one of its `presence` directories.
     public func isPresent(home: URL) -> Bool {
@@ -206,6 +212,25 @@ public protocol ApprovalChannel {
     func state(of settings: [String: Any]) -> HookSettings.State
     func installing(into settings: [String: Any]) -> [String: Any]
     func removing(from settings: [String: Any]) -> [String: Any]
+}
+
+/// Where an agent writes one record per live session: a folder under the
+/// home, each file one JSON object naming the session and its process. Read
+/// on a server by `RemoteHost`'s script, which knows the shape only from
+/// these values.
+public struct SessionRecords: Equatable {
+    /// The folder, relative to a home.
+    public let directory: String
+    /// The key whose string is the session's id (the hook's `session_id`).
+    public let idKey: String
+    /// The key whose number is the session's process id.
+    public let pidKey: String
+
+    public init(directory: String, idKey: String, pidKey: String) {
+        self.directory = directory
+        self.idKey = idKey
+        self.pidKey = pidKey
+    }
 }
 
 /// What the shell draws for an agent, as plain data.

@@ -1,5 +1,6 @@
 import Foundation
 import EvlatCore
+import EvlatAgents
 
 /// What the card draws of the selected session, and nothing else.
 public struct SessionDetail: Equatable {
@@ -11,8 +12,8 @@ public struct SessionDetail: Equatable {
     public let enteredAt: Date?
     public let activity: Signal.Activity?
     /// The remote computer's name, for the header; `nil` on this Mac. A
-    /// remote session's terminal is on that computer, so such a card has no
-    /// terminal and no button (`DetailCard.showsButton`).
+    /// remote session's terminal is found through that computer, when its
+    /// agent keeps session records (`hasRemoteHost`).
     public let machine: String?
     /// The row's, so the card's line and the status line's agree.
     public let dim: Signal.Machine.Dim?
@@ -28,9 +29,15 @@ public struct SessionDetail: Equatable {
     /// The row's whole percent, so the card and the status line agree.
     public let progress: Int?
     /// Where the session runs, for the footer and the button. Resolved when
-    /// the card comes up and on the click, not on every snapshot; never for
-    /// a remote session.
+    /// the card comes up and on the click, not on every snapshot. For a
+    /// remote session, once its server has answered (`searching`).
     var host: SessionHost = .notFound
+    /// A remote session whose terminal can be asked of its server: its
+    /// agent keeps session records (`Agent.sessionRecords`). Its button is
+    /// there once the terminal is found (`DetailCard.showsButton`).
+    var hasRemoteHost = false
+    /// The server has not answered yet. Drawn as no button, without words.
+    var searching = false
     /// The git branch of the session's folder, on a line under the header. Unlike the
     /// row, which draws one only between same-named sessions, the card has
     /// room and says it always. Resolved with `host`, and never for a remote
@@ -129,8 +136,9 @@ public struct SessionDetail: Equatable {
         var isLast: Bool { index == count - 1 }
     }
 
-    /// Only a session on this Mac has a terminal to look up and go to.
-    var hasTerminal: Bool { traits.button == .goToSession && machine == nil }
+    /// A session on this Mac: its terminal is looked up here, and only its
+    /// card answers a permission or names a branch.
+    var hasLocalHost: Bool { traits.button == .goToSession && machine == nil }
 }
 
 /// The card's own model, apart from the column's.
@@ -166,10 +174,38 @@ public final class DetailModel: ObservableObject {
     /// a test reads no repository. The default reads nothing.
     var resolveBranch: (String) -> String? = { _ in nil }
 
+    /// A remote session, as its server is asked about it.
+    struct RemoteQuery: Equatable {
+        let machineID: String
+        let sessionID: String
+        let records: SessionRecords
+    }
+    /// Asks the server (`RemoteHostLookup`); `false` when it cannot be asked
+    /// — no live tunnel master — and then `completion` is never called.
+    /// The completion comes on the main queue. Injected like the host; the
+    /// default asks nobody.
+    var findRemote: (RemoteQuery, @escaping (RemoteHost.Reply?) -> Void) -> Bool = { _, _ in false }
+    /// The server's answer walked on this Mac (`SessionHost.resolve(remote:)`)
+    /// for a machine id.
+    var resolveRemote: (RemoteHost.Reply, String) -> SessionHost = { _, _ in .notFound }
+    /// The agents a remote row's records are looked up in: the catalog.
+    var agents: [any Agent] = Agents.all
+
     /// Which session and pid `detail.host` was resolved for. The snapshot
     /// arrives every poll and on every event; the process walk runs only when
     /// the card comes up for a session (or its pid moves), not at that rate.
     private var hostKey: (entity: String, pid: Int32?)?
+
+    /// Which remote session `remoteHost` is for, and the server's answer —
+    /// the remote fact, asked once and kept for the card's life: the click
+    /// walks this Mac again from it, never asks the server again.
+    private var remoteKey: (entity: String, machine: String)?
+    private var remoteReply: RemoteHost.Reply?
+    /// `nil` while the server is asked.
+    private var remoteHost: SessionHost?
+    /// Moves with every new question, so a late answer to an old card is
+    /// dropped.
+    private var remoteGeneration = 0
 
     public init() {}
 
@@ -189,13 +225,25 @@ public final class DetailModel: ObservableObject {
                                  activity: signal?.activity, machine: row.machine, dim: row.dim,
                                  kind: row.kind, folder: words.folder,
                                  sender: row.sender, note: words.note, progress: row.progress)
-        next.approval = row.hasTerminal ? approval : nil
-        if !row.hasTerminal {
+        next.approval = row.hasLocalHost ? approval : nil
+        let query = row.hasLocalHost ? nil : remoteQuery(row: row, signal: signal)
+        if query == nil { forgetRemote() }
+        if let query {
+            // Another computer's session: a remote pid never reaches this
+            // side (`LocalAPI`), so its server is asked where it runs — once
+            // per card, not per snapshot.
+            hostKey = nil
+            next.hasRemoteHost = true
+            if remoteKey?.entity != row.entity || remoteKey?.machine != query.machineID {
+                ask(query, entity: row.entity)
+            }
+            next.host = remoteHost ?? .notFound
+            next.searching = remoteHost == nil
+        } else if !row.hasLocalHost {
             // Evlat's own chat and an outside job have no terminal: nothing
             // to look up, and a "not found" button would be a lie
-            // (`DetailCard.showsButton`). Another computer's session: no
-            // process here to walk, and a remote pid never reaches this side
-            // anyway (`LocalAPI`).
+            // (`DetailCard.showsButton`). A remote session whose agent keeps
+            // no records cannot be asked about.
             hostKey = nil
         } else if let key = hostKey, key.entity == row.entity, key.pid == pid, let current = detail {
             next.host = current.host
@@ -213,16 +261,66 @@ public final class DetailModel: ObservableObject {
     /// session — the app may have quit or come back meanwhile.
     func cardClosed() {
         hostKey = nil
+        forgetRemote()
+    }
+
+    /// The question for a remote row: its machine, its session id, and its
+    /// agent's records; `nil` for any other row.
+    private func remoteQuery(row: SessionRow, signal: Signal?) -> RemoteQuery? {
+        guard row.traits.button == .goToSession, let machine = signal?.machine?.id,
+              let source = row.source, let records = agents[id: source]?.sessionRecords,
+              let session = RemoteHost.sessionID(entity: row.entity, machineID: machine) else { return nil }
+        return RemoteQuery(machineID: machine, sessionID: session, records: records)
+    }
+
+    private func ask(_ query: RemoteQuery, entity: String) {
+        remoteGeneration += 1
+        let generation = remoteGeneration
+        remoteKey = (entity, query.machineID)
+        remoteReply = nil
+        remoteHost = nil
+        let asked = findRemote(query) { [weak self] reply in
+            guard let self, self.remoteGeneration == generation else { return }
+            self.answered(reply, machine: query.machineID)
+        }
+        if !asked { remoteHost = .notFound }
+    }
+
+    /// The server's answer: walked here, and drawn if its card is still up.
+    private func answered(_ reply: RemoteHost.Reply?, machine: String) {
+        remoteReply = reply
+        remoteHost = reply.map { resolveRemote($0, machine) } ?? .notFound
+        guard var current = detail, current.entity == remoteKey?.entity, current.hasRemoteHost else { return }
+        current.host = remoteHost ?? .notFound
+        current.searching = false
+        if detail != current { detail = current }
+    }
+
+    private func forgetRemote() {
+        guard remoteKey != nil else { return }
+        remoteGeneration += 1
+        remoteKey = nil
+        remoteReply = nil
+        remoteHost = nil
     }
 
     /// `[Go to session]`: resolved again at the click, then brought forward.
     /// `true` when an app was activated (the caller closes the bar); if not,
-    /// the card now says why. A remote session has no button and goes
-    /// nowhere, whatever reaches this.
+    /// the card now says why. A remote session walks this Mac again from its
+    /// server's kept answer; without one it goes nowhere, whatever reaches
+    /// this.
     @discardableResult
     func go() -> Bool {
-        guard var current = detail, current.hasTerminal else { return false }
-        let host = resolveHost(current.activity?.pid)
+        guard var current = detail else { return false }
+        let host: SessionHost
+        if current.hasLocalHost {
+            host = resolveHost(current.activity?.pid)
+        } else if current.hasRemoteHost, let reply = remoteReply, let machine = remoteKey?.machine {
+            host = resolveRemote(reply, machine)
+            remoteHost = host
+        } else {
+            return false
+        }
         if current.host != host {
             current.host = host
             detail = current

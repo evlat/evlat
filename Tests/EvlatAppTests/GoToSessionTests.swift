@@ -169,6 +169,148 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertEqual(activated, [])
     }
 
+    // MARK: - A remote row that can be asked
+
+    private static let session = "8087b2ed-d738-42da-abf1-8693d1094eda"
+
+    /// A remote Claude session on a machine with an id: its server can be
+    /// asked where it runs (`RemoteHost`).
+    private func askable(machine: String = "d", source: AgentID? = AgentID("claude")) -> Signal {
+        Signal(provider: "stub", entity: "remote:\(machine):\(Self.session)", phase: .waiting, label: "api",
+               detail: "/srv/api", source: source, fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0),
+               activity: Signal.Activity(), machine: Signal.Machine(name: "devbox", id: machine))
+    }
+
+    private let found = RemoteHost.Reply.connection(
+        RemoteHost.Connection(clientPort: 19554, serverPort: 22, startedAt: Date(timeIntervalSince1970: 0), offset: 0))
+
+    /// The asks, and their completions to answer by hand: the server's
+    /// answer arrives later, on the main queue.
+    private var asked: [DetailModel.RemoteQuery] = []
+    private var pending: [(RemoteHost.Reply?) -> Void] = []
+    private var walked: [(RemoteHost.Reply, String)] = []
+
+    private func remoteController(_ signals: [Signal], reachable: Bool = true,
+                                  host: SessionHost? = nil) -> (AppController, Stub) {
+        let (controller, provider) = controller(signals) { .app(self.term) }
+        asked = []
+        pending = []
+        walked = []
+        controller.detail.findRemote = { [unowned self] query, completion in
+            guard reachable else { return false }
+            self.asked.append(query)
+            self.pending.append(completion)
+            return true
+        }
+        controller.detail.resolveRemote = { [unowned self] reply, machine in
+            self.walked.append((reply, machine))
+            return host ?? .app(self.term)
+        }
+        return (controller, provider)
+    }
+
+    /// Asked once when the card comes up, with no button and no words while
+    /// it is; the answer brings the button. Polls ask nothing more.
+    func testARemoteCardAsksItsServerOnceAndShowsTheButtonWhenFound() throws {
+        let (controller, _) = remoteController([askable()])
+        defer { controller.panel?.close() }
+        controller.select("remote:d:\(Self.session)")
+        XCTAssertEqual(asked, [DetailModel.RemoteQuery(
+            machineID: "d", sessionID: Self.session,
+            records: SessionRecords(directory: ".claude/sessions", idKey: "sessionId", pidKey: "pid"))])
+        var detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertTrue(detail.searching)
+        XCTAssertFalse(DetailCard.showsButton(detail), "searching draws no button")
+        XCTAssertNil(DetailCard.terminal(detail.host))
+
+        pending[0](found)
+        detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertFalse(detail.searching)
+        XCTAssertEqual(detail.host, .app(term))
+        XCTAssertTrue(DetailCard.showsButton(detail))
+        XCTAssertEqual(walked.map(\.1), ["d"])
+
+        controller.refresh()
+        controller.refresh()
+        XCTAssertEqual(asked.count, 1, "the poll does not ask the server again")
+        XCTAssertEqual(resolved, [], "a remote pid is never walked here")
+    }
+
+    /// The click walks this Mac again from the kept answer; the server is
+    /// not asked a second time.
+    func testGoWalksAgainWithoutAskingTheServer() {
+        let (controller, _) = remoteController([askable()])
+        defer { controller.panel?.close() }
+        controller.select("remote:d:\(Self.session)")
+        pending[0](found)
+        controller.goToSession()
+        XCTAssertEqual(asked.count, 1)
+        XCTAssertEqual(walked.count, 2, "once on the answer, once on the click")
+        XCTAssertEqual(activated, [term])
+        XCTAssertFalse(controller.barState.isOpen)
+    }
+
+    /// Nothing found, no tunnel to ask through, an answer of no connection,
+    /// an agent that keeps no records: no button, and nothing pretends to
+    /// search.
+    func testARemoteCardWithNothingFoundHasNoButton() throws {
+        var (controller, _) = remoteController([askable()], host: .notFound)
+        controller.select("remote:d:\(Self.session)")
+        pending[0](nil)
+        var detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertFalse(detail.searching)
+        XCTAssertFalse(DetailCard.showsButton(detail))
+        XCTAssertEqual(walked.count, 0, "no answer, no walk")
+        XCTAssertFalse(controller.detail.go())
+        controller.panel?.close()
+
+        (controller, _) = remoteController([askable()], reachable: false)
+        controller.select("remote:d:\(Self.session)")
+        detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertFalse(detail.searching, "no tunnel: nothing to wait for")
+        XCTAssertFalse(DetailCard.showsButton(detail))
+        controller.panel?.close()
+
+        (controller, _) = remoteController([askable(source: AgentID("codex"))])
+        defer { controller.panel?.close() }
+        controller.select("remote:d:\(Self.session)")
+        XCTAssertEqual(asked, [], "an agent without records is not asked about")
+        XCTAssertFalse(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+    }
+
+    /// An answer that comes after its card closed draws nothing on the
+    /// next one; the reopened card asks afresh.
+    func testALateAnswerIsDropped() throws {
+        let (controller, _) = remoteController([askable(), signal("a")])
+        defer { controller.panel?.close() }
+        controller.select("remote:d:\(Self.session)")
+        controller.select("a")
+        pending[0](found)
+        XCTAssertEqual(walked.count, 0)
+        XCTAssertEqual(controller.detail.detail?.entity, "a")
+        controller.select("remote:d:\(Self.session)")
+        XCTAssertEqual(asked.count, 2)
+        XCTAssertTrue(try XCTUnwrap(controller.detail.detail).searching)
+    }
+
+    /// A remote card answers no permission and names no branch: both are
+    /// this Mac's (`hasLocalHost`).
+    func testARemoteCardHasNoApprovalOrBranch() throws {
+        let model = DetailModel()
+        model.findRemote = { _, _ in true }
+        model.resolveBranch = { _ in "main" }
+        let request = HeldRequest(id: "p-1", token: nil, tool: "Bash", subject: nil, questions: nil,
+                                  input: Data("{}".utf8))
+        let signal = askable()
+        model.update(row: SessionRow(signal), signal: signal,
+                     approval: SessionDetail.ApprovalCard(request, armed: true))
+        let detail = try XCTUnwrap(model.detail)
+        XCTAssertTrue(detail.hasRemoteHost)
+        XCTAssertFalse(detail.hasLocalHost)
+        XCTAssertNil(detail.approval)
+        XCTAssertNil(detail.branch)
+    }
+
     func testCloseNowClosesThroughTheIntent() {
         var changes: [Bool] = []
         var scheduled: [DispatchWorkItem] = []
