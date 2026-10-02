@@ -608,6 +608,16 @@ marked and versioned, generated from the Swift constants, run under
 `sh`/`dash`/`bash` in tests, and the key never appears in any argv. A change to
 the script bumps its version.
 
+The website documents these contracts for users: `../evlat-landing/docs-src`
+(the `evlat` command, `/signal`, remote servers) and
+`../evlat-landing/public/works-with.html` (agents, terminals with a tab link).
+A change a user would notice there (a flag, a default, an exit code, a body
+field, a limit, an agent, an entry in `TabLink.known`) updates that page in
+the same piece of work. Each docs page lists the files it describes in
+`docs-src/pages.json`; rebuild with `node scripts/docs.mjs` there and set
+`verified` to the release it now matches. The site shows no version number,
+so a release with nothing user-visible needs no website change.
+
 ### User files
 
 `~/.claude/settings.json`, `~/.claude/statusline-*.sh`, `~/.codex/hooks.json`,
