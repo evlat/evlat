@@ -143,6 +143,10 @@ enum PermissionHook {
     static func body(_ decision: Decision) -> String {
         var inner: [String: Any]
         switch decision {
+        // Claude's "always" is its rules (`AlwaysOption.rules`): it is never
+        // asked to keep a command by itself, and a bare allow is its nearest.
+        case .allowForSession:
+            inner = ["behavior": "allow"]
         case .allow(let rules, let directories):
             inner = ["behavior": "allow"]
             var updates: [[String: Any]] = []

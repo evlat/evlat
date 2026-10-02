@@ -37,7 +37,7 @@ struct ClaudeChat: ChatBackend {
             .launch
     }
 
-    func parser() -> any ChatParser { ChatStream() }
+    func parser(for spec: TurnSpec) -> any ChatParser { ChatStream() }
 
     /// The hook's body, as the card holds it. A question's input is not
     /// carried: the bubble's card answers allow or deny.

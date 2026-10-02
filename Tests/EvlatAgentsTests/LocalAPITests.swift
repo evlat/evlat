@@ -84,6 +84,22 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(outcome.event?.name, "Stop", "the adapter runs before the typed view")
     }
 
+    /// A bubble turn's own hooks carry its task id: the Codex server runs the
+    /// user's hooks too (measured), and their events open no row — the same
+    /// exclusion a Claude turn's get.
+    func testABubbleTurnsCodexEventOpensNoRow() throws {
+        let provider = HooksProvider(platform: Platform(isAlive: { _ in true }, processStartedAt: { _ in nil },
+                                                        now: Date.init),
+                                     isQuestion: Agents.isQuestion)
+        let body = #"{"hook_event_name":"UserPromptSubmit","session_id":"thr-1","cwd":"/tmp/p"}"#
+        let errand = try XCTUnwrap(post("/hook/codex", body: body, taskID: "chat-1", pid: "4242").event)
+        XCTAssertEqual(errand.source, .codex)
+        provider.handle(errand)
+        XCTAssertTrue(provider.currentSignals().isEmpty, "a bubble turn's event must not become a row")
+        provider.handle(try XCTUnwrap(post("/hook/codex", body: body, pid: "4242").event))
+        XCTAssertEqual(provider.currentSignals().map(\.phase), [.working], "the user's own session still does")
+    }
+
     // MARK: - The installed command
 
     /// **The golden string.** This set installs nothing: the command below is

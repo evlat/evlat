@@ -120,12 +120,12 @@ struct ChatView: View {
 
     // MARK: - Parts
 
-    /// No `claude`: what did not happen and what to do, in one sentence.
+    /// No program: what did not happen and what to do, in one sentence.
     private var missing: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "exclamationmark.circle")
                 .foregroundStyle(ChatPalette.placeholder)
-            Text(L10n.t("chat.missing"))
+            Text(L10n.t("chat.missing", ["agent": model.agentName]))
                 .foregroundStyle(ChatPalette.reply)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -226,6 +226,10 @@ struct ChatView: View {
 
     private var footerCorner: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
+            AgentLabel(agent: model.agent, name: model.agentName)
+            Text(verbatim: "·")
+                .font(.system(size: 11))
+                .foregroundStyle(ChatPalette.faint.opacity(0.7))
             FolderLabel(folder: model.folder, locked: model.folderLocked) { model.folderTapped() }
             Text(verbatim: "·")
                 .font(.system(size: 11))
@@ -309,7 +313,7 @@ struct ChatView: View {
 
     private func failureLine(_ failure: ChatSession.Failure) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(L10n.t(ChatModel.failureKey(failure)))
+            Text(L10n.t(ChatModel.failureKey(failure), ["agent": model.agentName]))
                 .foregroundStyle(ChatPalette.failure)
             if let detail = ChatModel.failureDetail(failure), !detail.isEmpty {
                 Text(detail)
@@ -328,7 +332,8 @@ struct ChatView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(model.messages.enumerated()), id: \.offset) { index, message in
-                        MessageLine(message: message, folder: model.folder, answer: model.answer,
+                        MessageLine(message: message, folder: model.folder, agent: model.agentName,
+                                    answer: model.answer,
                                     retry: retry(message)).id(index)
                     }
                     if model.isRunning, !Self.isReplying(model.messages), !Self.isAsking(model.messages) {
@@ -381,6 +386,8 @@ private struct MessageLine: View {
     /// The chat's folder: a dropped folder that is the chat's own is sent
     /// as `./` and shown by its name.
     let folder: String?
+    /// The chat's agent, by name: who asks on a card.
+    let agent: String
     let answer: (String, Action.Decision) -> Void
     /// A "not done" line's retry, when it can be offered now.
     var retry: ((ChatSession.NotDone) -> Void)?
@@ -407,12 +414,14 @@ private struct MessageLine: View {
             ToolLine(name: name, subject: subject, failed: failed, output: output)
         case .permission(let card):
             if card.isOpen {
-                PermissionCardView(card: card, answer: answer)
+                PermissionCardView(card: card, agent: agent, answer: answer)
             } else {
                 AnsweredLine(card: card)
             }
         case .notDone(let line):
             NotDoneLine(line: line, retry: retry)
+        case .unsupported(let request):
+            UnsupportedLine(agent: agent, request: request)
         }
     }
 }
@@ -683,11 +692,14 @@ private struct ToolLine: View {
 }
 
 /// A permission request waiting for the user (reference screen 4): what
-/// it is, what it will do in one line, and the buttons. The third button
-/// is there only when there is something to keep: a folder to reach
-/// ("Give access") or a rule for this chat ("Always in this folder").
+/// it is, why the agent asks when it says, what it will do, and the
+/// buttons. The third button is there only when there is something to
+/// keep: a folder to reach ("Give access"), a rule for this chat ("Always
+/// in this folder"), or — where the backend means that — this command
+/// again for the session ("Always allow this command").
 private struct PermissionCardView: View {
     let card: ChatSession.PermissionCard
+    let agent: String
     let answer: (String, Action.Decision) -> Void
 
     /// About eight lines of command before the card scrolls.
@@ -703,9 +715,17 @@ private struct PermissionCardView: View {
             }
             .foregroundStyle(ChatPalette.cardTitle)
             VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.t("chat.permission.tool", ["tool": card.tool]))
+                Text(L10n.t("chat.permission.tool", ["agent": agent, "tool": card.tool]))
                     .font(.system(size: 11.5))
                     .foregroundStyle(ChatPalette.cardText)
+                // The agent's own sentence, quoted: its words, not Evlat's.
+                if let reason = card.reason {
+                    Text(L10n.t("chat.permission.reason", ["reason": reason]))
+                        .font(.system(size: 11.5).italic())
+                        .foregroundStyle(ChatPalette.cardText.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
                 // A command whole — never its first line, never cut: what
                 // [Allow] lets run is all on the card, scrolling if long.
                 if let command = card.command {
@@ -752,8 +772,7 @@ private struct PermissionCardView: View {
                 CardButton(title: L10n.t("chat.permission.allow"), primary: true) { answer(card.id, .allow) }
                 CardButton(title: L10n.t("chat.permission.deny")) { answer(card.id, .deny) }
                 if card.offersAlways {
-                    CardButton(title: L10n.t(card.directories.isEmpty ? "chat.permission.always"
-                                             : "chat.permission.access")) { answer(card.id, .allowAlways) }
+                    CardButton(title: L10n.t(ChatModel.alwaysKey(card))) { answer(card.id, .allowAlways) }
                 }
             }
         }
@@ -766,6 +785,47 @@ private struct PermissionCardView: View {
     }
 }
 
+/// A request the agent made that the balloon cannot answer: refused at
+/// once, said in one dim line, and the turn goes on.
+private struct UnsupportedLine: View {
+    let agent: String
+    let request: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "nosign")
+                .foregroundStyle(ChatPalette.faint)
+            Text(L10n.t("chat.unsupported", ["agent": agent, "request": request]))
+                .foregroundStyle(ChatPalette.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.system(size: 11))
+    }
+}
+
+/// The chat's agent, first in the corner: its mark and its name. A chat
+/// keeps its agent; an empty balloon shows the one a new chat is made on.
+private struct AgentLabel: View {
+    let agent: AgentID
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            SourceGlyph(source: agent)
+                .fill(style: FillStyle(eoFill: true))
+                .frame(width: 10, height: 10)
+            Text(name)
+                .font(.system(size: 11))
+                .lineLimit(1)
+        }
+        .foregroundStyle(ChatPalette.faint)
+        .fixedSize()
+        .help(L10n.t("chat.agent.help", ["agent": name]))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.t("chat.agent.help", ["agent": name]))
+    }
+}
+
 /// An answered card, folded to one quiet line: what was asked, what came of it.
 private struct AnsweredLine: View {
     let card: ChatSession.PermissionCard
@@ -775,7 +835,7 @@ private struct AnsweredLine: View {
         HStack(spacing: 6) {
             Image(systemName: allowed ? "checkmark.shield" : "xmark.shield")
                 .foregroundStyle(allowed ? ChatPalette.amber.opacity(0.8) : ChatPalette.faint)
-            Text(card.outcome.map { L10n.t(ChatModel.outcomeKey($0)) } ?? "")
+            Text(card.outcome.map { L10n.t(ChatModel.outcomeKey($0, always: card.always)) } ?? "")
                 .foregroundStyle(allowed ? ChatPalette.placeholder : ChatPalette.faint)
             Text(card.tool).foregroundStyle(ChatPalette.faint)
             if let subject = card.subject {

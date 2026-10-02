@@ -33,7 +33,7 @@ final class ClaudeChatTests: XCTestCase {
         XCTAssertEqual(chat.caps, ChatCapabilities(asks: true, alwaysOption: .rules, resume: true, memory: true,
                                                    transport: .oneWay))
         XCTAssertEqual(chat.stopPlan, .signal)
-        XCTAssertEqual(Agents.chatBackends.map(\.id), [.claude])
+        XCTAssertEqual(Agents.chatBackends.map(\.id), [.claude, .codex], "the first is the chats' until one is chosen")
         XCTAssertEqual(Agents.routes.permission, .claude)
     }
 
@@ -78,7 +78,7 @@ final class ClaudeChatTests: XCTestCase {
 
     /// Claude's stream marks a card's answer and auto mode's judgement.
     func testTheStreamMarksTheDenialsTheChatTellsApart() {
-        var parser = chat.parser()
+        var parser = chat.parser(for: TurnSpec(chatID: "C", sessionID: "S", resume: false, prompt: "", attachments: [], directory: "/", mode: chat.standardMode))
         let lines = [#"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"a","decision_reason_type":"classifier"}"#,
                      #"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"b","decision_reason_type":"hook"}"#,
                      #"{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"c","decision_reason_type":"rule"}"#]

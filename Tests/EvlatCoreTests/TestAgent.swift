@@ -82,7 +82,7 @@ struct TestChatBackend: ChatBackend {
                    environment: [TurnLaunch.taskVariable: spec.chatID], directory: spec.directory)
     }
 
-    func parser() -> any ChatParser { Quiet() }
+    func parser(for spec: TurnSpec) -> any ChatParser { Quiet() }
 
     func request(json: [String: Any], token: String) -> ChatRequest? {
         guard json["hook_event_name"] as? String ?? "PermissionRequest" == "PermissionRequest",

@@ -844,7 +844,7 @@ struct SetupRowView: View {
     @ViewBuilder private var onCard: some View {
         HStack(alignment: .center, spacing: 10) {
             RowTitle(name: row.name, detail: row.detail, monospaced: monospaced,
-                     code: row.item == .commandLink)
+                     code: row.item == .commandLink, badge: chatBadge)
             trailing
             if switches, let source = row.item.agent { agentSwitch(source) }
         }
@@ -872,6 +872,13 @@ struct SetupRowView: View {
             }
         }
         manualPart
+    }
+
+    /// Settings' agent card says whether the chat bubble can talk to the
+    /// agent; which one it does is Chat's.
+    private var chatBadge: String? {
+        guard switches, let agent = row.item.agent, agent.agent.chat != nil else { return nil }
+        return L10n.t("settings.agents.chat", in: lang)
     }
 
     /// The status, or in the setup the switch: a missing row says nothing

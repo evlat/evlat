@@ -31,11 +31,21 @@ public protocol ChatBackend {
     var caps: ChatCapabilities { get }
     /// How Stop ends a running turn.
     var stopPlan: ChatStopPlan { get }
+    /// The agent version its chat was checked against: a turn that reports
+    /// another (`ChatParser.version`) is said in the diagnostics and in
+    /// Settings, since an unmeasured version may speak differently. `nil`
+    /// checks nothing.
+    var measuredVersion: String? { get }
+    /// A catalogue key for one line Settings shows under the backend while it
+    /// is chosen (an experimental protocol, say); `nil` for none.
+    var noteKey: String? { get }
 
     /// The turn to start for `spec`, with what is known only when it starts.
     func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch
-    /// A fresh reader for one turn's stdout.
-    func parser() -> any ChatParser
+    /// A fresh reader for the turn `spec` starts. A duplex reader drives
+    /// the turn too: what it writes back (`ChatParser.feed`) can depend on
+    /// the spec and on what the process answered.
+    func parser(for spec: TurnSpec) -> any ChatParser
     /// A permission request posted to the listener by one of this backend's
     /// turns; `nil` when it is not one the card can hold. Asked only of a
     /// one-way backend.
@@ -50,6 +60,10 @@ extension ChatBackend {
     public var indexFile: String { ChatIndex.fileName(for: id) }
 
     public func request(json: [String: Any], token: String) -> ChatRequest? { nil }
+
+    public var measuredVersion: String? { nil }
+
+    public var noteKey: String? { nil }
 
     /// A stored mode read back; anything else — an old value, a mode this
     /// build does not offer — is `nil`, and the caller's default applies.
@@ -164,6 +178,8 @@ public struct TurnSpec: Equatable {
 
 /// What the shell knows only when the turn starts: the listener's bound
 /// port, the turn's token and, for a workspace chat, the shared memory folder.
+/// A duplex turn asks on its own channel and may start with no listener
+/// bound: its port is then 0.
 public struct TurnContext: Equatable {
     public let port: UInt16
     public let token: String
@@ -213,7 +229,9 @@ public struct TurnLaunch: Equatable {
 
 /// What a turn's stdout says, in the few events a chat shows.
 public enum ChatEvent: Equatable {
-    /// The turn reached the agent and this is its session.
+    /// The turn reached the agent and this is its session. An agent that
+    /// names its sessions itself says it here, and the chat keeps that name
+    /// from its first turn on (`ChatSession.sessionID`).
     case started(sessionID: String)
     /// A piece of the reply as it is written.
     case textDelta(String)
@@ -229,6 +247,10 @@ public enum ChatEvent: Equatable {
     /// A duplex turn asking on its own channel (`ChatRequest.ReplyTarget.runner`):
     /// the store puts it on the turn's chat, whose answer goes back on stdin.
     case asked(ChatRequest)
+    /// The agent asked for something the bubble cannot answer (its word for
+    /// it): the backend refused it on the spot and the turn goes on. Said in
+    /// the chat, so a protocol that grew does not fail quietly.
+    case unsupported(String)
 
     public struct ToolCall: Equatable {
         public let id: String
@@ -287,11 +309,23 @@ public enum ChatEvent: Equatable {
 public protocol ChatParser {
     /// Words read but not known, with how often.
     var unrecognized: [String: Int] { get }
+    /// The agent's version, as the turn reported it; `nil` until it did, or
+    /// for an agent whose stream does not say.
+    var version: String? { get }
     /// One chunk as read from the pipe: the events of every line it
     /// completed, and — duplex only — the lines to write back.
     mutating func feed(_ chunk: Data) -> (events: [ChatEvent], replies: [Data])
     /// The pipe closed: a last line without a newline is still a line.
     mutating func finish() -> [ChatEvent]
+    /// Stop, in the turn's own words (`ChatStopPlan.inBand`): a line that
+    /// names what only the stream told — `nil` while it cannot yet.
+    func stopLine() -> Data?
+}
+
+extension ChatParser {
+    public var version: String? { nil }
+
+    public func stopLine() -> Data? { nil }
 }
 
 /// A permission rule: a tool, and optionally what it is limited to.
@@ -320,10 +354,14 @@ public struct ChatRequest: Equatable {
     public static let tokenHeader = "X-Evlat-Permission"
 
     /// Evlat's name for the request: the held connection and the card are
-    /// both keyed by it.
+    /// both keyed by it. Unique across every chat.
     public let id: String
     /// Which turn it belongs to.
     public let token: String?
+    /// The agent's own id for the request, when its answer must name it (a
+    /// duplex request's, as the JSON it came as): not unique across turns,
+    /// so never a key.
+    public let callID: String?
     public let tool: String
     /// The one line a card says (`HookEvent.subject`).
     public let subject: String?
@@ -344,11 +382,12 @@ public struct ChatRequest: Equatable {
         case runner
     }
 
-    public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
-                reason: String? = nil, rules: [PermissionRule] = [], directories: [String] = [],
-                replyTarget: ReplyTarget) {
+    public init(id: String, token: String?, callID: String? = nil, tool: String, subject: String?,
+                command: String? = nil, reason: String? = nil, rules: [PermissionRule] = [],
+                directories: [String] = [], replyTarget: ReplyTarget) {
         self.id = id
         self.token = token
+        self.callID = callID
         self.tool = tool
         self.subject = subject
         self.command = command
@@ -363,6 +402,10 @@ public struct ChatRequest: Equatable {
 public enum ChatDecision: Equatable {
     /// Allowed; the rules and folders are granted for the session too.
     case allow(rules: [PermissionRule], directories: [String])
+    /// Allowed, and the same request again for the rest of the agent's
+    /// session (`ChatCapabilities.AlwaysOption.thisCommand`): the agent keeps
+    /// it, Evlat keeps nothing.
+    case allowForSession
     /// `interrupt` ends the turn with it: the user pressed Stop.
     case deny(interrupt: Bool)
     /// A question answered: allowed with `input` (the request's) plus
@@ -382,6 +425,8 @@ public enum ChatReply: Equatable {
 public enum ChatStopPlan: Equatable {
     /// SIGINT, then SIGTERM if it is still running a while later.
     case signal
-    /// A line on stdin; the turn ends itself.
-    case line(Data)
+    /// A line on stdin, worded by the turn's parser (`ChatParser.stopLine`);
+    /// the turn ends itself, and is ended all the same if it does not. One
+    /// that cannot be worded yet ends the process.
+    case inBand
 }

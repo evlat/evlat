@@ -43,6 +43,10 @@ final class SettingsTests: XCTestCase {
         var edge = BarPanel.Edge.right
         /// Runs in the `claude` lookup, before its answer.
         var onLookup: () -> Void = {}
+        /// The second chat backend's program, and the chosen backend.
+        var codex: String? = nil
+        var backend = AgentID.claude
+        var versions: [AgentID: String] = [:]
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
@@ -50,8 +54,15 @@ final class SettingsTests: XCTestCase {
             edge: { recorder.edge }, setEdge: { recorder.edge = $0 },
             displays: { recorder.displays }, display: { recorder.display },
             setDisplay: { id in recorder.display = id.map { id in (id, recorder.displays.first { $0.id == id }?.name ?? id) } }, isHotKeyOn: { true }, setHotKey: { _ in },
-            hotKey: { .standard }, defaultMode: { recorder.mode }, setDefaultMode: { recorder.mode = $0 },
-            locateBackend: { recorder.onLookup(); $0(recorder.claude) },
+            hotKey: { .standard },
+            chatBackend: { Agents.chatBackends.first { $0.id == recorder.backend }! },
+            setChatBackend: { recorder.backend = $0 },
+            defaultMode: { recorder.mode }, setDefaultMode: { recorder.mode = $0 },
+            locateBackend: { id, done in
+                if id == .claude { recorder.onLookup() }
+                done(id == .claude ? recorder.claude : recorder.codex)
+            },
+            chatVersion: { recorder.versions[$0] },
             memoryCount: { recorder.memory },
             showMemory: {},
             clearMemory: { recorder.cleared += 1; recorder.memory = 0 },
@@ -178,6 +189,51 @@ final class SettingsTests: XCTestCase {
         model.reload()
         XCTAssertEqual(model.backend, .missing)
         XCTAssertFalse(model.showsModes, "no claude, no mode to pick")
+    }
+
+    /// "Chat with": one program found is a plain row and nothing to pick;
+    /// two found are a choice, and a backend not found cannot be picked.
+    /// The chosen one's note and a version it was not checked against are
+    /// said under it; only Claude's chats have the memory.
+    func testTheChatsBackendIsPickedAmongTheFound() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        model.reload()
+        XCTAssertEqual(model.backendChoices.map(\.id), [.claude, .codex])
+        XCTAssertEqual(model.backendChoices.map(\.name), ["Claude Code", "Codex"])
+        XCTAssertEqual(model.backendChoices.map(\.isFound), [true, false])
+        XCTAssertEqual(model.backendChoices.map(\.experimental), [false, true])
+        XCTAssertFalse(model.picksBackend, "one found is no choice")
+        model.setBackend(.codex)
+        XCTAssertEqual(recorder.backend, .claude, "a program not found is never picked")
+        XCTAssertTrue(model.hasMemory)
+        XCTAssertNil(model.backendNote)
+
+        recorder.codex = "/opt/homebrew/bin/codex"
+        model.reload()
+        XCTAssertTrue(model.picksBackend)
+        XCTAssertEqual(model.backendChoices.last?.path, "/opt/homebrew/bin/codex")
+        model.setBackend(.codex)
+        XCTAssertEqual(recorder.backend, .codex)
+        XCTAssertEqual(model.selectedBackend, .codex)
+        XCTAssertFalse(model.hasMemory, "the memory is Claude's")
+        XCTAssertEqual(model.offeredModes.map(\.id), ["workspace", "readOnly"])
+        XCTAssertEqual(model.backendNote, L10n.t("settings.chat.backend.codex.note", in: "en"))
+        XCTAssertNil(model.versionWarning, "no turn has said a version")
+        recorder.versions[.codex] = "0.156.1"
+        XCTAssertNil(model.versionWarning, "the measured one says nothing")
+        recorder.versions[.codex] = "0.158.0"
+        defer {
+            // The chosen program gone, the other still there: the radio
+            // stays, the way back.
+            recorder.codex = nil
+            model.reload()
+            XCTAssertTrue(model.picksBackend)
+            model.setBackend(.claude)
+            XCTAssertEqual(recorder.backend, .claude)
+        }
+        XCTAssertEqual(model.versionWarning,
+                       "Codex 0.158.0 answered; Evlat was checked against 0.156.1. If the chat misbehaves, this may be why.")
     }
 
     func testClearingTheMemoryAsksFirst() {

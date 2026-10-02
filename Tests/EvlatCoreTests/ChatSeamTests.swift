@@ -95,11 +95,11 @@ final class ChatSeamTests: XCTestCase {
             let standardMode = TestChatBackend.ask
             let caps = ChatCapabilities(asks: true, alwaysOption: .thisCommand, resume: true, memory: false,
                                         transport: .duplex)
-            let stopPlan = ChatStopPlan.line(Data("stop\n".utf8))
+            let stopPlan = ChatStopPlan.inBand
             func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch {
                 TurnLaunch(arguments: [], input: [], environment: [:], directory: spec.directory)
             }
-            func parser() -> any ChatParser { TestChatBackend.Quiet() }
+            func parser(for spec: TurnSpec) -> any ChatParser { TestChatBackend.Quiet() }
             func encode(_ decision: ChatDecision, for request: ChatRequest) -> ChatReply { .line(Data()) }
         }
         let duplex = TestAgent("other", chat: Duplex())
@@ -119,5 +119,52 @@ final class ChatSeamTests: XCTestCase {
         XCTAssertTrue(chat.ask(ChatRequest(id: "R1", token: nil, tool: "Bash", subject: "ls", replyTarget: .runner),
                                at: t0))
         XCTAssertEqual(chat.openRequests, ["R1"])
+    }
+    /// Where "always" means this command again, a command's card offers it
+    /// and answers it as such — the agent keeps it, Evlat nothing; a card
+    /// with no command does not. Its reason is on the card.
+    func testThisCommandAgainIsASessionAllow() {
+        var chat = running(TestChatBackend.ask)
+        let request = ChatRequest(id: "R1", token: nil, callID: "0", tool: "Bash", subject: "ls", command: "/bin/sh -c ls",
+                                  reason: "May I list?", replyTarget: .runner)
+        XCTAssertTrue(chat.ask(request, always: .thisCommand, at: t0))
+        XCTAssertTrue(chat.ask(ChatRequest(id: "R2", token: nil, tool: "Edit", subject: "a.txt", replyTarget: .runner),
+                               always: .thisCommand, at: t0))
+        let cards = chat.messages.compactMap { if case .permission(let card) = $0 { return card } else { return nil } }
+        XCTAssertEqual(cards.map(\.offersAlways), [true, false])
+        XCTAssertEqual(cards.first?.reason, "May I list?")
+        XCTAssertEqual(chat.answer("R1", .allowAlways, at: t0), .allowForSession)
+        XCTAssertEqual(chat.answer("R2", .allow, at: t0), .allow(rules: [], directories: []))
+
+        var rules = running(TestChatBackend.ask)
+        rules.ask(ChatRequest(id: "R3", token: nil, tool: "Bash", subject: "ls", command: "ls", replyTarget: .listener),
+                  at: t0)
+        let card = rules.messages.compactMap { if case .permission(let card) = $0 { return card } else { return nil } }
+        XCTAssertEqual(card.map(\.offersAlways), [false], "rules with none to keep offer nothing, command or not")
+    }
+
+    /// An agent that names its sessions: the first turn's name is the
+    /// chat's, and a later turn is never renamed.
+    func testTheFirstTurnNamesTheSession() throws {
+        var chat = running(TestChatBackend.ask)
+        chat.apply(.started(sessionID: "agent-1"), at: t0)
+        XCTAssertEqual(chat.sessionID, "agent-1")
+        chat.apply(.result(.init(subtype: "success", isError: false, text: "ok")), at: t0)
+        chat.ended(status: 0, stderr: "", at: t0)
+        let spec = try XCTUnwrap(chat.begin(prompt: "again", attachments: [], at: t0))
+        XCTAssertEqual(spec.sessionID, "agent-1")
+        XCTAssertTrue(spec.resume)
+        chat.apply(.started(sessionID: "agent-2"), at: t0)
+        XCTAssertEqual(chat.sessionID, "agent-1")
+    }
+
+    /// A request the bubble could not answer is a line of its own.
+    func testAnUnsupportedRequestIsALine() {
+        var chat = running(TestChatBackend.ask)
+        chat.apply(.textDelta("a"), at: t0)
+        chat.apply(.unsupported("item/tool/requestUserInput"), at: t0)
+        chat.apply(.textDelta("b"), at: t0)
+        XCTAssertEqual(Array(chat.messages.dropFirst()),
+                       [.reply("a"), .unsupported("item/tool/requestUserInput"), .reply("b")])
     }
 }

@@ -49,11 +49,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// points it at a bundle of its own.
     var executable: URL? = Bundle.main.executableURL
     public let registry = Registry()
-    /// The chats' agent: the catalogue's first chat backend.
-    let chatBackend: any ChatBackend = Agents.chatBackends[0]
-    /// Finds the backend's program for the chats; its login `PATH` is also
-    /// the command link row's. Nothing runs until a chat or the row asks.
-    let chatLocator = AgentLocator(name: Agents.chatBackends[0].executable)
+    /// Finds each chat backend's program, by its id; the login `PATH` they
+    /// read is also the command link row's. Nothing runs until a chat or a
+    /// row asks.
+    let chatLocators: [AgentID: AgentLocator] = {
+        let loginPath = AgentLocator.SharedLoginPath()
+        return Dictionary(uniqueKeysWithValues: Agents.chatBackends.map {
+            ($0.id, AgentLocator(name: $0.executable, loginPath: loginPath.value))
+        })
+    }()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
     /// mascot in `refresh()`, observed by its own column.
@@ -1167,10 +1171,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Before the record provider: a chat's turn writes a session record
         // too, and the chat's sessions are left out of it.
         let chats = ChatStore(root: Self.chatRoot(home: home), platform: Self.darwinPlatform,
-                              backend: chatBackend, locator: chatLocator,
+                              lanes: Agents.chatBackends.map { ChatStore.Lane(backend: $0, locator: chatLocators[$0.id]!) },
+                              selected: { [unowned self] in MainActor.assumeIsolated { self.chatBackend.id } },
                               now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
                               trash: ChatStore.trash(environment: ProcessInfo.processInfo.environment),
-                              defaultMode: { [unowned self] in MainActor.assumeIsolated { self.defaultMode } },
+                              defaultMode: { [unowned self] backend in
+                                  MainActor.assumeIsolated { self.defaultMode(for: backend) }
+                              },
                               onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         self.chats = chats
         // Each agent's own providers (its session records, its usage file),
@@ -1435,12 +1442,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if chatModel.edge != bar.edge { chatModel.edge = bar.edge }
         syncChat()
         refreshFolder()
-        // Asked each time: the program may have been installed since. Known
-        // at once after the first find (or with `EVLAT_<NAME>`).
-        chats?.locateBackend { [weak self] found in
-            guard let self, self.chatModel.backendMissing == found else { return }
-            self.chatModel.backendMissing = !found
-        }
+        locateBalloonBackend()
         chatModel.opened()
         // A short fade in: it comes out of the mascot rather than popping.
         // Leaving is at once — Esc should feel instant.
@@ -1476,7 +1478,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         chosenFolder = nil
         syncChat()
         refreshFolder()
+        locateBalloonBackend()
         chatModel.opened()
+    }
+
+    /// Is the balloon's backend's program there — the chat's, or for none
+    /// the selected one's? Asked each time the balloon opens or changes
+    /// chat: the program may have been installed since. Known at once after
+    /// the first find (or with `EVLAT_<NAME>`).
+    private func locateBalloonBackend() {
+        let agent = balloonBackend.id
+        chats?.locateBackend(for: currentChat) { [weak self] found in
+            guard let self, self.balloonBackend.id == agent, self.chatModel.backendMissing == found else { return }
+            self.chatModel.backendMissing = !found
+        }
     }
 
     /// Ordered out. Nothing is handed back: the app in front never lost
@@ -1872,6 +1887,42 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// switched on installs the approval hook.
     var holdsApprovals: Bool { enabledAgents.contains { $0.agent.approvals != nil } }
 
+    // MARK: - Chat backend
+
+    /// The new chats' backend, by its id; none stored is the catalogue's
+    /// first chat backend. An id this build has no backend for reads as none.
+    nonisolated static let backendKey = "chat.backend"
+
+    nonisolated static func storedBackend(_ defaults: UserDefaults?) -> any ChatBackend {
+        let stored = defaults?.string(forKey: backendKey).map(AgentID.init(rawValue:))
+        return Agents.chatBackends.first { $0.id == stored } ?? Agents.chatBackends[0]
+    }
+
+    /// Without storage (`modeDefaults`' isolation), kept here.
+    private var backendUnstored: AgentID?
+
+    /// The backend a new chat is made on.
+    var chatBackend: any ChatBackend {
+        if let modeDefaults { return Self.storedBackend(modeDefaults) }
+        return Agents.chatBackends.first { $0.id == backendUnstored } ?? Agents.chatBackends[0]
+    }
+
+    /// The balloon's backend: the open chat's own, else the new chats'.
+    var balloonBackend: any ChatBackend {
+        currentChat.flatMap { chats?.backend(of: $0) } ?? chatBackend
+    }
+
+    /// Settings' pick: the next chats run on it. A chat already made keeps
+    /// its own; a mode picked for a chat not made yet was the old backend's
+    /// and goes.
+    func setChatBackend(_ id: AgentID) {
+        guard id != chatBackend.id, Agents.chatBackends.contains(where: { $0.id == id }) else { return }
+        if let modeDefaults { modeDefaults.set(id.rawValue, forKey: Self.backendKey) } else { backendUnstored = id }
+        chosenMode = nil
+        refreshMode()
+        if isChatOpen { locateBalloonBackend() }
+    }
+
     // MARK: - Permission mode
 
     /// A new chat's mode, stored under the backend's own key by its id;
@@ -1884,19 +1935,25 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
     /// `EVLAT_CHATS`), which must not change the user's default — kept here.
-    private var modeUnstored: ChatMode?
     private var modeDefaults: UserDefaults? {
         ChatStore.isolated(ProcessInfo.processInfo.environment) ? nil : defaults
     }
-    var defaultMode: ChatMode {
-        modeDefaults.map { Self.storedMode($0, for: chatBackend) } ?? modeUnstored ?? chatBackend.standardMode
+    /// A mode picked for a backend without storage, by its id.
+    private var modesUnstored: [AgentID: ChatMode] = [:]
+
+    /// The new chats' mode on the selected backend.
+    var defaultMode: ChatMode { defaultMode(for: chatBackend) }
+
+    func defaultMode(for backend: any ChatBackend) -> ChatMode {
+        modeDefaults.map { Self.storedMode($0, for: backend) } ?? modesUnstored[backend.id] ?? backend.standardMode
     }
 
     /// The mode picked for a chat not made yet; `nil` is the default.
     private(set) var chosenMode: ChatMode?
 
-    /// The mode the label shows: the chat's, or the next chat's.
+    /// The corner's agent and mode: the chat's, or the next chat's.
     private func refreshMode() {
+        chatModel.setAgent(balloonBackend.id)
         if let id = currentChat, let chat = chats?.chat(id) {
             chatModel.setMode(chat.mode)
         } else {
@@ -1908,7 +1965,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// ticked, each with what it does as its tooltip; bypass in red.
     private func showModes() {
         let menu = NSMenu()
-        for mode in chatBackend.modes {
+        for mode in balloonBackend.modes {
             let item = menu.addItem(withTitle: L10n.t(mode.nameKey),
                                     action: #selector(chooseMode(_:)), keyEquivalent: "")
             item.representedObject = mode.id
@@ -1927,7 +1984,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// the default for the chats after it — except bypass, which is this
     /// chat's alone (`ChatMode.mayBeDefault`).
     @objc private func chooseMode(_ sender: NSMenuItem) {
-        guard let mode = chatBackend.mode(stored: sender.representedObject as? String) else { return }
+        guard let mode = balloonBackend.mode(stored: sender.representedObject as? String) else { return }
         choose(mode)
     }
 
@@ -1938,28 +1995,31 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         } else {
             chosenMode = mode
         }
-        if mode.mayBeDefault { setDefaultMode(mode) } else { refreshMode() }
+        if mode.mayBeDefault { setDefaultMode(mode, for: balloonBackend) } else { refreshMode() }
     }
 
     /// The next chats' mode, and nothing else: the open chat —
     /// and a mode picked in the balloon for a chat not made yet — keeps
     /// its own. Stored under `modeDefaults`' isolation.
-    func setDefaultMode(_ mode: ChatMode) {
-        guard mode.mayBeDefault else { return }
-        if let modeDefaults { modeDefaults.set(mode.id, forKey: chatBackend.modeKey) } else { modeUnstored = mode }
+    func setDefaultMode(_ mode: ChatMode) { setDefaultMode(mode, for: chatBackend) }
+
+    /// `backend`'s next chats' mode: a mode it has, under its own key.
+    func setDefaultMode(_ mode: ChatMode, for backend: any ChatBackend) {
+        guard mode.mayBeDefault, backend.modes.contains(mode) else { return }
+        if let modeDefaults { modeDefaults.set(mode.id, forKey: backend.modeKey) } else { modesUnstored[backend.id] = mode }
         refreshMode()
     }
 
     /// Asks the user before bypass is switched on (`BypassConfirmation`).
     /// A property so tests answer without a modal alert.
-    var confirmBypass: () -> Bool = { BypassConfirmation.run() }
+    var confirmBypass: (ChatMode) -> Bool = { BypassConfirmation.run($0) }
 
     /// Whether `mode` may replace `current`: every pick may, except a
     /// switch *to* bypass, which takes a yes. Picking bypass where it is
     /// already in force asks nothing.
     func mayPick(_ mode: ChatMode, over current: ChatMode) -> Bool {
         guard mode.asksBeforePicking, mode != current else { return true }
-        return confirmBypass()
+        return confirmBypass(mode)
     }
 
     /// `[Retry in Ask mode]` on a "not done" line: this chat is in the mode
@@ -1968,7 +2028,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// back as a card.
     func retryAsking(_ line: ChatSession.NotDone) {
         guard let id = currentChat, let chat = chats?.chat(id), !chat.isRunning,
-              let mode = chatBackend.mode(stored: line.retryAs) else { return }
+              let mode = balloonBackend.mode(stored: line.retryAs) else { return }
         chats?.setMode(id, mode)
         refreshMode()
         send(L10n.t("chat.notDone.prompt", ["command": line.subject ?? line.tool]), attaching: false)
@@ -2248,7 +2308,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             home: { [weak self] in self?.home },
             binary: { [weak self] in self?.executable },
             loginStatus: { [weak self] in self?.loginItem?.status },
-            loginPath: { [weak self] in self?.chatLocator.lastLoginPath },
+            loginPath: { [weak self] in self?.chatLocators.values.lazy.compactMap(\.lastLoginPath).first },
             hotKeyRefused: { [weak self] in self?.hotKeyStatus.map { $0 != noErr } ?? false },
             unreachableMachines: { [weak self] in
                 guard let remote = self?.remote else { return [] }
@@ -2288,13 +2348,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
-            chatBackend: { [chatBackend] in chatBackend },
-            defaultMode: { [weak self, chatBackend] in self?.defaultMode ?? chatBackend.standardMode },
+            chatBackend: { [weak self] in self?.chatBackend ?? Agents.chatBackends[0] },
+            setChatBackend: { [weak self] in self?.setChatBackend($0) },
+            defaultMode: { [weak self] in self?.defaultMode ?? Agents.chatBackends[0].standardMode },
             setDefaultMode: { [weak self] in self?.setDefaultMode($0) },
-            locateBackend: { [weak self] completion in
-                guard let self else { return completion(nil) }
-                self.chatLocator.locate { completion($0.executable) }
+            locateBackend: { [weak self] id, completion in
+                guard let locator = self?.chatLocators[id] else { return completion(nil) }
+                locator.locate { completion($0.executable) }
             },
+            chatVersion: { [weak self] in self?.chats?.versions[$0] },
             memoryCount: { [weak self] in
                 guard let chats = self?.chats else { return nil }
                 return chats.memoryContents()?.count ?? 0

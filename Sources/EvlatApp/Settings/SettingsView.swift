@@ -425,6 +425,7 @@ private struct ChatSection: View {
                 }
             }
         }
+        BackendGroup(model: model)
         if model.showsModes {
             SettingsGroup(title: model.t("settings.chat.modes"), note: model.t("settings.chat.modes.note")) {
                 ForEach(model.offeredModes, id: \.self) { mode in
@@ -445,15 +446,127 @@ private struct ChatSection: View {
             }
         }
         if let count = model.memoryCount, model.hasMemory {
-            SettingsGroup(title: model.t("settings.chat.memory"), note: foundNote) {
+            SettingsGroup(title: model.t("settings.chat.memory")) {
                 MemoryRow(model: model, count: count)
             }
         }
     }
+}
 
-    private var foundNote: String? {
-        guard case .found = model.backend else { return nil }
-        return model.backendLine
+/// "Chat with": every agent the balloon can talk to — its mark, its name,
+/// where its program is. Two or more found, a radio picks the new chats'
+/// one; one found, it is a plain row; one not found is dim and cannot be
+/// picked. Under it, the chosen one's note and a version it was not
+/// checked against.
+private struct BackendGroup: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsGroup(title: model.t("settings.chat.with"),
+                          note: model.picksBackend ? model.t("settings.chat.with.note") : nil) {
+                ForEach(model.backendChoices) { choice in
+                    BackendRow(model: model, choice: choice, picks: model.picksBackend,
+                               selected: choice.id == model.selectedBackend)
+                }
+            }
+            if let note = model.backendNote {
+                line(note, color: SettingsPalette.muted)
+            }
+            if let warning = model.versionWarning {
+                line(warning, color: SettingsPalette.wait)
+            }
+        }
+    }
+
+    private func line(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 2)
+            .textSelection(.enabled)
+    }
+}
+
+/// One agent in "Chat with".
+private struct BackendRow: View {
+    @ObservedObject var model: SettingsModel
+    let choice: SettingsModel.BackendChoice
+    /// A radio, rather than a plain row: two or more are found.
+    let picks: Bool
+    let selected: Bool
+
+    var body: some View {
+        if picks {
+            Button { model.setBackend(choice.id) } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    ZStack {
+                        Circle().strokeBorder(selected ? SettingsPalette.ink : SettingsPalette.radio, lineWidth: 1.5)
+                        if selected { Circle().fill(SettingsPalette.ink).padding(3.5) }
+                    }
+                    .frame(width: 14, height: 14)
+                    .padding(.top, 2)
+                    title
+                    Spacer(minLength: 0)
+                    if !choice.isFound { state }
+                }
+                .padding(.vertical, 9)
+                .padding(.horizontal, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!choice.isFound)
+            .opacity(choice.isFound ? 1 : 0.55)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+        } else {
+            RowBox {
+                HStack(alignment: .center, spacing: 10) {
+                    title
+                    Spacer(minLength: 0)
+                    state
+                }
+            }
+            .opacity(choice.isFound ? 1 : 0.55)
+        }
+    }
+
+    private var title: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                SourceGlyph(source: choice.id)
+                    .fill(SettingsPalette.ink, style: FillStyle(eoFill: true))
+                    .frame(width: 13, height: 13)
+                Text(choice.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SettingsPalette.ink)
+                if choice.experimental {
+                    NameTag(text: model.t("settings.chat.backend.experimental"), caution: true)
+                }
+            }
+            if let path = choice.path {
+                Text(path)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(SettingsPalette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    /// Found (a plain row only), not installed, or still being looked for.
+    @ViewBuilder private var state: some View {
+        switch choice.location {
+        case .found:
+            Text(model.t("settings.chat.backend.foundShort"))
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(SettingsPalette.ok).fixedSize()
+        case .missing:
+            Text(model.t("settings.chat.backend.notFound"))
+                .font(.system(size: 12)).foregroundStyle(SettingsPalette.muted).fixedSize()
+        case .looking:
+            Text(verbatim: "…").font(.system(size: 12)).foregroundStyle(SettingsPalette.muted).fixedSize()
+        }
     }
 }
 

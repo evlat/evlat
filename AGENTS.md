@@ -31,7 +31,7 @@ Sources/Evlat/       main.swift — classifies argv (app, `watch`, `signal`, hel
 Tests/EvlatCoreTests/
 Tests/EvlatAgentsTests/ the agents' tests, the installed contracts' golden strings among them
 Tests/EvlatAppTests/
-Tests/Fixtures/      fake `claude`, fake `ssh`
+Tests/Fixtures/      fake `claude`, fake `codex app-server`, fake `ssh`
 Resources/{en,tr}.lproj/Evlat.strings
 docs/media/          README's banner and screenshots; not bundled into the app
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
@@ -150,13 +150,31 @@ which agent it is:
   the turn's token and the memory folder (`TurnContext`). `TurnRunner` starts
   one process per turn; `AgentLocator` finds its program (`EVLAT_<NAME>`, then
   the login shell's `PATH`).
-- The backend's `parser()` reads stdout into `ChatEvent`s; an unknown word is
-  counted, not swallowed. Transport is **one way** (stdout streams, a
-  permission is posted to `/permission` and answered on the held connection)
-  or **duplex** (asked and answered on the process's own stdio).
+- The backend's `parser(for: spec)` reads stdout into `ChatEvent`s; an
+  unknown word is counted, not swallowed. Transport is **one way** (stdout
+  streams, a permission is posted to `/permission` and answered on the held
+  connection; Claude Code) or **duplex** (asked and answered on the
+  process's own stdio, the parser writing the protocol's next lines as the
+  process answers; Codex's `app-server`). Only a one-way turn needs the
+  listener bound.
 - A `ChatRequest` carries its reply target; the answer is the backend's
-  `encode(ChatDecision, for:)`. Stop denies every open card at its own
-  target, then applies the backend's `stopPlan`.
+  `encode(ChatDecision, for:)`. "Always" is the backend's `alwaysOption`:
+  Claude's rules and folders, kept for the chat, or Codex's same command
+  again for the session (`allowForSession`), kept by Codex. A request a
+  duplex backend does not know is refused with a JSON-RPC error and said
+  in the chat (`ChatEvent.unsupported`), never left hanging. Stop denies
+  every open card at its own target, then applies the backend's `stopPlan`
+  (`.signal`, or `.inBand`: the parser's `stopLine`). A duplex turn still
+  running `TurnRunner.stopGrace` after its result is ended: whether Codex's
+  server exits when stdin closes was not measured. Each turn is a new
+  server, so Codex's "this command again" is measured to hold within one
+  server only; across a turn's `thread/resume` it was not measured.
+- A chat runs on the backend selected when it was made (Settings → Chat,
+  `chat.backend`, none stored is the catalogue's first) and keeps it; its
+  session id is the agent's own when the first turn names one (Codex's
+  thread). The conversation itself is the agent's: Claude Code and Codex
+  write it under their own homes (`~/.claude`, `~/.codex`), Evlat keeps
+  only the index.
 - Modes are the backend's (`ChatMode`): a mode's own denial is retried in
   the mode it names (`retryDenialAs`). The new chats' default is stored per
   backend (`modeKey`), and so is the index (`indexFile`); Claude Code keeps
@@ -172,7 +190,7 @@ which agent it is:
 | `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept (`StatusLineUsageProvider`; id, group, fidelity and the windows read are the agent's `StatusLineUsage`) | official |
 | `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`StatusLineUsageProvider(source:)`); the format is undocumented | derived |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens (`Codex/CodexUsageProvider`, the agent's `providers`) | derived |
-| `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
+| `evlat` | chat jobs | the chat bubble's turns, on any chat backend (`ChatsProvider`); a backend that answered with another version than the one measured is in its `diagnostics` and in Settings → Chat | official |
 | `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
 
 An agent can be switched off (Settings → Agents, its card's switch; the
@@ -578,6 +596,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
 | `EVLAT_BODY` | force the body's mode (`always`, `smart`, `hidden`) at launch; the stored mode is never written |
 | `EVLAT_CLAUDE` | `claude` to run (tests use `Tests/Fixtures/fake-claude`) |
+| `EVLAT_CODEX` | `codex` to run for the chat (tests use `Tests/Fixtures/fake-codex-app-server`) |
 | `EVLAT_FEED` | the appcast to check; the only way an isolated launch gets an updater (a release bundle otherwise checks its `SUFeedURL`, a development bundle nothing) |
 | `EVLAT_TEST_DESKTOP=1` | tests only: windows go on the real desktop instead of offstage (`WindowStage`); `make test-desktop` |
 
@@ -695,6 +714,19 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   on, and a restart did not change it. The same `~/.codex/hooks.json` fired
   every event from the CLI and from the bundled binary's `exec`. Only Codex
   CLI sessions are tracked.
+- **`codex app-server` is experimental** (its help says so; measured on
+  0.156.1, schema from `codex app-server generate-json-schema`). The chat
+  reads it by those shapes: a version that answers differently is said in
+  Settings → Chat (`ChatBackend.measuredVersion`), an unknown server
+  request is refused rather than left to hang the turn.
+- **Codex's `acceptForSession` is for the same command only.** After it, a
+  different command (`echo four > c2.txt`) asked again: it is not a rule
+  like Claude's. The card's third button says "this command", and Evlat
+  keeps nothing.
+- **SIGINT ends Codex's app-server, not its turn**: no `turn/completed`
+  comes. Stop is `turn/interrupt` on stdin (`turn/completed` with
+  `interrupted` 40 ms later, measured); before the turn has an id there is
+  nothing to interrupt and the process is ended.
 - **Codex's `rollout-*.jsonl` is undocumented and grows** (62 MB seen). Read
   the last 256 KB. `codex-usage` is derived: if the format breaks it goes
   quiet and keeps the last good reading; it never falls back to an older file.

@@ -26,13 +26,19 @@ final class SettingsModel: ObservableObject {
         var isHotKeyOn: () -> Bool
         var setHotKey: (Bool) -> Void
         var hotKey: () -> HotKeyCombination
-        /// The chats' agent: its modes and its program's name.
+        /// Every backend a chat can run on, in the catalogue's order.
+        var chatBackends: () -> [any ChatBackend] = { Agents.chatBackends }
+        /// The new chats' backend: its modes and its program's name.
         var chatBackend: () -> any ChatBackend = { Agents.chatBackends[0] }
+        var setChatBackend: (AgentID) -> Void = { _ in }
+        /// The selected backend's mode for new chats, and its writer.
         var defaultMode: () -> ChatMode
         var setDefaultMode: (ChatMode) -> Void
-        /// The backend's program's path, or `nil` when there is none;
-        /// called back on the main queue.
-        var locateBackend: (@escaping (String?) -> Void) -> Void
+        /// A backend's program's path, or `nil` when there is none; called
+        /// back on the main queue.
+        var locateBackend: (AgentID, @escaping (String?) -> Void) -> Void
+        /// The version a backend's last turn reported, if one did.
+        var chatVersion: (AgentID) -> String? = { _ in nil }
         /// What the chats' memory folder holds; `nil` when there is no chat
         /// store (every test that does not hand one).
         var memoryCount: () -> Int?
@@ -75,7 +81,9 @@ final class SettingsModel: ObservableObject {
     @Published var section: Section = .general {
         didSet { if section != oldValue { recorder.cancel() } }
     }
-    @Published private(set) var backend: Location = .looking
+    /// Where each chat backend's program is, by its id; one not asked yet
+    /// is `.looking`.
+    @Published private(set) var locations: [AgentID: Location] = [:]
     @Published private(set) var memoryCount: Int?
     /// "Clear…" was pressed: the row asks in place (no `NSAlert`).
     @Published private(set) var confirmingClear = false
@@ -108,12 +116,15 @@ final class SettingsModel: ObservableObject {
         memoryCount = host.memoryCount()
         confirmingClear = false
         host.notificationsDenied { [weak self] in self?.notificationsDenied = $0 }
-        host.locateBackend { [weak self] path in
-            self?.backend = path.map(Location.found) ?? .missing
-            // The lookup reads the login shell's `PATH`, which the command
-            // link's "not on your PATH" note is made from: read above, the
-            // first opening had none yet.
-            self?.setup.reload()
+        for backend in host.chatBackends() {
+            let id = backend.id
+            host.locateBackend(id) { [weak self] path in
+                self?.locations[id] = path.map(Location.found) ?? .missing
+                // The lookup reads the login shell's `PATH`, which the command
+                // link's "not on your PATH" note is made from: read above, the
+                // first opening had none yet.
+                self?.setup.reload()
+            }
         }
     }
 
@@ -276,6 +287,70 @@ final class SettingsModel: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Where the selected backend's program is.
+    var backend: Location { locations[host.chatBackend().id] ?? .looking }
+
+    /// One backend in the picker: its mark (by id), name and where its
+    /// program is.
+    struct BackendChoice: Identifiable, Equatable {
+        let id: AgentID
+        let name: String
+        let location: Location
+        /// It carries a note (`ChatBackend.noteKey`): an experimental
+        /// protocol, marked beside its name.
+        let experimental: Bool
+
+        var isFound: Bool {
+            if case .found = location { return true }
+            return false
+        }
+
+        /// The path under the name, `~/…`; `nil` until found.
+        var path: String? {
+            if case .found(let path) = location { return SettingsModel.tilde(path) }
+            return nil
+        }
+    }
+
+    var backendChoices: [BackendChoice] {
+        host.chatBackends().map { backend in
+            BackendChoice(id: backend.id, name: t(backend.id.agent.display.nameKey),
+                          location: locations[backend.id] ?? .looking, experimental: backend.noteKey != nil)
+        }
+    }
+
+    var selectedBackend: AgentID { host.chatBackend().id }
+
+    /// A choice with two or more programs found, or with one found while
+    /// the chosen one's is not — the way back to it; else the picker is a
+    /// plain row.
+    var picksBackend: Bool {
+        let choices = backendChoices
+        let found = choices.filter(\.isFound).count
+        let chosenFound = choices.first { $0.id == selectedBackend }?.isFound ?? false
+        return found > 1 || (found == 1 && !chosenFound)
+    }
+
+    /// Only a backend whose program is here can be picked.
+    func setBackend(_ id: AgentID) {
+        guard id != host.chatBackend().id, backendChoices.first(where: { $0.id == id })?.isFound == true else { return }
+        host.setChatBackend(id)
+        objectWillChange.send()
+    }
+
+    /// The selected backend's own line (an experimental protocol).
+    var backendNote: String? { host.chatBackend().noteKey.map { t($0) } }
+
+    /// The selected backend's last turn reported another version than its
+    /// chat was checked against; `nil` when it did not, or none has said.
+    var versionWarning: String? {
+        let backend = host.chatBackend()
+        guard let measured = backend.measuredVersion, let seen = host.chatVersion(backend.id),
+              seen != measured else { return nil }
+        return t("settings.chat.backend.version", ["agent": t(backend.id.agent.display.nameKey),
+                                                   "version": seen, "measured": measured])
+    }
+
     /// The modes are offered only when there is a program to run them.
     var showsModes: Bool {
         if case .found = backend { return true }
@@ -293,7 +368,9 @@ final class SettingsModel: ObservableObject {
 
     /// The backend's line under the modes: found where, missing, or still
     /// being looked for.
-    var backendLine: String { Self.backendLine(backend, program: host.chatBackend().executable, t) }
+    var backendLine: String {
+        Self.backendLine(backend, program: t(host.chatBackend().id.agent.display.nameKey), t)
+    }
 
     static func backendLine(_ location: Location, program: String,
                             _ t: (String, [String: String]) -> String) -> String {
@@ -381,6 +458,9 @@ final class SettingsModel: ObservableObject {
         "settings.chat.hotkey.off",
         "settings.chat.modes", "settings.chat.modes.note", "settings.chat.modes.recommended",
         "settings.chat.backend.found", "settings.chat.backend.missing", "settings.chat.backend.looking",
+        "settings.chat.with", "settings.chat.with.note", "settings.chat.backend.notFound",
+        "settings.chat.backend.foundShort", "settings.chat.backend.experimental", "settings.chat.backend.version",
+        "settings.agents.chat",
         "settings.chat.memory", "settings.chat.memory.title", "settings.chat.memory.count",
         "settings.chat.memory.one", "settings.chat.memory.empty", "settings.chat.memory.show",
         "settings.chat.memory.clear", "settings.chat.memory.confirm", "settings.chat.memory.confirm.detail",
@@ -397,5 +477,5 @@ final class SettingsModel: ObservableObject {
         "settings.remote.path.status", "settings.remote.path.note", "settings.remote.path.stillOff",
         "settings.remote.path.add", "settings.remote.what.path", "settings.remote.what.path.remove",
         "settings.remote.path.manual", "settings.remote.path.manual.remove",
-    ]
+    ] + Agents.chatBackends.compactMap(\.noteKey)
 }

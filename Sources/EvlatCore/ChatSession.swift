@@ -22,8 +22,11 @@ public struct ChatSession: Equatable {
 
     /// Evlat's id for the chat, a UUID; `entity` is built from it.
     public let id: String
-    /// The agent's session id, chosen by Evlat before the first turn.
-    public let sessionID: String
+    /// The agent's session id: chosen by Evlat before the first turn, and
+    /// replaced by the agent's own if its first turn names another
+    /// (`ChatEvent.started`) — an agent that picks its ids itself. Fixed
+    /// once a turn has started.
+    public private(set) var sessionID: String
     /// The working directory every turn runs in.
     public var folder: String
     /// Is `folder` Evlat's own `chats/<id>/` rather than the user's?
@@ -76,6 +79,9 @@ public struct ChatSession: Equatable {
         /// A tool call the agent made and was denied without a card — a
         /// mode's own judgement, a deny rule.
         case notDone(NotDone)
+        /// The agent asked for something the bubble cannot answer, by its
+        /// own word for it; it was refused and the turn went on.
+        case unsupported(String)
     }
 
     /// A tool call that did not run and was never asked: the balloon says
@@ -115,11 +121,16 @@ public struct ChatSession: Equatable {
         public let subject: String?
         /// A command whole, shown in place of `subject` (`HeldRequest.command`).
         public var command: String? = nil
+        /// The agent's own sentence for why it asks, when it gives one.
+        public var reason: String? = nil
         /// What "always" would grant: the suggested rules…
         public let rules: [PermissionRule]
         /// …and folders outside the chat's. With a folder the card offers
         /// access to it rather than a rule.
         public let directories: [String]
+        /// What "always" means for the chat's backend: its rules and
+        /// folders, or this command again for the rest of the session.
+        public var always: ChatCapabilities.AlwaysOption = .rules
         /// `nil` while the card waits for the user.
         public var outcome: Outcome?
 
@@ -134,8 +145,14 @@ public struct ChatSession: Equatable {
         }
 
         public var isOpen: Bool { outcome == nil }
-        /// Is there anything "always" would grant?
-        public var offersAlways: Bool { !rules.isEmpty || !directories.isEmpty }
+        /// Is there anything "always" would grant? A rule or a folder; or,
+        /// where it means the same command again, a command.
+        public var offersAlways: Bool {
+            switch always {
+            case .rules: return !rules.isEmpty || !directories.isEmpty
+            case .thisCommand: return command != nil
+            }
+        }
     }
 
     /// Why a chat failed. Reasons, not text: the balloon words them from the
@@ -199,7 +216,10 @@ public struct ChatSession: Equatable {
     /// One stream event of the running turn.
     public mutating func apply(_ event: ChatEvent, at now: Date) {
         switch event {
-        case .started:
+        case .started(let id):
+            // The agent's own name for the session is the chat's from its
+            // first turn on; a later turn resumes it and is never renamed.
+            if !hasStarted, !id.isEmpty { sessionID = id }
             hasStarted = true
         case .textDelta(let text):
             if replyOpen, case .reply(let sofar)? = messages.last {
@@ -252,6 +272,9 @@ public struct ChatSession: Equatable {
         case .asked:
             // A card is the store's to open (`ask`): it holds the reply target.
             break
+        case .unsupported(let word):
+            replyOpen = false
+            messages.append(.unsupported(word))
         }
     }
 
@@ -287,8 +310,10 @@ public struct ChatSession: Equatable {
 
     /// A permission request of the running turn: a card, and the chat
     /// `waiting`. `false` when no turn runs — the caller denies it.
+    /// `always` is the backend's (`ChatCapabilities.alwaysOption`).
     @discardableResult
-    public mutating func ask(_ request: ChatRequest, at now: Date) -> Bool {
+    public mutating func ask(_ request: ChatRequest, always: ChatCapabilities.AlwaysOption = .rules,
+                             at now: Date) -> Bool {
         guard isRunning, !stopRequested, card(request.id) == nil else { return false }
         replyOpen = false
         // A folder the chat already works in is no access to give: an agent
@@ -297,8 +322,9 @@ public struct ChatSession: Equatable {
         // chat's folder" and kept it for nothing.
         let outside = request.directories.filter { !Self.isWithin($0, folder) }
         messages.append(.permission(PermissionCard(id: request.id, tool: request.tool, subject: request.subject,
-                                                   command: request.command,
-                                                   rules: request.rules, directories: outside)))
+                                                   command: request.command, reason: request.reason,
+                                                   rules: request.rules, directories: outside,
+                                                   always: always)))
         // A second card while one is open keeps the wait's start: the bar
         // counts how long the chat has been waiting, not since the last card.
         if phase != .waiting { set(.waiting, word: "permission", at: now) }
@@ -315,8 +341,9 @@ public struct ChatSession: Equatable {
 
     /// The user's answer to one card: the decision to send, or `nil` when
     /// that card is not open (answered, expired, never seen). `always` grants
-    /// the card's rules and folders for this session; the caller keeps them
-    /// for the chat's later turns.
+    /// the card's rules and folders for this session — the caller keeps them
+    /// for the chat's later turns — or, where the backend means the same
+    /// command again, asks the agent to keep that.
     public mutating func answer(_ id: String, _ decision: Action.Decision, at now: Date) -> ChatDecision? {
         guard let index = cardIndex(id), case .permission(var card) = messages[index], card.isOpen else { return nil }
         let sent: ChatDecision
@@ -326,7 +353,10 @@ public struct ChatSession: Equatable {
             sent = .allow(rules: [], directories: [])
         case .allowAlways:
             card.outcome = .allowedAlways
-            sent = .allow(rules: card.rules, directories: card.directories)
+            switch card.always {
+            case .rules: sent = .allow(rules: card.rules, directories: card.directories)
+            case .thisCommand: sent = .allowForSession
+            }
         case .deny:
             card.outcome = .denied
             sent = .deny(interrupt: false)

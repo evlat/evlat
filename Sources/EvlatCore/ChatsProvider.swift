@@ -13,6 +13,9 @@ public final class ChatsProvider: Provider {
     public var id: String { Self.id }
 
     public private(set) var chats: [String: ChatSession] = [:]
+    /// What is said about the chats' backends: a version that is not the
+    /// one a backend was checked against. Written by the shell's store.
+    public var diagnostics: [String] = []
     /// The clock a row's life is read against (`ChatSession.signal(at:)`):
     /// a finished, unseen chat leaves the bar on its own after 12 h.
     private let now: () -> Date

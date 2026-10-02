@@ -81,7 +81,7 @@ final class SetupFlowModel: ObservableObject {
         look()
         self.step = step
         if step == .edge || step == .done { blinks += 1 }
-        settings.locateBackend { [weak self] path in
+        settings.locateBackend(settings.chatBackend().id) { [weak self] path in
             self?.backend = path.map(SettingsModel.Location.found) ?? .missing
             // The login `PATH` for the command link's note (`SettingsModel.reload`).
             self?.setup.reload()
@@ -220,7 +220,7 @@ final class SetupFlowModel: ObservableObject {
 
     /// The backend's line: found where, missing, or still being looked for.
     var backendLine: String {
-        SettingsModel.backendLine(backend, program: settings.chatBackend().executable, t)
+        SettingsModel.backendLine(backend, program: t(settings.chatBackend().id.agent.display.nameKey, [:]), t)
     }
 
     /// The next chats' mode; an open chat keeps its own.

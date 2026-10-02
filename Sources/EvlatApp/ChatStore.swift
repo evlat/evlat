@@ -2,14 +2,18 @@ import Foundation
 import EvlatCore
 import EvlatAgents
 
-/// The chats: each one's running turn's process and the index file.
+/// The chats: each one's running turn's process and the index files.
 /// Their state machines live in `provider` (`ChatsProvider`, the core's),
 /// which is what the registry holds.
 ///
 /// The core decides (`ChatSession`, `ChatIndex`), the backend words it
 /// (`ChatBackend`), this carries it out: a process started, stopped, its
-/// output fed back; the file written. Which agent the backend is, it never
+/// output fed back; the files written. Which agent a backend is, it never
 /// asks.
+///
+/// Every chat runs on one backend: the one selected when it was made, for
+/// good — its session is that agent's. Each backend keeps its own index file
+/// (`ChatBackend.indexFile`); the history is all of them.
 ///
 /// **Main queue only**, like the provider it writes: actions arrive from the UI,
 /// the runner hops its output and exit here.
@@ -28,9 +32,17 @@ final class ChatStore {
     /// memory and workspaces in a temporary directory.
     private let root: URL?
     private let platform: Platform
-    /// The chats' agent: its turns, its stream, its answers.
-    let backend: any ChatBackend
-    private let locator: AgentLocator
+    /// A backend chats can run on, and where its program is found.
+    struct Lane {
+        let backend: any ChatBackend
+        let locator: AgentLocator
+    }
+
+    /// The backends, in the catalogue's order.
+    let lanes: [Lane]
+    /// The backend a new chat is made on: the user's choice, read when one
+    /// is made. An id among no lane's is the first lane's.
+    private let selected: () -> AgentID
     private let now: () -> Date
     /// Sends a signal to a pid; `kill`, handed in so the orphan rule's
     /// effect stays one line.
@@ -45,10 +57,10 @@ final class ChatStore {
     /// user's Trash; the default never reaches the real one
     /// (`ChatStore.trash(environment:)` is the app's choice).
     private let trash: (URL) throws -> Void
-    /// The mode a chat gets when it has none of its own: a new one, or one
-    /// read back from before chats had modes. The user's choice, read when
-    /// it is needed (`UserDefaults`, the app's).
-    private let defaultMode: () -> ChatMode
+    /// The mode a chat on a backend gets when it has none of its own: a new
+    /// one, or one read back from before chats had modes. The user's choice,
+    /// read when it is needed (`UserDefaults`, the app's).
+    private let defaultMode: (any ChatBackend) -> ChatMode
 
     /// The chats' state, and their rows. Read against the store's clock.
     let provider: ChatsProvider
@@ -58,33 +70,71 @@ final class ChatStore {
     /// made when it starts and forgotten when it ends, so a request from a
     /// turn that is over matches nothing.
     private var tokens: [String: String] = [:]
-    private var index = ChatIndex(entries: [])
-    /// Why the index file could not be read. While set, it is never
-    /// written: someone's history is not replaced with an empty list.
-    private(set) var indexError: ChatIndex.DecodeError?
+    /// Each backend's index, by its id.
+    private var indexes: [AgentID: ChatIndex] = [:]
+    /// Why a backend's index file could not be read. While set, that file is
+    /// never written: someone's history is not replaced with an empty list.
+    private(set) var indexErrors: [AgentID: ChatIndex.DecodeError] = [:]
+    /// Each chat's backend, from when it is made.
+    private var owners: [String: AgentID] = [:]
+    /// The version each backend's last turn reported (`ChatParser.version`).
+    private(set) var versions: [AgentID: String] = [:]
 
-    /// `backend` is the chats' agent: the catalogue's first unless one is
-    /// handed in. `defaultMode` falls back to its standard mode.
-    init(root: URL?, platform: Platform, backend: any ChatBackend = Agents.chatBackends[0],
-         locator: AgentLocator, now: @escaping () -> Date = Date.init,
+    /// `selected` names the backend new chats are made on; `defaultMode`
+    /// is a backend's mode for a new chat.
+    init(root: URL?, platform: Platform, lanes: [Lane], selected: @escaping () -> AgentID,
+         now: @escaping () -> Date = Date.init,
          signal: @escaping (Int32, Int32) -> Void = { _ = kill($0, $1) },
          environment: [String: String] = ProcessInfo.processInfo.environment,
          trash: @escaping (URL) throws -> Void = ChatStore.setAside,
-         defaultMode: (() -> ChatMode)? = nil,
+         defaultMode: @escaping (any ChatBackend) -> ChatMode = { $0.standardMode },
          onChange: @escaping () -> Void = {}) {
+        precondition(!lanes.isEmpty, "a chat store needs a backend")
         provider = ChatsProvider(now: now)
-        self.backend = backend
-        self.defaultMode = defaultMode ?? { [standard = backend.standardMode] in standard }
+        self.lanes = lanes
+        self.selected = selected
+        self.defaultMode = defaultMode
         self.trash = trash
         self.environment = environment
         self.root = root
         self.platform = platform
-        self.locator = locator
         self.now = now
         self.signal = signal
         self.onChange = onChange
-        load()
+        lanes.forEach(load)
+        prune()
     }
+
+    /// One backend: the catalogue's first unless one is handed in.
+    /// `defaultMode` falls back to its standard mode.
+    convenience init(root: URL?, platform: Platform, backend: any ChatBackend = Agents.chatBackends[0],
+                     locator: AgentLocator, now: @escaping () -> Date = Date.init,
+                     signal: @escaping (Int32, Int32) -> Void = { _ = kill($0, $1) },
+                     environment: [String: String] = ProcessInfo.processInfo.environment,
+                     trash: @escaping (URL) throws -> Void = ChatStore.setAside,
+                     defaultMode: (() -> ChatMode)? = nil,
+                     onChange: @escaping () -> Void = {}) {
+        self.init(root: root, platform: platform, lanes: [Lane(backend: backend, locator: locator)],
+                  selected: { [id = backend.id] in id }, now: now, signal: signal, environment: environment,
+                  trash: trash, defaultMode: { defaultMode?() ?? $0.standardMode }, onChange: onChange)
+    }
+
+    // MARK: - Backends
+
+    /// The lane new chats are made on.
+    var selectedLane: Lane {
+        let id = selected()
+        return lanes.first { $0.backend.id == id } ?? lanes[0]
+    }
+
+    /// The chat's lane: the one it was made on.
+    private func lane(of chat: String) -> Lane? {
+        guard let id = owners[chat] else { return nil }
+        return lanes.first { $0.backend.id == id }
+    }
+
+    /// The chat's backend; `nil` for a chat this store does not hold.
+    func backend(of chat: String) -> (any ChatBackend)? { lane(of: chat)?.backend }
 
     /// `EVLAT_CHATS` (tilde expanded, blank ignored); else nothing when
     /// `EVLAT_PORT` is set — a measured process keeps no store, the rule
@@ -138,38 +188,46 @@ final class ChatStore {
 
     var sessionIDs: Set<String> { provider.sessionIDs }
 
-    /// Is there a program to send to? For the balloon's empty state; the
-    /// same lookup a turn makes, so the two never disagree. Main queue.
-    func locateBackend(_ completion: @escaping (Bool) -> Void) {
-        locator.locate { completion($0.executable != nil) }
+    /// Is there a program to send to — the chat's backend's, or for no chat
+    /// the selected one's? For the balloon's empty state; the same lookup a
+    /// turn makes, so the two never disagree. Main queue.
+    func locateBackend(for chat: String? = nil, _ completion: @escaping (Bool) -> Void) {
+        (chat.flatMap(lane(of:)) ?? selectedLane).locator.locate { completion($0.executable != nil) }
     }
+
+    /// Why the first backend's index (`indexFile`) could not be read.
+    var indexError: ChatIndex.DecodeError? { indexErrors[lanes[0].backend.id] }
 
     // MARK: - Acting
 
     /// A new, empty chat in `folder`, or in its own workspace
-    /// (`chats/<id>/`, created with the first turn). It has no row until
-    /// something is sent.
-    /// `mode` is the balloon's pick, else the default.
+    /// (`chats/<id>/`, created with the first turn), on the selected
+    /// backend for good. It has no row until something is sent.
+    /// `mode` is the balloon's pick, else the default; a mode the backend
+    /// does not have is not taken.
     @discardableResult
     func newChat(folder: String? = nil, mode: ChatMode? = nil) -> String {
         let id = UUID().uuidString
+        let backend = selectedLane.backend
         let workspace = ChatIndex.workspace(of: id, under: workspaceBase)
             ?? workspaceBase.appendingPathComponent("chats/\(id)", isDirectory: true)
+        owners[id] = backend.id
         provider[id] = ChatSession(id: id, sessionID: UUID().uuidString.lowercased(),
                                 folder: folder ?? workspace.path, isWorkspace: folder == nil,
-                                mode: mode ?? defaultMode())
+                                mode: mode.flatMap { backend.modes.contains($0) ? $0 : nil } ?? defaultMode(backend))
         return id
     }
 
     /// The chat's mode from its next turn on; a running turn keeps the one
     /// it started with. Kept in its entry once it has one.
     func setMode(_ id: String, _ mode: ChatMode) {
-        guard var chat = provider[id], chat.mode != mode else { return }
+        guard var chat = provider[id], chat.mode != mode, let owner = owners[id],
+              backend(of: id)?.modes.contains(mode) == true else { return }
         chat.mode = mode
         provider[id] = chat
-        if let i = index.entries.firstIndex(where: { $0.id == id }) {
-            index.entries[i].permissionMode = mode.id
-            save()
+        if let i = indexes[owner]?.entries.firstIndex(where: { $0.id == id }) {
+            indexes[owner]?.entries[i].permissionMode = mode.id
+            save(owner)
         }
         onChange()
     }
@@ -187,7 +245,9 @@ final class ChatStore {
                 guard let held = requests.removeValue(forKey: requestID) else { continue }
                 reply(held.request, .deny(interrupt: true), chat: id)
             }
-            runners[id]?.stop(backend.stopPlan)
+            if let backend = backend(of: id) {
+                runners[id]?.stop(backend.stopPlan, line: streams[id]?.stopLine())
+            }
             onChange()
         case .answer(let request, let decision):
             answer(request, decision)
@@ -210,8 +270,8 @@ final class ChatStore {
     /// A request of chat `id`'s running turn — through the listener, or on
     /// its own channel (`ChatEvent.asked`).
     private func ask(_ request: ChatRequest, chat id: String) {
-        guard var chat = provider[id] else { return }
-        guard chat.ask(request, at: now()) else {
+        guard var chat = provider[id], let backend = backend(of: id) else { return }
+        guard chat.ask(request, always: backend.caps.alwaysOption, at: now()) else {
             // After Stop, a request that slipped in ends the turn too, like
             // the cards Stop denied.
             reply(request, .deny(interrupt: chat.stopRequested), chat: id)
@@ -246,6 +306,7 @@ final class ChatStore {
         // What "always" granted is the chat's from now on: its later turns
         // start with it (`TurnSpec.allowedTools`, `addDirectories`).
         if case .allow(let rules, let directories) = sent, !rules.isEmpty || !directories.isEmpty,
+           let owner = owners[id], var index = indexes[owner],
            let i = index.entries.firstIndex(where: { $0.id == id }) {
             for rule in rules.map(\.text) where !index.entries[i].allowedRules.contains(rule) {
                 index.entries[i].allowedRules.append(rule)
@@ -253,13 +314,15 @@ final class ChatStore {
             for directory in directories where !index.entries[i].addedDirectories.contains(directory) {
                 index.entries[i].addedDirectories.append(directory)
             }
-            save()
+            indexes[owner] = index
+            save(owner)
         }
         onChange()
     }
 
     /// The decision, in the backend's words, at the request's target.
     private func reply(_ request: ChatRequest, _ decision: ChatDecision, chat id: String) {
+        guard let backend = backend(of: id) else { return }
         switch backend.encode(decision, for: request) {
         case .http(let body):
             permissions?.answer(request.id, with: LocalAPI.Response(status: .ok,
@@ -276,21 +339,22 @@ final class ChatStore {
     }
 
     private func send(_ id: String, text: String, attachments: [String]) {
-        guard var chat = provider[id], !chat.isRunning else { return }
-        let entry = index.entries.first { $0.id == id }
+        guard var chat = provider[id], !chat.isRunning, let lane = lane(of: id) else { return }
+        let entry = indexes[lane.backend.id]?.entries.first { $0.id == id }
         guard let spec = chat.begin(prompt: text, attachments: attachments, at: now(),
                                     addDirectories: entry?.addedDirectories ?? [],
                                     allowedTools: entry?.allowedRules ?? []) else { return }
         provider[id] = chat
         record(chat)
         onChange()
-        locator.locate { [weak self] location in
+        lane.locator.locate { [weak self] location in
             self?.start(id, spec: spec, location: location)
         }
     }
 
     private func start(_ id: String, spec: TurnSpec, location: AgentLocator.Location) {
-        guard var chat = provider[id], chat.isRunning, runners[id] == nil else { return }
+        guard var chat = provider[id], chat.isRunning, runners[id] == nil,
+              let backend = backend(of: id) else { return }
         // Stopped while the program was still being looked for: nothing to
         // start, and the turn ends as stopped.
         guard !chat.stopRequested else {
@@ -301,13 +365,15 @@ final class ChatStore {
             chat.fail(.noBinary, at: now())
             return finish(id, chat)
         }
-        // No bound listener, no turn: every request it made would be denied
-        // without a card — the silent failure when another Evlat holds the
-        // port.
-        guard let port = permissions?.boundPort else {
+        // No bound listener, no one-way turn: every request it made would be
+        // denied without a card — the silent failure when another Evlat
+        // holds the port. A duplex turn asks on its own channel.
+        let bound = permissions?.boundPort
+        if bound == nil, backend.caps.transport == .oneWay {
             chat.fail(.noListener(permissions?.status.text ?? HookListener.Status.stopped.text), at: now())
             return finish(id, chat)
         }
+        let port = bound ?? 0
         let token = UUID().uuidString
         // A workspace chat remembers in Evlat's one memory folder; a chat in
         // the user's folder keeps that folder's own (the agent's default).
@@ -316,7 +382,7 @@ final class ChatStore {
         if chat.isWorkspace {
             try? FileManager.default.createDirectory(atPath: chat.folder, withIntermediateDirectories: true)
         }
-        streams[id] = backend.parser()
+        streams[id] = backend.parser(for: spec)
         let runner = TurnRunner(
             executable: executable, launch: launch, path: location.path,
             environment: environment,
@@ -337,7 +403,22 @@ final class ChatStore {
         let (events, replies) = stream.feed(data)
         streams[id] = stream
         replies.forEach { runners[id]?.write($0) }
+        if let version = stream.version, let owner = owners[id], versions[owner] != version {
+            versions[owner] = version
+            provider.diagnostics = versionNotes
+        }
         apply(events, to: &chat, id: id)
+    }
+
+    /// A backend whose turn reported another version than its chat was
+    /// checked against: the chats' provider says so (`Provider.diagnostics`),
+    /// beside Settings' warning.
+    private var versionNotes: [String] {
+        lanes.compactMap { lane in
+            guard let measured = lane.backend.measuredVersion, let seen = versions[lane.backend.id],
+                  seen != measured else { return nil }
+            return "chat \(lane.backend.id): version \(seen) answered, checked against \(measured)"
+        }
     }
 
     private func exited(_ id: String, status: Int32, stderr: String) {
@@ -371,9 +452,14 @@ final class ChatStore {
                 continue
             }
             chat.apply(event, at: now())
+            // The agent's own name for the session is kept at once, not at
+            // the turn's end: a turn cut off after it must resume it.
+            if case .started = event { record(chat) }
             // The result is the turn's end: stdin closes and the process
-            // exits by itself (one way: nothing is answered on it after).
-            if case .result = event, backend.caps.transport == .oneWay { runners[id]?.closeInput() }
+            // exits by itself; nothing is answered on it after.
+            if case .result = event, let backend = backend(of: id) {
+                runners[id]?.resultIn(duplex: backend.caps.transport == .duplex)
+            }
         }
         provider[id] = chat
         onChange()
@@ -453,18 +539,24 @@ final class ChatStore {
     func markSeen(_ id: String) {
         guard var chat = provider[id], chat.markSeen() else { return }
         provider[id] = chat
-        if let i = index.entries.firstIndex(where: { $0.id == id }), index.entries[i].unseen != nil {
-            index.entries[i].unseen = nil
-            save()
+        if let owner = owners[id], let i = indexes[owner]?.entries.firstIndex(where: { $0.id == id }),
+           indexes[owner]?.entries[i].unseen != nil {
+            indexes[owner]?.entries[i].unseen = nil
+            save(owner)
         }
         onChange()
     }
 
+    /// Every backend's entries, in the lanes' order.
+    private var entries: [ChatIndex.Entry] {
+        lanes.flatMap { indexes[$0.backend.id]?.entries ?? [] }
+    }
+
     /// The history: chats with no row — neither running nor waiting to be
-    /// seen — pinned first, then the latest first.
+    /// seen — pinned first, then the latest first, whatever their backend.
     var history: [ChatIndex.Entry] {
         let now = now()
-        return index.entries.filter { entry in
+        return entries.filter { entry in
             entry.run == nil && provider[entry.id].map { $0.signal(at: now) == nil && !$0.isRunning } ?? true
         }.sorted(by: ChatIndex.historyOrder)
     }
@@ -475,15 +567,17 @@ final class ChatStore {
     @discardableResult
     func open(_ id: String) -> Bool {
         if provider[id] != nil { return true }
-        guard let entry = index.entries.first(where: { $0.id == id }) else { return false }
-        provider[id] = restored(entry)
+        guard let lane = lane(of: id),
+              let entry = indexes[lane.backend.id]?.entries.first(where: { $0.id == id }) else { return false }
+        provider[id] = restored(entry, on: lane.backend)
         return true
     }
 
     func setPinned(_ id: String, _ pinned: Bool) {
-        guard let i = index.entries.firstIndex(where: { $0.id == id }), index.entries[i].pinned != pinned else { return }
-        index.entries[i].pinned = pinned
-        save()
+        guard let owner = owners[id], let i = indexes[owner]?.entries.firstIndex(where: { $0.id == id }),
+              indexes[owner]?.entries[i].pinned != pinned else { return }
+        indexes[owner]?.entries[i].pinned = pinned
+        save(owner)
         onChange()
     }
 
@@ -491,7 +585,7 @@ final class ChatStore {
     /// while a turn runs.
     func remove(_ id: String) {
         guard provider[id]?.isRunning != true,
-              let entry = index.entries.first(where: { $0.id == id }), entry.run == nil else { return }
+              let entry = entries.first(where: { $0.id == id }), entry.run == nil else { return }
         discard([entry])
     }
 
@@ -502,14 +596,15 @@ final class ChatStore {
 
     /// The week's rule, at launch and whenever the balloon opens.
     func prune() {
-        discard(index.expired(at: now()))
+        discard(lanes.flatMap { indexes[$0.backend.id]?.expired(at: now()) ?? [] })
     }
 
-    /// Entries out of the index and the provider; a workspace's folder to
-    /// the Trash. Nothing while the file could not be read: the entries
-    /// are not known, and neither is what is safe to remove.
+    /// Entries out of their index and the provider; a workspace's folder to
+    /// the Trash. Nothing of a backend whose file could not be read: its
+    /// entries are not known, and neither is what is safe to remove.
     private func discard(_ entries: [ChatIndex.Entry]) {
-        guard indexError == nil, !entries.isEmpty else { return }
+        let entries = entries.filter { owners[$0.id].map { indexErrors[$0] == nil } ?? false }
+        guard !entries.isEmpty else { return }
         let ids = Set(entries.map(\.id))
         for entry in entries where entry.isWorkspace {
             guard let folder = removableWorkspace(entry.id) else { continue }
@@ -517,10 +612,14 @@ final class ChatStore {
                 NSLog("Evlat: chat workspace not moved to the Trash (%@)", error.localizedDescription)
             }
         }
-        index.entries.removeAll { ids.contains($0.id) }
-        for id in ids where provider[id]?.isRunning != true { provider[id] = nil }
+        let touched = Set(ids.compactMap { owners[$0] })
+        for owner in touched { indexes[owner]?.entries.removeAll { ids.contains($0.id) } }
+        for id in ids where provider[id]?.isRunning != true {
+            provider[id] = nil
+            owners[id] = nil
+        }
         for id in ids { walked[id] = nil }
-        save()
+        touched.forEach(save)
         onChange()
     }
 
@@ -571,31 +670,34 @@ final class ChatStore {
 
     // MARK: - Index
 
-    /// An entry read back as a chat, its stored mode among the backend's.
-    private func restored(_ entry: ChatIndex.Entry) -> ChatSession {
-        ChatSession.restored(entry, modes: backend.modes, mode: defaultMode())
+    /// An entry read back as a chat, its stored mode among its backend's.
+    private func restored(_ entry: ChatIndex.Entry, on backend: any ChatBackend) -> ChatSession {
+        ChatSession.restored(entry, modes: backend.modes, mode: defaultMode(backend))
     }
 
-    /// The backend's own file: another backend's is never read or written
-    /// here (`ChatIndex.fileName`).
-    var indexFile: String { backend.indexFile }
+    /// The first backend's own file: another backend's is never read or
+    /// written as it (`ChatIndex.fileName`).
+    var indexFile: String { lanes[0].backend.indexFile }
 
-    private func load() {
+    private func load(_ lane: Lane) {
+        let backend = lane.backend
         guard let root else { return }
-        let file = root.appendingPathComponent(indexFile)
+        let file = root.appendingPathComponent(backend.indexFile)
         guard let data = try? Data(contentsOf: file) else { return }
+        var index: ChatIndex
         do {
             index = try ChatIndex.decode(data)
         } catch {
-            indexError = error as? ChatIndex.DecodeError ?? .unreadable
+            indexErrors[backend.id] = error as? ChatIndex.DecodeError ?? .unreadable
             NSLog("Evlat: %@ left as it is, not readable (%@)", file.path, String(describing: error))
             return
         }
+        for entry in index.entries where owners[entry.id] == nil { owners[entry.id] = backend.id }
         let orphans = index.orphans(platform: platform)
         orphans.terminate.forEach { signal($0, SIGTERM) }
         for i in index.entries.indices where orphans.interrupted.contains(index.entries[i].id) {
             let entry = index.entries[i]
-            var chat = restored(entry)
+            var chat = restored(entry, on: backend)
             chat.fail(.interrupted, at: entry.lastActivity)
             provider[entry.id] = chat
             index.entries[i].run = nil
@@ -604,17 +706,23 @@ final class ChatStore {
         // An end the balloon never showed keeps its row across a relaunch,
         // until its time is up (`ChatSession.unseenLifetime`).
         for entry in index.entries where entry.unseen != nil && provider[entry.id] == nil {
-            provider[entry.id] = restored(entry)
+            provider[entry.id] = restored(entry, on: backend)
         }
-        if !orphans.interrupted.isEmpty { save() }
-        prune()
+        indexes[backend.id] = index
+        if !orphans.interrupted.isEmpty { save(backend.id) }
     }
 
-    /// The chat's entry, created with its first turn, updated after.
+    /// The chat's entry, created with its first turn, updated after — in
+    /// its backend's index.
     private func record(_ chat: ChatSession, run: ChatIndex.Run? = nil) {
+        guard let owner = owners[chat.id] else { return }
         let stamp = now()
+        var index = indexes[owner] ?? ChatIndex(entries: [])
         if let i = index.entries.firstIndex(where: { $0.id == chat.id }) {
             index.entries[i].lastActivity = stamp
+            // The agent's own name for the session, once its first turn
+            // gave one (`ChatSession.sessionID`).
+            index.entries[i].sessionID = chat.sessionID
             index.entries[i].title = chat.title ?? chat.promptLabel ?? index.entries[i].title
             index.entries[i].started = chat.hasStarted
             index.entries[i].run = chat.isRunning ? (run ?? index.entries[i].run) : nil
@@ -628,15 +736,18 @@ final class ChatStore {
                 lastReply: chat.lastReply, run: chat.isRunning ? run : nil, started: chat.hasStarted,
                 unseen: chat.unseenPhase, permissionMode: chat.mode.id))
         }
-        save()
+        indexes[owner] = index
+        save(owner)
     }
 
-    /// Atomic, and never over a file that could not be read.
-    private func save() {
-        guard let root, indexError == nil else { return }
+    /// A backend's file: atomic, and never over one that could not be read.
+    private func save(_ owner: AgentID) {
+        guard let root, indexErrors[owner] == nil,
+              let backend = lanes.first(where: { $0.backend.id == owner })?.backend else { return }
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try index.encoded().write(to: root.appendingPathComponent(indexFile), options: .atomic)
+            try (indexes[owner] ?? ChatIndex(entries: [])).encoded()
+                .write(to: root.appendingPathComponent(backend.indexFile), options: .atomic)
         } catch {
             NSLog("Evlat: chat index not written (%@)", error.localizedDescription)
         }

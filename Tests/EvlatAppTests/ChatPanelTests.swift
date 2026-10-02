@@ -395,7 +395,7 @@ final class ChatPanelTests: XCTestCase {
         defer { close(controller) }
         var asked = 0
         var answer = false
-        controller.confirmBypass = { asked += 1; return answer }
+        controller.confirmBypass = { _ in asked += 1; return answer }
         controller.openChat()
 
         controller.choose(.acceptEdits)
@@ -455,7 +455,7 @@ final class ChatPanelTests: XCTestCase {
             func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch {
                 TurnLaunch(arguments: [], input: [], environment: [:], directory: spec.directory)
             }
-            func parser() -> any ChatParser { ChatStream() }
+            func parser(for spec: TurnSpec) -> any ChatParser { ChatStream() }
             func encode(_ decision: ChatDecision, for request: ChatRequest) -> ChatReply { .line(Data()) }
         }
         let suite = "evlat.tests.modes.\(UUID().uuidString)"

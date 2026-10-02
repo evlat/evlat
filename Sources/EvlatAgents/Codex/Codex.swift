@@ -24,6 +24,9 @@ struct Codex: Agent {
 
     let approvals: (any ApprovalChannel)? = nil
 
+    /// Its app-server, as the chat bubble's second backend.
+    let chat: (any ChatBackend)? = CodexChat()
+
     let display = AgentDisplay(nameKey: "source.codex", outline: Self.outline)
 
     /// Its rate-limit windows, read from its newest rollout file.

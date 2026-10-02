@@ -18,6 +18,10 @@ final class ChatModel: ObservableObject {
     /// The chat backend's program was not found: the balloon says so
     /// instead of offering a line.
     @Published var backendMissing = false
+    /// The chat's agent — or, before the first prompt, the one it will be
+    /// made on: the corner names it, and so do the "not found" line and the
+    /// card. Written by the controller.
+    @Published private(set) var agent: AgentID = Agents.chatBackends[0].id
     /// The line being typed.
     @Published var draft = ""
     /// Counts the balloon's openings; a change takes the field's focus.
@@ -120,10 +124,11 @@ final class ChatModel: ObservableObject {
 
     /// Every key the balloon asks for, but the failures'.
     static let keys = ["chat.placeholder", "chat.placeholder.file", "chat.placeholder.files",
-                       "chat.hint", "chat.missing", "chat.working", "chat.stop",
+                       "chat.hint", "chat.missing", "chat.working", "chat.stop", "chat.agent.help",
                        "chat.permission.title", "chat.permission.tool", "chat.permission.folder",
                        "chat.permission.allow", "chat.permission.deny", "chat.permission.always",
-                       "chat.permission.access", "chat.tool.running", "chat.tool.done", "chat.tool.failed",
+                       "chat.permission.access", "chat.permission.always.command", "chat.permission.reason",
+                       "chat.unsupported", "chat.tool.running", "chat.tool.done", "chat.tool.failed",
                        "chat.file.remove", "chat.folder.workspace", "chat.folder.change", "chat.folder.show",
                        "chat.new", "chat.history", "chat.history.pin", "chat.history.unpin",
                        "chat.history.remove", "chat.history.clear", "chat.files", "chat.file.save",
@@ -168,16 +173,35 @@ final class ChatModel: ObservableObject {
     }
 
     static let outcomeKeys = ["chat.permission.allowed", "chat.permission.allowedAlways",
-                              "chat.permission.denied", "chat.permission.expired"]
+                              "chat.permission.allowedCommand", "chat.permission.denied", "chat.permission.expired"]
 
-    /// An answered card's one line. A switch, like the failures.
-    nonisolated static func outcomeKey(_ outcome: ChatSession.PermissionCard.Outcome) -> String {
+    /// An answered card's one line. A switch, like the failures. "Always"
+    /// says what it kept: the chat's rules, or this command for the session.
+    nonisolated static func outcomeKey(_ outcome: ChatSession.PermissionCard.Outcome,
+                                       always: ChatCapabilities.AlwaysOption = .rules) -> String {
         switch outcome {
         case .allowed: return "chat.permission.allowed"
-        case .allowedAlways: return "chat.permission.allowedAlways"
+        case .allowedAlways:
+            return always == .thisCommand ? "chat.permission.allowedCommand" : "chat.permission.allowedAlways"
         case .denied: return "chat.permission.denied"
         case .expired: return "chat.permission.expired"
         }
+    }
+
+    /// The third button's title: a folder to reach, a rule for the chat, or
+    /// this command again.
+    nonisolated static func alwaysKey(_ card: ChatSession.PermissionCard) -> String {
+        switch card.always {
+        case .thisCommand: return "chat.permission.always.command"
+        case .rules: return card.directories.isEmpty ? "chat.permission.always" : "chat.permission.access"
+        }
+    }
+
+    /// The agent's name, from the catalogue.
+    var agentName: String { L10n.t(agent.agent.display.nameKey) }
+
+    func setAgent(_ id: AgentID) {
+        if agent != id { agent = id }
     }
 
     /// A failure's line. A switch, so a new reason does not compile without one.

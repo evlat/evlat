@@ -3,8 +3,10 @@ import EvlatCore
 
 /// One chat turn's process: stdin a pipe that carries the launch's lines,
 /// stdout read chunk by chunk and handed to the main queue, the tail of
-/// stderr kept for the failure. One way: what it reads is never answered
-/// on stdin, which closes once the turn's result is in.
+/// stderr kept for the failure. One way, nothing is written after the
+/// launch's lines; duplex, the parser's replies and the card's answers
+/// follow them on the same queue, in order. Stdin closes once the turn's
+/// result is in.
 ///
 /// The rules are the core's and the backend's (`TurnLaunch`, `ChatParser`,
 /// `ChatSession`); this is only the process — `SSHProcess`'s pattern.
@@ -117,17 +119,34 @@ final class TurnRunner {
     /// How long Stop waits after SIGINT before SIGTERM.
     static let stopGrace: TimeInterval = 5
 
-    /// Ends the turn the backend's way (`ChatStopPlan`).
-    func stop(_ plan: ChatStopPlan) {
+    /// Ends the turn the backend's way (`ChatStopPlan`). In band, `line` is
+    /// the parser's (`ChatParser.stopLine`); with none yet — the turn has
+    /// not started on the agent's side — there is nothing to interrupt but
+    /// the process.
+    func stop(_ plan: ChatStopPlan, line: Data?) {
         switch plan {
         case .signal: interrupt()
-        case .line(let line):
+        case .inBand:
+            guard let line else { return terminate() }
             // The turn ends itself; one that does not is ended all the same.
             write(line)
-            let process = self.process
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopGrace) {
-                if process.isRunning { process.terminate() }
-            }
+            endLater()
+        }
+    }
+
+    /// The turn's result is in: stdin closes. A duplex server is also
+    /// ended `stopGrace` later if it is still running — whether it exits
+    /// on its own when stdin closes is not measured, and a turn that never
+    /// exits keeps its chat running until Evlat quits.
+    func resultIn(duplex: Bool) {
+        closeInput()
+        if duplex { endLater() }
+    }
+
+    private func endLater() {
+        let process = self.process
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopGrace) {
+            if process.isRunning { process.terminate() }
         }
     }
 
@@ -267,6 +286,30 @@ final class AgentLocator {
         // SIGTERM, and a hung rc file would leave one shell per lookup.
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
         return answered ? markedPath(in: collected.text) : nil
+    }
+
+    /// One login `PATH` for every backend's locator: the shell is asked once
+    /// at a time, and a `PATH` once read is kept — two locators would
+    /// otherwise each start an interactive login shell, and one whose program
+    /// is missing would start another at every lookup. A shell that gave
+    /// none is asked again next time.
+    final class SharedLoginPath {
+        private let lock = NSLock()
+        private var path: String?
+        private let read: () -> String?
+
+        init(read: @escaping () -> String? = { AgentLocator.readLoginPath() }) {
+            self.read = read
+        }
+
+        /// Off the main queue: it may wait for the shell.
+        func value() -> String? {
+            lock.withLock {
+                if let path { return path }
+                path = read()
+                return path
+            }
+        }
     }
 
     /// The login shell's output so far; `append` says when to stop reading.

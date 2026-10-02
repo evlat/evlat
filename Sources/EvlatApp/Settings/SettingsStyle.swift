@@ -50,6 +50,31 @@ enum SettingsPalette {
     static let screenTop = dynamic(0xDFE4EA, 0x2A3440)
     static let screenBottom = dynamic(0xC8D0D9, 0x1A2029)
     static let ghost = dynamic(0x6B7079, 0x9AA3B1)
+    // A tag beside a name: green for what an agent can do, amber for a
+    // caution.
+    static let tagOk = dynamic(0xEEF8F2, 0x17291F)
+    static let tagOkLine = dynamic(0xBFE2CF, 0x2C5A41)
+    static let tagWait = dynamic(0xFBF4E4, 0x2E2414)
+    static let tagWaitLine = dynamic(0xECD7A9, 0x5E4A22)
+}
+
+/// A small tag beside a name (`.tag`): "Available in chat", "experimental".
+struct NameTag: View {
+    let text: String
+    var caution = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(caution ? SettingsPalette.wait : SettingsPalette.ok)
+            .padding(.vertical, 1)
+            .padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: 5).fill(caution ? SettingsPalette.tagWait : SettingsPalette.tagOk))
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(caution ? SettingsPalette.tagWaitLine : SettingsPalette.tagOkLine))
+            .lineLimit(1)
+            .fixedSize()
+    }
 }
 
 /// A group: its small uppercase heading, the rows' box, and an optional
@@ -110,14 +135,19 @@ struct RowTitle: View {
     var detail: String?
     var monospaced = false
     var code = false
+    /// A tag beside the name (`NameTag`).
+    var badge: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(name)
-                .font(code ? .system(size: 12.5, weight: .semibold, design: .monospaced)
-                           : .system(size: 13, weight: .semibold))
-                .foregroundStyle(SettingsPalette.ink)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Text(name)
+                    .font(code ? .system(size: 12.5, weight: .semibold, design: .monospaced)
+                               : .system(size: 13, weight: .semibold))
+                    .foregroundStyle(SettingsPalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let badge { NameTag(text: badge) }
+            }
             if let detail {
                 Text(detail)
                     .font(monospaced ? .system(size: 11.5, design: .monospaced) : .system(size: 11.5))

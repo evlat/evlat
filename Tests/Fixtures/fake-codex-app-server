@@ -1,0 +1,139 @@
+#!/bin/sh
+# A fake `codex app-server` for the chat tests: it speaks the JSON-RPC shapes
+# measured on codex-cli 0.156.1 over stdio and never reaches a model. Tests
+# hand its path to the runner the way `EVLAT_CODEX` does; the real `codex` is
+# never run from a test.
+#
+#   FAKE_CODEX_LOG       file its arguments, EVLAT_TASK, PWD and every stdin line go to
+#   FAKE_CODEX_SCENARIO  ok (default) | permission | stop | unknown | failed | crash
+#   FAKE_CODEX_VERSION   the version its `initialize` reports (default 0.156.1)
+#
+# Like the real one it answers `initialize`, starts or resumes the thread it
+# is asked for, runs one turn, and after `turn/completed` waits for stdin to
+# close before it exits. `permission` asks for a command the way the real one
+# does — a request on stdout — and acts on the decision written back.
+# `unknown` asks for something no client is expected to answer and goes on
+# once it is refused.
+
+# `--evlat-warm`: exit before anything else (FreshExecutable).
+[ "$1" = --evlat-warm ] && exit 0
+
+log="${FAKE_CODEX_LOG:-/dev/null}"
+{
+  echo '--- run'
+  for a in "$@"; do printf '%s\n' "$a"; done
+  printf 'EVLAT_TASK=%s\n' "${EVLAT_TASK:-}"
+  printf 'PWD=%s\n' "$PWD"
+} >> "$log"
+
+version="${FAKE_CODEX_VERSION:-0.156.1}"
+scenario="${FAKE_CODEX_SCENARIO:-ok}"
+thread=""
+turn="turn-1"
+
+emit() { printf '%s\n' "$1"; }
+note() { emit '{"method":"'"$1"'","params":'"$2"'}'; }
+delta() { note item/agentMessage/delta '{"threadId":"'"$thread"'","turnId":"'"$turn"'","itemId":"msg-1","delta":"'"$1"'"}'; }
+reply() { note item/completed '{"threadId":"'"$thread"'","turnId":"'"$turn"'","completedAtMs":1,"item":{"type":"agentMessage","id":"msg-1","text":"'"$1"'","phase":"final_answer"}}'; }
+done_turn() {
+  note account/rateLimits/updated '{"rateLimits":{"limitId":"codex","primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":1}}}'
+  note turn/completed '{"threadId":"'"$thread"'","turn":{"id":"'"$turn"'","items":[],"status":"'"$1"'","error":'"${2:-null}"'}}'
+}
+command_item() {
+  note "$1" '{"threadId":"'"$thread"'","turnId":"'"$turn"'","item":{"type":"commandExecution","id":"exec-1","command":"/bin/zsh -lc '"'"'echo one > a.txt'"'"'","cwd":"'"$PWD"'","status":"'"$2"'","commandActions":[{"type":"unknown","command":"echo one > a.txt"}],"aggregatedOutput":'"$3"',"exitCode":'"$4"'}}'
+}
+
+# What the turn does once it started.
+run_turn() {
+  case "$scenario" in
+  ok)
+    note hook/started '{"threadId":"'"$thread"'","run":{"eventName":"userPromptSubmit"}}'
+    delta o
+    delta k
+    reply ok
+    done_turn completed
+    ;;
+  permission)
+    emit '{"method":"item/commandExecution/requestApproval","id":0,"params":{"kind":"command","threadId":"'"$thread"'","turnId":"'"$turn"'","itemId":"exec-1","startedAtMs":1,"reason":"May I write the requested a.txt file in the current directory?","command":"/bin/zsh -lc '"'"'echo one > a.txt'"'"'","cwd":"'"$PWD"'","commandActions":[{"type":"unknown","command":"echo one > a.txt"}]}}'
+    ;;
+  stop)
+    delta Working
+    ;;
+  unknown)
+    emit '{"method":"item/tool/requestUserInput","id":"q-7","params":{"threadId":"'"$thread"'","turnId":"'"$turn"'","itemId":"i-1","questions":[]}}'
+    ;;
+  failed)
+    done_turn failed '{"message":"boom"}'
+    ;;
+  esac
+}
+
+# The client's answer to the server's own request.
+answered() {
+  case "$scenario" in
+  permission)
+    case "$1" in
+    *'"decision":"accept"'*|*'"decision":"acceptForSession"'*)
+      command_item item/started inProgress null null
+      command_item item/completed completed '"one\n"' 0
+      reply Written.
+      done_turn completed
+      ;;
+    *'"decision":"cancel"'*)
+      done_turn interrupted
+      ;;
+    *)
+      command_item item/started inProgress null null
+      command_item item/completed declined null null
+      reply 'Not allowed.'
+      done_turn completed
+      ;;
+    esac
+    ;;
+  unknown)
+    case "$1" in
+    *'"error"'*)
+      reply 'Went on.'
+      done_turn completed
+      ;;
+    esac
+    ;;
+  esac
+}
+
+while IFS= read -r line; do
+  printf 'stdin=%s\n' "$line" >> "$log"
+  method=$(printf '%s' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  case "$method" in
+  initialize)
+    [ "$scenario" = crash ] && { echo 'fatal: the fake fell over' >&2; exit 3; }
+    note remoteControl/status/changed '{"status":"disabled"}'
+    emit '{"id":'"$id"',"result":{"userAgent":"evlat/'"$version"' (Mac OS 26.4.1; arm64)","codexHome":"/tmp/codex","platformFamily":"unix","platformOs":"macos"}}'
+    ;;
+  initialized)
+    ;;
+  thread/start)
+    thread="thr-new"
+    note thread/started '{"thread":{"id":"'"$thread"'"}}'
+    emit '{"id":'"$id"',"result":{"thread":{"id":"'"$thread"'"},"approvalPolicy":"on-request","sandbox":{"type":"workspaceWrite"}}}'
+    ;;
+  thread/resume)
+    thread=$(printf '%s' "$line" | sed -n 's/.*"threadId":"\([^"]*\)".*/\1/p')
+    emit '{"id":'"$id"',"result":{"thread":{"id":"'"$thread"'"},"approvalPolicy":"on-request","sandbox":{"type":"workspaceWrite"}}}'
+    ;;
+  turn/start)
+    emit '{"id":'"$id"',"result":{"turn":{"id":"'"$turn"'","items":[],"status":"inProgress"}}}'
+    note turn/started '{"threadId":"'"$thread"'","turn":{"id":"'"$turn"'","status":"inProgress"}}'
+    run_turn
+    ;;
+  turn/interrupt)
+    emit '{"id":'"$id"',"result":{}}'
+    done_turn interrupted
+    ;;
+  "")
+    answered "$line"
+    ;;
+  esac
+done
+exit 0
