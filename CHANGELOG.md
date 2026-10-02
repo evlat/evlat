@@ -8,6 +8,30 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.2.0
+
+- **One card per agent.** Settings → Agents shows Claude Code, Codex and
+  Antigravity as cards. Each card installs everything that agent needs
+  (its hooks and its usage line) with a single **Install**. A switch turns
+  an agent off: its sessions and usage leave the bar, and Evlat offers to
+  remove its parts from the agent's files. Setup asks which agents you
+  use.
+- **If you installed only the hooks before,** the Claude Code card reads
+  **Needs update**. One press adds the usage line, which wraps your own
+  status line command; what it prints stays the same. A status line you
+  edited by hand is left as it is.
+- **Remote machines get the same cards.** Each server shows one card per
+  agent, installed and switched on or off for that server alone.
+  Antigravity's hooks now really install on a server.
+- **Chat with Codex.** Settings → Chat picks the agent the chat bubble
+  talks to, with that agent's own modes. Codex asks on a card before it
+  runs a command, and the card can **Always allow this command**. Codex
+  marks its chat protocol as experimental, so Settings warns when your
+  Codex version differs from the one Evlat was tested with.
+- **Usage has its own page:** Settings → Usage.
+- **Settings opens in front** of the app you were using and takes the
+  keyboard. While it is open, Evlat shows an icon in the Dock.
+
 ## 0.1.9
 
 - **Choose the screen the bar sits on** (Settings → General → Screen, or
