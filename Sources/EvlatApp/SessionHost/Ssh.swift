@@ -13,7 +13,15 @@ import EvlatCore
 /// so its end is theirs — DNS, NAT and `ProxyJump` included. No tunnel, no
 /// candidate.
 ///
-/// Then, in order:
+/// First of all, a tab link the terminal forwarded over `ssh` and the server
+/// read (`Connection.forwarded`, `TabLink.forwarded`): it names the tab
+/// outright, so no candidate is matched. On this Mac the `ssh` that carried
+/// it is Apple's, whose environment no other process can read; the server's
+/// copy of it can be. Checked by its terminal's rule, and taken only while
+/// that terminal runs. Its ids are UUIDs: a value forwarded from another
+/// computer's tab (a tmux session last used there) names no tab of this
+/// Mac, so it cannot select a wrong one; the terminal comes forward.
+/// Otherwise, in order:
 ///  1. the candidate whose local port is the server's client port (no NAT);
 ///  2. the only candidate, unless its start is past `apart` from the
 ///     connection's — then it is another connection;
@@ -125,7 +133,9 @@ extension SessionHost {
     /// no pane: it is right to bring forward, and nothing more is known.
     static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?, evlat: Int32,
                         _ probe: Probe) -> SessionHost {
-        guard case .connection(let connection) = reply, let tunnel else { return .notFound }
+        guard case .connection(let connection) = reply else { return .notFound }
+        if let forwarded = forwardedTab(connection.forwarded, probe) { return forwarded }
+        guard let tunnel else { return .notFound }
         let candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, probe)
         switch Ssh.choose(candidates, for: connection, startedAt: probe.startedAt) {
         case .one(let pid):
@@ -137,6 +147,22 @@ extension SessionHost {
         case .none:
             return .notFound
         }
+    }
+
+    /// The first forwarded value, in the server's order, that its terminal's
+    /// rule takes for a tab, in a terminal that is running: that app with
+    /// that tab. `nil` when none is.
+    static func forwardedTab(_ forwarded: [String], _ probe: Probe) -> SessionHost? {
+        for line in forwarded {
+            guard let name = line.split(separator: "=", maxSplits: 1).first else { continue }
+            for bundleID in TabLink.owners(ofForwarded: String(name)) {
+                guard let tab = TabLink.url(bundleID: bundleID, environment: forwarded, forwarded: true),
+                      var app = probe.running(bundleID) else { continue }
+                app.tab = tab
+                return .app(app)
+            }
+        }
+        return nil
     }
 
     /// The one app every pid's walk reaches, with no tab and no pane; else

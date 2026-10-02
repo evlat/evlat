@@ -421,7 +421,15 @@ is lost with the process.
   server's ends from `/proc/net/unix` and its `fd` links, their peers from
   `ss -x`). No client attached is said as `none`, which is no button; a
   pane it cannot ask says nothing, and never falls back to the pane's own,
-  stale `SSH_CONNECTION`. On this Mac the candidates are the
+  stale `SSH_CONNECTION`. A terminal that also hands its tab link in an
+  `LC_*` variable, which `ssh`'s default `SendEnv`/`AcceptEnv LANG LC_*`
+  carries, lists the name in its `TabLink` entry (`forwarded`; Bateri's
+  `LC_BATERI_TAB_URL`): the script gets the table's names as checked
+  arguments (`LC_[A-Z0-9_]{1,64}`, 16 at most) and knows no terminal, and
+  prints the ones the same process has (a value past 512 bytes is cut and
+  refused, never taken for whole). On this
+  Mac a value its terminal's rule takes, in a terminal that runs, is the
+  tab outright, before any candidate. Otherwise the candidates are the
   user's `ssh` processes connected to the same end as Evlat's own tunnel
   `ssh` (`Ssh`, `PROC_PIDFDSOCKETINFO`): the exact client port, else the
   only one (unless its start is > 10 s off), else the start nearest the
@@ -812,6 +820,13 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **Codex's `rollout-*.jsonl` is undocumented and grows** (62 MB seen). Read
   the last 256 KB. `codex-usage` is derived: if the format breaks it goes
   quiet and keeps the last good reading; it never falls back to an older file.
+- **An Apple-signed program's environment cannot be read by another
+  process** (macOS 26.4.1): `KERN_PROCARGS2` of `/usr/bin/ssh`, `/bin/zsh`
+  or `login` gives only the name (40 bytes); `ps -E` showed no variable for
+  Evlat's own tunnel `ssh` and for other tabs' `zsh`, while Evlat's own
+  environment read whole. So a Bateri tab's `ssh` names no tab and a
+  remote row's button brought Bateri forward with no tab; the server's
+  copy of an `LC_*` variable is what can say it (`TabLink.forwarded`).
 - **`proc_pidpath` returns empty for an old process of a self-updated app**
   (`ENOENT`). The launch path is in the argument area (`KERN_PROCARGS2`). Being
   inside a `.app` does not make a path a terminal — `claude` itself runs from

@@ -41,7 +41,10 @@ final class RemoteHostLookup {
     static func ask(sessionID: String, records: SessionRecords, target: String, controlPath: String,
                     ssh: String, deadline: TimeInterval = deadline) -> RemoteHost.Reply? {
         let nonce = UUID().uuidString
-        guard let script = RemoteHost.script(sessionID: sessionID, records: records, nonce: nonce),
+        // The terminals' forwarded names are the table's (`TabLink`); the
+        // script itself knows none.
+        guard let script = RemoteHost.script(sessionID: sessionID, records: records, nonce: nonce,
+                                             forwarded: TabLink.forwardedNames),
               let answer = try? RemoteInstaller.run(ssh, RemoteHost.arguments(target: target, controlPath: controlPath),
                                                     script: script, deadline: deadline) else { return nil }
         return RemoteHost.reply(exitCode: answer.status, output: answer.output, nonce: nonce, arrivedAt: Date())

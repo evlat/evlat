@@ -31,27 +31,43 @@ import Foundation
 ///
 /// Terminal and Ghostty publish nothing an app can open: choosing their tab
 /// takes Apple Events, a permission, so they are only brought forward.
+///
+/// An app may also hand the same values in `LC_*` variables (`forwarded`):
+/// `ssh`'s default `SendEnv LANG LC_*` and the servers' `AcceptEnv LANG LC_*`
+/// carry them to a remote session, where the server reads them
+/// (`RemoteHost`) — on this Mac the `ssh` that carried them is Apple's, whose
+/// environment no other process can read. The value is checked by the same
+/// rule as on this Mac. The table is the only place a terminal is named:
+/// the server's script gets the names as arguments, and `Ssh` asks here
+/// whose a name is.
 struct TabLink {
     /// Read in this order; every one must be there.
     let variables: [String]
+    /// The same values under the names they cross `ssh` with, in the same
+    /// order; empty when the app forwards none.
+    let forwarded: [String]
     /// The link, from the variables' values; `nil` when they are not one.
     let link: ([Substring]) -> URL?
 
-    init(variable: String, link: @escaping (Substring) -> URL?) {
+    init(variable: String, forwarded: String? = nil, link: @escaping (Substring) -> URL?) {
         variables = [variable]
+        self.forwarded = forwarded.map { [$0] } ?? []
         self.link = { values in values.first.flatMap(link) }
     }
 
-    init(variables: [String], link: @escaping ([Substring]) -> URL?) {
+    init(variables: [String], forwarded: [String] = [], link: @escaping ([Substring]) -> URL?) {
         self.variables = variables
+        self.forwarded = forwarded
         self.link = link
     }
 
     static let known: [String: TabLink] = [
         // Bateri ships as `dev.bateri.bateri` (seen installed); the older
         // id stays for copies built before the change.
-        "dev.bateri.bateri": ready(variable: "BATERI_TAB_URL", prefix: "bateri://tab/"),
-        "io.github.bateri.bateri": ready(variable: "BATERI_TAB_URL", prefix: "bateri://tab/"),
+        "dev.bateri.bateri": ready(variable: "BATERI_TAB_URL", forwarded: "LC_BATERI_TAB_URL",
+                                   prefix: "bateri://tab/"),
+        "io.github.bateri.bateri": ready(variable: "BATERI_TAB_URL", forwarded: "LC_BATERI_TAB_URL",
+                                         prefix: "bateri://tab/"),
         "dev.metalterm.Metalterm": ready(variable: "METALTERM_TAB_URL", prefix: "metalterm://tab/"),
         "dev.warp.Warp-Stable": ready(variable: "WARP_FOCUS_URL", prefix: "warp://session/"),
         "com.googlecode.iterm2": TabLink(variable: "ITERM_SESSION_ID") { value in
@@ -74,8 +90,8 @@ struct TabLink {
     ]
 
     /// A variable that holds the link itself: `<prefix><hex id>`.
-    private static func ready(variable: String, prefix: String) -> TabLink {
-        TabLink(variable: variable) { value in
+    private static func ready(variable: String, forwarded: String? = nil, prefix: String) -> TabLink {
+        TabLink(variable: variable, forwarded: forwarded) { value in
             guard value.hasPrefix(prefix), isID(value.dropFirst(prefix.count), alphanumeric: false) else {
                 return nil
             }
@@ -97,13 +113,29 @@ struct TabLink {
     /// The tab's link for that app, from the agent's environment; `nil` for
     /// another app, a missing variable or a value that is not one. The first
     /// occurrence counts, as `getenv` reads it.
-    static func url(bundleID: String, environment: [String]) -> URL? {
+    /// With `forwarded`, the values are read under the names they cross
+    /// `ssh` with (`NAME=value` lines from the server, `RemoteHost`).
+    static func url(bundleID: String, environment: [String], forwarded: Bool = false) -> URL? {
         guard let entry = of(bundleID) else { return nil }
+        let names = forwarded ? entry.forwarded : entry.variables
+        guard !names.isEmpty else { return nil }
         var values: [Substring] = []
-        for variable in entry.variables {
+        for variable in names {
             guard let value = SessionHost.value(variable, in: environment) else { return nil }
             values.append(Substring(value))
         }
         return entry.link(values)
+    }
+
+    /// Every name a value crosses `ssh` with, sorted: what the server's
+    /// script is asked to read.
+    static var forwardedNames: [String] {
+        Set(known.values.flatMap(\.forwarded)).sorted()
+    }
+
+    /// The apps that forward a value under `name`, sorted: one app can ship
+    /// under more than one bundle id.
+    static func owners(ofForwarded name: String) -> [String] {
+        known.filter { $0.value.forwarded.contains(name) }.map(\.key).sorted()
     }
 }

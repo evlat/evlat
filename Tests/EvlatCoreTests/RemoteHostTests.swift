@@ -105,6 +105,49 @@ final class RemoteHostTests: XCTestCase {
         XCTAssertEqual(connection.startedAt.timeIntervalSince1970, 100.5, accuracy: 0.001)
     }
 
+    /// A forwarded variable rides beside the connection; one whose line
+    /// does not parse is left out and the connection stands.
+    func testForwardedVariablesAreReadBesideTheConnection() throws {
+        let at = Date(timeIntervalSince1970: 0)
+        let long = String(repeating: "x", count: RemoteHost.maxForwardedValue + 1)
+        let text = """
+            n env LC_A_TAB a://tab/1 two words
+            n env lc_bad x
+            n env LC_EMPTY\u{20}
+            n env LC_LONG \(long)
+            n env LC_CTRL a\u{1}b
+            n env LC_B 2
+            n ssh 1 22 100 50 1.5
+
+            """
+        let reply = RemoteHost.reply(exitCode: 0, output: Data(text.utf8), nonce: "n", arrivedAt: at)
+        guard case .connection(let connection) = reply else { return XCTFail("\(String(describing: reply))") }
+        XCTAssertEqual(connection.forwarded, ["LC_A_TAB=a://tab/1 two words", "LC_B=2"])
+        XCTAssertEqual(RemoteHost.reply(exitCode: 0, output: Data("n env LC_A 1\nn none\n".utf8), nonce: "n",
+                                        arrivedAt: at), .noConnection)
+        XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n env LC_A 1\n".utf8), nonce: "n", arrivedAt: at),
+                     "a value alone is no connection")
+        XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n ssh 1 22 1 1 1\nn none\n".utf8), nonce: "n",
+                                      arrivedAt: at), "two answers are none")
+    }
+
+    /// Only an `LC_` word reaches the script, and only so many.
+    func testOnlyForwardedNamesReachTheScript() throws {
+        let bad = ["LANG", "PATH", "LC_", "lc_tab", "LC_tab", "LC_A;rm -rf ~", "LC_A B", "LC_A'", "LC_$(id)",
+                   "LC_" + String(repeating: "A", count: 65), "XLC_A"]
+        for name in bad { XCTAssertFalse(RemoteHost.isForwardedName(name), name) }
+        for name in ["LC_A", "LC_BATERI_TAB_URL", "LC_9_", "LC_" + String(repeating: "A", count: 64)] {
+            XCTAssertTrue(RemoteHost.isForwardedName(name), name)
+        }
+        let many = (0..<20).map { "LC_N\($0)" }
+        let script = try XCTUnwrap(RemoteHost.script(sessionID: Self.session, records: Self.records, nonce: "n",
+                                                     forwarded: bad + many))
+        let line = try XCTUnwrap(script.split(separator: "\n").first { $0.hasPrefix("fw=") })
+        XCTAssertEqual(String(line), "fw='\(many.prefix(RemoteHost.maxForwarded).joined(separator: " "))'")
+        let none = try XCTUnwrap(RemoteHost.script(sessionID: Self.session, records: Self.records, nonce: "n"))
+        XCTAssertTrue(none.contains("fw=''\n"))
+    }
+
     // MARK: - The script, in three shells
 
     /// The measured chain: the agent under a shell under the connection's
@@ -205,6 +248,25 @@ final class RemoteHostTests: XCTestCase {
 
     /// Nothing is written: the tree and the home are byte for byte the same
     /// after a run.
+    /// The agent's forwarded values are said before its connection, in the
+    /// order asked; a name it lacks is not; a long value is cut past what
+    /// the Mac takes, a spaced one kept whole.
+    func testTheAgentsForwardedValuesAreSaid() throws {
+        let long = String(repeating: "y", count: 600)
+        try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 12345),
+                         (700, "bash", 600, 12350), (800, "claude", 700, 12400)],
+                 agent: 800, environment: ["LC_TAB=t://tab/1", "LC_SPACED=a b", "LANG=C.UTF-8", "LC_LONG=\(long)",
+                                           "SSH_CONNECTION=31.223.75.17 19554 116.202.9.44 22"])
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell, forwarded: ["LC_SPACED", "LC_ABSENT", "LC_TAB", "LC_LONG", "LANG"]), """
+                n env LC_SPACED a b
+                n env LC_TAB t://tab/1
+                n env LC_LONG \(long.prefix(RemoteHost.maxForwardedValue + 1))
+                n ssh 19554 22 1000 12345 2000.25
+                """, shell)
+        }
+    }
+
     func testTheScriptWritesNothing() throws {
         try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5), (800, "claude", 600, 7)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
@@ -302,6 +364,24 @@ final class RemoteHostTests: XCTestCase {
         XCTAssertEqual(try run("/bin/sh"), "", "no `herdr server` above the agent")
     }
 
+    /// In a pane the values are the attached client's: the pane's own are
+    /// the first client's, which may be another tab.
+    func testAPanesForwardedValuesAreItsClients() throws {
+        try muxTree(tmuxOutput: "$0\n602 100 $0\n612 200 $0\n",
+                    agentEnvironment: Self.tmuxPane + ["LC_TAB=t://tab/stale"])
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]), "n env LC_TAB t://tab/612\nn ssh 2222 22 1000 610 2000.25",
+                           shell)
+        }
+        try herdrTree()
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]), "n env LC_TAB t://tab/612\nn ssh 2222 22 1000 610 2000.25",
+                           shell)
+        }
+        try muxTree(tmuxOutput: "$0\n", agentEnvironment: Self.tmuxPane + ["LC_TAB=t://tab/stale"])
+        XCTAssertEqual(try run("/bin/sh", forwarded: ["LC_TAB"]), "n none", "no client, no value")
+    }
+
     func testAPaneWritesNothing() throws {
         try muxTree(tmuxOutput: "$0\n612 200 $0\n")
         var before = try listing()
@@ -327,7 +407,7 @@ final class RemoteHostTests: XCTestCase {
          Proc(600, "sshd", 500, 600), Proc(601, "bash", 600, 601),
          Proc(602, client, 601, 5000, environment: ["SSH_CONNECTION=1.1.1.1 1111 2.2.2.2 22"]),
          Proc(610, "sshd", 500, 610), Proc(611, "bash", 610, 611),
-         Proc(612, client, 611, 6000, environment: ["SSH_CONNECTION=1.1.1.1 2222 2.2.2.2 22"]),
+         Proc(612, client, 611, 6000, environment: ["SSH_CONNECTION=1.1.1.1 2222 2.2.2.2 22", "LC_TAB=t://tab/612"]),
          Proc(621, "login", 1, 620),
          Proc(622, client, 621, 7000, environment: ["TERM=linux"]),
          Proc(632, client, 1, 8000, tty: 0, environment: ["SSH_CONNECTION=1.1.1.1 3333 2.2.2.2 22"])]
@@ -516,9 +596,9 @@ final class RemoteHostTests: XCTestCase {
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: date.path)
     }
 
-    private func run(_ shell: String) throws -> String {
+    private func run(_ shell: String, forwarded: [String] = []) throws -> String {
         let script = try XCTUnwrap(RemoteHost.script(sessionID: Self.session, records: Self.records, nonce: "n",
-                                                     proc: proc.path))
+                                                     forwarded: forwarded, proc: proc.path))
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
         process.arguments = ["-s"]

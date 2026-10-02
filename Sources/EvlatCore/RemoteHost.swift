@@ -35,12 +35,19 @@ public enum RemoteHost {
         /// the script's own time against the moment its answer arrived.
         /// `nil` when the server printed no usable time.
         public let offset: TimeInterval?
+        /// The forwarded variables (`script`'s `forwarded`) the connection's
+        /// process has, as `NAME=value` lines in the order asked. Not
+        /// checked here beyond their shape: what a value may be is the
+        /// shell's rule.
+        public let forwarded: [String]
 
-        public init(clientPort: Int, serverPort: Int, startedAt: Date, offset: TimeInterval?) {
+        public init(clientPort: Int, serverPort: Int, startedAt: Date, offset: TimeInterval?,
+                    forwarded: [String] = []) {
             self.clientPort = clientPort
             self.serverPort = serverPort
             self.startedAt = startedAt
             self.offset = offset
+            self.forwarded = forwarded
         }
 
         /// The connection's start on this Mac's clock; `nil` without an
@@ -66,6 +73,22 @@ public enum RemoteHost {
         guard entity.hasPrefix(prefix) else { return nil }
         let id = String(entity.dropFirst(prefix.count))
         return isSessionID(id) ? id : nil
+    }
+
+    // MARK: - Forwarded variables
+
+    /// The most names one script reads.
+    public static let maxForwarded = 16
+    /// The longest value the script prints and the Mac reads, in bytes.
+    public static let maxForwardedValue = 512
+
+    /// Whether `name` may be read on the server: an `LC_` name, the only
+    /// kind `ssh` carries by default (`SendEnv`/`AcceptEnv LANG LC_*`), and
+    /// nothing a shell or a `sed` pattern could take for more than a word.
+    public static func isForwardedName(_ name: String) -> Bool {
+        let tail = name.utf8.dropFirst(3)
+        return name.hasPrefix("LC_") && (1...64).contains(tail.count)
+            && tail.allSatisfy { (0x41...0x5A).contains($0) || (0x30...0x39).contains($0) || $0 == 0x5F }
     }
 
     // MARK: - The call
@@ -111,12 +134,23 @@ public enum RemoteHost {
     /// Not Linux (no `<proc>/self`), no record, no live process, a pane whose
     /// values do not check out or whose server cannot be asked: nothing.
     /// Every process the script runs only reads: `tmux` lists, `ss` lists.
+    ///
+    /// Before the connection's line, each of `forwarded` that process has is
+    /// printed, its value cut one byte past `maxForwardedValue` — so a cut
+    /// one is refused by `reply`, never taken for whole — and otherwise
+    /// untouched.
+    /// It is the same process whose `SSH_CONNECTION` is read, so a pane's
+    /// stale values never are. A name that is not `isForwardedName` never
+    /// reaches the script; past `maxForwarded`, neither does the rest. The
+    /// names are the caller's: this script knows no terminal.
     public static func script(sessionID: String, records: SessionRecords, nonce: String,
-                              proc: String = "/proc") -> String? {
+                              forwarded: [String] = [], proc: String = "/proc") -> String? {
         guard isSessionID(sessionID) else { return nil }
         let q = RemoteSettings.quoted
+        let names = forwarded.filter(isForwardedName).prefix(maxForwarded).joined(separator: " ")
         return #"""
         n=\#(q(nonce))
+        fw=\#(q(names))
         r=\#(q(proc))
         d="$HOME"/\#(q(records.directory))
         id=\#(q(sessionID))
@@ -192,6 +226,10 @@ public enum RemoteHost {
                   set -- $(val SSH_CONNECTION)
                   set +f
                   [ $# -eq 4 ] || exit 0
+                  for fn in $fw; do
+                    fv=$(val "$fn")
+                    [ -z "$fv" ] || printf '%s env %s %.\#(maxForwardedValue + 1)s\n' "$n" "$fn" "$fv"
+                  done
                   printf '%s ssh %s %s %s %s %s\n' "$n" "$2" "$4" "$b" "$t" "$(date +%s.%N)"
                   exit 0
                 fi
@@ -305,15 +343,30 @@ public enum RemoteHost {
     /// which is 100 everywhere it is exposed.
     static let ticksPerSecond = 100.0
 
-    /// The script's line behind whatever a login script printed first;
+    /// The script's lines behind whatever a login script printed first;
     /// `nil` for no line, a failed call, or a line that does not parse —
     /// all of them "not known", never a guess. `arrivedAt` is when the
-    /// answer reached this Mac: the clock offset is read against it.
+    /// answer reached this Mac: the clock offset is read against it. A
+    /// forwarded variable whose line does not parse is left out; the
+    /// connection stands without it.
     public static func reply(exitCode: Int32, output: Data, nonce: String, arrivedAt: Date) -> Reply? {
         guard exitCode == 0 else { return nil }
         let text = String(decoding: output, as: UTF8.self)
-        guard let line = text.split(separator: "\n", omittingEmptySubsequences: true)
-            .first(where: { $0.hasPrefix(nonce + " ") }) else { return nil }
+        var forwarded: [String] = []
+        var said: [Substring] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix(nonce + " ") {
+            let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false)
+            if parts.count >= 2, parts[1] == "env" {
+                if parts.count == 4, isForwardedName(String(parts[2])), !parts[3].isEmpty,
+                   parts[3].utf8.count <= maxForwardedValue,
+                   !parts[3].unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
+                    forwarded.append("\(parts[2])=\(parts[3])")
+                }
+                continue
+            }
+            said.append(line)
+        }
+        guard said.count == 1, let line = said.first else { return nil }
         let words = line.split(separator: " ").map(String.init)
         if words == [nonce, "none"] { return .noConnection }
         guard words.count == 7, words[1] == "ssh",
@@ -324,6 +377,7 @@ public enum RemoteHost {
         let started = Date(timeIntervalSince1970: Double(boot) + Double(ticks) / ticksPerSecond)
         // `date` without `%N` (busybox, BSD) prints a letter there: no offset.
         let offset = Double(words[6]).flatMap { $0.isFinite ? $0 : nil }.map { $0 - arrivedAt.timeIntervalSince1970 }
-        return .connection(Connection(clientPort: client, serverPort: server, startedAt: started, offset: offset))
+        return .connection(Connection(clientPort: client, serverPort: server, startedAt: started, offset: offset,
+                                      forwarded: forwarded))
     }
 }

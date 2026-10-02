@@ -39,18 +39,19 @@ extension SessionHostTests {
     }
 
     func connection(port: Int = 19554, start: TimeInterval = SessionHostTests.tabStart + 0.11,
-                    offset: TimeInterval? = 0.24) -> RemoteHost.Reply {
+                    offset: TimeInterval? = 0.24, forwarded: [String] = []) -> RemoteHost.Reply {
         // The server's clock runs `offset` ahead: its start reads that much later.
         .connection(RemoteHost.Connection(clientPort: port, serverPort: 22,
                                           startedAt: Date(timeIntervalSince1970: start + (offset ?? 0)),
-                                          offset: offset))
+                                          offset: offset, forwarded: forwarded))
     }
 
     func remote(_ reply: RemoteHost.Reply, table: [Int32: Proc]? = nil,
                 sockets: [Int32: [SessionHost.TCPSocket]]? = nil, started: [Int32: TimeInterval] = [:],
-                environment: [Int32: [String]]? = nil, tunnel: Int32? = SessionHostTests.tunnel) -> SessionHost {
+                environment: [Int32: [String]]? = nil, running: [String: SessionHost.App] = [:],
+                tunnel: Int32? = SessionHostTests.tunnel) -> SessionHost {
         SessionHost.resolve(remote: reply, tunnel: tunnel, evlat: Self.evlat,
-                            probe(table ?? sshInBateri,
+                            probe(table ?? sshInBateri, running: running,
                                   environment: environment ?? [1001: Self.bateriTab(Self.olderTab),
                                                                1101: Self.bateriTab(Self.newerTab)],
                                   started: started, tcp: sockets ?? sshSockets))
@@ -181,5 +182,64 @@ extension SessionHostTests {
         sockets[51] = []
         XCTAssertEqual(remote(connection(), sockets: sockets), .notFound)
         XCTAssertEqual(remote(.noConnection), .notFound)
+    }
+
+    // MARK: - A tab link forwarded over ssh
+
+    static func forwardedTab(_ id: String) -> String { "LC_BATERI_TAB_URL=bateri://tab/\(id)" }
+
+    /// The table names who forwards what; the core checks only the shape of
+    /// a name, so every name in the table must pass it, and each entry's
+    /// names stand for its variables one for one.
+    func testTheForwardedNamesAreTheTablesAndPassTheCore() {
+        XCTAssertEqual(TabLink.forwardedNames, ["LC_BATERI_TAB_URL"])
+        XCTAssertEqual(TabLink.owners(ofForwarded: "LC_BATERI_TAB_URL"), ["dev.bateri.bateri", "io.github.bateri.bateri"])
+        XCTAssertEqual(TabLink.owners(ofForwarded: "BATERI_TAB_URL"), [])
+        for (bundleID, entry) in TabLink.known {
+            XCTAssertTrue(entry.forwarded.isEmpty || entry.forwarded.count == entry.variables.count, bundleID)
+            for name in entry.forwarded { XCTAssertTrue(RemoteHost.isForwardedName(name), "\(bundleID) \(name)") }
+        }
+        XCTAssertLessThanOrEqual(TabLink.forwardedNames.count, RemoteHost.maxForwarded)
+    }
+
+    /// The forwarded value is checked by the same rule, under its own name.
+    func testAForwardedValueIsCheckedByItsTerminalsRule() {
+        XCTAssertEqual(TabLink.url(bundleID: "dev.bateri.bateri", environment: [Self.forwardedTab(Self.olderTab)],
+                                   forwarded: true)?.absoluteString, "bateri://tab/\(Self.olderTab)")
+        XCTAssertNil(TabLink.url(bundleID: "dev.bateri.bateri", environment: Self.bateriTab(Self.olderTab),
+                                 forwarded: true), "the local name is not the forwarded one")
+        XCTAssertNil(TabLink.url(bundleID: "dev.bateri.bateri", environment: ["LC_BATERI_TAB_URL=bateri://tab/x/../y"],
+                                 forwarded: true))
+        XCTAssertNil(TabLink.url(bundleID: "dev.metalterm.Metalterm", environment: [Self.forwardedTab(Self.olderTab)],
+                                 forwarded: true), "an app that forwards nothing")
+    }
+
+    /// A forwarded tab names it outright: no candidate is needed, none is
+    /// matched — not even when two are too close to tell apart.
+    func testAForwardedTabComesBeforeTheCandidates() {
+        let reply = connection(forwarded: ["LC_OTHER=1", Self.forwardedTab(Self.newerTab)])
+        let running = ["dev.bateri.bateri": bateri]
+        XCTAssertEqual(tab(of: remote(reply, running: running, tunnel: nil)), "bateri://tab/\(Self.newerTab)",
+                       "no tunnel, no candidate")
+        let started: [Int32: TimeInterval] = [1001: Self.tabStart, 1101: Self.tabStart + 5]
+        XCTAssertEqual(tab(of: remote(reply, table: twoTabs, sockets: twoTabSockets, started: started,
+                                      running: running)), "bateri://tab/\(Self.newerTab)")
+        XCTAssertEqual(remote(reply, table: twoTabs, sockets: twoTabSockets, started: started), .app(bateri),
+                       "Bateri not running: today's order, which brings the app only")
+    }
+
+    /// A value that is not a tab, or none at all: today's order.
+    func testABadForwardedValueLeavesTodaysOrder() {
+        let started: [Int32: TimeInterval] = [1001: Self.tabStart, 1101: Self.tabStart + 5]
+        let running = ["dev.bateri.bateri": bateri]
+        for value in ["LC_BATERI_TAB_URL=bateri://tab/restart", "LC_BATERI_TAB_URL=metalterm://tab/1",
+                      "LC_OTHER=bateri://tab/\(Self.newerTab)"] {
+            XCTAssertEqual(remote(connection(forwarded: [value]), table: twoTabs, sockets: twoTabSockets,
+                                  started: started, running: running), .app(bateri), value)
+        }
+        XCTAssertEqual(tab(of: remote(connection(port: 63200, start: 0, forwarded: ["LC_BATERI_TAB_URL=x"]),
+                                      table: twoTabs, sockets: twoTabSockets, running: running)),
+                       "bateri://tab/\(Self.newerTab)", "the port still decides")
+        XCTAssertEqual(remote(.noConnection, running: running), .notFound)
     }
 }

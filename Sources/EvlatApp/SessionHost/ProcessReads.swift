@@ -54,6 +54,11 @@ extension SessionHost {
     /// The environment the process was `exec`'d with (`KERN_PROCARGS2`, the
     /// same area as `launchPath`): what the agent inherited from its
     /// terminal, not what it set since — which is what a tab link is.
+    /// Empty for a process whose area is not readable: on macOS 26.4.1 an
+    /// Apple-signed program (`/usr/bin/ssh`, `/bin/zsh`, `login`) gives
+    /// another process its name and no environment (40 bytes), so a tab's
+    /// `ssh` names no tab and the walk brings the app only. A remote
+    /// session's tab comes from the server's copy instead (`TabLink.forwarded`).
     static func environment(_ pid: Int32) -> [String] {
         procArgs(pid).map(environment(procArgs:)) ?? []
     }
