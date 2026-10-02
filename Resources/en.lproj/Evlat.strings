@@ -484,6 +484,11 @@
 "character.cube" = "Cube";
 "character.fairy" = "Fairy";
 "character.portrait" = "Custom";
+"settings.mascot.packs.import" = "Import Look…";
+"settings.mascot.packs.export" = "Export Custom…";
+"settings.mascot.packs.folder" = "Show Folder";
+"settings.mascot.packs.error" = "That is not a look Evlat can use.";
+"settings.mascot.packs.error.export" = "The look could not be exported.";
 "settings.mascot.cubeTint" = "Status colors";
 "settings.mascot.cubeTint.detail" = "The cube blends what your sessions are doing: yellow needs you, red failed, green done, blue working.";
 "settings.mascot.custom" = "Custom look";

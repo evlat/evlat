@@ -417,6 +417,11 @@
 "character.cube" = "큐브";
 "character.fairy" = "요정";
 "character.portrait" = "사용자 지정";
+"settings.mascot.packs.import" = "모습 가져오기…";
+"settings.mascot.packs.export" = "사용자 지정 내보내기…";
+"settings.mascot.packs.folder" = "폴더 보기";
+"settings.mascot.packs.error" = "Evlat에서 쓸 수 있는 모습이 아닙니다.";
+"settings.mascot.packs.error.export" = "모습을 내보낼 수 없습니다.";
 "settings.mascot.cubeTint" = "상태 색상";
 "settings.mascot.cubeTint.detail" = "큐브가 세션들의 상태를 섞어 보여 줍니다: 노랑은 대기 중, 빨강은 오류, 초록은 완료, 파랑은 작업 중.";
 "settings.mascot.custom" = "사용자 지정 모습";

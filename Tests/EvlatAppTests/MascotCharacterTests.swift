@@ -123,6 +123,79 @@ final class MascotCharacterTests: XCTestCase {
         XCTAssertTrue(controller.mascot.cubeTint)
         XCTAssertTrue(defaults.bool(forKey: AppController.cubeTintKey))
     }
+
+    /// A pack folder or a zip is imported, only its own files are kept, and
+    /// the picker lists it between the fairy and Custom.
+    func testAPackIsImportedAndListed() throws {
+        let source = root.appendingPathComponent("source/heart-cube", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let png = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8,
+                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)?
+            .representation(using: .png, properties: [:]))
+        try png.write(to: source.appendingPathComponent("body.png"))
+        try Data("stray".utf8).write(to: source.appendingPathComponent("notes.txt"))
+        let manifest: [String: Any] = ["evlat_character": 1, "name": "heart-cube", "display_name": "Heart Cube",
+                                       "body": "body.png", "sound_pack": "fairy"]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: source.appendingPathComponent("character.json"))
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let pack = try CharacterPacks.importPack(from: source, home: home).get()
+        let installed = CharacterPacks.folder(home: home).appendingPathComponent("heart-cube")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: installed.path).sorted(),
+                       ["body.png", "character.json"], "only the pack's own files")
+        XCTAssertEqual(pack.displayName, "Heart Cube")
+
+        let zip = root.appendingPathComponent("heart-cube.zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", "--keepParent", source.path, zip.path]
+        try ditto.run(); ditto.waitUntilExit()
+        XCTAssertEqual(try CharacterPacks.importPack(from: zip, home: home).get().name, "heart-cube", "a zip too")
+
+        let controller = AppController(defaults: defaults, home: home)
+        controller.mascot.packs = CharacterPacks.load(home: home)
+        XCTAssertEqual(controller.characterChoices.map(\.id), ["cube", "fairy", "pack:heart-cube"])
+        controller.setCharacterChoice("pack:heart-cube")
+        XCTAssertEqual(controller.mascot.character, .pack)
+        XCTAssertEqual(controller.characterChoice, "pack:heart-cube")
+    }
+
+    /// A look's suggested voice is used when installed, and leaving the
+    /// look puts the user's own back.
+    func testASuggestedVoiceComesAndGoesWithItsLook() throws {
+        func soundPack(_ name: String) throws {
+            let pack = SoundPack.directory(home: root).appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: pack.appendingPathComponent("sounds"), withIntermediateDirectories: true)
+            try Data(repeating: 1, count: 64).write(to: pack.appendingPathComponent("sounds/Done.wav"))
+            let json: [String: Any] = ["cesp_version": "1.0", "name": name, "display_name": name, "version": "1.0.0",
+                                       "categories": ["task.complete": ["sounds": [["file": "sounds/Done.wav", "label": "Done"]]]]]
+            try JSONSerialization.data(withJSONObject: json).write(to: pack.appendingPathComponent("openpeon.json"))
+        }
+        try soundPack("mine")
+        try soundPack("theirs")
+        let character = CharacterPacks.folder(home: root).appendingPathComponent("heart-cube")
+        try FileManager.default.createDirectory(at: character, withIntermediateDirectories: true)
+        let png = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8,
+                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)?
+            .representation(using: .png, properties: [:]))
+        try png.write(to: character.appendingPathComponent("body.png"))
+        try JSONSerialization.data(withJSONObject: ["evlat_character": 1, "name": "heart-cube", "body": "body.png",
+                                                    "sound_pack": "theirs"])
+            .write(to: character.appendingPathComponent("character.json"))
+        let controller = AppController(defaults: defaults, home: root)
+        controller.mascot.packs = CharacterPacks.load(home: root)
+        controller.setVoice(.pack("mine"))
+        controller.setCharacterChoice("pack:heart-cube")
+        XCTAssertEqual(controller.soundVoice, .pack("theirs"))
+        controller.setCharacterChoice("fairy")
+        XCTAssertEqual(controller.soundVoice, .pack("mine"), "the user's own is back")
+
+        controller.setVoice(.evlat)
+        controller.setCharacterChoice("pack:heart-cube")
+        controller.setCharacterChoice("cube")
+        XCTAssertEqual(controller.soundVoice, .evlat, "Evlat's own tones come back too")
+    }
 }
 
 private extension Result {

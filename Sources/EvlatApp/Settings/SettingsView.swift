@@ -298,13 +298,25 @@ private struct LookRows: View {
         RowBox {
             HStack(spacing: 10) {
                 RowTitle(name: model.t("settings.mascot.look.row"), detail: model.t("settings.mascot.look.detail"))
-                Picker("", selection: Binding(get: { model.character }, set: { model.setCharacter($0) })) {
-                    ForEach(model.characterChoices, id: \.character) { Text($0.title).tag($0.character) }
+                Picker("", selection: Binding(get: { model.characterChoice }, set: { model.setCharacterChoice($0) })) {
+                    ForEach(model.characterChoices, id: \.id) { Text($0.title).tag($0.id) }
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .fixedSize()
                 .accessibilityLabel(model.t("settings.mascot.look.row"))
+            }
+            HStack(spacing: 8) {
+                Button(model.t("settings.mascot.packs.import")) { model.importCharacter() }
+                if model.hasPortrait {
+                    Button(model.t("settings.mascot.packs.export")) { model.exportCharacter() }
+                }
+                Button(model.t("settings.mascot.packs.folder")) { model.openCharacterPacks() }
+            }
+            .buttonStyle(SmallButtonStyle())
+            if let error = model.characterPackError {
+                Text(error).font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         if model.character == .cube {

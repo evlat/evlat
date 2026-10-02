@@ -418,6 +418,11 @@
 "character.cube" = "Cube";
 "character.fairy" = "Fée";
 "character.portrait" = "Personnalisée";
+"settings.mascot.packs.import" = "Importer une allure…";
+"settings.mascot.packs.export" = "Exporter la personnalisée…";
+"settings.mascot.packs.folder" = "Afficher le dossier";
+"settings.mascot.packs.error" = "Ce n’est pas une allure qu’Evlat peut utiliser.";
+"settings.mascot.packs.error.export" = "L’allure n’a pas pu être exportée.";
 "settings.mascot.cubeTint" = "Couleurs d’état";
 "settings.mascot.cubeTint.detail" = "Le cube mélange ce que font vos sessions : jaune vous attend, rouge échec, vert terminé, bleu en cours.";
 "settings.mascot.custom" = "Allure personnalisée";

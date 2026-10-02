@@ -417,6 +417,11 @@
 "character.cube" = "Куб";
 "character.fairy" = "Фея";
 "character.portrait" = "Власний";
+"settings.mascot.packs.import" = "Імпортувати образ…";
+"settings.mascot.packs.export" = "Експортувати власний…";
+"settings.mascot.packs.folder" = "Показати папку";
+"settings.mascot.packs.error" = "Це не образ, який Evlat може використати.";
+"settings.mascot.packs.error.export" = "Не вдалося експортувати образ.";
 "settings.mascot.cubeTint" = "Кольори статусу";
 "settings.mascot.cubeTint.detail" = "Куб змішує те, що роблять ваші сесії: жовтий чекає на вас, червоний помилка, зелений готово, синій працює.";
 "settings.mascot.custom" = "Власний образ";

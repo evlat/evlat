@@ -417,6 +417,11 @@
 "character.cube" = "方块";
 "character.fairy" = "精灵";
 "character.portrait" = "自定义";
+"settings.mascot.packs.import" = "导入造型…";
+"settings.mascot.packs.export" = "导出自定义…";
+"settings.mascot.packs.folder" = "显示文件夹";
+"settings.mascot.packs.error" = "这不是 Evlat 能使用的造型。";
+"settings.mascot.packs.error.export" = "无法导出造型。";
 "settings.mascot.cubeTint" = "状态颜色";
 "settings.mascot.cubeTint.detail" = "方块会混合各会话的状态：黄色等待中，红色失败，绿色完成，蓝色运行中。";
 "settings.mascot.custom" = "自定义造型";

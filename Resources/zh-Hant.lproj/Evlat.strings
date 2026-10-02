@@ -417,6 +417,11 @@
 "character.cube" = "方塊";
 "character.fairy" = "精靈";
 "character.portrait" = "自訂";
+"settings.mascot.packs.import" = "匯入造型…";
+"settings.mascot.packs.export" = "匯出自訂…";
+"settings.mascot.packs.folder" = "顯示資料夾";
+"settings.mascot.packs.error" = "這不是 Evlat 能使用的造型。";
+"settings.mascot.packs.error.export" = "無法匯出造型。";
 "settings.mascot.cubeTint" = "狀態顏色";
 "settings.mascot.cubeTint.detail" = "方塊會混合各工作階段的狀態：黃色等你回覆，紅色失敗，綠色完成，藍色執行中。";
 "settings.mascot.custom" = "自訂造型";

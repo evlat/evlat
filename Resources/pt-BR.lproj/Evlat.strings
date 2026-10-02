@@ -418,6 +418,11 @@
 "character.cube" = "Cubo";
 "character.fairy" = "Fada";
 "character.portrait" = "Personalizado";
+"settings.mascot.packs.import" = "Importar visual…";
+"settings.mascot.packs.export" = "Exportar personalizado…";
+"settings.mascot.packs.folder" = "Mostrar pasta";
+"settings.mascot.packs.error" = "Isso não é um visual que o Evlat possa usar.";
+"settings.mascot.packs.error.export" = "Não foi possível exportar o visual.";
 "settings.mascot.cubeTint" = "Cores de status";
 "settings.mascot.cubeTint.detail" = "O cubo mistura o que suas sessões estão fazendo: amarelo aguardando você, vermelho falhou, verde concluído, azul trabalhando.";
 "settings.mascot.custom" = "Visual personalizado";

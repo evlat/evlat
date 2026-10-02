@@ -417,6 +417,11 @@
 "character.cube" = "Cubo";
 "character.fairy" = "Hada";
 "character.portrait" = "Propio";
+"settings.mascot.packs.import" = "Importar aspecto…";
+"settings.mascot.packs.export" = "Exportar propio…";
+"settings.mascot.packs.folder" = "Mostrar carpeta";
+"settings.mascot.packs.error" = "Eso no es un aspecto que Evlat pueda usar.";
+"settings.mascot.packs.error.export" = "No se pudo exportar el aspecto.";
 "settings.mascot.cubeTint" = "Colores de estado";
 "settings.mascot.cubeTint.detail" = "El cubo mezcla lo que hacen tus sesiones: amarillo te espera, rojo falló, verde listo, azul trabajando.";
 "settings.mascot.custom" = "Aspecto propio";

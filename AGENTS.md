@@ -349,6 +349,19 @@ voice above, and the two are independent.
   which is CC BY-NC 4.0 — non-commercial, so it cannot be bundled under this
   repository's license and CLA. Settings links its page and credits it; any
   prompt that draws two solid capsule eyes works.
+- **Look packs** (`CharacterPack` core, `CharacterPacks` app,
+  `Application Support/Evlat/Characters/<name>`): what CESP is for voices,
+  for the look — Evlat ships the format and the loader, looks live outside
+  it under their own authors' licenses. A pack is **data only**:
+  `character.json` (`evlat_character: 1`, `name`, `body` PNG, optional
+  `eyes` (two, the cube's capsules), optional `face` (a PNG mask tinted by
+  status that squeezes on a blink, swells on `waiting` and follows the
+  gaze), optional `sound_pack` (an OpenPeon pack made the voice while the
+  look is chosen, if installed; leaving it puts the user's voice back,
+  `sound.voice.before`), credits). Import takes a folder or a `.zip` and
+  copies only the files the manifest names; Export writes the Custom look
+  as one. The picker: cube, fairy, packs, Custom last (`mascot.character`
+  = `pack`, `mascot.pack` = its name).
 - **Status colours** (`mascot.cubeTint`, off): the cube's face blends the
   live sessions by share (`CubeTint`), each read as the face reads it — a
   finish already seen is at rest: yellow `waiting`, red `failed`, green

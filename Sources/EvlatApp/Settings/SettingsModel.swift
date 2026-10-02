@@ -86,6 +86,13 @@ final class SettingsModel: ObservableObject {
         /// Mascot's "Appearance": who is drawn, and the Custom look's maker.
         var character: () -> MascotCharacter = { .cube }
         var setCharacter: (MascotCharacter) -> Void = { _ in }
+        var characterChoices: () -> [(id: String, title: String)] = { [] }
+        var characterChoice: () -> String = { "cube" }
+        var setCharacterChoice: (String) -> Void = { _ in }
+        var importCharacter: () -> Void = {}
+        var exportCharacter: () -> Void = {}
+        var openCharacterPacks: () -> Void = {}
+        var characterPackError: () -> String? = { nil }
         var cubeTint: () -> Bool = { false }
         var setCubeTint: (Bool) -> Void = { _ in }
         var hasPortrait: () -> Bool = { false }
@@ -410,12 +417,19 @@ final class SettingsModel: ObservableObject {
         objectWillChange.send()
     }
 
-    /// The looks offered, in order; Custom only once there is one.
-    var characterChoices: [(character: MascotCharacter, title: String)] {
-        var choices: [(MascotCharacter, String)] = [(.cube, t("character.cube")), (.fairy, t("character.fairy"))]
-        if hasPortrait { choices.append((.portrait, t("character.portrait"))) }
-        return choices
+    /// The looks offered, in order: the cube, the fairy, the packs, and
+    /// Custom once there is one.
+    var characterChoices: [(id: String, title: String)] { host.characterChoices() }
+    var characterChoice: String { host.characterChoice() }
+    func setCharacterChoice(_ id: String) {
+        guard id != host.characterChoice() else { return }
+        host.setCharacterChoice(id)
+        objectWillChange.send()
     }
+    func importCharacter() { host.importCharacter() }
+    func exportCharacter() { host.exportCharacter() }
+    func openCharacterPacks() { host.openCharacterPacks() }
+    var characterPackError: String? { host.characterPackError() }
 
     var hasPortrait: Bool { host.hasPortrait() }
     var characterMaking: CharacterMaker.State { host.characterMaking() }
@@ -693,6 +707,8 @@ final class SettingsModel: ObservableObject {
         "settings.mascot.notify", "settings.mascot.notify.detail",
         "settings.mascot.look", "settings.mascot.look.row", "settings.mascot.look.detail",
         "character.cube", "character.fairy", "character.portrait",
+        "settings.mascot.packs.import", "settings.mascot.packs.export", "settings.mascot.packs.folder",
+        "settings.mascot.packs.error", "settings.mascot.packs.error.export",
         "settings.mascot.cubeTint", "settings.mascot.cubeTint.detail",
         "settings.mascot.custom", "settings.mascot.custom.detail", "settings.mascot.custom.create",
         "settings.mascot.custom.import", "settings.mascot.custom.prompt", "settings.mascot.custom.working",

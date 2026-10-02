@@ -15,8 +15,11 @@ enum MascotCharacter: String, CaseIterable, Identifiable {
     /// a blink is a flap, a widened eye spreads them — and the gaze moves
     /// the whole fairy instead of two pupils.
     case fairy
+    /// An installed character pack (`CharacterPack`), named by
+    /// `mascot.pack`. Drawn as the cube when it is gone.
+    case pack
     /// The user's own, made from a picture (`Portrait`). Drawn as the cube
-    /// until one exists.
+    /// until one exists. Last in the picker.
     case portrait
 
     var id: String { rawValue }

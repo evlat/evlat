@@ -427,6 +427,11 @@
 "character.cube" = "Küp";
 "character.fairy" = "Peri";
 "character.portrait" = "Özel";
+"settings.mascot.packs.import" = "Kılık İçe Aktar…";
+"settings.mascot.packs.export" = "Özeli Dışa Aktar…";
+"settings.mascot.packs.folder" = "Klasörü Göster";
+"settings.mascot.packs.error" = "Bu, Evlat'ın kullanabileceği bir kılık değil.";
+"settings.mascot.packs.error.export" = "Kılık dışa aktarılamadı.";
 "settings.mascot.cubeTint" = "Durum renkleri";
 "settings.mascot.cubeTint.detail" = "Küp oturumlarının ne yaptığını karıştırır: sarı seni bekliyor, kırmızı hata, yeşil bitti, mavi çalışıyor.";
 "settings.mascot.custom" = "Özel kılık";

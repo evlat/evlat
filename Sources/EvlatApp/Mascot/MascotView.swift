@@ -55,6 +55,7 @@ struct MascotView: View {
         .environment(\.mascotResting, !model.isAwake && model.isShown)
         .environment(\.mascotCallout, model.callout)
         .environment(\.mascotPortrait, model.portrait)
+        .environment(\.mascotPack, model.activePack)
         .environment(\.mascotPokes, model.pokes)
         .environment(\.mascotTones, model.cubeTint ? model.tones : nil)
         .background { dropRing }
@@ -227,6 +228,7 @@ struct MascotBody: View {
     @Environment(\.caughtGaze) private var caughtGaze
     @Environment(\.mascotCharacter) private var character
     @Environment(\.mascotPortrait) private var portrait
+    @Environment(\.mascotPack) private var pack
     @Environment(\.mascotPokes) private var pokes
     @Environment(\.mascotTones) private var tones
 
@@ -248,6 +250,7 @@ struct MascotBody: View {
         switch (character, portrait) {
         case (.fairy, _): FairyBody(pose: pose, size: size)
         case (.portrait, let portrait?): PortraitBody(pose: pose, size: size, portrait: portrait)
+        case (.pack, _) where pack != nil: PackBody(pose: pose, size: size, loaded: pack!)
         default: cube(pose)
         }
     }

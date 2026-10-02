@@ -417,6 +417,11 @@
 "character.cube" = "Würfel";
 "character.fairy" = "Fee";
 "character.portrait" = "Eigene";
+"settings.mascot.packs.import" = "Gestalt importieren…";
+"settings.mascot.packs.export" = "Eigene exportieren…";
+"settings.mascot.packs.folder" = "Ordner zeigen";
+"settings.mascot.packs.error" = "Das ist keine Gestalt, die Evlat nutzen kann.";
+"settings.mascot.packs.error.export" = "Die Gestalt konnte nicht exportiert werden.";
 "settings.mascot.cubeTint" = "Statusfarben";
 "settings.mascot.cubeTint.detail" = "Der Würfel mischt, was deine Sitzungen tun: Gelb wartet auf dich, Rot Fehler, Grün fertig, Blau arbeitet.";
 "settings.mascot.custom" = "Eigene Gestalt";

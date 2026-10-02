@@ -418,6 +418,11 @@
 "character.cube" = "Куб";
 "character.fairy" = "Фея";
 "character.portrait" = "Свой";
+"settings.mascot.packs.import" = "Импортировать облик…";
+"settings.mascot.packs.export" = "Экспортировать свой…";
+"settings.mascot.packs.folder" = "Показать папку";
+"settings.mascot.packs.error" = "Это не облик, который Evlat может использовать.";
+"settings.mascot.packs.error.export" = "Не удалось экспортировать облик.";
 "settings.mascot.cubeTint" = "Цвета статуса";
 "settings.mascot.cubeTint.detail" = "Куб смешивает то, что делают ваши сессии: жёлтый ждёт вас, красный ошибка, зелёный готово, синий работает.";
 "settings.mascot.custom" = "Свой облик";

@@ -417,6 +417,11 @@
 "character.cube" = "キューブ";
 "character.fairy" = "妖精";
 "character.portrait" = "カスタム";
+"settings.mascot.packs.import" = "見た目を読み込む…";
+"settings.mascot.packs.export" = "カスタムを書き出す…";
+"settings.mascot.packs.folder" = "フォルダを表示";
+"settings.mascot.packs.error" = "Evlat で使える見た目ではありません。";
+"settings.mascot.packs.error.export" = "見た目を書き出せませんでした。";
 "settings.mascot.cubeTint" = "ステータスの色";
 "settings.mascot.cubeTint.detail" = "キューブがセッションの状態を混ぜて表します：黄は返答待ち、赤は失敗、緑は完了、青は作業中。";
 "settings.mascot.custom" = "カスタムの見た目";

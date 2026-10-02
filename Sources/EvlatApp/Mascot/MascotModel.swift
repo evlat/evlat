@@ -34,6 +34,10 @@ public final class MascotModel: ObservableObject {
     @Published var callout = MascotCallout()
     /// The user's own character, once made (`Portrait`).
     @Published var portrait: Portrait?
+    /// The installed character packs, and which one `.pack` draws.
+    @Published var packs: [LoadedPack] = []
+    @Published var packName: String?
+    var activePack: LoadedPack? { packs.first { $0.pack.name == packName } }
 
     /// Clicks the mascot answers with a blink (`MascotBody`): bumped when the
     /// user acts on the bar, such as `[Go to session]`.
