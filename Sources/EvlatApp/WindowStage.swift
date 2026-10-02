@@ -43,6 +43,33 @@ enum WindowStage {
         NSApp.activate()
     }
 
+    /// The windows that brought Evlat forward and are still open.
+    @MainActor private(set) static var forwardWindows: Set<ObjectIdentifier> = []
+
+    /// Brings Evlat forward for a window the user asked for, as a regular app
+    /// while it is open. An accessory app's `activate()` is a request the
+    /// front app may refuse (cooperative activation, macOS 14): opened from
+    /// the menu, the settings window was drawn behind the app in front, which
+    /// kept the keyboard (`AGENTS.md` → Pitfalls). The window is counted
+    /// offstage too, so the bookkeeping is testable; only the policy and the
+    /// activation stay off the test runner.
+    @MainActor
+    static func comeForward(for window: AnyObject) {
+        forwardWindows.insert(ObjectIdentifier(window))
+        guard !isOffstage else { return }
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+        NSApp.activate()
+    }
+
+    /// The window closed: Evlat is an accessory again once no other window
+    /// that brought it forward is open.
+    @MainActor
+    static func stepBack(for window: AnyObject) {
+        forwardWindows.remove(ObjectIdentifier(window))
+        guard !isOffstage, forwardWindows.isEmpty else { return }
+        NSApp.setActivationPolicy(.accessory)
+    }
+
     /// Brings another app forward; offstage nothing moves and the answer is
     /// `false`, as for an app that would not come.
     @MainActor

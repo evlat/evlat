@@ -350,7 +350,9 @@ is lost with the process.
   the screen observer puts it back. An edge with another screen past it
   is a seam the cursor runs through; Settings says so, nothing prevents it.
 - Windows that do take keyboard focus (Settings, Setup, the chat bubble) return
-  focus to the previous app when they close.
+  focus to the previous app when they close. While Settings or Setup is open
+  Evlat is a regular app, Dock icon included (`WindowStage.comeForward`);
+  the last one to close makes it an accessory again.
 - `[Go to session]` brings the session's app forward (`SessionHost`). In
   Bateri, Metalterm and Warp it opens the tab itself, through the link each
   gives its shells (`BATERI_TAB_URL`, `METALTERM_TAB_URL`, `WARP_FOCUS_URL`);
@@ -826,6 +828,11 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   animator proxy as `self`; `super.alphaValue` then crashed
   (`EXC_BAD_ACCESS` in `-[NSWindow setAlphaValue:]`). Clamp the value at
   the call site instead (`WindowStage.alpha`).
+- **An accessory app's `NSApp.activate()` is only a request** (cooperative
+  activation, macOS 14+). Opened from the menu, the settings window was
+  ordered behind the front app, which kept the keyboard: the window list
+  read `bateri` first, Evlat's 740×480 window second, `bateri` frontmost.
+  A window the user asked for makes Evlat `.regular` while it is open.
 - **`NSLog` is unreadable in the unified log for this app** (`<private>`;
   `%{public}@` is an `os_log` specifier, not a fix). Read stderr by running the
   binary in the foreground.

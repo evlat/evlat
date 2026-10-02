@@ -66,6 +66,7 @@ final class AppWindow: NSObject, NSWindowDelegate {
         }
         if !isVisible { onOpen() }
         let window = self.window ?? build()
+        WindowStage.comeForward(for: self)
         activate()
         window.makeKeyAndOrderFront(nil)
     }
@@ -95,6 +96,9 @@ final class AppWindow: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         onClose()
+        // After the focus is handed back: an accessory app leaves the Dock
+        // without taking the front app's place again.
+        defer { WindowStage.stepBack(for: self) }
         guard let previous else { return }
         self.previous = nil
         restore(previous)

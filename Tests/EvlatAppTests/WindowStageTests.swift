@@ -73,4 +73,26 @@ final class WindowStageTests: XCTestCase {
         window.show()
         XCTAssertFalse(NSRunningApplication.current.isActive, "the default activation is offstage too")
     }
+
+    /// A window the user asked for holds Evlat forward until it closes; a
+    /// second open of the same window is one hold, and two windows need both
+    /// closed. Offstage the policy itself never changes.
+    func testAnOpenWindowHoldsEvlatForwardUntilItCloses() {
+        func make() -> AppWindow {
+            AppWindow(make: { AppKeyWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                                           styleMask: [.titled, .closable], backing: .buffered, defer: false) },
+                      activate: {})
+        }
+        let settings = make(), setup = make()
+        let before = WindowStage.forwardWindows
+        settings.show()
+        settings.show()
+        setup.show()
+        XCTAssertEqual(WindowStage.forwardWindows.subtracting(before).count, 2)
+        settings.close()
+        XCTAssertEqual(WindowStage.forwardWindows.subtracting(before).count, 1, "the setup still holds it")
+        setup.close()
+        XCTAssertEqual(WindowStage.forwardWindows, before)
+        XCTAssertEqual(NSApp.activationPolicy(), .accessory, "offstage the policy stays")
+    }
 }
