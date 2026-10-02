@@ -35,7 +35,8 @@ Markdown; keep it to a few bullets.
   speaks — Evlat's own tones, or a character voice from the OpenPeon
   community, installed with one click — and at which moments: done,
   error, waiting for approval, waiting for an answer. Every moment is off
-  until you switch it on.
+  until you switch it on. Character voices build on @gabeperez's OpenPeon
+  pack player — thank you (#8).
 - **Remind again** (the old waiting reminder) now lives in the Mascot tab
   and can also remind you of finished work you haven't looked at. If you
   used the reminder with its sound, you'll now also hear a wait begin.
