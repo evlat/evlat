@@ -6,16 +6,26 @@ import XCTest
 /// transport, and none of the rules below need it. The agents' own routes and
 /// the installed hook command are held by `LocalAPITests` in `EvlatAgentsTests`.
 final class LocalAPITests: XCTestCase {
+    /// One agent, posting to the bare hook prefix and relaying a status
+    /// line: the rules below hold for any agent's route.
+    private static let agent = TestAgent(paths: [RouteTable.installedPrefix], statusLineUsage: .test())
+    private static let routes = RouteTable([agent])
+
+    private func handle(_ request: HTTPRequest,
+                        listener: LocalAPI.Listener = LocalAPI.Listener(routes: routes)) -> LocalAPI.Outcome {
+        LocalAPI.handle(request, listener: listener, agents: [Self.agent])
+    }
+
     /// Default arguments are what a hook's `curl` actually sends: no `Origin`,
     /// a loopback `Host`.
     private func dispatch(_ method: String, _ target: String,
                           origin: String? = nil, host: String? = "127.0.0.1:48151") -> LocalAPI.Dispatch {
-        LocalAPI.dispatch(method: method, target: target, origin: origin, host: host)
+        LocalAPI.dispatch(method: method, target: target, origin: origin, host: host, routes: Self.routes)
     }
 
     private func post(_ target: String, body: String,
                       taskID: String? = nil, pid: String? = nil) -> LocalAPI.Outcome {
-        LocalAPI.handle(HTTPRequest(method: "POST", target: target, body: Data(body.utf8),
+        handle(HTTPRequest(method: "POST", target: target, body: Data(body.utf8),
                                     taskID: taskID, pid: pid, origin: nil, host: "127.0.0.1:48151"))
     }
 
@@ -24,31 +34,31 @@ final class LocalAPITests: XCTestCase {
     /// The path is compared as written. Normalising it would let a route be
     /// reached by a spelling the route's defences never examined.
     func testThePathIsNotNormalised() {
-        XCTAssertEqual(dispatch("POST", "/hook/codex/../claude"), .notFound, "would be a Claude hook if normalised")
+        XCTAssertEqual(dispatch("POST", "/hook/x/.."), .notFound, "would be the hook route if normalised")
         XCTAssertEqual(dispatch("POST", "/./hook"), .notFound)
         XCTAssertEqual(dispatch("POST", "/hook/"), .notFound, "a trailing slash is a different path")
         XCTAssertEqual(dispatch("GET", "/mac/screenshot/../click"), .notFound)
         // Nor is it unescaped: a decoded path would give every route a second,
         // unexamined spelling.
         XCTAssertEqual(dispatch("POST", "/%68ook"), .notFound)
-        XCTAssertEqual(dispatch("POST", "/hook%2Fcodex"), .notFound)
+        XCTAssertEqual(dispatch("POST", "/hook%2Fx"), .notFound)
     }
 
     /// The query is not part of the path, and it is ignored: v2 has no endpoint
     /// that takes an argument.
     func testTheQueryDoesNotChangeTheRoute() {
-        XCTAssertEqual(dispatch("POST", "/hook?source=codex"), .hook(.claude))
+        XCTAssertEqual(dispatch("POST", "/hook?source=x"), .hook(.test))
         XCTAssertEqual(dispatch("GET", "http://127.0.0.1:48151/health"), .health, "an absolute target is legal HTTP")
     }
 
     /// The usage route keeps every rule the hook routes keep: POST only, the
     /// path as written, and a browser turned away before the path is read.
     func testTheUsageRouteIsDefendedLikeTheHooks() {
-        XCTAssertEqual(dispatch("GET", "/usage/claude"), .notFound)
-        XCTAssertEqual(dispatch("POST", "/usage/claude", origin: "https://example.com"), .forbidden)
-        XCTAssertEqual(dispatch("POST", "/usage/claude", host: "evil.example:48151"), .forbidden)
-        for spelling in ["/usage/claude/", "/usage/claude/..", "/usage/claude/../claude", "/usage",
-                         "/usage/", "/%75sage/claude", "/usage%2Fclaude", "/hook/../usage/claude"] {
+        XCTAssertEqual(dispatch("GET", "/usage/test"), .notFound)
+        XCTAssertEqual(dispatch("POST", "/usage/test", origin: "https://example.com"), .forbidden)
+        XCTAssertEqual(dispatch("POST", "/usage/test", host: "evil.example:48151"), .forbidden)
+        for spelling in ["/usage/test/", "/usage/test/..", "/usage/test/../test", "/usage",
+                         "/usage/", "/%75sage/test", "/usage%2Ftest", "/hook/../usage/test"] {
             XCTAssertEqual(dispatch("POST", spelling), .notFound, spelling)
         }
     }
@@ -74,11 +84,11 @@ final class LocalAPITests: XCTestCase {
 
     func testTheLoopbackSpellingsPass() {
         for host in ["127.0.0.1:48151", "127.0.0.1", "localhost:48151", "LOCALHOST", "[::1]:48151", "[::1]"] {
-            XCTAssertEqual(dispatch("POST", "/hook", host: host), .hook(.claude), host)
+            XCTAssertEqual(dispatch("POST", "/hook", host: host), .hook(.test), host)
         }
         // A browser always sends `Host`; its absence means the request is not
         // from one (v1's `curl -H 'Host:'` case).
-        XCTAssertEqual(dispatch("POST", "/hook", host: nil), .hook(.claude))
+        XCTAssertEqual(dispatch("POST", "/hook", host: nil), .hook(.test))
     }
 
     // MARK: - The answers
@@ -93,7 +103,7 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(outcome.response?.body, "{}")
         XCTAssertEqual(outcome.event?.name, "Stop")
         XCTAssertEqual(outcome.event?.sessionID, "s-1")
-        XCTAssertEqual(outcome.event?.source, .claude)
+        XCTAssertEqual(outcome.event?.source, .test)
     }
 
     /// The status line's body: `{}` back, and only the two windows forward.
@@ -102,7 +112,7 @@ final class LocalAPITests: XCTestCase {
     func testAUsagePostAnswersAnEmptyObjectAndDeliversTheWindows() {
         let body = #"{"session_id":"s-1","cost":{"total_cost_usd":3},"rate_limits":"#
             + #"{"five_hour":{"used_percentage":25,"resets_at":1790206798},"spend_limit":{"used_percentage":2}}}"#
-        let outcome = post("/usage/claude", body: body)
+        let outcome = post("/usage/test", body: body)
         XCTAssertEqual(outcome.response?.status, .ok)
         XCTAssertEqual(outcome.response?.body, "{}")
         guard case .usage(let report)? = outcome.delivery else {
@@ -115,11 +125,11 @@ final class LocalAPITests: XCTestCase {
 
     func testABrokenUsageBodyIsABadRequest() {
         for body in ["", "not json", "[]", "\"text\"", "{", "null"] {
-            let outcome = post("/usage/claude", body: body)
+            let outcome = post("/usage/test", body: body)
             XCTAssertEqual(outcome.response?.status, .badRequest, body)
             XCTAssertNil(outcome.delivery, body)
         }
-        let refused = LocalAPI.handle(HTTPRequest(method: "POST", target: "/usage/claude", body: Data("{}".utf8),
+        let refused = handle(HTTPRequest(method: "POST", target: "/usage/test", body: Data("{}".utf8),
                                                   origin: "null", host: "127.0.0.1"))
         XCTAssertEqual(refused.response?.status, .forbidden)
         XCTAssertNil(refused.delivery)
@@ -137,7 +147,7 @@ final class LocalAPITests: XCTestCase {
     }
 
     func testTheRefusedAndTheUnknownCarryTheirCodes() {
-        let browser = LocalAPI.handle(HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
+        let browser = handle(HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
                                                   origin: "https://example.com", host: "127.0.0.1"))
         XCTAssertEqual(browser.response?.status, .forbidden)
         XCTAssertNil(browser.event, "a refused request never reaches the state machine")
@@ -149,7 +159,7 @@ final class LocalAPITests: XCTestCase {
     }
 
     func testHealthAnswersWithoutTouchingAnything() {
-        let outcome = LocalAPI.handle(HTTPRequest(method: "GET", target: "/health", host: "127.0.0.1:48151"))
+        let outcome = handle(HTTPRequest(method: "GET", target: "/health", host: "127.0.0.1:48151"))
         XCTAssertEqual(outcome.response?.status, .ok)
         XCTAssertEqual(outcome.response?.body, "{\"ok\":true}")
         XCTAssertNil(outcome.event)
@@ -181,16 +191,16 @@ final class LocalAPITests: XCTestCase {
         let request = HTTPRequest(method: "POST", target: "/hook", body: Data(forged.utf8),
                                   taskID: "real-task", pid: "7747", origin: nil, host: "127.0.0.1:48151")
 
-        let tunneled = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled))
+        let tunneled = handle(request, listener: LocalAPI.Listener(origin: .tunneled, routes: Self.routes))
         XCTAssertEqual(tunneled.response, LocalAPI.Response(status: .ok, body: "{}"))
         XCTAssertNotNil(tunneled.event, "the event itself still arrives")
         XCTAssertNil(tunneled.event?.pid, "neither the header's pid nor the body's")
         XCTAssertNil(tunneled.event?.taskID)
         XCTAssertEqual(tunneled.event?.sessionID, "s-1")
 
-        let local = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .local))
+        let local = handle(request, listener: LocalAPI.Listener(origin: .local, routes: Self.routes))
         XCTAssertEqual(local.event?.pid, 7747, "a local request is read as before")
-        XCTAssertEqual(LocalAPI.handle(request).event?.pid, 7747, "and local is the default")
+        XCTAssertEqual(handle(request).event?.pid, 7747, "and local is the default")
     }
 
     /// The tunnel changes whose identity is trusted, not who may speak: the
@@ -198,10 +208,10 @@ final class LocalAPITests: XCTestCase {
     func testATunneledRequestIsDefendedLikeALocalOne() {
         let browser = HTTPRequest(method: "POST", target: "/hook", body: Data("{}".utf8),
                                   origin: "https://example.com", host: "127.0.0.1:48151")
-        XCTAssertEqual(LocalAPI.handle(browser, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .forbidden)
+        XCTAssertEqual(handle(browser, listener: LocalAPI.Listener(origin: .tunneled, routes: Self.routes)).response?.status, .forbidden)
         let unknown = HTTPRequest(method: "POST", target: "/nope", body: Data("{}".utf8),
                                   host: "127.0.0.1:48151")
-        XCTAssertEqual(LocalAPI.handle(unknown, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .notFound)
+        XCTAssertEqual(handle(unknown, listener: LocalAPI.Listener(origin: .tunneled, routes: Self.routes)).response?.status, .notFound)
     }
 
     /// The bytes on the wire. `Content-Length` counts UTF-8 bytes, not
@@ -221,9 +231,9 @@ final class LocalAPITests: XCTestCase {
 
     private func permission(_ body: String, token: String? = "T-1",
                             origin: LocalAPI.Origin = .local) -> LocalAPI.Outcome {
-        LocalAPI.handle(HTTPRequest(method: "POST", target: "/permission", body: Data(body.utf8),
+        handle(HTTPRequest(method: "POST", target: "/permission", body: Data(body.utf8),
                                     host: "127.0.0.1:48151", permissionToken: token),
-                        listener: LocalAPI.Listener(origin: origin))
+                        listener: LocalAPI.Listener(origin: origin, routes: Self.routes))
     }
 
     /// A chat's own request: no answer yet — it is the user's — and the
@@ -264,7 +274,7 @@ final class LocalAPITests: XCTestCase {
     func testABrowserCannotAskForPermission() {
         let request = HTTPRequest(method: "POST", target: "/permission", body: Data(permissionBody.utf8),
                                   origin: "https://example.com", host: "127.0.0.1:48151", permissionToken: "T-1")
-        XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
+        XCTAssertEqual(handle(request).response?.status, .forbidden)
     }
 
     // MARK: - /askpass
@@ -274,10 +284,10 @@ final class LocalAPITests: XCTestCase {
     private func askpass(_ prompt: Data = Data("nobodyx@127.0.0.1's password: ".utf8), token: String? = nil,
                          origin: LocalAPI.Origin = .local, browser: String? = nil,
                          signalKey: String? = nil) -> LocalAPI.Outcome {
-        LocalAPI.handle(HTTPRequest(method: "POST", target: Askpass.path, body: prompt,
+        handle(HTTPRequest(method: "POST", target: Askpass.path, body: prompt,
                                     origin: browser, host: "127.0.0.1:48151",
                                     askpassToken: token ?? askpassToken),
-                        listener: LocalAPI.Listener(origin: origin, signalKey: signalKey))
+                        listener: LocalAPI.Listener(origin: origin, signalKey: signalKey, routes: Self.routes))
     }
 
     /// The prompt goes to the app with its token; the answer is held, the
@@ -307,7 +317,7 @@ final class LocalAPITests: XCTestCase {
     func testAnAskpassWithoutATokenIsForbidden() {
         let request = HTTPRequest(method: "POST", target: Askpass.path, body: Data("Password:".utf8),
                                   host: "127.0.0.1:48151")
-        let outcome = LocalAPI.handle(request)
+        let outcome = handle(request)
         XCTAssertEqual(outcome.response?.status, .forbidden)
         XCTAssertNil(outcome.delivery)
     }
@@ -341,9 +351,9 @@ final class LocalAPITests: XCTestCase {
 
     private func signal(_ body: String? = nil, sent: String? = nil, listenerKey: String? = nil,
                         origin: LocalAPI.Origin = .local, target: String = "/signal") -> LocalAPI.Outcome {
-        LocalAPI.handle(HTTPRequest(method: "POST", target: target, body: Data((body ?? signalBody).utf8),
+        handle(HTTPRequest(method: "POST", target: target, body: Data((body ?? signalBody).utf8),
                                     host: "127.0.0.1:48151", signalKey: sent),
-                        listener: LocalAPI.Listener(origin: origin, signalKey: listenerKey))
+                        listener: LocalAPI.Listener(origin: origin, signalKey: listenerKey, routes: Self.routes))
     }
 
     /// The right key: the report is handed over and the answer is `{}`.
@@ -375,7 +385,7 @@ final class LocalAPITests: XCTestCase {
         // The default listener has none.
         let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   host: "127.0.0.1:48151", signalKey: key)
-        XCTAssertEqual(LocalAPI.handle(request).response?.status, .forbidden)
+        XCTAssertEqual(handle(request).response?.status, .forbidden)
     }
 
     /// Through a tunnel whose listener has no key the route does not exist,
@@ -388,7 +398,7 @@ final class LocalAPITests: XCTestCase {
         }
         let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   host: "127.0.0.1:48151", signalKey: key)
-        XCTAssertEqual(LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled)).response?.status, .notFound)
+        XCTAssertEqual(handle(request, listener: LocalAPI.Listener(origin: .tunneled, routes: Self.routes)).response?.status, .notFound)
     }
 
     /// A tunnel's listener with its machine's key answers exactly as
@@ -415,7 +425,7 @@ final class LocalAPITests: XCTestCase {
     func testAKeyedTunnelStillHasNoPermissionRoute() {
         let request = HTTPRequest(method: "POST", target: PermissionHook.path, body: Data(permissionBody.utf8),
                                   host: "127.0.0.1:48151", permissionToken: "t", signalKey: key)
-        let outcome = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .tunneled, signalKey: key))
+        let outcome = handle(request, listener: LocalAPI.Listener(origin: .tunneled, signalKey: key, routes: Self.routes))
         XCTAssertEqual(outcome.response?.status, .notFound)
         XCTAssertNil(outcome.delivery)
     }
@@ -425,12 +435,12 @@ final class LocalAPITests: XCTestCase {
     func testABrowserIsRefusedBeforeTheKey() {
         let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   origin: "https://example.com", host: "127.0.0.1:48151", signalKey: key)
-        let outcome = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .local, signalKey: key))
+        let outcome = handle(request, listener: LocalAPI.Listener(origin: .local, signalKey: key, routes: Self.routes))
         XCTAssertEqual(outcome.response?.status, .forbidden)
         XCTAssertNil(outcome.delivery)
         let rebound = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
                                   host: "evil.example:48151", signalKey: key)
-        XCTAssertEqual(LocalAPI.handle(rebound, listener: LocalAPI.Listener(origin: .local, signalKey: key))
+        XCTAssertEqual(handle(rebound, listener: LocalAPI.Listener(origin: .local, signalKey: key, routes: Self.routes))
                         .response?.status, .forbidden)
     }
 

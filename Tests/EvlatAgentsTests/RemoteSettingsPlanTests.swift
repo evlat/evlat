@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// `RemoteSettings`' pure half: exit codes, the read's output, the plan. The
 /// scripts themselves run against a fake `ssh` in `EvlatAppTests.RemoteSettingsTests`.
@@ -33,8 +34,8 @@ final class RemoteSettingsPlanTests: XCTestCase {
         let installed = try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude))
         XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .install, original: installed))
         XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .remove, original: nil))
-        XCTAssertNil(try RemoteSettings.plan(.statusLine, .remove, original: Data("{}".utf8)))
-        let write = try XCTUnwrap(try RemoteSettings.plan(.statusLine, .install, original: nil))
+        XCTAssertNil(try RemoteSettings.plan(.statusLine(.claude), .remove, original: Data("{}".utf8)))
+        let write = try XCTUnwrap(try RemoteSettings.plan(.statusLine(.claude), .install, original: nil))
         XCTAssertEqual(write.backup, Data("null".utf8), "no statusLine before: the backup says so")
     }
 
@@ -78,7 +79,7 @@ final class RemoteSettingsPlanTests: XCTestCase {
 
     /// The script carries a quoted path; the only `$` is the server's `HOME`.
     func testThePathIsTheServersHome() {
-        let script = RemoteSettings.readScript(path: AgentSource.claude.settingsPath, nonce: "N")
+        let script = RemoteSettings.readScript(path: Claude().integration.hooksFile, nonce: "N")
         XCTAssertTrue(script.contains(#"f="$HOME"/'.claude/settings.json'"#))
         XCTAssertFalse(script.contains(NSHomeDirectory()), "this Mac's home never enters")
         XCTAssertEqual(RemoteSettings.arguments(target: "devbox").suffix(3), ["--", "devbox", "sh -s"])

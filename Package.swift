@@ -33,7 +33,7 @@ let package = Package(
         .testTarget(name: "EvlatCoreTests", dependencies: ["EvlatCore"], path: "Tests/EvlatCoreTests"),
         .testTarget(name: "EvlatAgentsTests", dependencies: ["EvlatAgents", "EvlatCore"],
                     path: "Tests/EvlatAgentsTests"),
-        .testTarget(name: "EvlatAppTests", dependencies: ["EvlatApp"], path: "Tests/EvlatAppTests"),
+        .testTarget(name: "EvlatAppTests", dependencies: ["EvlatApp", "EvlatAgents"], path: "Tests/EvlatAppTests"),
     ],
     swiftLanguageVersions: [.v5]
 )

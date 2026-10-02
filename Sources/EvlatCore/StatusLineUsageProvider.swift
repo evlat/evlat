@@ -4,7 +4,7 @@ import Foundation
 /// `POST /usage/{source}`: Claude Code's `rate_limits` and the Antigravity
 /// CLI's Gemini `quota`. The two differ only in how their status line is read
 /// (`UsageReport`) and in what the definition names them
-/// (`AgentSource.usage`); what is kept, and how a window is merged and
+/// (`StatusLineUsage`); what is kept, and how a window is merged and
 /// dropped, is the same.
 ///
 /// `Fidelity` is the definition's: `.official` for Claude, whose fields are
@@ -24,7 +24,7 @@ import Foundation
 public final class StatusLineUsageProvider: Provider {
     /// Whose status line this is; a report from another source is not this
     /// provider's to hold.
-    public let source: AgentSource
+    public let source: AgentID
     /// The definition's id (`claude-usage`), or `{id}@{machine id}` for a
     /// remote machine's status line: its own entities, so a remote window
     /// never overwrites the local one even when both are the same account.
@@ -47,11 +47,18 @@ public final class StatusLineUsageProvider: Provider {
 
     /// The clock is injected (`HooksProvider`'s pattern): the observation
     /// stamp is the provider's, since `LocalAPI` has no clock.
-    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil, source: AgentSource) {
+    /// For an agent with a status line (`Agent.statusLineUsage`); one
+    /// without has nothing for this provider to read.
+    public convenience init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil,
+                            source agent: some Agent) {
+        self.init(now: now, machine: machine, source: agent.id, usage: agent.statusLineUsage!)
+    }
+
+    public init(now: @escaping () -> Date, machine: Signal.Machine.Identity? = nil,
+                source: AgentID, usage: StatusLineUsage) {
         self.now = now
         self.machine = machine
         self.source = source
-        let usage = source.usage
         fidelity = usage.fidelity
         id = machine.map { "\(usage.providerID)@\($0.id)" } ?? usage.providerID
         group = machine.map { "\(usage.group) · \($0.name)" } ?? usage.group

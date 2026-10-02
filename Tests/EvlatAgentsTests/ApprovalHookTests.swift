@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The approval hook's contract: the one group it installs, the route, and
 /// the rule that tells a request answered in the terminal. Files live under
@@ -10,7 +11,7 @@ final class ApprovalHookTests: XCTestCase {
     override func setUpWithError() throws {
         home = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("evlat-approval-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: AgentSource.claude.configDirectory(home: home),
+        try FileManager.default.createDirectory(at: Claude().hooksFile(home: home).deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
     }
 
@@ -18,7 +19,7 @@ final class ApprovalHookTests: XCTestCase {
         try? FileManager.default.removeItem(at: home)
     }
 
-    private var file: URL { AgentSource.claude.settingsFile(home: home) }
+    private var file: URL { Claude().hooksFile(home: home) }
 
     private func json(_ url: URL) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
@@ -76,7 +77,7 @@ final class ApprovalHookTests: XCTestCase {
         XCTAssertEqual(LocalHooks.installing(into: [:], for: .codex, approvals: true) as NSDictionary,
                        HookSettings.installing(into: [:], for: .codex) as NSDictionary)
         XCTAssertTrue(LocalHooks.manual(for: .claude).contains("/approval"))
-        XCTAssertFalse(RemoteSettings.manual.hooks(for: .claude).contains("/approval"))
+        XCTAssertFalse(RemoteSettings.manual(agents: Agents.all).hooks(for: .claude).contains("/approval"))
     }
 
     func testAnOtherTimeoutOrTwoCopiesReadOutdated() {
@@ -94,7 +95,7 @@ final class ApprovalHookTests: XCTestCase {
     private let body = #"{"hook_event_name":"PermissionRequest","session_id":"s-1","tool_name":"Bash","tool_input":{"command":"rm -r build"}}"#
 
     private func post(_ body: String, origin: LocalAPI.Origin = .local, browser: String? = nil) -> LocalAPI.Outcome {
-        LocalAPI.handle(HTTPRequest(method: "POST", target: "/approval", body: Data(body.utf8),
+        LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: "/approval", body: Data(body.utf8),
                                     origin: browser, host: "127.0.0.1:48151"),
                         listener: LocalAPI.Listener(origin: origin))
     }
@@ -126,8 +127,8 @@ final class ApprovalHookTests: XCTestCase {
 
     // MARK: - Answered elsewhere
 
-    private func request(agent: String? = nil) -> PermissionHook.Request {
-        PermissionHook.Request(id: "r-1", token: nil, tool: "Bash", subject: "rm -r build",
+    private func request(agent: String? = nil) -> HeldRequest {
+        HeldRequest(id: "r-1", token: nil, tool: "Bash", subject: "rm -r build",
                                command: "rm -r build", sessionID: "s-1", agentID: agent)
     }
 
@@ -168,7 +169,7 @@ final class ApprovalHookTests: XCTestCase {
     }
 
     func testANewerRequestFromTheSameActorSupersedes() {
-        let newer = PermissionHook.Request(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1")
+        let newer = HeldRequest(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1")
         XCTAssertTrue(ApprovalHook.supersedes(newer, request()))
         XCTAssertFalse(ApprovalHook.supersedes(newer, request(agent: "a-1")))
         XCTAssertFalse(ApprovalHook.supersedes(request(), request()))

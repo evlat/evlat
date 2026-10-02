@@ -23,9 +23,9 @@ public enum LocalAPI {
         /// `Host`.
         case forbidden
         case notFound
-        case hook(AgentSource)
-        /// A status line relaying its rate limits (`AgentSource.usagePath`).
-        case usage(AgentSource)
+        case hook(AgentID)
+        /// A status line relaying its rate limits (`StatusLineUsage.path`).
+        case usage(AgentID)
         /// A chat turn's permission hook (`PermissionHook`).
         case permission
         /// A terminal session's permission, to approve from the bar
@@ -39,12 +39,13 @@ public enum LocalAPI {
         case health
     }
 
-    /// The table is ten rows and it is this `switch`.
+    /// The fixed routes are this `switch`; the agents' are `routes`, made
+    /// from the catalog (`RouteTable`).
     ///
     /// v1's generic route table (`Route.required`, `read`/`action`/`mac` kinds,
     /// a semaphore answering on the main queue) is **not** ported: every
-    /// endpoint that needed it is out of scope for v2, and eight rows do not
-    /// earn the generality.
+    /// endpoint that needed it is out of scope for v2, and a handful of rows
+    /// do not earn the generality.
     ///
     /// `curl` and the installed hook command never send `Origin`; a browser
     /// sends it on every cross-origin request. That alone is not enough,
@@ -54,10 +55,11 @@ public enum LocalAPI {
     /// browser's no-cors POST, and every side-effecting route here is POST, so
     /// that request carries an `Origin` and is refused by the first check.
     ///
-    /// The path is **not normalised**: `/hook/codex/../claude` matches nothing.
+    /// The path is **not normalised**: `/hook/a/../b` matches nothing.
     /// Collapsing it would let a route be reached by a spelling neither check
     /// above ever saw.
-    public static func dispatch(method: String, target: String, origin: String?, host: String?) -> Dispatch {
+    public static func dispatch(method: String, target: String, origin: String?, host: String?,
+                                routes: RouteTable) -> Dispatch {
         if origin != nil { return .forbidden }
         if let host = host, !isLoopback(host: host) { return .forbidden }
         // The query is dropped, not rejected: no v2 endpoint takes an argument,
@@ -66,14 +68,11 @@ public enum LocalAPI {
         // second spelling of a route that neither check above examined.
         let path = URLComponents(string: target)?.percentEncodedPath ?? target
         switch (method, path) {
-        // Claude's installed command posts to `/hook`; `/hook/claude` is the
-        // synonym v1 accepted, and dropping it would change the contract
-        // silently for anyone whose hooks spell it that way.
-        case ("POST", AgentSource.claude.hookPath), ("POST", "/hook/claude"): return .hook(.claude)
-        case ("POST", AgentSource.codex.hookPath): return .hook(.codex)
-        case ("POST", AgentSource.antigravity.hookPath): return .hook(.antigravity)
-        case ("POST", let path) where AgentSource.claude.usagePath == path: return .usage(.claude)
-        case ("POST", let path) where AgentSource.antigravity.usagePath == path: return .usage(.antigravity)
+        // A synonym an agent keeps (`HookChannel.paths`) is in the table like
+        // its installed path: dropping it would change the contract silently
+        // for anyone whose hooks spell it that way.
+        case ("POST", let path) where routes.hooks[path] != nil: return .hook(routes.hooks[path]!)
+        case ("POST", let path) where routes.usage[path] != nil: return .usage(routes.usage[path]!)
         case ("POST", PermissionHook.path): return .permission
         case ("POST", ApprovalHook.path): return .approval
         case ("POST", SignalReport.path): return .signal
@@ -143,10 +142,10 @@ public enum LocalAPI {
         /// A permission request whose answer is **held**: the outcome has no
         /// response, and the listener keeps the connection open under the
         /// request's id until the user answers (`HookListener.answer`).
-        case permission(PermissionHook.Request)
+        case permission(HeldRequest)
         /// A terminal session's permission request, held like `permission`
         /// until the user answers on the card or it is answered elsewhere.
-        case approval(PermissionHook.Request)
+        case approval(HeldRequest)
         /// An outside program's row, read and cleaned; the key has passed.
         case signal(SignalReport)
         /// A tunnel's `ssh` asking for a password or a yes/no, held like
@@ -195,22 +194,31 @@ public enum LocalAPI {
     public struct Listener: Equatable {
         public let origin: Origin
         public let signalKey: String?
-        /// Where an Antigravity transcript may be read from
-        /// (`AntigravityTranscript`); none, and no reply is read.
+        /// Where an agent's finish may read its reply from
+        /// (`HookChannel.finish`); none, and no reply is read.
         public let transcriptRoots: [URL]
+        /// The agents' routes (`RouteTable`); empty, and no agent route
+        /// answers.
+        public let routes: RouteTable
 
-        public init(origin: Origin = .local, signalKey: String? = nil, transcriptRoots: [URL] = []) {
+        public init(origin: Origin = .local, signalKey: String? = nil, transcriptRoots: [URL] = [],
+                    routes: RouteTable = RouteTable()) {
             self.origin = origin
             self.signalKey = signalKey
             self.transcriptRoots = transcriptRoots
+            self.routes = routes
         }
     }
 
     /// The default listener is local and has no key: `/signal` is refused.
-    public static func handle(_ request: HTTPRequest, listener: Listener = Listener()) -> Outcome {
+    /// `agents` is what a dispatched route's id is looked up in: its
+    /// translation, its status line and its approvals. The routes are the
+    /// listener's (`Listener.routes`), made from the same catalog.
+    public static func handle(_ request: HTTPRequest, listener: Listener = Listener(),
+                              agents: [any Agent] = []) -> Outcome {
         let origin = listener.origin
         switch dispatch(method: request.method, target: request.target,
-                        origin: request.origin, host: request.host) {
+                        origin: request.origin, host: request.host, routes: listener.routes) {
         case .forbidden:
             return Outcome(response: Response(status: .forbidden,
                                               body: error("forbidden", "browser requests are not accepted")),
@@ -229,15 +237,16 @@ public enum LocalAPI {
                                                   body: error("forbidden", "a permission token is expected")),
                                delivery: nil)
             }
-            guard let asked = PermissionHook.Request(json: json, token: token) else { return badRequest }
+            guard let asked = HeldRequest(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
         case .approval:
             // This Mac's own sessions only, as `/permission`: a tunnel never
             // puts a card in front of this user that grants anything.
             guard origin == .local else { return notFound }
-            // `{}` is no decision: Claude Code's own dialog stays and decides.
+            // `{}` is no decision: the agent's own dialog stays and decides.
             guard let json = jsonObject(request.body),
-                  let asked = PermissionHook.Request(json: json, token: nil),
+                  let channel = listener.routes.approval.flatMap({ agents[id: $0]?.approvals }),
+                  let asked = channel.request(json: json),
                   asked.sessionID != nil else {
                 return Outcome(response: Response(status: .ok, body: "{}"), delivery: nil)
             }
@@ -289,16 +298,17 @@ public enum LocalAPI {
             // application/json`, which is not JSON. Nothing reads this body
             // yet, so it was corrected rather than carried over.
             return Outcome(response: Response(status: .ok, body: "{\"ok\":true}"), delivery: nil)
-        case .usage(let source):
+        case .usage(let id):
             // The body is that agent's status line input; each has its own
             // reader, and anything else in it is let go there.
             guard let json = jsonObject(request.body) else { return badRequest }
-            let report = UsageReport(statusLine: json, source: source)
+            let report = UsageReport(statusLine: json, source: id, usage: agents[id: id]?.statusLineUsage)
             // `{}` for the same reason as a hook: the relay throws the answer
             // away, and nothing from this body is ever sent back anywhere.
             return Outcome(response: Response(status: .ok, body: "{}"), delivery: .usage(report))
-        case .hook(let source):
+        case .hook(let id):
             guard var json = jsonObject(request.body) else { return badRequest }
+            let channel = agents[id: id]?.hooks
             // These two keys are written **only** here, from the headers, and a
             // body that carries them has them deleted. This endpoint asks for
             // no identity, so otherwise any local process could put `evlat_pid`
@@ -306,7 +316,7 @@ public enum LocalAPI {
             // claim with `evlat_task` to be an errand Evlat started itself.
             //
             // The stamp happens before the translation, which is why an adapter
-            // has to pass these keys through (`AgentSource.canonical`).
+            // has to pass these keys through (`HookChannel.canonical`).
             //
             // A tunneled request takes the no-header branch: its headers are
             // real, but they speak about another computer (`Origin.tunneled`).
@@ -315,17 +325,15 @@ public enum LocalAPI {
             else { json.removeValue(forKey: HookEvent.taskKey) }
             if trusted, let pid = request.pid { json[HookEvent.pidKey] = pid }
             else { json.removeValue(forKey: HookEvent.pidKey) }
-            // Antigravity's body has no event name; its command sends it as a
-            // header. A body that names its own event keeps it.
+            // A body that names no event has it in a header
+            // (`HookChannel.eventInHeader`). A body that names its own keeps it.
             if json["hook_event_name"] == nil, let event = request.event { json["hook_event_name"] = event }
-            // Antigravity's finish names no reply, only its transcript: this
-            // Mac's is read, a tunneled one names a file elsewhere and never
-            // is. Its body never supplies the reply itself.
-            if source == .antigravity {
+            // A finish that names no reply has it read from this Mac's files;
+            // a tunneled one names a file elsewhere and never is. Such a
+            // body never supplies the reply itself.
+            if let finish = channel?.finish {
                 json.removeValue(forKey: "last_assistant_message")
-                if trusted, json["hook_event_name"] as? String == "Stop",
-                   let path = json["transcriptPath"] as? String,
-                   let reply = AntigravityTranscript.lastReply(at: path, roots: listener.transcriptRoots) {
+                if trusted, let reply = finish(json, listener.transcriptRoots) {
                     json["last_assistant_message"] = reply
                 }
             }
@@ -334,7 +342,7 @@ public enum LocalAPI {
             // reach Claude Code, a stray JSON object would allow or deny a
             // permission on the user's behalf.
             return Outcome(response: Response(status: .ok, body: "{}"),
-                           delivery: .hook(HookEvent(json: source.canonical(json), source: source)))
+                           delivery: .hook(HookEvent(json: channel?.canonical(json) ?? json, source: id)))
         }
     }
 
@@ -415,13 +423,17 @@ public enum LocalAPI {
     /// `${EVLAT_TASK:-}` are plain text — they resolve when the hook runs, not
     /// when it is installed.
     ///
-    /// Antigravity's body does not name its event (measured), so its command
-    /// is one per event and says it in `X-Evlat-Event`; Claude's and Codex's
-    /// bytes do not change.
-    public static func installedHookCommand(for source: AgentSource, event: String? = nil) -> String {
-        let named = source == .antigravity ? event.map { " -H 'X-Evlat-Event: \($0)'" } ?? "" : ""
+    /// A body that does not name its event (`HookChannel.eventInHeader`)
+    /// gets a command per event that says it in `X-Evlat-Event`; every
+    /// other agent's bytes carry no such header.
+    public static func installedHookCommand(for agent: some Agent, event: String? = nil) -> String {
+        installedHookCommand(for: agent.hooks, event: event)
+    }
+
+    static func installedHookCommand(for hooks: HookChannel, event: String? = nil) -> String {
+        let named = hooks.eventInHeader ? event.map { " -H 'X-Evlat-Event: \($0)'" } ?? "" : ""
         return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
             + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
-            + " --data-binary @- http://127.0.0.1:\(defaultPort)\(source.hookPath) >/dev/null 2>&1 || true"
+            + " --data-binary @- http://127.0.0.1:\(defaultPort)\(hooks.paths[0]) >/dev/null 2>&1 || true"
     }
 }

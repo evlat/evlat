@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// An agent as one unit: its parts' states make one, the parts in one file
 /// are one write, a usage line changed by hand is never written over. Every
@@ -46,7 +47,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// relay's backup the `statusLine` it wrapped.
     func testClaudeIsOneFileAndOneWrite() throws {
         try directory(".claude")
-        let file = AgentSource.claude.settingsFile(home: home)
+        let file = Claude().hooksFile(home: home)
         let original = Data(#"{"model":"opus","statusLine":{"type":"command","command":"bash ~/s.sh"}}"#.utf8)
         try original.write(to: file)
         XCTAssertEqual(AgentIntegration.files(home: home, for: .claude), [file])
@@ -78,7 +79,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// A usage line edited by hand stays byte for byte; the hooks go in.
     func testAHandEditedRelayIsNotWrittenOver() throws {
         try directory(".claude")
-        let file = AgentSource.claude.settingsFile(home: home)
+        let file = Claude().hooksFile(home: home)
         let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
         try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": edited]]).write(to: file)
         try AgentIntegration.install(home: home, for: .claude)
@@ -97,7 +98,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// press is not refused.
     func testAStatusLineInAShapeNotOursIsNotAPart() throws {
         try directory(".claude")
-        let file = AgentSource.claude.settingsFile(home: home)
+        let file = Claude().hooksFile(home: home)
         for value: Any in ["bash s.sh", ["type": "static", "command": "cat"]] {
             try JSONSerialization.data(withJSONObject: ["statusLine": value]).write(to: file)
             XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).relay, .modified, "\(value)")
@@ -128,7 +129,7 @@ final class AgentIntegrationTests: XCTestCase {
         try directory(".gemini/antigravity-cli")
         let relay = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
         XCTAssertEqual(AgentIntegration.files(home: home, for: .antigravity),
-                       [AgentSource.antigravity.settingsFile(home: home), relay])
+                       [Antigravity().hooksFile(home: home), relay])
         try AgentIntegration.install(home: home, for: .antigravity)
         XCTAssertEqual(try AgentIntegration.state(home: home, for: .antigravity),
                        AgentIntegration.State(hooks: .current, relay: .current))
@@ -163,10 +164,10 @@ final class AgentIntegrationTests: XCTestCase {
         XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .antigravity)) { error in
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .usage, reason: .malformed))
         }
-        XCTAssertEqual(try LocalHooks.state(at: AgentSource.antigravity.settingsFile(home: home), for: .antigravity),
+        XCTAssertEqual(try LocalHooks.state(at: Antigravity().hooksFile(home: home), for: .antigravity),
                        .current, "the hooks' own file is written before")
         try directory(".claude")
-        let file = AgentSource.claude.settingsFile(home: home)
+        let file = Claude().hooksFile(home: home)
         try Data("{ not json".utf8).write(to: file)
         XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .claude)) { error in
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .hooks, reason: .malformed))

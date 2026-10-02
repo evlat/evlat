@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import EvlatCore
+import EvlatAgents
 
 /// All application wiring in one place. `main.swift` only calls into this, so
 /// everything here stays testable (an executable target's top-level code cannot
@@ -28,7 +29,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// write and the part it stopped in, drawn as a dim line on its card
     /// until a write succeeds. The state itself is read from the files every
     /// time a menu is built.
-    private var agentFailures: [AgentSource: AgentIntegration.Failure] = [:]
+    private var agentFailures: [AgentID: AgentIntegration.Failure] = [:]
     /// The same for `~/.local/bin/evlat`.
     private(set) var commandLinkFailure: CommandLinkWriter.Failure?
     /// A refused login item change (`SMAppService`'s error is not kept: the
@@ -74,16 +75,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public let hookDiagnostics = HookDiagnostics()
     /// The second provider. It holds the phase of every session that has ever
     /// spoken to this process, and it is the only place `waiting` comes from.
-    public let hooks = HooksProvider(platform: AppController.darwinPlatform)
+    public let hooks = HooksProvider(platform: AppController.darwinPlatform, isQuestion: Agents.isQuestion)
     /// Each agent's usage windows that its status line posts (Claude's,
     /// the Antigravity CLI's), by source. Stamped with this controller's
     /// `now`, the clock the usage block reads too, so a fixed-date test never
     /// sees a fresh report as stale.
-    lazy var statusLineUsage: [AgentSource: StatusLineUsageProvider] = Dictionary(
-        uniqueKeysWithValues: AgentSource.allCases.filter { $0.usage.statusLine != nil }.map { source in
-            (source, StatusLineUsageProvider(now: { [unowned self] in
-                MainActor.assumeIsolated { self.now() }
-            }, source: source))
+    lazy var statusLineUsage: [AgentID: StatusLineUsageProvider] = Dictionary(
+        uniqueKeysWithValues: Agents.all.compactMap { agent in
+            agent.statusLineUsage.map { usage in
+                (agent.id, StatusLineUsageProvider(now: { [unowned self] in
+                    MainActor.assumeIsolated { self.now() }
+                }, source: agent.id, usage: usage))
+            }
         })
     /// Outside programs' rows, as `POST /signal` left them. Stamped
     /// with this controller's clock, like the usage windows: a row's life is
@@ -567,10 +570,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated public static func sessionsDirectory(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
-        if let path = environment["EVLAT_SESSIONS"], !path.isEmpty {
-            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        }
-        return SessionsProvider.defaultDirectory(home: resolvedHome(environment))
+        sessionRecords(environment) ?? SessionsProvider.defaultDirectory(home: resolvedHome(environment))
+    }
+
+    /// `EVLAT_SESSIONS`, when set: where the agents' session records are
+    /// read instead of their own folders (`ProviderContext.sessionRecords`).
+    nonisolated static func sessionRecords(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        guard let path = environment["EVLAT_SESSIONS"], !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
 
     /// The home the app works under: `EVLAT_HOME` (tilde expanded, blank
@@ -590,12 +599,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return FileManager.default.homeDirectoryForCurrentUser
     }
 
-    /// `excluding` names the sessions that are Evlat's own chats:
-    /// their `claude -p` turns write records too.
-    nonisolated public static func makeSessionsProvider(
-        excluding: @escaping () -> Set<String> = { [] }
-    ) -> SessionsProvider {
-        SessionsProvider(directory: sessionsDirectory(), platform: darwinPlatform, excluding: excluding)
+    /// What the agents' own providers are made with (`Agent.providers`):
+    /// `home`, the records folder `EVLAT_SESSIONS` names, and `excluding` —
+    /// the sessions that are Evlat's own chats, whose turns write records too.
+    nonisolated static func providerContext(
+        home: URL, excluding: @escaping () -> Set<String> = { [] }
+    ) -> ProviderContext {
+        ProviderContext(home: home, platform: darwinPlatform, sessionRecords: sessionRecords(),
+                        excludingSessions: excluding)
     }
 
     /// Where the chats are kept (`ChatStore.root`) — only with a home: a
@@ -692,8 +703,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// agent's hooks installed (or old), not isolated. Reads, writes nothing.
     func shouldOpenSetup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         let states = home.map { home in
-            AgentSource.allCases.filter(enabledAgents.contains).map { source in
-                (try? LocalHooks.state(at: source.settingsFile(home: home), for: source)) ?? .missing
+            Agents.all.filter { enabledAgents.contains($0.id) }.map { agent in
+                (try? LocalHooks.state(at: agent.hooksFile(home: home), for: agent)) ?? .missing
             }
         } ?? []
         return SetupTrigger.shouldOpen(hasStorage: defaults != nil && home != nil,
@@ -839,13 +850,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// seconds and prints every event that arrives. Without it, the endpoint is
     /// only asked whether someone is already answering there.
     nonisolated public static func printSignalsAndExit(capturingFor window: TimeInterval? = nil) -> Never {
-        let provider = makeSessionsProvider()
         let registry = Registry()
-        registry.register(provider)
+        let providers = Agents.all.flatMap { $0.providers(providerContext(home: resolvedHome())) }
+        providers.forEach(registry.register)
+        let records = providers.compactMap { $0 as? SessionsProvider }
+        let codex = providers.compactMap { $0 as? CodexUsageProvider }
         // The one reload this process does; timed, because it runs on the
         // app's main queue when the bar opens.
-        let codex = CodexUsageProvider(home: resolvedHome())
-        registry.register(codex)
         let started = DispatchTime.now()
         registry.reload()
         let reloadMs = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
@@ -866,25 +877,27 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         // The format is undocumented and the provider goes quiet when it
         // drifts; quiet must not read as "Codex has no limits".
-        if codex.lastReadFailed {
+        for codex in codex where codex.lastReadFailed {
             print("codex usage: unreadable (format may have drifted)"
                 + (codex.currentSignals().isEmpty ? "" : "; showing the last good reading"))
         }
         print(String(format: "usage reload: %.1f ms", reloadMs))
-        if !provider.unrecognizedStatuses.isEmpty {
-            print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
-        }
-        if provider.recordsMissingUpdatedAt > 0 {
-            print("records with unreadable updatedAt: \(provider.recordsMissingUpdatedAt) (format may have drifted)")
-        }
-        // The row's stamp comes from `statusUpdatedAt`; falling back to
-        // `updatedAt` silently would restore the skew that moved it there.
-        if provider.recordsMissingStatusUpdatedAt > 0 {
-            print("records with unreadable statusUpdatedAt: \(provider.recordsMissingStatusUpdatedAt) (format may have drifted)")
-        }
-        // The drift that would otherwise look like a healthy idle machine.
-        if provider.recordsUnparseable > 0 {
-            print("records that could not be parsed: \(provider.recordsUnparseable) (format may have drifted)")
+        for provider in records {
+            if !provider.unrecognizedStatuses.isEmpty {
+                print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
+            }
+            if provider.recordsMissingUpdatedAt > 0 {
+                print("records with unreadable updatedAt: \(provider.recordsMissingUpdatedAt) (format may have drifted)")
+            }
+            // The row's stamp comes from `statusUpdatedAt`; falling back to
+            // `updatedAt` silently would restore the skew that moved it there.
+            if provider.recordsMissingStatusUpdatedAt > 0 {
+                print("records with unreadable statusUpdatedAt: \(provider.recordsMissingStatusUpdatedAt) (format may have drifted)")
+            }
+            // The drift that would otherwise look like a healthy idle machine.
+            if provider.recordsUnparseable > 0 {
+                print("records that could not be parsed: \(provider.recordsUnparseable) (format may have drifted)")
+            }
         }
         printHookEndpoint(capturingFor: window)
         printRemoteMachines()
@@ -1177,17 +1190,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                               defaultMode: { [unowned self] in MainActor.assumeIsolated { self.defaultMode } },
                               onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         self.chats = chats
-        registry.register(Self.makeSessionsProvider(excluding: { [weak chats] in chats?.sessionIDs ?? [] }))
+        // Each agent's own providers (its session records, its usage file),
+        // registered while it is switched on — only with a home: a
+        // controller built without one (every test) must never fall through
+        // to the real `~/.claude` or `~/.codex`. Read when the bar opens,
+        // not here.
+        if let home {
+            let context = Self.providerContext(home: home, excluding: { [weak chats] in chats?.sessionIDs ?? [] })
+            agentProviders = Dictionary(uniqueKeysWithValues: Agents.all.map { ($0.id, $0.providers(context)) })
+        }
         // The undo switch for hooks: with this one line gone the
         // listener still binds and the events still parse, and the bar is
         // exactly what the session files alone show.
         registry.register(hooks)
-        // Only with a home: a controller built without one (every test) must
-        // never fall through to the real `~/.codex`. Read when
-        // the bar opens, not here.
-        // Memory only, no file: safe without a home. Before Codex so the
-        // block's order does not hang on registration (it sorts by group).
-        if let home { codexUsage = CodexUsageProvider(home: home) }
         // Only the switched-on agents' (Settings → Agents); the switch
         // registers and takes them away from here on.
         applyEnabledAgents()
@@ -1809,19 +1824,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The agents followed now (`EnabledAgents`). With no home — every test
     /// that hands none — nothing is known to be missing, so every agent is.
-    var enabledAgents: Set<AgentSource> {
-        EnabledAgents.resolve(stored: storedAgents, isPresent: isPresent)
+    var enabledAgents: Set<AgentID> {
+        EnabledAgents.resolve(stored: storedAgents, catalog: Agents.all.ids, isPresent: isPresent)
     }
 
-    private func isPresent(_ source: AgentSource) -> Bool {
-        home.map(source.isPresent(home:)) ?? true
+    private func isPresent(_ source: AgentID) -> Bool {
+        home.map { source.agent.isPresent(home: $0) } ?? true
     }
 
     /// The user's switch (Settings → Agents, the setup's agent step), and
     /// the one writer of `agents.enabled`. Leaves the files alone: taking
     /// Evlat's parts out is `setAgent`'s, asked for by the card.
-    func setEnabled(_ source: AgentSource, _ on: Bool) {
-        guard let value = EnabledAgents.changing(source, to: on, stored: storedAgents, isPresent: isPresent) else {
+    func setEnabled(_ source: AgentID, _ on: Bool) {
+        guard let value = EnabledAgents.changing(source, to: on, stored: storedAgents,
+                                                      catalog: Agents.all.ids, isPresent: isPresent) else {
             return
         }
         if let agentsDefaults { agentsDefaults.set(value, forKey: EnabledAgents.key) } else { agentsUnstored = value }
@@ -1829,16 +1845,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         scheduleRefresh()
     }
 
-    /// Codex's usage, read from its own file; `nil` without a home.
-    private var codexUsage: CodexUsageProvider?
-    /// Each agent's usage provider, registered in `registry` while the
-    /// agent is on.
-    private var usageProviders: [AgentSource: Provider] {
-        var providers: [AgentSource: Provider] = statusLineUsage
-        providers[CodexUsageProvider.source] = codexUsage
+    /// Each agent's own providers (`Agent.providers`); none without a home.
+    private var agentProviders: [AgentID: [Provider]] = [:]
+    /// Each agent's usage and own providers, registered in `registry` while
+    /// the agent is on.
+    private var usageProviders: [AgentID: [Provider]] {
+        var providers = agentProviders
+        for (source, usage) in statusLineUsage { providers[source, default: []].insert(usage, at: 0) }
         return providers
     }
-    private var registeredUsage: Set<AgentSource> = []
+    private var registeredUsage: Set<AgentID> = []
     /// The registry follows the switches: set by the first apply (launch;
     /// a test that wants it), so a controller that never applied them keeps
     /// the providers its test registered by hand.
@@ -1855,14 +1871,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         registry.enabledSources = { [weak self] in
             MainActor.assumeIsolated { self?.enabledAgents }
         }
-        for (source, provider) in usageProviders {
+        for (source, providers) in usageProviders {
             let on = enabled.contains(source)
             guard on != registeredUsage.contains(source) else { continue }
             if on {
-                registry.register(provider)
+                providers.forEach(registry.register)
                 registeredUsage.insert(source)
             } else {
-                registry.unregister(provider as AnyObject)
+                providers.forEach { registry.unregister($0 as AnyObject) }
                 registeredUsage.remove(source)
             }
         }
@@ -1871,7 +1887,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Whether a terminal's approval request is held for a card: some agent
     /// switched on installs the approval hook.
-    var holdsApprovals: Bool { enabledAgents.contains { $0.supportsApprovals } }
+    var holdsApprovals: Bool { enabledAgents.contains { $0.agent.approvals != nil } }
 
     // MARK: - Permission mode
 
@@ -2923,7 +2939,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     // MARK: - Approvals
 
     /// Terminal sessions' held permissions (`ApprovalHook`).
-    let approvals = ApprovalStore()
+    /// Answered in the format of the agent `/approval` holds requests for
+    /// (`RouteTable.approval`).
+    let approvals = ApprovalStore { decision in
+        Agents.routes.approval.flatMap { $0.agent.approvals?.body(decision) } ?? "{}"
+    }
 
     /// How long a request stands still on the card before its buttons take
     /// a press: a card that comes up, or changes, under the pointer is not
@@ -3550,25 +3570,25 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// next reader — no dialog, no success message; the state changing is
     /// the answer. Like the edge, the open list closes and nothing is
     /// activated.
-    func setAgent(_ source: AgentSource, installed: Bool) {
+    func setAgent(_ source: AgentID, installed: Bool) {
         guard let home else { return }
         record(source) {
             if installed {
-                try AgentIntegration.install(home: home, for: source)
+                try AgentIntegration.install(home: home, for: source.agent)
             } else {
-                try AgentIntegration.remove(home: home, for: source)
+                try AgentIntegration.remove(home: home, for: source.agent)
             }
         }
     }
 
     /// The agent's usage line alone, taken out: its card's way to keep the
     /// hooks without the relay.
-    func removeUsageRelay(_ source: AgentSource) {
+    func removeUsageRelay(_ source: AgentID) {
         guard let home else { return }
-        record(source) { try AgentIntegration.removeRelay(home: home, for: source) }
+        record(source) { try AgentIntegration.removeRelay(home: home, for: source.agent) }
     }
 
-    private func record(_ source: AgentSource, _ write: () throws -> Void) {
+    private func record(_ source: AgentID, _ write: () throws -> Void) {
         do {
             try write()
             agentFailures[source] = nil
@@ -3609,7 +3629,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    func agentFailure(_ source: AgentSource) -> AgentIntegration.Failure? { agentFailures[source] }
+    func agentFailure(_ source: AgentID) -> AgentIntegration.Failure? { agentFailures[source] }
 
     /// The intent may already have believed the bar closed.
     private func closeListAfterWrite() {

@@ -56,7 +56,7 @@ public enum ApprovalHook {
     static let toolOutcomes: Set<String> = ["PostToolUse", "PostToolUseFailure", "PermissionDenied"]
 
     /// Has `event` shown that `request` was answered somewhere else?
-    public static func resolves(_ request: PermissionHook.Request, by event: HookEvent) -> Bool {
+    public static func resolves(_ request: HeldRequest, by event: HookEvent) -> Bool {
         guard let session = request.sessionID, event.sessionID == session else { return false }
         if turnEnders.contains(event.name) { return true }
         guard toolOutcomes.contains(event.name) else { return false }
@@ -66,7 +66,7 @@ public enum ApprovalHook {
 
     /// A newer request from the same actor replaces an older one: requests
     /// are serialized, so the older was answered.
-    public static func supersedes(_ newer: PermissionHook.Request, _ older: PermissionHook.Request) -> Bool {
+    public static func supersedes(_ newer: HeldRequest, _ older: HeldRequest) -> Bool {
         newer.id != older.id && newer.sessionID != nil && newer.sessionID == older.sessionID
             && newer.agentID == older.agentID
     }

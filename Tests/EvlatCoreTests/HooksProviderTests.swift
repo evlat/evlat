@@ -24,15 +24,19 @@ final class HooksProviderTests: XCTestCase {
                           startedAt: @escaping (Int32) -> Date? = { _ in nil }) -> HooksProvider {
         HooksProvider(platform: Platform(isAlive: alive,
                                          processStartedAt: startedAt,
-                                         now: { [clock] in clock.now }))
+                                         now: { [clock] in clock.now }),
+                      isQuestion: Self.isQuestion)
     }
+
+    /// The canonical question tool, as an agent's approvals would name it.
+    private static func isQuestion(_ tool: String) -> Bool { tool == "AskUserQuestion" }
 
     /// A body shaped like the ones measured on the wire: the pid
     /// arrives as text, because the header it is written from is text.
     private func event(_ name: String, session: String? = "s-1", cwd: String? = "/tmp/project",
                        agent: String? = nil, notification: String? = nil,
                        stopHookActive: Bool = false, pid: Int32? = 4242,
-                       source: AgentSource = .claude, tool: String? = nil,
+                       source: AgentID = .test, tool: String? = nil,
                        command: String? = nil, reply: String? = nil) -> HookEvent {
         var json: [String: Any] = ["hook_event_name": name]
         if let tool { json["tool_name"] = tool }
@@ -111,10 +115,10 @@ final class HooksProviderTests: XCTestCase {
     func testTheRowCarriesTheEventsSource() {
         let hooks = provider()
         hooks.handle(event("UserPromptSubmit", session: "a"))
-        hooks.handle(event("UserPromptSubmit", session: "b", source: .codex))
+        hooks.handle(event("UserPromptSubmit", session: "b", source: .other))
         let bySession = Dictionary(uniqueKeysWithValues: hooks.currentSignals().map { ($0.entity, $0.source) })
-        XCTAssertEqual(bySession["a"], .claude)
-        XCTAssertEqual(bySession["b"], .codex)
+        XCTAssertEqual(bySession["a"], .test)
+        XCTAssertEqual(bySession["b"], .other)
     }
 
     func testBlockingNotificationsWait() {
@@ -430,7 +434,7 @@ final class HooksProviderTests: XCTestCase {
         HooksProvider(platform: Platform(isAlive: { _ in XCTFail("no local process is asked about"); return true },
                                          processStartedAt: { _ in XCTFail("no start time is read"); return nil },
                                          now: { [clock] in clock.now }),
-                      machine: devbox)
+                      machine: devbox, isQuestion: Self.isQuestion)
     }
 
     /// Namespaced, so the same `session_id` on two computers is two rows, and
@@ -653,7 +657,7 @@ final class HooksProviderTests: XCTestCase {
     func testEachSessionKeepsItsOwnRow() {
         let hooks = provider()
         hooks.handle(event("PermissionRequest", session: "claude-1"))
-        hooks.handle(event("UserPromptSubmit", session: "codex-1", source: .codex))
+        hooks.handle(event("UserPromptSubmit", session: "codex-1", source: .other))
         let rows = hooks.currentSignals()
         XCTAssertEqual(rows.map(\.entity).sorted(), ["claude-1", "codex-1"])
         XCTAssertEqual(Set(rows.map(\.provider)), [HooksProvider.id])

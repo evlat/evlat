@@ -198,17 +198,17 @@ final class RemoteTunnelTests: XCTestCase {
         let old = Data(#"[{"id":"u-1","target":"ben@devbox"}]"#.utf8)
         let machine = try XCTUnwrap(RemoteMachine.decode(old).first)
         XCTAssertNil(machine.agents)
-        XCTAssertEqual(machine.enabledAgents, Set(AgentSource.allCases))
+        XCTAssertEqual(machine.enabledAgents(of: [.test, .other]), [.test, .other])
         let again = try XCTUnwrap(RemoteMachine.encode([machine]))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: again) as? [[String: Any]])
         XCTAssertEqual(object.first?.keys.sorted(), ["id", "target"], "no agents key written for nil")
 
         var changed = machine
-        changed.agents = ["codex", "later-agent"]
+        changed.agents = ["other", "later-agent"]
         let stored = try XCTUnwrap(RemoteMachine.encode([changed]))
         let back = try XCTUnwrap(RemoteMachine.decode(stored).first)
-        XCTAssertEqual(back.agents, ["codex", "later-agent"])
-        XCTAssertEqual(back.enabledAgents, [.codex])
+        XCTAssertEqual(back.agents, ["other", "later-agent"])
+        XCTAssertEqual(back.enabledAgents(of: [.test, .other]), [.other])
     }
 
     // MARK: - Failures

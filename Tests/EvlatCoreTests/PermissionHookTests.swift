@@ -62,7 +62,7 @@ final class PermissionHookTests: XCTestCase {
         XCTAssertFalse(PermissionHook.isOverruled(.init(toolName: "Bash")))
         XCTAssertFalse(PermissionHook.isOverruled(.init(toolName: "Write", ruleContent: "rm:*")))
         let json = try object(#"{"tool_name":"Bash","tool_input":{"command":"rm -r build"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"rm -r build:*"},{"toolName":"Bash","ruleContent":"ls:*"}],"behavior":"allow","destination":"session"}]}"#)
-        XCTAssertEqual(PermissionHook.Request(json: json, token: "T", id: "R")?.rules,
+        XCTAssertEqual(HeldRequest(json: json, token: "T", id: "R")?.rules,
                        [.init(toolName: "Bash", ruleContent: "ls:*")])
     }
 
@@ -77,7 +77,7 @@ final class PermissionHookTests: XCTestCase {
     """#
 
     func testTheRequestKeepsOnlyAllowRulesAndFolders() throws {
-        let request = try XCTUnwrap(PermissionHook.Request(json: object(body), token: "T-1", id: "R1"))
+        let request = try XCTUnwrap(HeldRequest(json: object(body), token: "T-1", id: "R1"))
         XCTAssertEqual(request.id, "R1")
         XCTAssertEqual(request.token, "T-1")
         XCTAssertEqual(request.tool, "Bash")
@@ -93,9 +93,9 @@ final class PermissionHookTests: XCTestCase {
     }
 
     func testABodyThatIsNotAPermissionRequestIsRefused() throws {
-        XCTAssertNil(PermissionHook.Request(json: try object(#"{"hook_event_name":"PreToolUse","tool_name":"Bash"}"#),
+        XCTAssertNil(HeldRequest(json: try object(#"{"hook_event_name":"PreToolUse","tool_name":"Bash"}"#),
                                             token: "T"))
-        XCTAssertNil(PermissionHook.Request(json: try object(#"{"hook_event_name":"PermissionRequest"}"#), token: "T"))
+        XCTAssertNil(HeldRequest(json: try object(#"{"hook_event_name":"PermissionRequest"}"#), token: "T"))
     }
 
     func testAnAllowGrantsOnlyRulesAndFoldersForTheSession() throws {

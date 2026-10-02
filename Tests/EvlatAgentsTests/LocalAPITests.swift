@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The half of the local endpoint's contract that names the agents: each
 /// agent's route, and the hook command already installed in the user's
@@ -10,13 +11,14 @@ final class LocalAPITests: XCTestCase {
     /// a loopback `Host`.
     private func dispatch(_ method: String, _ target: String,
                           origin: String? = nil, host: String? = "127.0.0.1:48151") -> LocalAPI.Dispatch {
-        LocalAPI.dispatch(method: method, target: target, origin: origin, host: host)
+        LocalAPI.dispatch(method: method, target: target, origin: origin, host: host, routes: Agents.routes)
     }
 
     private func post(_ target: String, body: String,
                       taskID: String? = nil, pid: String? = nil) -> LocalAPI.Outcome {
         LocalAPI.handle(HTTPRequest(method: "POST", target: target, body: Data(body.utf8),
-                                    taskID: taskID, pid: pid, origin: nil, host: "127.0.0.1:48151"))
+                                    taskID: taskID, pid: pid, origin: nil, host: "127.0.0.1:48151"),
+                        listener: LocalAPI.Listener(routes: Agents.routes), agents: Agents.all)
     }
 
     // MARK: - The table
@@ -51,15 +53,15 @@ final class LocalAPITests: XCTestCase {
     /// Every source's own path answers, and it answers as that source. Adding a
     /// source without opening its route fails here rather than at runtime.
     func testEverySourceHasItsOwnRoute() {
-        for source in AgentSource.allCases {
-            XCTAssertEqual(dispatch("POST", source.hookPath), .hook(source), source.rawValue)
-            if let usagePath = source.usagePath {
-                XCTAssertEqual(dispatch("POST", usagePath), .usage(source), source.rawValue)
+        for source in Agents.all {
+            XCTAssertEqual(dispatch("POST", source.hookPath), .hook(source.id), source.id.rawValue)
+            if let usagePath = source.statusLineUsage?.path {
+                XCTAssertEqual(dispatch("POST", usagePath), .usage(source.id), source.id.rawValue)
             }
         }
         // Only Claude documents its usage; Codex's is read from a file.
-        XCTAssertEqual(AgentSource.claude.usagePath, "/usage/claude")
-        XCTAssertNil(AgentSource.codex.usagePath)
+        XCTAssertEqual(Claude().statusLineUsage?.path, "/usage/claude")
+        XCTAssertNil(Codex().statusLineUsage?.path)
         XCTAssertEqual(dispatch("POST", "/usage/codex"), .notFound)
     }
 
@@ -67,8 +69,8 @@ final class LocalAPITests: XCTestCase {
     /// `Origin` rule hold: a browser's no-cors request carries no `Origin`, but
     /// it can only be a GET.
     func testHookRoutesAreReachedByPOSTOnly() {
-        for source in AgentSource.allCases {
-            XCTAssertEqual(dispatch("GET", source.hookPath), .notFound, source.rawValue)
+        for source in Agents.all {
+            XCTAssertEqual(dispatch("GET", source.hookPath), .notFound, source.id.rawValue)
         }
         XCTAssertEqual(dispatch("GET", "/hook/claude"), .notFound)
     }
@@ -107,12 +109,12 @@ final class LocalAPITests: XCTestCase {
     /// quickly, and it never fails the hook. The answer is not fed back to
     /// Claude Code, and `curl` waiting on a closed Evlat would stall the agent.
     func testTheInstalledCommandFailsSilently() {
-        for source in AgentSource.allCases {
+        for source in Agents.all {
             let command = LocalAPI.installedHookCommand(for: source)
-            XCTAssertTrue(command.contains("|| true"), source.rawValue)
-            XCTAssertTrue(command.contains("-m 2"), source.rawValue)
-            XCTAssertTrue(command.contains(">/dev/null 2>&1"), source.rawValue)
-            XCTAssertTrue(command.contains("http://127.0.0.1:\(LocalAPI.defaultPort)\(source.hookPath) "), source.rawValue)
+            XCTAssertTrue(command.contains("|| true"), source.id.rawValue)
+            XCTAssertTrue(command.contains("-m 2"), source.id.rawValue)
+            XCTAssertTrue(command.contains(">/dev/null 2>&1"), source.id.rawValue)
+            XCTAssertTrue(command.contains("http://127.0.0.1:\(LocalAPI.defaultPort)\(source.hookPath) "), source.id.rawValue)
         }
     }
 

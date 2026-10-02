@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The `claude-usage` provider and the parser in front of it. The body is the
 /// status line's JSON, which Claude Code documents; only `rate_limits` is read.

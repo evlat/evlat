@@ -284,7 +284,7 @@ final class HookListenerTests: XCTestCase {
     /// The answer is the user's: the connection stays open until `answer`,
     /// and what is written then is what the client reads.
     func testAPermissionRequestIsHeldUntilAnswered() throws {
-        var asked: PermissionHook.Request?
+        var asked: HeldRequest?
         let arrived = expectation(description: "request on the main queue")
         let listener = HookListener(port: Self.anyPort, onAbandoned: { _ in }) { delivery in
             if case .permission(let request) = delivery { asked = request }
@@ -316,7 +316,7 @@ final class HookListenerTests: XCTestCase {
     /// Claude's time runs out, or its turn ends: the far side closes and the
     /// card must go.
     func testAHeldRequestThatClosesIsAbandoned() throws {
-        var asked: PermissionHook.Request?
+        var asked: HeldRequest?
         var abandoned: String?
         let gone = expectation(description: "abandoned on the main queue")
         let listener = HookListener(port: Self.anyPort, onAbandoned: { id in

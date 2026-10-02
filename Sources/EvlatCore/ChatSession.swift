@@ -13,8 +13,8 @@ import Foundation
 ///
 /// Pure and a value: time is handed in, the process is the shell's.
 public struct ChatSession: Equatable {
-    /// `Signal.provider` of every chat row. Not an `AgentSource`: that would
-    /// ask for a hook route of its own (`testEverySourceHasItsOwnRoute`).
+    /// `Signal.provider` of every chat row. Not an agent (`AgentID`): an
+    /// agent has a hook route of its own (`testEverySourceHasItsOwnRoute`).
     public static let provider = "evlat"
 
     /// The row's word for a turn the user stopped.
@@ -113,7 +113,7 @@ public struct ChatSession: Equatable {
         public let id: String
         public let tool: String
         public let subject: String?
-        /// A command whole, shown in place of `subject` (`PermissionHook.Request.command`).
+        /// A command whole, shown in place of `subject` (`HeldRequest.command`).
         public var command: String? = nil
         /// What "always" would grant: the suggested rules…
         public let rules: [PermissionHook.Rule]
@@ -280,7 +280,7 @@ public struct ChatSession: Equatable {
     /// A permission request of the running turn: a card, and the chat
     /// `waiting`. `false` when no turn runs — the caller denies it.
     @discardableResult
-    public mutating func ask(_ request: PermissionHook.Request, at now: Date) -> Bool {
+    public mutating func ask(_ request: HeldRequest, at now: Date) -> Bool {
         guard isRunning, !stopRequested, card(request.id) == nil else { return false }
         replyOpen = false
         // A folder the chat already works in is no access to give: Claude

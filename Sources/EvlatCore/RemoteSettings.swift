@@ -28,23 +28,25 @@ public enum RemoteSettings {
         case unreachable
     }
 
-    /// What is installed or removed; each lives in one file.
+    /// What is installed or removed; each lives in one file. Equal by the
+    /// agent's id: two values for one agent are one change.
     public enum Change: Hashable {
-        case hooks(AgentSource)
-        case statusLine
+        case hooks(any Agent)
+        /// The agent's status line, where a server gets one (`relays`).
+        case statusLine(any Agent)
         /// The agent as one unit (`AgentIntegration`'s rule on a server):
         /// its hooks, and — where the server gets its status line
         /// (`relays`) — the usage line, in one write of its one file.
-        case agent(AgentSource)
+        case agent(any Agent)
         /// `RemotePath.line` in a startup file (`.bashrc`…): text, not JSON.
         case pathLine(String)
 
-        /// The file, relative to the server's `$HOME`.
+        /// The file, relative to the server's `$HOME`. A status line change
+        /// is only made for an agent that has one (`relays`).
         public var path: String {
             switch self {
-            case .hooks(let source), .agent(let source): return source.settingsPath
-            // Claude's always has one.
-            case .statusLine: return RemoteSettings.statusLineSource.statusLinePath!
+            case .hooks(let source), .agent(let source): return source.integration.hooksFile
+            case .statusLine(let source): return source.integration.relay?.file ?? source.integration.hooksFile
             case .pathLine(let file): return file
             }
         }
@@ -52,26 +54,34 @@ public enum RemoteSettings {
         /// When the file's folder is missing, the directories (relative to
         /// `$HOME`) any one of which lets the scripts open it — the agent's
         /// presence, for an agent whose hooks folder is opened
-        /// (`AgentSource.opensHooksDirectory`). Empty: a missing folder is
+        /// (`Parts.opensHooksDirectory`). Empty: a missing folder is
         /// `noDirectory`, the agent is not on the server.
         public var opening: [String] {
             switch self {
             case .hooks(let source), .agent(let source):
-                return source.opensHooksDirectory ? source.presenceDirectories : []
+                return source.integration.opensHooksDirectory ? source.presence : []
             case .statusLine, .pathLine:
                 return []
             }
         }
+
+        private var key: String {
+            switch self {
+            case .hooks(let source): return "hooks:" + source.id.rawValue
+            case .statusLine(let source): return "statusLine:" + source.id.rawValue
+            case .agent(let source): return "agent:" + source.id.rawValue
+            case .pathLine(let file): return "pathLine:" + file
+            }
+        }
+
+        public static func == (a: Change, b: Change) -> Bool { a.key == b.key }
+        public func hash(into hasher: inout Hasher) { hasher.combine(key) }
     }
 
-    /// The one agent whose status line a server gets: Antigravity's relay
-    /// there has not been measured.
-    static let statusLineSource = AgentSource.claude
-
-    /// Whether `source`'s unit on a server includes the usage line. The
-    /// same file as its hooks: `statusLineSource`'s status line lives in
-    /// its settings.
-    public static func relays(_ source: AgentSource) -> Bool { source == statusLineSource }
+    /// Whether `source`'s unit on a server includes the usage line
+    /// (`Relay.onServers`). The same file as its hooks: such an agent's
+    /// status line lives in its settings.
+    public static func relays(_ source: some Agent) -> Bool { source.integration.relay?.onServers == true }
 
     public enum Action: Equatable { case install, remove }
 
@@ -210,8 +220,7 @@ public enum RemoteSettings {
             case (.hooks(let source), .remove):
                 return try plan(original: original, { LocalHooks.removing(from: $0, for: source, approvals: false) })
                     .map { Write(contents: $0, backup: nil) }
-            case (.statusLine, .install):
-                let source = statusLineSource
+            case (.statusLine(let source), .install):
                 guard let data = try plan(original: original, {
                     StatusLineRelay.installing(into: $0, source: source) ?? $0
                 }) else {
@@ -221,8 +230,7 @@ public enum RemoteSettings {
                     return nil
                 }
                 return Write(contents: data, backup: try StatusLineRelay.backupContents(of: settings))
-            case (.statusLine, .remove):
-                let source = statusLineSource
+            case (.statusLine(let source), .remove):
                 guard let data = try plan(original: original, {
                     StatusLineRelay.removing(from: $0, source: source) ?? $0
                 }) else {
@@ -254,7 +262,7 @@ public enum RemoteSettings {
     /// The relay's backup is carried only when this write wraps the
     /// `statusLine`, as on this Mac (`AgentIntegration`). Nothing to write
     /// while a part that should be there is not: a shape not ours, refused.
-    private static func installUnit(_ source: AgentSource, settings: [String: Any]) throws -> Write? {
+    private static func installUnit(_ source: some Agent, settings: [String: Any]) throws -> Write? {
         var next = LocalHooks.installing(into: settings, for: source, approvals: false)
         let wraps = relays(source) && StatusLineRelay.state(of: settings, source: source) == .missing
         if wraps, let wrapped = StatusLineRelay.installing(into: next, source: source) { next = wrapped }
@@ -337,28 +345,30 @@ public enum RemoteSettings {
         case state(State)
     }
 
-    /// A machine as one call found it (`readingScript`): both settings
-    /// files' bytes with their `cksum`, the `evlat` command, and whether a
-    /// new login shell finds it.
+    /// A machine as one call found it (`readingScript`): each agent's
+    /// settings file's bytes with their `cksum`, the `evlat` command, and
+    /// whether a new login shell finds it.
     public struct Reading: Equatable {
-        public let files: [AgentSource: Result<Snapshot, SettingsFile.Failure>]
+        public let files: [AgentID: Result<Snapshot, SettingsFile.Failure>]
         public let command: RemoteCommand.Status
         /// `nil` when the probe's line was not in the answer.
         public var path: RemotePath.Status?
 
         /// The local reader's state, from the bytes read.
-        public func hooks(_ source: AgentSource) -> Found<HookSettings.State> {
+        public func hooks(_ source: some Agent) -> Found<HookSettings.State> {
             found(source) { LocalHooks.state(of: $0, for: source, approvals: false) }
         }
 
-        public var statusLine: Found<StatusLineRelay.State> {
-            found(RemoteSettings.statusLineSource) { StatusLineRelay.state(of: $0, source: RemoteSettings.statusLineSource) }
+        /// The agent's usage line, read from its hooks file: meaningful for
+        /// an agent a server relays (`relays`), whose line lives there.
+        public func statusLine(_ source: some Agent) -> Found<StatusLineRelay.State> {
+            found(source) { StatusLineRelay.state(of: $0, source: source) }
         }
 
         /// The agent as one unit, by the same rule as this Mac's card
         /// (`AgentIntegration.State`): its hooks, and the usage line where
         /// the server gets one (`relays`) — read from the same file.
-        public func unit(_ source: AgentSource) -> Found<AgentIntegration.State> {
+        public func unit(_ source: some Agent) -> Found<AgentIntegration.State> {
             found(source) { settings in
                 AgentIntegration.State(
                     hooks: LocalHooks.state(of: settings, for: source, approvals: false),
@@ -367,8 +377,8 @@ public enum RemoteSettings {
             }
         }
 
-        private func found<State>(_ source: AgentSource, _ state: ([String: Any]) -> State) -> Found<State> {
-            switch files[source] {
+        private func found<State>(_ source: some Agent, _ state: ([String: Any]) -> State) -> Found<State> {
+            switch files[source.id] {
             case .success(let snapshot)?:
                 guard let settings = try? SettingsFile.parse(snapshot.bytes) else { return .unreadable }
                 return .state(state(settings))
@@ -384,21 +394,22 @@ public enum RemoteSettings {
     /// runs in its own subshell, so a missing folder ends its part and not
     /// the read. It reads only: nothing is written, not even a temporary
     /// file, and a file that changes while it is read reads as unreadable.
-    public static func readingScript(nonce: String, patience: Int = RemotePath.patience) -> String {
+    public static func readingScript(nonce: String, agents: [any Agent],
+                                     patience: Int = RemotePath.patience) -> String {
         let unreadable = code(.unreadable)
         var script = ""
-        for source in AgentSource.allCases {
+        for source in agents {
             script += """
             (
             n=\(quoted(nonce))
-            \(prelude(path: source.settingsPath, opening: Change.hooks(source).opening, creating: false))
+            \(prelude(path: source.integration.hooksFile, opening: Change.hooks(source).opening, creating: false))
             s=$(sum) || exit \(unreadable)
-            printf '%s begin \(source.rawValue) %s\\n' "$n" "$s"
+            printf '%s begin \(source.id.rawValue) %s\\n' "$n" "$s"
             if [ -e "$t" ]; then cat "$t" || exit \(unreadable); fi
             [ "$(sum)" = "$s" ] || exit \(code(.changedUnderneath))
             exit 0
             )
-            printf '\\n%s end \(source.rawValue) %s\\n' \(quoted(nonce)) "$?"
+            printf '\\n%s end \(source.id.rawValue) %s\\n' \(quoted(nonce)) "$?"
 
             """
         }
@@ -408,12 +419,12 @@ public enum RemoteSettings {
 
     /// The script's answer; `unreachable` when `ssh` failed or no line of
     /// the answer is the script's.
-    public static func reading(exitCode: Int32, output: Data, nonce: String) throws -> Reading {
+    public static func reading(exitCode: Int32, output: Data, nonce: String, agents: [AgentID]) throws -> Reading {
         guard exitCode == 0, let command = RemoteCommand.status(output: output, nonce: nonce) else {
             throw Failure.unreachable
         }
-        var files: [AgentSource: Result<Snapshot, SettingsFile.Failure>] = [:]
-        for source in AgentSource.allCases {
+        var files: [AgentID: Result<Snapshot, SettingsFile.Failure>] = [:]
+        for source in agents {
             let end = Data("\n\(nonce) end \(source.rawValue) ".utf8)
             guard let ending = output.range(of: end),
                   let newline = output[ending.upperBound...].firstIndex(of: 0x0A),
@@ -452,23 +463,22 @@ public enum RemoteSettings {
     /// when there is nothing to write, the agent's folder is missing, the
     /// file could not be read, or the command is somebody else's; a
     /// wrapper changed by hand keeps the file's hooks part and loses only
-    /// the usage line. Only `agents` get a part: the machine's switches.
-    /// `nil`: nothing to write at all.
+    /// the usage line. Only `agents` get a part, in their order: the
+    /// machine's switches. `nil`: nothing to write at all.
     ///
     /// Each part is a `sh` of its own on a quoted heredoc: `exit` and the
     /// traps stay inside it, nothing is expanded by the user's shell, and a
     /// part that fails says which file on stderr. No line starts with `#`
     /// outside a part: an interactive zsh reads a comment as a command.
-    public static func combinedScript(_ reading: Reading, key: String,
-                                      agents: Set<AgentSource> = Set(AgentSource.allCases)) -> String? {
+    public static func combinedScript(_ reading: Reading, key: String, agents: [any Agent]) -> String? {
         var parts: [String] = []
-        for source in AgentSource.allCases where agents.contains(source) {
-            guard case .success(let snapshot)? = reading.files[source] else { continue }
+        for source in agents {
+            guard case .success(let snapshot)? = reading.files[source.id] else { continue }
             // The automatic button's own transform: the unit, hooks and
             // usage line together.
             guard let write = (try? plan(.agent(source), .install, original: snapshot.bytes)) ?? nil else { continue }
-            parts.append(part(file: "~/" + source.settingsPath,
-                              writeScript(path: source.settingsPath, expected: snapshot.checksum, write: write,
+            parts.append(part(file: "~/" + source.integration.hooksFile,
+                              writeScript(path: source.integration.hooksFile, expected: snapshot.checksum, write: write,
                                           opening: Change.hooks(source).opening)))
         }
         let commandPart = reading.command != .foreign && !reading.command.isCurrent
@@ -572,9 +582,9 @@ public enum RemoteSettings {
         /// Stands for the user's own statusLine command in `wrapping`.
         public static let placeholder = "YOUR-STATUSLINE-COMMAND"
 
-        /// Each agent's hooks file (`AgentSource.settingsPath`), as a whole
-        /// file's JSON.
-        let hooks: [AgentSource: String]
+        /// Each agent's hooks file (`Parts.hooksFile`), as a whole file's
+        /// JSON.
+        let hooks: [AgentID: String]
         /// The `statusLine` for a file that has none.
         public let statusLine: String
         /// The wrapper around an existing command, `placeholder` in its place.
@@ -584,14 +594,14 @@ public enum RemoteSettings {
         public let marker: String
 
         /// The agent's hooks file, as a whole file's JSON.
-        public func hooks(for source: AgentSource) -> String { hooks[source] ?? "" }
+        public func hooks(for source: some Agent) -> String { hooks[source.id] ?? "" }
 
         /// An agent's `statusLine` for a file that has none, and its wrapper
         /// with `placeholder` in the user's command's place; `nil` for an
-        /// agent with no status line. Claude's are `statusLine` and
-        /// `wrapping`; Antigravity's are this Mac's only — a server gets no
-        /// Antigravity relay.
-        public static func statusLine(for source: AgentSource) -> (text: String, wrapping: String)? {
+        /// agent with no status line. A server's are `statusLine` and
+        /// `wrapping`, for the agent it relays (`relays`); another agent's
+        /// are this Mac's only.
+        public static func statusLine(for source: some Agent) -> (text: String, wrapping: String)? {
             guard let line = StatusLineRelay.installing(into: [:], source: source) else { return nil }
             return (text(line), StatusLineRelay.command(wrapping: placeholder, source: source))
         }
@@ -602,11 +612,12 @@ public enum RemoteSettings {
         }
     }
 
-    public static var manual: Manual {
-        let statusLine = Manual.statusLine(for: statusLineSource)
+    /// For `agents`; the status line is the one a server relays (`relays`).
+    public static func manual(agents: [any Agent]) -> Manual {
+        let statusLine = agents.first(where: { relays($0) }).flatMap { Manual.statusLine(for: $0) }
         return Manual(
-            hooks: Dictionary(uniqueKeysWithValues: AgentSource.allCases.map { source in
-                (source, Manual.text(LocalHooks.installing(into: [:], for: source, approvals: false)))
+            hooks: Dictionary(uniqueKeysWithValues: agents.map { source in
+                (source.id, Manual.text(LocalHooks.installing(into: [:], for: source, approvals: false)))
             }),
             statusLine: statusLine?.text ?? "",
             wrapping: statusLine?.wrapping ?? "",

@@ -1,5 +1,6 @@
 import AppKit
 import EvlatCore
+import EvlatAgents
 
 /// The remote machines' transport: per machine, a loopback listener and the
 /// `ssh` process that carries the server's `127.0.0.1:48151` onto it.
@@ -30,7 +31,7 @@ final class RemoteTunnels {
         let hooks: HooksProvider
         /// One per agent switched on whose usage a status line posts; an
         /// agent switched off has none, so its windows go with it.
-        var usage: [AgentSource: StatusLineUsageProvider] = [:]
+        var usage: [AgentID: StatusLineUsageProvider] = [:]
         /// The machine's outside rows, namespaced by its id.
         let signals: SignalsProvider
         /// What the machine's `/signal` asks for; fixed for the link's life.
@@ -192,9 +193,9 @@ final class RemoteTunnels {
 
     /// The machine's enabled agents (`RemoteMachine.enabledAgents`); `nil`
     /// for no such machine, or while it follows every agent.
-    func enabledAgents(of id: String) -> Set<AgentSource>? {
+    func enabledAgents(of id: String) -> Set<AgentID>? {
         guard let machine = links[id]?.machine, machine.agents != nil else { return nil }
-        return machine.enabledAgents
+        return machine.enabledAgents(of: Agents.all.ids)
     }
 
     /// The machine's switches changed: kept on its entry (what the list
@@ -210,13 +211,16 @@ final class RemoteTunnels {
     /// Which agents a server actually relays is its install's business
     /// (`RemoteSettings.relays`): a provider nothing posts to draws nothing.
     private func syncUsage(_ link: Link) {
-        let wanted = link.machine.enabledAgents.filter { $0.usage.statusLine != nil }
+        let wanted = link.machine.enabledAgents(of: Agents.all.ids).filter { $0.agent.statusLineUsage != nil }
         for (source, provider) in link.usage where !wanted.contains(source) {
             registry.unregister(provider)
             link.usage[source] = nil
         }
-        for source in AgentSource.allCases where wanted.contains(source) && link.usage[source] == nil {
-            let provider = StatusLineUsageProvider(now: now, machine: link.machine.identity, source: source)
+        for agent in Agents.all where wanted.contains(agent.id) && link.usage[agent.id] == nil {
+            guard let usage = agent.statusLineUsage else { continue }
+            let source = agent.id
+            let provider = StatusLineUsageProvider(now: now, machine: link.machine.identity, source: source,
+                                                   usage: usage)
             link.usage[source] = provider
             registry.register(provider)
         }
@@ -241,7 +245,8 @@ final class RemoteTunnels {
     func add(_ machine: RemoteMachine, key: String, interactive: Bool = false) {
         guard links[machine.id] == nil else { return }
         let link = Link(machine: machine,
-                        hooks: HooksProvider(platform: platform, machine: machine.identity),
+                        hooks: HooksProvider(platform: platform, machine: machine.identity,
+                                             isQuestion: Agents.isQuestion),
                         signals: SignalsProvider(now: now, machine: machine.identity),
                         signalKey: key)
         link.startInteractive = interactive

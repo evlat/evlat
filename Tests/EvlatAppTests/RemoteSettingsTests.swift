@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// The remote writer end to end against a **fake `ssh`** that runs the script
@@ -68,16 +69,16 @@ final class RemoteSettingsTests: XCTestCase {
         return ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count
     }
 
-    private func claude(_ home: URL) -> URL { AgentSource.claude.settingsFile(home: home) }
-    private func codex(_ home: URL) -> URL { AgentSource.codex.settingsFile(home: home) }
+    private func claude(_ home: URL) -> URL { Claude().hooksFile(home: home) }
+    private func codex(_ home: URL) -> URL { Codex().hooksFile(home: home) }
 
     /// The same file in both homes.
-    private func seed(_ source: AgentSource, _ text: String?, mode: Int = 0o644) throws {
+    private func seed(_ source: some Agent, _ text: String?, mode: Int = 0o644) throws {
         for home in [remote!, local!] {
-            try FileManager.default.createDirectory(at: source.configDirectory(home: home),
+            try FileManager.default.createDirectory(at: source.hooksFile(home: home).deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             guard let text else { continue }
-            let file = source.settingsFile(home: home)
+            let file = source.hooksFile(home: home)
             try Data(text.utf8).write(to: file)
             try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: file.path)
         }
@@ -117,7 +118,7 @@ final class RemoteSettingsTests: XCTestCase {
                 XCTAssertEqual(bytes(claude(remote)), bytes(claude(local)), "\(shell): \(text ?? "no file")")
                 XCTAssertEqual(bytes(backup(claude(remote))), bytes(backup(claude(local))), "\(shell): backup")
 
-                XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .success(.written), shell)
+                XCTAssertEqual(apply(.statusLine(.claude), .install, ssh: ssh), .success(.written), shell)
                 XCTAssertEqual(try StatusLineRelay.install(at: claude(local), source: .claude), .written)
                 XCTAssertEqual(bytes(claude(remote)), bytes(claude(local)), "\(shell): statusLine")
                 XCTAssertEqual(bytes(statusBackup(claude(remote))), bytes(statusBackup(claude(local))),
@@ -132,8 +133,8 @@ final class RemoteSettingsTests: XCTestCase {
             try seed(.claude, existing)
             let original = try XCTUnwrap(bytes(claude(remote)))
             XCTAssertEqual(apply(.hooks(.claude), .install, ssh: ssh), .success(.written))
-            XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .success(.written))
-            XCTAssertEqual(apply(.statusLine, .remove, ssh: ssh), .success(.written))
+            XCTAssertEqual(apply(.statusLine(.claude), .install, ssh: ssh), .success(.written))
+            XCTAssertEqual(apply(.statusLine(.claude), .remove, ssh: ssh), .success(.written))
             XCTAssertEqual(apply(.hooks(.claude), .remove, ssh: ssh), .success(.written))
             let back = try JSONSerialization.jsonObject(with: try XCTUnwrap(bytes(claude(remote))))
             let before = try JSONSerialization.jsonObject(with: original)
@@ -166,7 +167,7 @@ final class RemoteSettingsTests: XCTestCase {
         for shell in shells {
             let ssh = try setUp(shell: shell)
             XCTAssertEqual(apply(.hooks(.claude), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.configDirectory(home: remote).path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: remote).deletingLastPathComponent().path))
         }
     }
 
@@ -181,7 +182,7 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(result, .failure(.file(.changedUnderneath)), shell)
             XCTAssertEqual(bytes(claude(remote)), theirs, "\(shell): theirs is kept")
             let leftovers = try FileManager.default.contentsOfDirectory(
-                atPath: AgentSource.claude.configDirectory(home: remote).path).filter { $0.hasSuffix(".tmp") }
+                atPath: Claude().hooksFile(home: remote).deletingLastPathComponent().path).filter { $0.hasSuffix(".tmp") }
             XCTAssertEqual(leftovers, [], "\(shell): no temporary file stays")
         }
     }
@@ -207,7 +208,7 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(bytes(backup(claude(remote))), original, shell)
             XCTAssertEqual(try mode(backup(claude(remote))), 0o600, shell)
             XCTAssertEqual(try mode(claude(remote)), 0o600, "\(shell): a 0600 file stays 0600")
-            XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .success(.written))
+            XCTAssertEqual(apply(.statusLine(.claude), .install, ssh: ssh), .success(.written))
             XCTAssertEqual(bytes(backup(claude(remote))), original, "\(shell): taken once")
             XCTAssertEqual(try mode(claude(remote)), 0o600)
             XCTAssertEqual(try mode(statusBackup(claude(remote))), 0o600)
@@ -249,7 +250,7 @@ final class RemoteSettingsTests: XCTestCase {
             try seed(.claude, #"{"model": "opus",,}"#)
             let before = bytes(claude(remote))
             XCTAssertEqual(apply(.hooks(.claude), .install, ssh: ssh), .failure(.file(.malformed)), shell)
-            XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .failure(.file(.malformed)), shell)
+            XCTAssertEqual(apply(.statusLine(.claude), .install, ssh: ssh), .failure(.file(.malformed)), shell)
             XCTAssertEqual(bytes(claude(remote)), before)
             XCTAssertNil(bytes(backup(claude(remote))), "\(shell): not even a backup")
         }
@@ -260,7 +261,7 @@ final class RemoteSettingsTests: XCTestCase {
             let ssh = try setUp(shell: shell)
             try seed(.claude, existing)
             let runs = sshRuns
-            XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(apply(.statusLine(.claude), .install, ssh: ssh), .success(.written), shell)
             XCTAssertEqual(sshRuns, runs + 2, "\(shell): one read, one write")
             let saved = try JSONSerialization.jsonObject(with: try XCTUnwrap(bytes(statusBackup(claude(remote)))))
             XCTAssertEqual((saved as? [String: Any])?["command"] as? String, "bash ~/.claude/it's.sh", shell)
@@ -274,8 +275,8 @@ final class RemoteSettingsTests: XCTestCase {
             let text = String(decoding: try SettingsFile.encode(["statusLine": ["type": "command", "command": modified]]),
                               as: UTF8.self)
             try seed(.claude, text)
-            XCTAssertEqual(apply(.statusLine, .remove, ssh: ssh), .failure(.file(.malformed)), shell)
-            XCTAssertEqual(apply(.statusLine, .install, ssh: ssh), .failure(.file(.malformed)), shell)
+            XCTAssertEqual(apply(.statusLine(.claude), .remove, ssh: ssh), .failure(.file(.malformed)), shell)
+            XCTAssertEqual(apply(.statusLine(.claude), .install, ssh: ssh), .failure(.file(.malformed)), shell)
             XCTAssertEqual(bytes(claude(remote)), Data(text.utf8))
         }
     }
@@ -291,14 +292,14 @@ final class RemoteSettingsTests: XCTestCase {
                 results = $0
                 done.fulfill()
             })
-            XCTAssertFalse(installer.run([.statusLine], .install, machine: "m", target: "fake") { _ in
+            XCTAssertFalse(installer.run([.statusLine(.claude)], .install, machine: "m", target: "fake") { _ in
                 XCTFail("a second job on the same machine is refused")
             })
             wait(for: [done], timeout: 20)
             XCTAssertEqual(results.map(\.0), [.hooks(.claude), .hooks(.codex)])
             XCTAssertEqual(results.map(\.1), [.success(.written), .failure(.file(.noDirectory))], shell)
             XCTAssertFalse(installer.isBusy("m"))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.codex.configDirectory(home: remote).path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: remote).deletingLastPathComponent().path))
         }
     }
 
@@ -323,13 +324,13 @@ final class RemoteSettingsTests: XCTestCase {
                 try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity-cli"),
                                                         withIntermediateDirectories: true)
             }
-            let file = AgentSource.antigravity.settingsFile(home: remote)
+            let file = Antigravity().hooksFile(home: remote)
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .state(.missing), "\(shell): the agent is there, its hooks are not")
             XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .success(.written), shell)
-            XCTAssertEqual(try LocalHooks.install(at: AgentSource.antigravity.settingsFile(home: local),
+            XCTAssertEqual(try LocalHooks.install(at: Antigravity().hooksFile(home: local),
                                                   for: .antigravity), .written)
-            XCTAssertEqual(bytes(file), bytes(AgentSource.antigravity.settingsFile(home: local)), shell)
+            XCTAssertEqual(bytes(file), bytes(Antigravity().hooksFile(home: local)), shell)
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .state(.current), shell)
             XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .success(.unchanged), shell)
@@ -394,10 +395,10 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .noDirectory, shell)
             // A shared folder left behind does not say the agent is there.
-            try FileManager.default.createDirectory(at: AgentSource.antigravity.configDirectory(home: remote),
+            try FileManager.default.createDirectory(at: Antigravity().hooksFile(home: remote).deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.antigravity.settingsFile(home: remote).path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Antigravity().hooksFile(home: remote).path))
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .noDirectory, shell)
         }
@@ -468,16 +469,16 @@ final class RemoteSettingsTests: XCTestCase {
         try seed(.claude, nil)
         try seed(.codex, nil)
         try HookSettings.install(at: claude(local), for: .claude)
-        XCTAssertEqual(Data(RemoteSettings.manual.hooks(for: .claude).utf8), bytes(claude(local)))
+        XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).hooks(for: .claude).utf8), bytes(claude(local)))
         try HookSettings.install(at: codex(local), for: .codex)
-        XCTAssertEqual(Data(RemoteSettings.manual.hooks(for: .codex).utf8), bytes(codex(local)))
+        XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).hooks(for: .codex).utf8), bytes(codex(local)))
         try FileManager.default.removeItem(at: claude(local))
         try StatusLineRelay.install(at: claude(local), source: .claude)
-        XCTAssertEqual(Data(RemoteSettings.manual.statusLine.utf8), bytes(claude(local)))
-        XCTAssertEqual(RemoteSettings.manual.wrapping,
+        XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).statusLine.utf8), bytes(claude(local)))
+        XCTAssertEqual(RemoteSettings.manual(agents: Agents.all).wrapping,
                        StatusLineRelay.command(wrapping: RemoteSettings.Manual.placeholder, source: .claude))
-        XCTAssertTrue(RemoteSettings.manual.hooks(for: .claude).contains(RemoteSettings.manual.marker))
-        XCTAssertTrue(RemoteSettings.manual.statusLine.contains(RemoteSettings.manual.marker))
+        XCTAssertTrue(RemoteSettings.manual(agents: Agents.all).hooks(for: .claude).contains(RemoteSettings.manual(agents: Agents.all).marker))
+        XCTAssertTrue(RemoteSettings.manual(agents: Agents.all).statusLine.contains(RemoteSettings.manual(agents: Agents.all).marker))
     }
 
     /// The wrapper a user pastes runs under dash, both as the runner's shell

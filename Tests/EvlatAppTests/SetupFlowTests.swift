@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// The setup window: its steps forward and back,
@@ -142,8 +143,8 @@ final class SetupFlowTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        XCTAssertEqual(SetupFlowModel.sessionItems, Set(AgentSource.allCases.map(SetupItem.agent)))
-        XCTAssertEqual(flow.sessionRows.map(\.item), AgentSource.allCases.map(SetupItem.agent))
+        XCTAssertEqual(SetupFlowModel.sessionItems, Set(Agents.all.ids.map(SetupItem.agent)))
+        XCTAssertEqual(flow.sessionRows.map(\.item), Agents.all.ids.map(SetupItem.agent))
         XCTAssertEqual(flow.sessionRows.map(\.status), [.missing, .missing, .notFound])
         XCTAssertTrue(flow.isQueued(.agent(.claude)))
         XCTAssertTrue(flow.isQueued(.agent(.codex)))
@@ -200,7 +201,7 @@ final class SetupFlowTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .sessions)
-        for source in [AgentSource.claude, .codex] { flow.setQueued(.agent(source), false) }
+        for source in [AgentID.claude, .codex] { flow.setQueued(.agent(source), false) }
         XCTAssertEqual(flow.installConsent, [])
         XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
         flow.primary()

@@ -1,5 +1,6 @@
 import XCTest
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// Held terminal permissions: a press answers once, a stale press sends
@@ -10,13 +11,13 @@ final class ApprovalStoreTests: XCTestCase {
     private var sent: [(String, LocalAPI.Response)] = []
 
     private func store() -> ApprovalStore {
-        let store = ApprovalStore()
+        let store = ApprovalStore(body: Claude().approvals!.body)
         store.respond = { [weak self] id, response in self?.sent.append((id, response)) }
         return store
     }
 
-    private func request(_ id: String, session: String = "s-1") -> PermissionHook.Request {
-        PermissionHook.Request(id: id, token: nil, tool: "Bash", subject: "rm -r build",
+    private func request(_ id: String, session: String = "s-1") -> HeldRequest {
+        HeldRequest(id: id, token: nil, tool: "Bash", subject: "rm -r build",
                                command: "rm -r build", sessionID: session)
     }
 
@@ -72,11 +73,11 @@ final class ApprovalStoreTests: XCTestCase {
 
     // MARK: - Questions
 
-    private func question(_ id: String, session: String = "s-1") -> PermissionHook.Request {
-        let questions = [AskQuestion.Question(text: "Which color?", options: [.init(label: "Red"), .init(label: "Blue")]),
-                         AskQuestion.Question(text: "Which sizes?", options: [.init(label: "S"), .init(label: "L")],
+    private func question(_ id: String, session: String = "s-1") -> HeldRequest {
+        let questions = [AgentQuestion(text: "Which color?", options: [.init(label: "Red"), .init(label: "Blue")]),
+                         AgentQuestion(text: "Which sizes?", options: [.init(label: "S"), .init(label: "L")],
                                               multiSelect: true)]
-        return PermissionHook.Request(id: id, token: nil, tool: AskQuestion.tool, subject: nil, sessionID: session,
+        return HeldRequest(id: id, token: nil, tool: AskQuestion.tool, subject: nil, sessionID: session,
                                       questions: questions, input: Data(#"{"questions":[]}"#.utf8))
     }
 

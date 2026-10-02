@@ -1,5 +1,6 @@
 import AppKit
 import EvlatCore
+import EvlatAgents
 
 /// The setup window's state: which of
 /// the six steps is on, what the setup's two pressing buttons write, and
@@ -34,7 +35,7 @@ final class SetupFlowModel: ObservableObject {
 
     /// The sessions step's items — one per agent in the catalogue — and the
     /// optional step's: what "Install" and "Finish" may write.
-    static let sessionItems = Set(AgentSource.allCases.map(SetupItem.agent))
+    static let sessionItems = Set(Agents.all.ids.map(SetupItem.agent))
     static let optionalItems: Set<SetupItem> = [.commandLink, .loginItem]
 
     @Published private(set) var step: Step = .hello
@@ -234,7 +235,7 @@ final class SetupFlowModel: ObservableObject {
         var lines = [SummaryLine(mark: .done, text: t(edge.isLeft ? "setup.flow.summary.left" : "setup.flow.summary.right"))]
         // One line per agent found, from the catalogue; one not on this Mac
         // was never offered.
-        for source in AgentSource.allCases {
+        for source in Agents.all.ids {
             let item = SetupItem.agent(source)
             guard let row = setup.row(item), row.status != .notFound else { continue }
             if row.status == .installed || row.status == .outdated {

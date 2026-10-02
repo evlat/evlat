@@ -21,7 +21,7 @@ final class RegistryTests: XCTestCase {
     /// table below is about a baseline that did say something.
     private func signal(_ entity: String, _ phase: Phase, _ fidelity: Signal.Fidelity,
                         provider: String = "stub", label: String? = nil,
-                        detail: String? = nil, source: AgentSource? = nil,
+                        detail: String? = nil, source: AgentID? = nil,
                         rawStatus: String? = "said-so",
                         at offset: TimeInterval = 0,
                         activity: Signal.Activity? = nil) -> Signal {
@@ -128,12 +128,12 @@ final class RegistryTests: XCTestCase {
     /// when it knows, from the baseline otherwise. The rule carries it and
     /// never reads it — merging is the same for every source.
     func testTheSourceRidesAlongWithTheMerge() {
-        let known = merged([signal("s", .working, .derived, source: .claude)],
-                           [signal("s", .waiting, .official, source: .codex)])
-        XCTAssertEqual(known.first?.source, .codex)
-        let unknown = merged([signal("s", .working, .derived, source: .claude)],
+        let known = merged([signal("s", .working, .derived, source: .test)],
+                           [signal("s", .waiting, .official, source: .other)])
+        XCTAssertEqual(known.first?.source, .other)
+        let unknown = merged([signal("s", .working, .derived, source: .test)],
                              [signal("s", .waiting, .official)])
-        XCTAssertEqual(unknown.first?.source, .claude)
+        XCTAssertEqual(unknown.first?.source, .test)
     }
 
     func testAnAdmittedReportWithoutDetailKeepsTheBaselineDetail() {

@@ -714,7 +714,7 @@ extension StatusLine.Unit {
 /// beat, still in between; `review` flares once on arrival and fades.
 struct SessionIndicator: View {
     let phase: Phase
-    var source: AgentSource? = nil
+    var source: AgentID? = nil
     /// What sits inside the ring, from the row's kind (`RowTraits`): the
     /// tool's mark for a session, the mascot's small face for Evlat's own
     /// chat — still, the ring's beat is the one gesture — nothing for an

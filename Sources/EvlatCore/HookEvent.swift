@@ -2,7 +2,7 @@ import Foundation
 
 /// The typed view of a hook body. Fields are read from the **canonical**
 /// vocabulary (Claude Code's); another source's body arrives here after
-/// `AgentSource.canonical`.
+/// its `HookChannel.canonical`.
 ///
 /// Only what a rule or the detail card reads is kept. The card added
 /// `tool_name`, a one-line subject taken from `tool_input`, and
@@ -44,9 +44,9 @@ public struct HookEvent: Equatable {
     /// keeps no file record has nothing else to prove it is still alive.
     public let pid: Int32?
     /// Where the event came from; a session takes it from its first event.
-    public let source: AgentSource
-    /// `tool_name`, canonical spelling (`AgentSource.canonical` has already
-    /// turned Codex's `apply_patch` into `Edit` or `Write`).
+    public let source: AgentID
+    /// `tool_name`, canonical spelling (the agent's `HookChannel.canonical`
+    /// has already translated its own names).
     public let toolName: String?
     /// One line that says what the tool is working on: the first non-blank
     /// value among `subjectKeys` in `tool_input`, first line only, trimmed and
@@ -76,9 +76,9 @@ public struct HookEvent: Equatable {
     /// The key under which the server writes the `X-Evlat-Pid` header.
     public static let pidKey = "evlat_pid"
 
-    /// `.claude` by default: fixtures are written in the canonical vocabulary
-    /// and naming the source each time would only repeat it.
-    public init(json: [String: Any], source: AgentSource = .claude) {
+    /// `json` is in the canonical vocabulary already: the agent's
+    /// translation runs before this (`LocalAPI.handle`).
+    public init(json: [String: Any], source: AgentID) {
         self.source = source
         name = json["hook_event_name"] as? String ?? ""
         sessionID = Self.text(json["session_id"])

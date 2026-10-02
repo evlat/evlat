@@ -1,5 +1,6 @@
 import XCTest
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// An agent's switch on a real controller: what is stored and when, the
@@ -38,11 +39,11 @@ final class AgentSwitchTests: XCTestCase {
         return controller
     }
 
-    private func event(_ name: String, session: String, source: AgentSource) -> HookEvent {
+    private func event(_ name: String, session: String, source: AgentID) -> HookEvent {
         HookEvent(json: ["hook_event_name": name, "session_id": session, "cwd": "/tmp/p"], source: source)
     }
 
-    private func usage(_ source: AgentSource, at date: Date) -> UsageReport {
+    private func usage(_ source: AgentID, at date: Date) -> UsageReport {
         UsageReport(windows: [UsageReport.Window(minutes: 300, usedPercent: 40, resetsAt: date + 3600)],
                     unrecognizedWindows: [], source: source)
     }
@@ -164,7 +165,7 @@ final class AgentSwitchTests: XCTestCase {
         var sent: [(String, LocalAPI.Response)] = []
         controller.approvals.respond = { sent.append(($0, $1)) }
         controller.setEnabled(.claude, false)
-        controller.handleDelivery(.approval(PermissionHook.Request(id: "r-1", token: nil, tool: "Bash",
+        controller.handleDelivery(.approval(HeldRequest(id: "r-1", token: nil, tool: "Bash",
                                                                    subject: "ls", command: "ls",
                                                                    sessionID: "s-1")))
         XCTAssertEqual(controller.approvals.pending, [])
@@ -176,7 +177,7 @@ final class AgentSwitchTests: XCTestCase {
         let controller = controller()
         var sent: [String] = []
         controller.approvals.respond = { id, _ in sent.append(id) }
-        controller.handleDelivery(.approval(PermissionHook.Request(id: "r-1", token: nil, tool: "Bash",
+        controller.handleDelivery(.approval(HeldRequest(id: "r-1", token: nil, tool: "Bash",
                                                                    subject: "ls", command: "ls",
                                                                    sessionID: "s-1")))
         XCTAssertEqual(controller.approvals.pending.map(\.id), ["r-1"], "held while on")
@@ -192,7 +193,7 @@ final class AgentSwitchTests: XCTestCase {
         // would light up.
         let old = "curl -s http://127.0.0.1:\(LocalAPI.defaultPort)/hook/codex old"
         try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\#(old)"}]}]}}"#.utf8)
-            .write(to: AgentSource.codex.settingsFile(home: home))
+            .write(to: Codex().hooksFile(home: home))
         let controller = controller()
         XCTAssertTrue(SetupModel(host: controller.setupHost, lang: "en").attention.contains(.hooksOutdated(.codex)))
         controller.setEnabled(.codex, false)
@@ -200,7 +201,7 @@ final class AgentSwitchTests: XCTestCase {
         XCTAssertEqual(model.attention, [])
         XCTAssertEqual(model.row(.agent(.codex))?.enabled, false)
         model.perform(.agent(.codex))
-        XCTAssertEqual(try LocalHooks.state(at: AgentSource.codex.settingsFile(home: home), for: .codex), .outdated,
+        XCTAssertEqual(try LocalHooks.state(at: Codex().hooksFile(home: home), for: .codex), .outdated,
                        "an agent off offers no button")
     }
 

@@ -22,6 +22,8 @@ public final class SessionsProvider: Provider {
 
     private let directory: URL
     private let platform: Platform
+    /// The agent whose records these are; every row names it.
+    private let source: AgentID
     /// Unrecognised `status` values seen in the **last** scan. Collected so
     /// they cannot drop silently into `idle`; diagnostics read them from here
     /// (`AGENTS.md` → Pitfalls).
@@ -60,7 +62,9 @@ public final class SessionsProvider: Provider {
     /// SDK sessions.
     private let excluding: () -> Set<String>
 
-    public init(directory: URL, platform: Platform, excluding: @escaping () -> Set<String> = { [] }) {
+    public init(directory: URL, platform: Platform, source: AgentID,
+                excluding: @escaping () -> Set<String> = { [] }) {
+        self.source = source
         self.directory = directory
         self.platform = platform
         self.excluding = excluding
@@ -117,7 +121,7 @@ public final class SessionsProvider: Provider {
                 label: record.label,
                 detail: record.cwd,
                 // The session files are Claude Code's own.
-                source: .claude,
+                source: source,
                 fidelity: .derived,
                 rawStatus: record.status,
                 // The **status** stamp, not the record's. Measured:

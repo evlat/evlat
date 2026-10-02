@@ -62,6 +62,7 @@ public final class HooksProvider: Provider {
     /// The remote computer this instance hears through its tunnel; `nil` for
     /// this Mac's own port.
     private let machine: Signal.Machine.Identity?
+    private let isQuestion: (String) -> Bool
     /// When the tunnel came up and each row was lost (`LinkClock`, shared
     /// with a machine's `SignalsProvider`). Given from outside (`setLink`)
     /// because the tunnel is the shell's; the clock is still `platform.now()`.
@@ -71,9 +72,15 @@ public final class HooksProvider: Provider {
     /// are namespaced, carry no pid and are live only while the machine can
     /// be heard. Without it this is the local provider, unchanged for every
     /// row that has a pid.
-    public init(platform: Platform, machine: Signal.Machine.Identity? = nil) {
+    ///
+    /// `isQuestion` says which canonical tool asks the user a question
+    /// rather than for permission (`ApprovalChannel.isQuestion`): its wait
+    /// is an answer.
+    public init(platform: Platform, machine: Signal.Machine.Identity? = nil,
+                isQuestion: @escaping (String) -> Bool) {
         self.platform = platform
         self.machine = machine
+        self.isQuestion = isQuestion
     }
 
     /// The tunnel came up or went down. A repeated "up" keeps the first
@@ -105,7 +112,7 @@ public final class HooksProvider: Provider {
     }
 
     /// The canonical vocabulary only (Claude Code's); another source's body has
-    /// already been through `AgentSource.canonical` by the time it is here.
+    /// already been through `HookChannel.canonical` by the time it is here.
     ///
     /// All eleven installed Claude events are covered, so the `default` branch
     /// is defensive: an event name this version does not know stays visible in
@@ -206,17 +213,17 @@ public final class HooksProvider: Provider {
     /// block's lifetime. `keep` is the tool already on the block — a
     /// permission notification follows the request that named the tool and
     /// names none itself.
-    private static func wait(for phase: Phase, from event: HookEvent,
-                             keep: Signal.Activity.Tool?) -> (Signal.Activity.Tool?, Signal.Activity.WaitKind?) {
+    private func wait(for phase: Phase, from event: HookEvent,
+                      keep: Signal.Activity.Tool?) -> (Signal.Activity.Tool?, Signal.Activity.WaitKind?) {
         guard phase == .waiting else { return (nil, nil) }
         switch event.name {
-        // `AskUserQuestion` comes through the permission path, but what it
-        // waits for is an answer.
+        // A question comes through the permission path, but what it waits
+        // for is an answer.
         case "PermissionRequest":
-            let asked = tool(of: event)
-            return (asked, asked?.name == AskQuestion.tool ? .answer : .approval)
+            let asked = Self.tool(of: event)
+            return (asked, asked.map { isQuestion($0.name) } == true ? .answer : .approval)
         case "Notification" where event.notificationType == "permission_prompt":
-            return (keep, keep?.name == AskQuestion.tool ? .answer : .approval)
+            return (keep, keep.map { isQuestion($0.name) } == true ? .answer : .approval)
         default:
             return (keep, .answer)
         }
@@ -278,7 +285,7 @@ public final class HooksProvider: Provider {
             // An event that says nothing about the phase opens no row: there
             // would be no phase to put in it.
             guard case .set(let phase) = effect else { return }
-            let (blockingTool, waitKind) = Self.wait(for: phase, from: event, keep: nil)
+            let (blockingTool, waitKind) = wait(for: phase, from: event, keep: nil)
             var session = Session(phase: phase, since: platform.now(),
                                   word: event.name, source: event.source,
                                   cwd: event.cwd,
@@ -328,7 +335,7 @@ public final class HooksProvider: Provider {
             // the block's tool and kind go the same way.
             session.blockedBy = Self.blocks(phase) ? event.agentID : nil
             (session.blockingTool, session.waitKind) =
-                Self.wait(for: phase, from: event, keep: session.blockingTool)
+                wait(for: phase, from: event, keep: session.blockingTool)
         }
         sessions[entity] = session
     }
@@ -427,7 +434,7 @@ public final class HooksProvider: Provider {
         var word: String
         /// Which agent the session runs in: the source of the event that
         /// opened the row. A session does not change tools.
-        let source: AgentSource
+        let source: AgentID
         var cwd: String?
         var pid: Int32?
         /// The process start time as read at first sight of this pid.
@@ -446,7 +453,7 @@ public final class HooksProvider: Provider {
         var toolCount = 0
         var countIsPartial: Bool
 
-        init(phase: Phase, since: Date, word: String, source: AgentSource, cwd: String?,
+        init(phase: Phase, since: Date, word: String, source: AgentID, cwd: String?,
              pid: Int32?, startedAt: Date?, blockedBy: String?,
              blockingTool: Signal.Activity.Tool?, waitKind: Signal.Activity.WaitKind?,
              countIsPartial: Bool) {

@@ -119,7 +119,9 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertEqual(request.target, "/hook")
         XCTAssertEqual(request.body, raw("{}"))
         // The body is a slice too, and it is what gets decoded as JSON.
-        XCTAssertEqual(LocalAPI.handle(request).response?.body, "{}")
+        let agent = TestAgent(paths: [RouteTable.installedPrefix])
+        XCTAssertEqual(LocalAPI.handle(request, listener: LocalAPI.Listener(routes: RouteTable([agent])),
+                                       agents: [agent]).response?.body, "{}")
         // The same slice one byte short is still "not yet", not "never".
         XCTAssertNil(HTTPRequest.parse(rest.dropLast()))
     }

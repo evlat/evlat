@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The hook settings writer's contract. Every test builds its own home under
 /// the temporary directory and removes it in `tearDown`: nothing here may reach
@@ -19,10 +20,10 @@ final class HookSettingsTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func settingsFile(_ source: AgentSource) throws -> URL {
+    private func settingsFile(_ source: some Agent) throws -> URL {
         try FileManager.default.createDirectory(
-            at: source.configDirectory(home: home), withIntermediateDirectories: true)
-        return source.settingsFile(home: home)
+            at: source.hooksFile(home: home).deletingLastPathComponent(), withIntermediateDirectories: true)
+        return source.hooksFile(home: home)
     }
 
     private func write(_ text: String, to url: URL) throws {
@@ -58,31 +59,31 @@ final class HookSettingsTests: XCTestCase {
     /// Byte for byte v1's lists (`HookTarget.claude` / `.codex`).
     /// `SubagentStart`/`SubagentStop` are deliberately absent.
     func testTheEventListsAreV1s() {
-        XCTAssertEqual(AgentSource.claude.hookEvents, [
+        XCTAssertEqual(Claude().hooks.events, [
             "SessionStart", "SessionEnd", "UserPromptSubmit",
             "PreToolUse", "PostToolUse", "PostToolUseFailure",
             "PermissionRequest", "PermissionDenied",
             "Notification", "Stop", "StopFailure",
         ])
-        XCTAssertEqual(AgentSource.codex.hookEvents, [
+        XCTAssertEqual(Codex().hooks.events, [
             "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
             "PermissionRequest", "Stop", "Interrupt",
         ])
     }
 
     func testThePathsDeriveFromTheHome() {
-        XCTAssertEqual(AgentSource.claude.settingsFile(home: home).path, home.path + "/.claude/settings.json")
-        XCTAssertEqual(AgentSource.codex.settingsFile(home: home).path, home.path + "/.codex/hooks.json")
-        XCTAssertEqual(AgentSource.claude.configDirectory(home: home).path, home.path + "/.claude")
-        XCTAssertEqual(AgentSource.codex.configDirectory(home: home).path, home.path + "/.codex")
+        XCTAssertEqual(Claude().hooksFile(home: home).path, home.path + "/.claude/settings.json")
+        XCTAssertEqual(Codex().hooksFile(home: home).path, home.path + "/.codex/hooks.json")
+        XCTAssertEqual(Claude().hooksFile(home: home).deletingLastPathComponent().path, home.path + "/.claude")
+        XCTAssertEqual(Codex().hooksFile(home: home).deletingLastPathComponent().path, home.path + "/.codex")
     }
 
     // MARK: - State
 
     func testTheWrittenCommandIsTheGoldenOneOnEveryEvent() throws {
-        for source in AgentSource.allCases {
+        for source in Agents.all {
             let settings = HookSettings.installing(into: [:], for: source)
-            for event in source.hookEvents {
+            for event in source.hooks.events {
                 let group = try XCTUnwrap(groups(settings, event).first as? [String: Any])
                 let hooks = try XCTUnwrap(group["hooks"] as? [[String: Any]])
                 XCTAssertEqual(hooks.count, 1)
@@ -97,19 +98,19 @@ final class HookSettingsTests: XCTestCase {
     /// What v1 installed is what v2 writes: a file holding today's golden
     /// command on every event reads `current`.
     func testAGoldenInstallReadsCurrent() {
-        for source in AgentSource.allCases {
+        for source in Agents.all {
             let command = LocalAPI.installedHookCommand(for: source)
             var hooks: [String: Any] = [:]
-            for event in source.hookEvents { hooks[event] = [foreignGroup("other"), evlatGroup(command)] }
+            for event in source.hooks.events { hooks[event] = [foreignGroup("other"), evlatGroup(command)] }
             XCTAssertEqual(HookSettings.state(of: ["hooks": hooks], for: source), .current)
         }
     }
 
     func testAMissingEventOrAnOldCommandReadsOutdated() {
-        let source = AgentSource.claude
+        let source = Claude()
         let command = LocalAPI.installedHookCommand(for: source)
         var hooks: [String: Any] = [:]
-        for event in source.hookEvents { hooks[event] = [evlatGroup(command)] }
+        for event in source.hooks.events { hooks[event] = [evlatGroup(command)] }
 
         var missingOne = hooks
         missingOne.removeValue(forKey: "Stop")
@@ -132,7 +133,7 @@ final class HookSettingsTests: XCTestCase {
     /// index 0 on some events and 1 on others. Installing keeps every foreign
     /// group at its index with its content — Codex's trust is keyed by index.
     func testInstallingKeepsForeignGroupsAtTheirIndex() throws {
-        let source = AgentSource.claude
+        let source = Claude()
         let old = "curl -s -m 2 -X POST --data-binary @- http://127.0.0.1:48151/hook"
         let settings: [String: Any] = [
             "model": "opus",
@@ -169,7 +170,7 @@ final class HookSettingsTests: XCTestCase {
     /// Removing an Evlat group that has a foreign group behind it moves that
     /// group down one index. Expected: removal cannot keep an index it deletes.
     func testRemovingDropsOnlyEvlatGroupsAndShiftsTheOnesBehind() throws {
-        let source = AgentSource.codex
+        let source = Codex()
         let command = LocalAPI.installedHookCommand(for: source)
         let settings: [String: Any] = ["hooks": [
             "Stop": [evlatGroup(command), foreignGroup("a")],
@@ -188,7 +189,7 @@ final class HookSettingsTests: XCTestCase {
     }
 
     func testNonObjectGroupsAndNonArrayEventValuesAreKept() throws {
-        let source = AgentSource.claude
+        let source = Claude()
         let settings: [String: Any] = ["hooks": [
             "Stop": ["a stray string", 42, foreignGroup("a")] as [Any],
             "Notification": "not an array",
@@ -299,7 +300,7 @@ final class HookSettingsTests: XCTestCase {
 
     /// No directory is created: a Codex entry must not conjure `~/.codex`.
     func testAMissingDirectoryIsRefusedAndNotCreated() throws {
-        let url = AgentSource.codex.settingsFile(home: home)
+        let url = Codex().hooksFile(home: home)
         XCTAssertThrowsError(try HookSettings.install(at: url, for: .codex)) {
             XCTAssertEqual($0 as? HookSettings.Failure, .noDirectory)
         }
@@ -368,10 +369,10 @@ final class HookSettingsTests: XCTestCase {
 
     /// Two installs stacked on one event fire every hook twice.
     func testADuplicateEvlatGroupReadsOutdated() {
-        let source = AgentSource.claude
+        let source = Claude()
         let command = LocalAPI.installedHookCommand(for: source)
         var hooks: [String: Any] = [:]
-        for event in source.hookEvents { hooks[event] = [evlatGroup(command)] }
+        for event in source.hooks.events { hooks[event] = [evlatGroup(command)] }
         hooks["Stop"] = [evlatGroup(command), evlatGroup(command)]
         XCTAssertEqual(HookSettings.state(of: ["hooks": hooks], for: source), .outdated)
         let folded = HookSettings.installing(into: ["hooks": hooks], for: source)

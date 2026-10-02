@@ -5,7 +5,7 @@ import EvlatCore
 public struct SessionDetail: Equatable {
     public let entity: String
     public let label: String
-    public let source: AgentSource?
+    public let source: AgentID?
     public let phase: Phase
     /// The row's, so the card's time and the status line's agree.
     public let enteredAt: Date?
@@ -40,7 +40,7 @@ public struct SessionDetail: Equatable {
     /// (`ApprovalHook`); `nil` on every other card.
     var approval: ApprovalCard?
 
-    public init(entity: String, label: String, source: AgentSource?, phase: Phase,
+    public init(entity: String, label: String, source: AgentID?, phase: Phase,
                 enteredAt: Date?, activity: Signal.Activity?,
                 machine: String? = nil, dim: Signal.Machine.Dim? = nil,
                 kind: Signal.Kind = .session, folder: String? = nil,
@@ -75,7 +75,7 @@ public struct SessionDetail: Equatable {
         let question: QuestionCard?
         var armed: Bool
 
-        init(_ request: PermissionHook.Request, draft: AskQuestion.Draft? = nil, armed: Bool) {
+        init(_ request: HeldRequest, draft: AgentQuestion.Draft? = nil, armed: Bool) {
             id = request.id
             tool = request.tool
             text = request.command ?? request.subject
@@ -106,7 +106,7 @@ public struct SessionDetail: Equatable {
 
     /// The question up on the card, and what is picked of it so far.
     struct QuestionCard: Equatable {
-        let question: AskQuestion.Question
+        let question: AgentQuestion
         /// Which of how many: the terminal's tabs.
         let index: Int
         let count: Int
@@ -115,7 +115,7 @@ public struct SessionDetail: Equatable {
         let canCommit: Bool
         let canGoBack: Bool
 
-        init?(_ draft: AskQuestion.Draft) {
+        init?(_ draft: AgentQuestion.Draft) {
             guard let question = draft.current else { return nil }
             self.question = question
             index = draft.index

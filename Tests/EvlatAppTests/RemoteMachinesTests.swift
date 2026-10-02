@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// The remote machines window: its model apart from the view
@@ -348,7 +349,7 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertEqual(again.line, "Claude Code: already up to date · Codex: already up to date")
         XCTAssertEqual(again.hints, [], "nothing written, nothing to reload")
 
-        let raced = RemoteMachinesModel.outcome([(.statusLine, .failure(.file(.changedUnderneath)))],
+        let raced = RemoteMachinesModel.outcome([(.statusLine(.claude), .failure(.file(.changedUnderneath)))],
                                                 .install, in: "en")
         XCTAssertEqual(raced.line, "Usage line: the file changed while writing; try again")
         XCTAssertTrue(raced.trouble)
@@ -462,11 +463,11 @@ final class RemoteMachinesTests: XCTestCase {
     func testAJobIsOneAgentsUnit() {
         // One change per press: the agent's one file, its hooks and — where
         // the server gets one — its usage line in the same write.
-        for source in AgentSource.allCases {
-            XCTAssertEqual(RemoteMachinesModel.Job.install(source).changes, [.agent(source)])
-            XCTAssertEqual(RemoteMachinesModel.Job.remove(source).changes, [.agent(source)])
-            XCTAssertEqual(RemoteMachinesModel.Job.install(source).action, .install)
-            XCTAssertEqual(RemoteMachinesModel.Job.remove(source).action, .remove)
+        for source in Agents.all {
+            XCTAssertEqual(RemoteMachinesModel.Job.install(source.id).changes, [.agent(source)])
+            XCTAssertEqual(RemoteMachinesModel.Job.remove(source.id).changes, [.agent(source)])
+            XCTAssertEqual(RemoteMachinesModel.Job.install(source.id).action, .install)
+            XCTAssertEqual(RemoteMachinesModel.Job.remove(source.id).action, .remove)
         }
     }
 
@@ -587,13 +588,13 @@ final class RemoteMachinesTests: XCTestCase {
     // MARK: - By hand
 
     func testTheBlocksToPasteAreTheWritersOwn() throws {
-        let manual = RemoteSettings.manual
-        for source in AgentSource.allCases {
-            let card = RemoteMachinesModel.manual(source, in: "en")
+        let manual = RemoteSettings.manual(agents: Agents.all)
+        for source in Agents.all {
+            let card = RemoteMachinesModel.manual(source.id, in: "en")
             XCTAssertEqual(card.text, manual.hooks(for: source))
-            XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.settingsPath], in: "en"))
+            XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.integration.hooksFile], in: "en"))
             // The usage line is a part on a server for one agent alone.
-            XCTAssertEqual(card.statusLine != nil, RemoteSettings.relays(source), source.rawValue)
+            XCTAssertEqual(card.statusLine != nil, RemoteSettings.relays(source), source.id.rawValue)
         }
         let claude = RemoteMachinesModel.manual(.claude, in: "en")
         XCTAssertEqual(claude.statusLine, manual.statusLine)

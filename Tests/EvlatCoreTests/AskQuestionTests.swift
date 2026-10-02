@@ -20,17 +20,17 @@ final class AskQuestionTests: XCTestCase {
       "metadata":{"source":"x"}}}
     """#
 
-    private var color: AskQuestion.Question {
+    private var color: AgentQuestion {
         .init(text: "Which color?", header: "Color",
               options: [.init(label: "Red", description: "The color red"), .init(label: "Blue")])
     }
-    private var sizes: AskQuestion.Question {
+    private var sizes: AgentQuestion {
         .init(text: "Which sizes?", header: "Size",
               options: [.init(label: "Small"), .init(label: "Medium"), .init(label: "Large")], multiSelect: true)
     }
 
     func testTheRequestReadsTheQuestionsAndKeepsTheInput() throws {
-        let request = try XCTUnwrap(PermissionHook.Request(json: try object(body), token: nil))
+        let request = try XCTUnwrap(HeldRequest(json: try object(body), token: nil))
         XCTAssertEqual(request.questions, [color, sizes])
         let input = try XCTUnwrap(request.input.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
         XCTAssertEqual((input["metadata"] as? [String: String])?["source"], "x", "a field not modelled is kept")
@@ -38,7 +38,7 @@ final class AskQuestionTests: XCTestCase {
 
     /// Anything but the question tool keeps nothing of its input.
     func testAnotherToolKeepsNoInput() throws {
-        let request = try XCTUnwrap(PermissionHook.Request(json: try object(
+        let request = try XCTUnwrap(HeldRequest(json: try object(
             #"{"tool_name":"Write","tool_input":{"file_path":"/a","content":"x","questions":[]}}"#), token: nil))
         XCTAssertNil(request.questions)
         XCTAssertNil(request.input)
@@ -58,7 +58,7 @@ final class AskQuestionTests: XCTestCase {
     }
 
     func testASingleSelectQuestionIsOnePress() {
-        var draft = AskQuestion.Draft(questions: [color])
+        var draft = AgentQuestion.Draft(questions: [color])
         XCTAssertEqual(draft.current, color)
         XCTAssertNil(draft.answers)
         draft.choose(1)
@@ -68,7 +68,7 @@ final class AskQuestionTests: XCTestCase {
 
     /// Measured: text that is no label goes through as written.
     func testAWrittenAnswerIsTheWholeAnswerOfASingleSelect() {
-        var draft = AskQuestion.Draft(questions: [color])
+        var draft = AgentQuestion.Draft(questions: [color])
         draft.write("   ")
         XCTAssertEqual(draft.index, 0, "a blank answer answers nothing")
         draft.write(" Chartreuse ")
@@ -78,7 +78,7 @@ final class AskQuestionTests: XCTestCase {
     /// Labels in the options' order, the written answer last, joined as
     /// measured; nothing to send until something is picked.
     func testAMultiSelectCollectsThenCommits() {
-        var draft = AskQuestion.Draft(questions: [sizes])
+        var draft = AgentQuestion.Draft(questions: [sizes])
         XCTAssertFalse(draft.canCommit)
         draft.commit()
         XCTAssertEqual(draft.index, 0)
@@ -96,7 +96,7 @@ final class AskQuestionTests: XCTestCase {
     /// Measured: a question left out reaches Claude as unanswered, with no
     /// error — so nothing is sent until every one is in.
     func testSeveralQuestionsAreAnsweredInTurnAndSentTogether() {
-        var draft = AskQuestion.Draft(questions: [color, sizes])
+        var draft = AgentQuestion.Draft(questions: [color, sizes])
         draft.choose(0)
         XCTAssertEqual(draft.current, sizes, "the next question, with nothing picked")
         XCTAssertTrue(draft.picked.isEmpty)
@@ -111,7 +111,7 @@ final class AskQuestionTests: XCTestCase {
     /// Back returns to the question before with its answer marked; a new
     /// answer replaces it, and what was picked further on is kept.
     func testBackKeepsWhatWasPicked() {
-        var draft = AskQuestion.Draft(questions: [color, sizes])
+        var draft = AgentQuestion.Draft(questions: [color, sizes])
         XCTAssertFalse(draft.canGoBack, "nothing before the first")
         draft.choose(0)
         draft.choose(2)

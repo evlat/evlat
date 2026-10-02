@@ -1,6 +1,7 @@
 import XCTest
 import Combine
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// The collapsed strip's rows: which ones get a slot, when the model is
@@ -19,7 +20,7 @@ final class SessionRowsTests: XCTestCase {
     }
 
     private func signal(_ entity: String, _ phase: Phase, stamp: TimeInterval = 0,
-                        label: String? = nil, source: AgentSource? = .claude) -> Signal {
+                        label: String? = nil, source: AgentID? = .claude) -> Signal {
         Signal(provider: "stub", entity: entity, phase: phase, label: label ?? "name-\(entity)",
                source: source, fidelity: .official,
                updatedAt: Date(timeIntervalSince1970: 1_790_000_000 + stamp))

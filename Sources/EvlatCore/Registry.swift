@@ -41,12 +41,12 @@ public final class Registry {
     /// The agents whose sessions are drawn (`EnabledAgents`), asked on
     /// every scan; `nil` draws every agent's. The shell owns the choice and
     /// the storage; the rule that reads it is here.
-    public var enabledSources: () -> Set<AgentSource>? = { nil }
+    public var enabledSources: () -> Set<AgentID>? = { nil }
 
     /// A remote machine's own enabled agents, by its id; `nil` draws every
     /// agent's. A machine's set is its own, never this Mac's: the same rule
     /// (`shows`), asked of another set.
-    public var machineSources: (String) -> Set<AgentSource>? = { _ in nil }
+    public var machineSources: (String) -> Set<AgentID>? = { _ in nil }
 
     public init() {}
 
@@ -120,7 +120,7 @@ public final class Registry {
     /// registration, and a chat or an outside job belongs to no agent's
     /// switch. A session with no agent named passes. A remote machine's
     /// is asked of that machine's set (`machineSources`), not this Mac's.
-    static func shows(_ signal: Signal, enabled: Set<AgentSource>?) -> Bool {
+    static func shows(_ signal: Signal, enabled: Set<AgentID>?) -> Bool {
         guard let enabled, signal.kind == .session, signal.machine == nil,
               let source = signal.source else { return true }
         return enabled.contains(source)
@@ -128,7 +128,7 @@ public final class Registry {
 
     /// `shows`, with a machine's row asked of its own set. One with no id
     /// passes: there is no set to ask.
-    private func shows(_ signal: Signal, enabled: Set<AgentSource>?) -> Bool {
+    private func shows(_ signal: Signal, enabled: Set<AgentID>?) -> Bool {
         guard let machine = signal.machine else { return Self.shows(signal, enabled: enabled) }
         guard let id = machine.id, let own = machineSources(id), signal.kind == .session,
               let source = signal.source else { return true }

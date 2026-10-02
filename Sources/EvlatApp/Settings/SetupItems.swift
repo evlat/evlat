@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import EvlatCore
+import EvlatAgents
 
 // The setup's and the settings window's shared parts: one row
 // value, one row view, and the model behind both. There is no protocol over
@@ -9,12 +10,12 @@ import EvlatCore
 
 /// What the user can have Evlat set up here. An agent is one item: its
 /// hooks, approval hook and usage line are installed together
-/// (`AgentIntegration`), so the catalogue (`AgentSource.allCases`) is the
+/// (`AgentIntegration`), so the catalogue (`Agents.all`) is the
 /// list and nothing here names an agent.
 enum SetupItem: Hashable, Identifiable {
-    case agent(AgentSource), commandLink, loginItem
+    case agent(AgentID), commandLink, loginItem
 
-    static var allCases: [SetupItem] { AgentSource.allCases.map(SetupItem.agent) + [.commandLink, .loginItem] }
+    static var allCases: [SetupItem] { Agents.all.ids.map(SetupItem.agent) + [.commandLink, .loginItem] }
 
     var id: String {
         switch self {
@@ -25,7 +26,7 @@ enum SetupItem: Hashable, Identifiable {
     }
 
     /// The agent the row installs; `nil` for the others.
-    var agent: AgentSource? {
+    var agent: AgentID? {
         if case .agent(let source) = self { return source }
         return nil
     }
@@ -34,7 +35,7 @@ enum SetupItem: Hashable, Identifiable {
     /// uses too).
     var nameKey: String {
         switch self {
-        case .agent(let source): return "source.\(source.rawValue)"
+        case .agent(let source): return source.agent.display.nameKey
         case .commandLink: return "setup.item.commandLink"
         case .loginItem: return "setup.item.loginItem"
         }
@@ -147,9 +148,9 @@ struct SetupManual: Equatable {
 enum SetupAttention: Equatable {
     /// The agent's hooks are an old copy's. A missing usage line is not
     /// attention: the card offers it, the menu stays quiet.
-    case hooksOutdated(AgentSource)
+    case hooksOutdated(AgentID)
     /// The agent's usage line was edited by hand and is left alone.
-    case usageModified(AgentSource)
+    case usageModified(AgentID)
     case refused(SetupItem)
     case hotKeyUnregistered
     case machineUnreachable(String)
@@ -203,17 +204,17 @@ final class SetupModel: ObservableObject {
         var machinesNeedingPassword: () -> [String] = { [] }
 
         /// An agent's switch, read and written (`AppController.setEnabled`).
-        var isEnabled: (AgentSource) -> Bool = { _ in true }
-        var setEnabled: (AgentSource, Bool) -> Void = { _, _ in }
+        var isEnabled: (AgentID) -> Bool = { _ in true }
+        var setEnabled: (AgentID, Bool) -> Void = { _, _ in }
         /// An agent's parts installed (or updated) or removed, as one.
-        var setAgent: (AgentSource, Bool) -> Void
+        var setAgent: (AgentID, Bool) -> Void
         /// The agent's usage line alone, taken out.
-        var removeUsageRelay: (AgentSource) -> Void = { _ in }
+        var removeUsageRelay: (AgentID) -> Void = { _ in }
         /// Installed?, replacing another copy's or a broken link?
         var setCommandLink: (Bool, Bool) -> Void
         var setLoginItem: (Bool) -> Void
 
-        var agentFailure: (AgentSource) -> AgentIntegration.Failure?
+        var agentFailure: (AgentID) -> AgentIntegration.Failure?
         var commandLinkFailure: () -> CommandLinkWriter.Failure?
         var loginItemFailed: () -> Bool
     }
@@ -226,7 +227,7 @@ final class SetupModel: ObservableObject {
     @Published private(set) var attention: [SetupAttention] = []
     /// The agent whose switch was turned off while Evlat's parts are in
     /// its files: its card asks whether they go too before anything moves.
-    @Published private(set) var turningOff: AgentSource?
+    @Published private(set) var turningOff: AgentID?
 
     private let host: Host
     let lang: String
@@ -235,7 +236,7 @@ final class SetupModel: ObservableObject {
     private var linkState: CommandLink.State?
     /// Each agent's parts as last read: the consent lists only the parts
     /// the press changes, and the press is the one the row offered.
-    private var agentStates: [AgentSource: AgentIntegration.State] = [:]
+    private var agentStates: [AgentID: AgentIntegration.State] = [:]
 
     init(host: Host, lang: String = L10n.language) {
         self.host = host
@@ -253,7 +254,7 @@ final class SetupModel: ObservableObject {
         linkState = nil
         agentStates = [:]
         if let home {
-            for source in AgentSource.allCases {
+            for source in Agents.all.ids {
                 rows.append(agentRow(source, home: home, attention: &attention))
             }
             if let binary = host.binary() {
@@ -316,7 +317,7 @@ final class SetupModel: ObservableObject {
     /// on this Mac. Only an old hook part asks for attention; a missing
     /// usage line is offered by the card alone. An agent switched off asks
     /// for none: the user said it is not followed.
-    private func agentRow(_ source: AgentSource, home: URL, attention: inout [SetupAttention]) -> SetupRow {
+    private func agentRow(_ source: AgentID, home: URL, attention: inout [SetupAttention]) -> SetupRow {
         let enabled = host.isEnabled(source)
         var own: [SetupAttention] = []
         var result = readAgentRow(source, home: home, attention: &own)
@@ -325,16 +326,16 @@ final class SetupModel: ObservableObject {
         return result
     }
 
-    private func readAgentRow(_ source: AgentSource, home: URL, attention: inout [SetupAttention]) -> SetupRow {
+    private func readAgentRow(_ source: AgentID, home: URL, attention: inout [SetupAttention]) -> SetupRow {
         let item = SetupItem.agent(source)
-        let files = AgentIntegration.files(home: home, for: source).map { "~/" + Self.relative($0, to: home) }
+        let files = AgentIntegration.files(home: home, for: source.agent).map { "~/" + Self.relative($0, to: home) }
             .joined(separator: " · ")
-        guard source.isPresent(home: home) else {
+        guard source.agent.isPresent(home: home) else {
             return row(item, .notFound, detail: files, failure: nil)
         }
         let failure = host.agentFailure(source).map(failureText)
         if failure != nil { attention.append(.refused(item)) }
-        guard let state = try? AgentIntegration.state(home: home, for: source) else {
+        guard let state = try? AgentIntegration.state(home: home, for: source.agent) else {
             return row(item, .unknown, detail: files, failure: failure)
         }
         agentStates[source] = state
@@ -350,9 +351,9 @@ final class SetupModel: ObservableObject {
         case .outdated: status = .outdated
         case .missing: status = .missing
         }
-        var parts = [SetupPart(name: L10n.t(Self.hooksPartKey(source), in: lang), file: "~/" + source.settingsPath,
+        var parts = [SetupPart(name: L10n.t(Self.hooksPartKey(source), in: lang), file: "~/" + source.agent.integration.hooksFile,
                                status: Self.status(state.hooks))]
-        if let relay = state.relay, let path = source.statusLinePath {
+        if let relay = state.relay, let path = source.agent.integration.relay?.file {
             parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: "~/" + path,
                                    status: Self.status(relay)))
         }
@@ -362,8 +363,8 @@ final class SetupModel: ObservableObject {
         return result
     }
 
-    private static func hooksPartKey(_ source: AgentSource) -> String {
-        source.supportsApprovals ? "setup.agent.part.hooksApprovals" : "setup.agent.part.hooks"
+    private static func hooksPartKey(_ source: AgentID) -> String {
+        source.agent.approvals != nil ? "setup.agent.part.hooksApprovals" : "setup.agent.part.hooks"
     }
 
     private static func status(_ hooks: LocalHooks.State) -> SetupStatus {
@@ -462,7 +463,7 @@ final class SetupModel: ObservableObject {
     /// One line per file the press changes, naming only the parts that
     /// change there; and, when the usage line goes in, that the user's
     /// status line is wrapped (R3.4).
-    private func agentConsent(_ source: AgentSource, _ action: SetupAction) -> [String] {
+    private func agentConsent(_ source: AgentID, _ action: SetupAction) -> [String] {
         guard let state = agentStates[source] else { return [] }
         var files: [(file: String, what: [String])] = []
         func add(_ file: String, _ key: String) {
@@ -473,8 +474,8 @@ final class SetupModel: ObservableObject {
                 files.append((file, [what]))
             }
         }
-        let hooksFile = "~/" + source.settingsPath
-        let relayFile = source.statusLinePath.map { "~/" + $0 }
+        let hooksFile = "~/" + source.agent.integration.hooksFile
+        let relayFile = source.agent.integration.relay.map(\.file).map { "~/" + $0 }
         if action.installs {
             if state.hooks != .current { add(hooksFile, "setup.consent.what.hooks") }
             if state.installsRelay, let relayFile { add(relayFile, "setup.consent.what.usage") }
@@ -492,8 +493,8 @@ final class SetupModel: ObservableObject {
     }
 
     /// The usage line's own "Remove": its file alone.
-    func relayRemovalConsent(_ source: AgentSource) -> [String] {
-        guard let path = source.statusLinePath else { return [] }
+    func relayRemovalConsent(_ source: AgentID) -> [String] {
+        guard let path = source.agent.integration.relay?.file else { return [] }
         return [L10n.t("setup.consent.line", ["file": "~/" + path,
                                               "what": L10n.t("setup.consent.what.usage.remove", in: lang)], in: lang)]
     }
@@ -537,7 +538,7 @@ final class SetupModel: ObservableObject {
 
     /// The card's "Remove the usage line": the relay alone, then a fresh
     /// read. The card then reads "needs update", which puts it back.
-    func removeRelay(_ source: AgentSource) {
+    func removeRelay(_ source: AgentID) {
         guard host.home() != nil, row(.agent(source))?.removesRelay == true else { return }
         host.removeUsageRelay(source)
         reload()
@@ -572,7 +573,7 @@ final class SetupModel: ObservableObject {
     /// parts are in the agent's files; with some there, the card asks first
     /// whether they go too (`turningOff`), and nothing moves until it is
     /// answered.
-    func setEnabled(_ source: AgentSource, _ on: Bool) {
+    func setEnabled(_ source: AgentID, _ on: Bool) {
         turningOff = nil
         if !on, let status = row(.agent(source))?.status, status == .installed || status == .outdated {
             turningOff = source
@@ -599,7 +600,7 @@ final class SetupModel: ObservableObject {
 
     /// The setup's agent step: its switch is the answer to "which agents
     /// do you use?", and it asks nothing more — files are left as they are.
-    func choose(_ source: AgentSource, _ on: Bool) {
+    func choose(_ source: AgentID, _ on: Bool) {
         host.setEnabled(source, on)
         reload()
     }
@@ -646,10 +647,10 @@ final class SetupModel: ObservableObject {
             let own = "setup.manual.remove.\(source.rawValue)"
             var removal = L10n.catalog.tables[Catalog.source]?[own] != nil
                 ? L10n.t(own, in: lang)
-                : L10n.t("setup.manual.remove.hooks", ["marker": RemoteSettings.manual.marker], in: lang)
-            let relay = agentStates[source]?.relay != nil ? RemoteSettings.Manual.statusLine(for: source) : nil
+                : L10n.t("setup.manual.remove.hooks", ["marker": RemoteSettings.manual(agents: Agents.all).marker], in: lang)
+            let relay = agentStates[source]?.relay != nil ? RemoteSettings.Manual.statusLine(for: source.agent) : nil
             if relay != nil { removal += " " + L10n.t("setup.manual.remove.usage", in: lang) }
-            return SetupManual(text: LocalHooks.manual(for: source), wrapping: relay?.wrapping, removal: removal,
+            return SetupManual(text: LocalHooks.manual(for: source.agent), wrapping: relay?.wrapping, removal: removal,
                                statusLine: relay?.text)
         case .commandLink:
             guard let binary = host.binary() else { return nil }
@@ -713,7 +714,7 @@ final class SetupModel: ObservableObject {
 /// view draws both; only these differ.
 struct SetupCardDriver {
     let lang: String
-    var turningOff: AgentSource?
+    var turningOff: AgentID?
     var manualOpen: SetupItem?
     /// A write or a read runs where the card writes: its buttons are off.
     var busy = false
@@ -723,12 +724,12 @@ struct SetupCardDriver {
     var statusText: (SetupStatus) -> String
     var consent: (SetupItem, SetupAction) -> [String]
     var perform: (SetupItem) -> Void
-    var setEnabled: (AgentSource, Bool) -> Void
+    var setEnabled: (AgentID, Bool) -> Void
     /// The turn-off question's answer: `true` takes Evlat's parts out.
     var confirmTurnOff: (Bool) -> Void
     var cancelTurnOff: () -> Void
-    var relayRemovalConsent: (AgentSource) -> [String]
-    var removeRelay: (AgentSource) -> Void
+    var relayRemovalConsent: (AgentID) -> [String]
+    var removeRelay: (AgentID) -> Void
     var manual: (SetupItem) -> SetupManual?
     var toggleManual: (SetupItem) -> Void
     var check: () -> Void
@@ -790,7 +791,7 @@ struct SetupRowView: View {
     /// Switched off: the name, what off means, the switch — no state, no
     /// button, no parts. Nothing of the agent is followed, so nothing of it
     /// is offered.
-    private func offCard(_ source: AgentSource) -> some View {
+    private func offCard(_ source: AgentID) -> some View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(SettingsPalette.muted)
@@ -803,7 +804,7 @@ struct SetupRowView: View {
         }
     }
 
-    private func agentSwitch(_ source: AgentSource) -> some View {
+    private func agentSwitch(_ source: AgentID) -> some View {
         Toggle("", isOn: Binding(get: { row.enabled && card.turningOff != source },
                                  set: { card.setEnabled(source, $0) }))
             .toggleStyle(.switch)

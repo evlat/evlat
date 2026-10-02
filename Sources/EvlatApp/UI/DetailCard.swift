@@ -1,5 +1,6 @@
 import SwiftUI
 import EvlatCore
+import EvlatAgents
 
 /// The detail card beside the open list: what one session is doing.
 ///
@@ -90,12 +91,15 @@ struct DetailCard: View {
     static let descriptionLines = 2
     static let optionHeight: CGFloat = 22
     static let questionButtonHeight: CGFloat = 26
-    static func sourceKey(_ source: AgentSource) -> String { "source.\(source.rawValue)" }
+    /// The agent's name (`AgentDisplay.nameKey`).
+    static func sourceKey(_ source: AgentID) -> String {
+        Agents.all[id: source]?.display.nameKey ?? source.rawValue
+    }
     static var keys: [String] {
         [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey,
          outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey,
          otherKey, writtenKey, nextKey, sendKey]
-            + AgentSource.allCases.map(sourceKey)
+            + Agents.all.map(\.display.nameKey)
     }
 
     /// The progress bar's height: a line, not a control.
@@ -320,7 +324,7 @@ struct DetailCard: View {
             .modifier(PressFeedback(model: model, button: live ? .back : nil))
     }
 
-    private func hoveredDescription(_ options: [AskQuestion.Option]) -> String? {
+    private func hoveredDescription(_ options: [AgentQuestion.Option]) -> String? {
         guard case .option(let index)? = model.hovered, options.indices.contains(index) else { return nil }
         return options[index].description
     }

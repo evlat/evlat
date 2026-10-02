@@ -1,12 +1,10 @@
 import Foundation
 
-/// Wraps the user's Claude Code `statusLine` command so each status line JSON
-/// also reaches Evlat (`POST /usage/claude`), and takes the wrapper out again.
-/// The Antigravity CLI's `statusLine` has the same shape (`type`, `command`,
-/// the JSON on stdin; measured, `agy` 1.2.14), so `source: .antigravity`
-/// wraps it the same way towards `POST /usage/antigravity`. Every function
-/// takes the source, named by the caller: the installed Claude string is
-/// unchanged.
+/// Wraps an agent's `statusLine` command so each status line JSON also
+/// reaches Evlat (`POST` to the agent's `StatusLineUsage.path`), and takes
+/// the wrapper out again. Every agent with a relay has the same shape
+/// (`type`, `command`, the JSON on stdin), so one wrapper serves them all.
+/// Every function takes the agent, named by the caller.
 ///
 /// The wrapper is one `sh -c` line with the original as its `$1`:
 ///
@@ -29,26 +27,29 @@ public enum StatusLineRelay {
     /// `$0` of the wrapper's shell; it names the line in `ps`.
     static let name = "evlat-statusline"
 
-    /// The sources with a status line to wrap; `LocalAPITests` pins the
-    /// routes. Codex has none (`nil`).
-    private static func path(_ source: AgentSource) -> String? { source.usagePath }
+    /// The agents with a status line to wrap; `LocalAPITests` pins the
+    /// routes. An agent with none is `nil`.
+    private static func path(_ source: some Agent) -> String? { source.statusLineUsage?.path }
 
     /// Ownership mark: derived from the port and the route, never spelled.
-    static func marker(for source: AgentSource) -> String {
+    static func marker(for source: some Agent) -> String {
         "127.0.0.1:\(LocalAPI.defaultPort)\(path(source) ?? "")"
     }
 
-    /// Claude's mark, as the tests and the remote plan spell it.
-    static var marker: String { marker(for: .claude) }
+    /// Whether the relay alone also asks for the agent's own line
+    /// (`Relay.stacksWithDefault`).
+    private static func stacks(_ source: some Agent) -> Bool {
+        source.integration.relay?.stacksWithDefault ?? false
+    }
 
-    private static func relay(port: UInt16, _ source: AgentSource) -> String {
+    private static func relay(port: UInt16, _ source: some Agent) -> String {
         #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
             + #" -H "Content-Type: application/json" --data-binary @-"#
             + " http://127.0.0.1:\(port)\(path(source) ?? "") >/dev/null 2>&1 &"
     }
 
     /// Everything before the quoted original.
-    private static func head(port: UInt16, _ source: AgentSource) -> String {
+    private static func head(port: UInt16, _ source: some Agent) -> String {
         "sh -c '" + relay(port: port, source) + #" printf %s "$i" | sh -c "$1"' "# + name + " "
     }
 
@@ -59,14 +60,14 @@ public enum StatusLineRelay {
 
     /// The wrapper around `original`; `nil` when there was no command.
     public static func command(wrapping original: String?, port: UInt16 = LocalAPI.defaultPort,
-                               source: AgentSource) -> String {
+                               source: some Agent) -> String {
         guard let original else { return "sh -c '" + relay(port: port, source) + "'" }
         return head(port: port, source) + quoted(original)
     }
 
     /// What `command` wraps: `.some(nil)` for the relay alone, `nil` when it
     /// is not exactly a wrapper `command(wrapping:)` writes.
-    static func original(in command: String, source: AgentSource) -> String?? {
+    static func original(in command: String, source: some Agent) -> String?? {
         if command == self.command(wrapping: nil, source: source) { return .some(nil) }
         let head = head(port: LocalAPI.defaultPort, source)
         guard command.hasPrefix(head) else { return nil }
@@ -79,7 +80,7 @@ public enum StatusLineRelay {
 
     // MARK: - Pure
 
-    public static func state(of settings: [String: Any], source: AgentSource) -> State {
+    public static func state(of settings: [String: Any], source: some Agent) -> State {
         guard path(source) != nil, let line = settings["statusLine"] as? [String: Any],
               let command = line["command"] as? String, command.contains(marker(for: source)) else { return .missing }
         return original(in: command, source: source) == nil ? .modified : .current
@@ -91,17 +92,17 @@ public enum StatusLineRelay {
     /// a modified wrapper, or a `statusLine` in a shape that is not ours to
     /// overwrite.
     ///
-    /// Antigravity's relay alone also gets `stack_with_default`: with it the
-    /// CLI draws its own status line and the wrapper's empty output under
-    /// it, instead of an empty line in its place (measured, `agy` 1.2.14).
-    /// That holds for a `statusLine` with no command too; a value the user
-    /// set there is left as it is.
-    public static func installing(into settings: [String: Any], source: AgentSource) -> [String: Any]? {
+    /// The relay alone also gets `stack_with_default` where the agent asks
+    /// for it (`Relay.stacksWithDefault`): with it the agent draws its own
+    /// status line and the wrapper's empty output under it, instead of an
+    /// empty line in its place. That holds for a `statusLine` with no
+    /// command too; a value the user set there is left as it is.
+    public static func installing(into settings: [String: Any], source: some Agent) -> [String: Any]? {
         guard path(source) != nil else { return nil }
         var result = settings
         guard let value = settings["statusLine"] else {
             var line: [String: Any] = ["type": "command", "command": command(wrapping: nil, source: source)]
-            if source == .antigravity { line[stackKey] = true }
+            if stacks(source) { line[stackKey] = true }
             result["statusLine"] = line
             return result
         }
@@ -118,7 +119,7 @@ public enum StatusLineRelay {
         } else {
             if line["type"] == nil { line["type"] = "command" }
             line["command"] = command(wrapping: nil, source: source)
-            if source == .antigravity, line[stackKey] == nil { line[stackKey] = true }
+            if stacks(source), line[stackKey] == nil { line[stackKey] = true }
         }
         result["statusLine"] = line
         return result
@@ -131,7 +132,7 @@ public enum StatusLineRelay {
     /// The one inexact case: a `statusLine` that had `type: command` and no
     /// command loses that `type` too — the wrapper does not record whether
     /// it added it. Such an entry draws nothing either way.
-    public static func removing(from settings: [String: Any], source: AgentSource) -> [String: Any]? {
+    public static func removing(from settings: [String: Any], source: some Agent) -> [String: Any]? {
         guard path(source) != nil, var line = settings["statusLine"] as? [String: Any],
               let command = line["command"] as? String, command.contains(marker(for: source)) else { return settings }
         guard let original = original(in: command, source: source) else { return nil }
@@ -140,8 +141,8 @@ public enum StatusLineRelay {
         } else {
             line["command"] = nil
             if line["type"] as? String == "command" { line["type"] = nil }
-            // Only Antigravity's relay alone brings it (`installing`).
-            if source == .antigravity, line[stackKey] as? Bool == true { line[stackKey] = nil }
+            // Only a relay alone that asks for it brings it (`installing`).
+            if stacks(source), line[stackKey] as? Bool == true { line[stackKey] = nil }
         }
         var result = settings
         result["statusLine"] = line.isEmpty ? nil : line
@@ -165,10 +166,10 @@ public enum StatusLineRelay {
         }
     }
 
-    /// The Antigravity CLI's key for drawing its own line and the custom one.
+    /// The key for drawing the agent's own line and the custom one.
     static let stackKey = "stack_with_default"
 
-    public static func state(at url: URL, source: AgentSource) throws -> State {
+    public static func state(at url: URL, source: some Agent) throws -> State {
         state(of: try SettingsFile.read(url), source: source)
     }
 
@@ -179,7 +180,7 @@ public enum StatusLineRelay {
     ///
     /// A refusal writes nothing and is `malformed`, as for the hooks.
     @discardableResult
-    public static func install(at url: URL, source: AgentSource) throws -> SettingsFile.Outcome {
+    public static func install(at url: URL, source: some Agent) throws -> SettingsFile.Outcome {
         let backup = url.appendingPathExtension(backupExtension)
         let outcome = try SettingsFile.apply(at: url, backUp: { settings, mode in
             try SettingsFile.replace(backup, with: try backupContents(of: settings), mode: mode)
@@ -191,7 +192,7 @@ public enum StatusLineRelay {
     }
 
     @discardableResult
-    public static func remove(at url: URL, source: AgentSource) throws -> SettingsFile.Outcome {
+    public static func remove(at url: URL, source: some Agent) throws -> SettingsFile.Outcome {
         let outcome = try SettingsFile.apply(at: url) { removing(from: $0, source: source) ?? $0 }
         if outcome == .unchanged, try state(at: url, source: source) == .modified {
             throw SettingsFile.Failure.malformed

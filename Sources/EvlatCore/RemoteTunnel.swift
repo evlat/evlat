@@ -52,10 +52,11 @@ public struct RemoteMachine: Codable, Equatable {
         return host.isEmpty ? target : String(host)
     }
 
-    /// The agents whose rows and usage this machine's tunnel delivers. A
-    /// stored name this build does not know is skipped and kept as it was.
-    public var enabledAgents: Set<AgentSource> {
-        EnabledAgents.resolve(stored: agents, isPresent: { _ in true })
+    /// The agents of `catalog` whose rows and usage this machine's tunnel
+    /// delivers. A stored name this build does not know is skipped and kept
+    /// as it was.
+    public func enabledAgents(of catalog: [AgentID]) -> Set<AgentID> {
+        EnabledAgents.resolve(stored: agents, catalog: catalog, isPresent: { _ in true })
     }
 
     /// What the machine's providers are given (`HooksProvider`,

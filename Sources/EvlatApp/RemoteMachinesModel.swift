@@ -1,5 +1,6 @@
 import AppKit
 import EvlatCore
+import EvlatAgents
 
 /// The remote machines window's state, apart from its view: the machines and
 /// what their tunnels say, the target being typed and why it was refused, the
@@ -70,15 +71,15 @@ final class RemoteMachinesModel: ObservableObject {
     /// its one file in one write. It does not read the server first: the
     /// result line says what was there.
     enum Job: Hashable {
-        case install(AgentSource), remove(AgentSource)
+        case install(AgentID), remove(AgentID)
 
-        var source: AgentSource {
+        var source: AgentID {
             switch self {
             case .install(let source), .remove(let source): return source
             }
         }
 
-        var changes: [RemoteSettings.Change] { [.agent(source)] }
+        var changes: [RemoteSettings.Change] { [.agent(source.agent)] }
 
         var action: RemoteSettings.Action {
             switch self {
@@ -90,7 +91,7 @@ final class RemoteMachinesModel: ObservableObject {
 
     /// The rows under an open machine: a card per agent, then the command.
     enum Item: Hashable {
-        case agent(AgentSource), command
+        case agent(AgentID), command
     }
 
     /// A machine's settings files and command as last read over `ssh`
@@ -104,7 +105,7 @@ final class RemoteMachinesModel: ObservableObject {
     /// The rows under an open machine, in the local rows' values.
     struct Items: Equatable {
         /// Each agent's unit; `notFound` when the server does not have it.
-        let agents: [AgentSource: SetupStatus]
+        let agents: [AgentID: SetupStatus]
         let command: SetupStatus
         /// The command is Evlat's, but a new login shell on the server does
         /// not find it: `~/.local/bin` is not on its `PATH`. `nil` when it
@@ -112,7 +113,7 @@ final class RemoteMachinesModel: ObservableObject {
         /// the row says what it said before the check.
         var offPath: RemotePath.Status? = nil
 
-        static let unknown = Items(agents: Dictionary(uniqueKeysWithValues: AgentSource.allCases.map { ($0, .unknown) }),
+        static let unknown = Items(agents: Dictionary(uniqueKeysWithValues: Agents.all.ids.map { ($0, .unknown) }),
                                    command: .unknown)
     }
 
@@ -159,7 +160,7 @@ final class RemoteMachinesModel: ObservableObject {
     @Published private(set) var working: [String: Item] = [:]
     /// The agent whose switch was turned off while Evlat's parts are on
     /// the server, by machine: its card asks first (this Mac's rule).
-    @Published private(set) var turningOff: [String: AgentSource] = [:]
+    @Published private(set) var turningOff: [String: AgentID] = [:]
     /// The block whose button says "Copied", for a moment.
     @Published private(set) var copied: String?
     @Published private(set) var readings: [String: Reading] = [:]
@@ -385,16 +386,14 @@ final class RemoteMachinesModel: ObservableObject {
         for (change, result) in results where result == .success(.written) {
             switch change {
             case .hooks(let source), .agent(let source):
-                if let hint = hint("remote.hint.\(action == .install ? "install" : "remove").\(source.rawValue)", in: lang) {
+                if let hint = hint("remote.hint.\(action == .install ? "install" : "remove").\(source.id.rawValue)", in: lang) {
                     hints.append(hint)
                 }
                 if case .agent = change, action == .install, RemoteSettings.relays(source) {
                     hints.append(usageHint(source, in: lang))
                 }
-            case .statusLine where action == .install:
-                if let source = AgentSource.allCases.first(where: RemoteSettings.relays) {
-                    hints.append(usageHint(source, in: lang))
-                }
+            case .statusLine(let source) where action == .install:
+                hints.append(usageHint(source, in: lang))
             case .statusLine, .pathLine:
                 break
             }
@@ -407,8 +406,8 @@ final class RemoteMachinesModel: ObservableObject {
         L10n.catalog.tables[Catalog.source]?[key] != nil ? L10n.t(key, in: lang) : nil
     }
 
-    private static func usageHint(_ source: AgentSource, in lang: String) -> String {
-        L10n.t("remote.hint.usage", ["agent": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
+    private static func usageHint(_ source: any Agent, in lang: String) -> String {
+        L10n.t("remote.hint.usage", ["agent": L10n.t(source.display.nameKey, in: lang)], in: lang)
     }
 
     // MARK: - Reading the server
@@ -450,7 +449,7 @@ final class RemoteMachinesModel: ObservableObject {
     /// A card per agent, by this Mac's unit rule (`Reading.unit`): a folder
     /// that is missing is an agent not on the server.
     static func items(_ reading: RemoteSettings.Reading) -> Items {
-        let agents = Dictionary(uniqueKeysWithValues: AgentSource.allCases.map { ($0, status(reading.unit($0))) })
+        let agents = Dictionary(uniqueKeysWithValues: Agents.all.map { ($0.id, status(reading.unit($0))) })
 
         let command: SetupStatus
         var offPath: RemotePath.Status?
@@ -500,7 +499,8 @@ final class RemoteMachinesModel: ObservableObject {
     /// drawn masked, copied concealed.
     func combinedBlock(for id: String) -> Block? {
         guard case .read(let reading)? = readings[id], let key = host.signalKey(id),
-              let text = RemoteSettings.combinedScript(reading, key: key, agents: enabledAgents(of: id))
+              let text = RemoteSettings.combinedScript(reading, key: key,
+                                                       agents: Agents.all.filter { enabledAgents(of: id).contains($0.id) })
         else { return nil }
         return Block(id: "combined", captionKey: "remote.combined.whole", text: text,
                      shown: text.replacingOccurrences(of: key, with: Self.mask))
@@ -516,15 +516,15 @@ final class RemoteMachinesModel: ObservableObject {
 
     /// Whether the server has the agent, as last read; before a reading,
     /// every agent might be there.
-    private func isPresent(_ source: AgentSource, on id: String) -> Bool {
-        lastReading(id).map { $0.unit(source) != .noDirectory } ?? true
+    private func isPresent(_ source: AgentID, on id: String) -> Bool {
+        lastReading(id).map { $0.unit(source.agent) != .noDirectory } ?? true
     }
 
     /// The machine's switches: never changed, every agent the server has
     /// (`EnabledAgents`' live answer, asked of the reading).
-    func enabledAgents(of id: String) -> Set<AgentSource> {
+    func enabledAgents(of id: String) -> Set<AgentID> {
         let stored = host.machines().first { $0.id == id }?.agents
-        return EnabledAgents.resolve(stored: stored, isPresent: { self.isPresent($0, on: id) })
+        return EnabledAgents.resolve(stored: stored, catalog: Agents.all.ids, isPresent: { self.isPresent($0, on: id) })
     }
 
     /// Each agent's card on the machine, drawn by this Mac's card view:
@@ -534,24 +534,24 @@ final class RemoteMachinesModel: ObservableObject {
         guard let row = rows.first(where: { $0.id == id }) else { return [] }
         let reading = lastReading(id)
         let enabled = enabledAgents(of: id)
-        return AgentSource.allCases.map { source in
-            var card = Self.agentRow(source, unit: reading?.unit(source), target: row.target, in: lang)
+        return Agents.all.ids.map { source in
+            var card = Self.agentRow(source, unit: reading?.unit(source.agent), target: row.target, in: lang)
             card.enabled = enabled.contains(source)
             return card
         }
     }
 
     /// One card from the unit as read; `nil` (no reading yet) is unknown.
-    static func agentRow(_ source: AgentSource, unit: RemoteSettings.Found<AgentIntegration.State>?,
+    static func agentRow(_ source: AgentID, unit: RemoteSettings.Found<AgentIntegration.State>?,
                          target: String, in lang: String) -> SetupRow {
-        let file = "\(target):~/\(source.settingsPath)"
+        let file = "\(target):~/\(source.agent.integration.hooksFile)"
         let status = unit.map { Self.status($0) } ?? .unknown
         guard case .state(let state)? = unit else {
-            return SetupRow(item: .agent(source), status: status, name: L10n.t("source.\(source.rawValue)", in: lang),
+            return SetupRow(item: .agent(source), status: status, name: L10n.t(source.agent.display.nameKey, in: lang),
                             detail: file, note: nil, failure: nil)
         }
         let note = state.relay == .modified ? L10n.t("setup.agent.usageModified", in: lang) : nil
-        var card = SetupRow(item: .agent(source), status: status, name: L10n.t("source.\(source.rawValue)", in: lang),
+        var card = SetupRow(item: .agent(source), status: status, name: L10n.t(source.agent.display.nameKey, in: lang),
                             detail: file, note: note, failure: nil)
         // A server has no approval hook: the part is the hooks alone.
         card.parts = [SetupPart(name: L10n.t("setup.agent.part.hooks", in: lang), file: file,
@@ -575,7 +575,7 @@ final class RemoteMachinesModel: ObservableObject {
 
     /// A card's switch: on at once; off at once unless Evlat's parts are on
     /// the server — then the card asks whether they go too.
-    func setEnabled(_ source: AgentSource, _ on: Bool, on id: String) {
+    func setEnabled(_ source: AgentID, _ on: Bool, on id: String) {
         turningOff[id] = nil
         if !on, let status = agentRows(for: id).first(where: { $0.item == .agent(source) })?.status,
            status == .installed || status == .outdated {
@@ -603,9 +603,9 @@ final class RemoteMachinesModel: ObservableObject {
 
     func cancelTurnOff(on id: String) { turningOff[id] = nil }
 
-    private func applyEnabled(_ source: AgentSource, _ on: Bool, on id: String) {
+    private func applyEnabled(_ source: AgentID, _ on: Bool, on id: String) {
         let stored = host.machines().first { $0.id == id }?.agents
-        guard let value = EnabledAgents.changing(source, to: on, stored: stored,
+        guard let value = EnabledAgents.changing(source, to: on, stored: stored, catalog: Agents.all.ids,
                                                  isPresent: { self.isPresent($0, on: id) }) else { return }
         host.setAgents(id, value)
         objectWillChange.send()
@@ -614,9 +614,9 @@ final class RemoteMachinesModel: ObservableObject {
     /// What a card's press writes on the server, one line for its one file
     /// (this Mac's wording); and that the user's status line is wrapped
     /// when the usage line goes in.
-    func consent(_ source: AgentSource, _ action: SetupAction, on id: String) -> [String] {
+    func consent(_ source: AgentID, _ action: SetupAction, on id: String) -> [String] {
         guard let row = rows.first(where: { $0.id == id }),
-              case .state(let state)? = lastReading(id)?.unit(source) else { return [] }
+              case .state(let state)? = lastReading(id)?.unit(source.agent) else { return [] }
         var what: [String] = []
         if action.installs {
             if state.hooks != .current { what.append("setup.consent.what.hooks") }
@@ -626,37 +626,37 @@ final class RemoteMachinesModel: ObservableObject {
             if state.relay == .current { what.append("setup.consent.what.usage.remove") }
         }
         guard !what.isEmpty else { return [] }
-        var lines = [t("setup.consent.line", ["file": "\(row.target):~/\(source.settingsPath)",
+        var lines = [t("setup.consent.line", ["file": "\(row.target):~/\(source.agent.integration.hooksFile)",
                                               "what": what.map { t($0) }.joined(separator: t("setup.consent.and"))])]
         if action.installs && state.installsRelay { lines.append(t("setup.consent.wraps")) }
         return lines
     }
 
     /// The card's "Remove the usage line": its file alone.
-    func relayRemovalConsent(_ source: AgentSource, on id: String) -> [String] {
-        guard let row = rows.first(where: { $0.id == id }), RemoteSettings.relays(source) else { return [] }
-        return [t("setup.consent.line", ["file": "\(row.target):~/\(RemoteSettings.Change.statusLine.path)",
+    func relayRemovalConsent(_ source: AgentID, on id: String) -> [String] {
+        guard let row = rows.first(where: { $0.id == id }), RemoteSettings.relays(source.agent) else { return [] }
+        return [t("setup.consent.line", ["file": "\(row.target):~/\(RemoteSettings.Change.statusLine(source.agent).path)",
                                          "what": t("setup.consent.what.usage.remove")])]
     }
 
-    func removeRelay(_ source: AgentSource, on id: String) {
-        guard RemoteSettings.relays(source), canRun(id) else { return }
+    func removeRelay(_ source: AgentID, on id: String) {
+        guard RemoteSettings.relays(source.agent), canRun(id) else { return }
         selection = id
-        run([.statusLine], .remove, machine: id)
+        run([.statusLine(source.agent)], .remove, machine: id)
         if busy.contains(id) { working[id] = .agent(source) }
     }
 
     /// The card's block to paste: the bytes the server's writer would
     /// write into an empty file (no approval hook), and the usage line
     /// where the server gets one.
-    static func manual(_ source: AgentSource, in lang: String) -> SetupManual {
-        let manual = RemoteSettings.manual
-        let relay = RemoteSettings.relays(source)
+    static func manual(_ source: AgentID, in lang: String) -> SetupManual {
+        let manual = RemoteSettings.manual(agents: Agents.all)
+        let relay = RemoteSettings.relays(source.agent)
         var removal = L10n.t("remote.manual.remove", ["marker": manual.marker], in: lang)
         if relay { removal += " " + L10n.t("setup.manual.remove.usage", in: lang) }
-        return SetupManual(text: manual.hooks(for: source), wrapping: relay ? wrappingValue : nil,
+        return SetupManual(text: manual.hooks(for: source.agent), wrapping: relay ? wrappingValue : nil,
                            removal: removal, statusLine: relay ? manual.statusLine : nil,
-                           lead: L10n.t("remote.manual.agent", ["file": "~/" + source.settingsPath], in: lang),
+                           lead: L10n.t("remote.manual.agent", ["file": "~/" + source.agent.integration.hooksFile], in: lang),
                            statusLineLead: L10n.t("remote.manual.statusLine", in: lang),
                            wrappingLead: L10n.t("remote.manual.wrapping",
                                                 ["placeholder": RemoteSettings.Manual.placeholder], in: lang))
@@ -665,7 +665,7 @@ final class RemoteMachinesModel: ObservableObject {
     /// The wrapper shown as the JSON string it goes into, so it pastes as
     /// a `command` value.
     static let wrappingValue: String = {
-        let wrapping = RemoteSettings.manual.wrapping
+        let wrapping = RemoteSettings.manual(agents: Agents.all).wrapping
         return (try? JSONSerialization.data(withJSONObject: wrapping, options: [.fragmentsAllowed, .withoutEscapingSlashes]))
             .map { String(decoding: $0, as: UTF8.self) } ?? wrapping
     }()
@@ -750,7 +750,7 @@ final class RemoteMachinesModel: ObservableObject {
 
     static func changeKey(_ change: RemoteSettings.Change) -> String {
         switch change {
-        case .hooks(let source), .agent(let source): return "source.\(source.rawValue)"
+        case .hooks(let source), .agent(let source): return source.display.nameKey
         case .statusLine: return "remote.change.usage"
         case .pathLine: return "remote.change.path"
         }

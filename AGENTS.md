@@ -125,9 +125,9 @@ prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
 
 | provider | role | source | fidelity |
 |---|---|---|---|
-| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (`AgentSource`, `CodexHookAdapter`, `AntigravityHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
+| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (each agent's `HookChannel`: `CodexHookAdapter`, `AntigravityHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
 | `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid | derived |
-| `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept (`StatusLineUsageProvider`; id, group, fidelity and the windows read are `AgentSource.usage`'s) | official |
+| `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept (`StatusLineUsageProvider`; id, group, fidelity and the windows read are the agent's `StatusLineUsage`) | official |
 | `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`StatusLineUsageProvider(source:)`); the format is undocumented | derived |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens | derived |
 | `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
@@ -385,7 +385,7 @@ versions must keep talking to this one unchanged.
   `testEverySourceHasItsOwnRoute`. A failing golden string means the contract
   broke.
 - The canonical vocabulary is Claude Code's. Everything source-specific lives
-  in the adapter (`AgentSource.canonical`); a store or mascot rule that
+  in the adapter (the agent's `HookChannel.canonical`); a store or mascot rule that
   branches on `source` is a bug.
 
 The status-line relay (`StatusLineRelay`) is the second installed contract: a
@@ -640,7 +640,7 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   tunneled path names a file on the server and is never read, so a remote
   Antigravity row has no reply. Its hooks folder (`~/.gemini/config`) is
   not the one that says Antigravity is installed, and the install makes it
-  (`AgentSource.opensHooksDirectory`) — on a server only where one of its
+  (`AgentIntegration.Parts.opensHooksDirectory`) — on a server only where one of its
   own folders is, so a missing folder still means "not there".
 - **The Codex app runs no hooks.** In the app's own sessions (ChatGPT.app,
   `com.openai.codex`, bundled codex 0.154.0-alpha), four turns and an `exec`

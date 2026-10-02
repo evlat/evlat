@@ -7,19 +7,19 @@ import EvlatCore
 /// press, and what re-arms the card.
 @MainActor
 final class QuestionCardTests: XCTestCase {
-    private let color = AskQuestion.Question(text: "Which color?", header: "Color",
+    private let color = AgentQuestion(text: "Which color?", header: "Color",
                                              options: [.init(label: "Red"), .init(label: "Blue")])
-    private let sizes = AskQuestion.Question(text: "Which sizes?", options: [.init(label: "S"), .init(label: "L")],
+    private let sizes = AgentQuestion(text: "Which sizes?", options: [.init(label: "S"), .init(label: "L")],
                                              multiSelect: true)
 
-    private func request(_ questions: [AskQuestion.Question]?) -> PermissionHook.Request {
-        PermissionHook.Request(id: "q-1", token: nil, tool: questions == nil ? "Bash" : AskQuestion.tool,
+    private func request(_ questions: [AgentQuestion]?) -> HeldRequest {
+        HeldRequest(id: "q-1", token: nil, tool: questions == nil ? "Bash" : AskQuestion.tool,
                                subject: nil, questions: questions, input: Data("{}".utf8))
     }
 
     /// A bare Allow answers no question; a faint card takes nothing.
     func testAQuestionCardHasNoAllow() {
-        var draft = AskQuestion.Draft(questions: [color])
+        var draft = AgentQuestion.Draft(questions: [color])
         let card = SessionDetail.ApprovalCard(request([color]), draft: draft, armed: true)
         XCTAssertFalse(card.takes(.allow))
         XCTAssertTrue(card.takes(.deny))
@@ -44,7 +44,7 @@ final class QuestionCardTests: XCTestCase {
 
     /// Send is live once something is picked.
     func testSendWaitsForAPick() {
-        var draft = AskQuestion.Draft(questions: [sizes])
+        var draft = AgentQuestion.Draft(questions: [sizes])
         XCTAssertFalse(SessionDetail.ApprovalCard(request([sizes]), draft: draft, armed: true).takes(.send))
         draft.choose(1)
         XCTAssertTrue(SessionDetail.ApprovalCard(request([sizes]), draft: draft, armed: true).takes(.send))
@@ -53,7 +53,7 @@ final class QuestionCardTests: XCTestCase {
     /// The next question is a new card: it arms again, so the press that
     /// answered one does not land on the next one's option.
     func testTheNextQuestionArmsAgain() {
-        var draft = AskQuestion.Draft(questions: [color, sizes])
+        var draft = AgentQuestion.Draft(questions: [color, sizes])
         let first = SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true)
         draft.choose(0)
         let second = SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true)
@@ -65,14 +65,14 @@ final class QuestionCardTests: XCTestCase {
 
     /// The way back is on the second question, not the first.
     func testBackIsOnlyAfterTheFirst() {
-        var draft = AskQuestion.Draft(questions: [color, sizes])
+        var draft = AgentQuestion.Draft(questions: [color, sizes])
         XCTAssertFalse(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true).takes(.back))
         draft.choose(0)
         XCTAssertTrue(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true).takes(.back))
     }
 
     func testTheTagNamesTheTabAndWhereItIs() throws {
-        var draft = AskQuestion.Draft(questions: [color, sizes])
+        var draft = AgentQuestion.Draft(questions: [color, sizes])
         XCTAssertEqual(DetailCard.questionTag(try XCTUnwrap(SessionDetail.QuestionCard(draft))), "Color · 1/2")
         draft.choose(0)
         XCTAssertEqual(DetailCard.questionTag(try XCTUnwrap(SessionDetail.QuestionCard(draft))), "2/2")
@@ -86,12 +86,12 @@ final class QuestionCardTests: XCTestCase {
     /// button would still take clicks where it is not seen.
     func testTheTallestQuestionFitsTheCard() throws {
         let long = String(repeating: "A long description of what this option would change for the build. ", count: 4)
-        let options = (1...4).map { AskQuestion.Option(label: "An option with a long label number \($0) that runs on",
+        let options = (1...4).map { AgentQuestion.Option(label: "An option with a long label number \($0) that runs on",
                                                        description: long) }
-        let question = AskQuestion.Question(
+        let question = AgentQuestion(
             text: String(repeating: "Which colour should the badge use when a long build waits on you? ", count: 5),
             header: "Colour", options: options, multiSelect: true)
-        var draft = AskQuestion.Draft(questions: [color, question])
+        var draft = AgentQuestion.Draft(questions: [color, question])
         draft.choose(0)
         let card = SessionDetail.ApprovalCard(request([color, question]), draft: draft, armed: true)
         XCTAssertTrue(try XCTUnwrap(card.question).canGoBack)

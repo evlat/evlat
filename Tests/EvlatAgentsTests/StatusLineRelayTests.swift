@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The status line relay's contract: the wrapper that lands in
 /// the user's `settings.json`, what it does when a shell runs it, and how it is
@@ -36,9 +37,10 @@ final class StatusLineRelayTests: XCTestCase {
     }
 
     func testTheMarkerFollowsThePortAndTheRoute() {
-        XCTAssertEqual(StatusLineRelay.marker, "127.0.0.1:\(LocalAPI.defaultPort)\(AgentSource.claude.usagePath!)")
-        XCTAssertTrue(StatusLineRelay.command(wrapping: "x", source: .claude).contains(StatusLineRelay.marker))
-        XCTAssertFalse(StatusLineRelay.command(wrapping: "x", port: 9, source: .claude).contains(StatusLineRelay.marker))
+        let marker = StatusLineRelay.marker(for: .claude)
+        XCTAssertEqual(marker, "127.0.0.1:\(LocalAPI.defaultPort)\(Claude().statusLineUsage!.path)")
+        XCTAssertTrue(StatusLineRelay.command(wrapping: "x", source: .claude).contains(marker))
+        XCTAssertFalse(StatusLineRelay.command(wrapping: "x", port: 9, source: .claude).contains(marker))
     }
 
     func testTheOriginalComesBackOutOfTheWrapper() {
@@ -194,9 +196,9 @@ final class StatusLineRelayTests: XCTestCase {
     // MARK: - Files
 
     private func settingsFile() throws -> URL {
-        try FileManager.default.createDirectory(at: AgentSource.claude.configDirectory(home: home),
+        try FileManager.default.createDirectory(at: Claude().hooksFile(home: home).deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        return AgentSource.claude.settingsFile(home: home)
+        return Claude().hooksFile(home: home)
     }
 
     private func json(_ url: URL) throws -> Any {
@@ -248,7 +250,9 @@ final class StatusLineRelayTests: XCTestCase {
         let bytes = try JSONSerialization.data(withJSONObject: ["statusLine": ["command": edited]])
         try bytes.write(to: url)
         XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .modified)
-        for write in [StatusLineRelay.install(at:source:), StatusLineRelay.remove(at:source:)] {
+        let writes: [(URL, Claude) throws -> SettingsFile.Outcome] = [StatusLineRelay.install(at:source:),
+                                                                       StatusLineRelay.remove(at:source:)]
+        for write in writes {
             XCTAssertThrowsError(try write(url, .claude)) { XCTAssertEqual($0 as? SettingsFile.Failure, .malformed) }
         }
         XCTAssertEqual(try Data(contentsOf: url), bytes)
@@ -303,11 +307,11 @@ final class StatusLineRelayTests: XCTestCase {
     }
 
     func testNoDirectoryIsNotCreated() {
-        let url = AgentSource.claude.settingsFile(home: home)
+        let url = Claude().hooksFile(home: home)
         XCTAssertThrowsError(try StatusLineRelay.install(at: url, source: .claude)) {
             XCTAssertEqual($0 as? SettingsFile.Failure, .noDirectory)
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.configDirectory(home: home).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home).deletingLastPathComponent().path))
     }
 }
 

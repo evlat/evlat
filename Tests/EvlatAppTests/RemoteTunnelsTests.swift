@@ -1,5 +1,6 @@
 import XCTest
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// The tunnel's shell against a **fake `ssh`**: a script each test writes,
@@ -282,8 +283,8 @@ final class RemoteTunnelsTests: XCTestCase {
         guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
             return XCTFail("the machine's listener is not up")
         }
-        func post(_ source: AgentSource, _ body: String) -> Int {
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(source.usagePath!)")!)
+        func post(_ source: some Agent, _ body: String) -> Int {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(source.statusLineUsage!.path)")!)
             request.httpMethod = "POST"
             request.httpBody = Data(body.utf8)
             return send(request)

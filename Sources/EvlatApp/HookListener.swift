@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import EvlatCore
+import EvlatAgents
 
 /// The socket, and nothing above it.
 ///
@@ -59,6 +60,8 @@ public final class HookListener {
     private let makeSignalKey: (UInt16) -> String?
     /// Where an Antigravity transcript may be read (`LocalAPI.Listener`).
     private let transcriptRoots: [URL]
+    /// The agents a request's route is looked up in (`LocalAPI.handle`).
+    private let agents: [any Agent]
     /// What `LocalAPI` is told about this listener. The key is filled in when
     /// the port is bound; until then `/signal` is refused. Touched on `queue`
     /// only.
@@ -109,6 +112,7 @@ public final class HookListener {
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
                 transcriptRoots: [URL] = [],
+                agents: [any Agent] = Agents.all,
                 signalKey: @escaping (UInt16) -> String? = { _ in nil },
                 onStatus: ((Status) -> Void)? = nil,
                 onAbandoned: ((String) -> Void)? = nil,
@@ -117,7 +121,9 @@ public final class HookListener {
         self.origin = origin
         self.makeSignalKey = signalKey
         self.transcriptRoots = transcriptRoots
-        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, transcriptRoots: transcriptRoots)
+        self.agents = agents
+        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, transcriptRoots: transcriptRoots,
+                                          routes: RouteTable(agents))
         self.onStatus = onStatus
         self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
@@ -193,7 +199,8 @@ public final class HookListener {
                 if !self.keyMade {
                     self.keyMade = true
                     self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port),
-                                                      transcriptRoots: self.transcriptRoots)
+                                                      transcriptRoots: self.transcriptRoots,
+                                                      routes: self.identity.routes)
                 }
                 self.setStatus(.listening(port))
             case .failed(let error):
@@ -321,7 +328,7 @@ public final class HookListener {
     /// would put the agent behind whatever the UI is doing — v1 kept a
     /// semaphore for that and used it only on its read endpoints, never here.
     private func respond(_ connection: NWConnection, to request: HTTPRequest) {
-        let outcome = LocalAPI.handle(request, listener: identity)
+        let outcome = LocalAPI.handle(request, listener: identity, agents: agents)
         if let response = outcome.response {
             connection.send(content: Data(response.httpText.utf8),
                             completion: .contentProcessed { _ in connection.cancel() })

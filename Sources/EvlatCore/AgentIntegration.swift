@@ -10,6 +10,58 @@ import Foundation
 /// written together. Nothing here has a default path: `home` is the
 /// caller's, a temporary one in tests.
 public enum AgentIntegration {
+    /// What an agent installs on a Mac or a server, as values: the hooks
+    /// file and its shape, and the status line relay where it has one.
+    public struct Parts {
+        /// The hooks file, relative to a home.
+        public let hooksFile: String
+        public let format: any HooksFormat
+        /// Whether the install makes the hooks file's directory when it is
+        /// missing: never for a folder that is the agent's own and says it
+        /// is installed; yes for a shared folder its presence does not
+        /// depend on. The rule is the same on this Mac (`LocalHooks.install`)
+        /// and on a server (`RemoteSettings`), where it also waits for the
+        /// agent's `presence`.
+        public let opensHooksDirectory: Bool
+        public let relay: Relay?
+
+        public init(hooksFile: String, format: any HooksFormat = HookSettings.Format(),
+                    opensHooksDirectory: Bool = false, relay: Relay? = nil) {
+            self.hooksFile = hooksFile
+            self.format = format
+            self.opensHooksDirectory = opensHooksDirectory
+            self.relay = relay
+        }
+    }
+
+    /// The agent's status line, as the usage relay wraps it
+    /// (`StatusLineRelay`), posting to its `StatusLineUsage.path`.
+    public struct Relay: Equatable {
+        /// The file its `statusLine` is read from, relative to a home.
+        public let file: String
+        /// A directory, relative to a home, without which the relay is not
+        /// a part: the one program of several that has a status line.
+        public let requires: String?
+        /// The relay alone also asks for the agent's own line drawn with
+        /// it (`stack_with_default`), instead of an empty one in its place.
+        public let stacksWithDefault: Bool
+        /// Whether a server's unit includes it (`RemoteSettings.relays`).
+        public let onServers: Bool
+
+        public init(file: String, requires: String? = nil, stacksWithDefault: Bool = false,
+                    onServers: Bool = false) {
+            self.file = file
+            self.requires = requires
+            self.stacksWithDefault = stacksWithDefault
+            self.onServers = onServers
+        }
+    }
+
+    static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
     /// A part a write can fail in, named on the card.
     public enum Part: Equatable { case hooks, usage }
 
@@ -74,7 +126,7 @@ public enum AgentIntegration {
     /// missing, it held the unit at outdated after hooks were written, and
     /// a second press could only be refused. Meaningful only where the
     /// relay is a part (`relayFile`, `RemoteSettings.relays`).
-    public static func relayState(of settings: [String: Any], source: AgentSource) -> StatusLineRelay.State {
+    public static func relayState(of settings: [String: Any], source: some Agent) -> StatusLineRelay.State {
         let state = StatusLineRelay.state(of: settings, source: source)
         guard state == .missing, StatusLineRelay.installing(into: settings, source: source) == nil else { return state }
         return .modified
@@ -83,27 +135,27 @@ public enum AgentIntegration {
     // MARK: - Files
 
     /// The status line file, when the relay is a part here.
-    public static func relayFile(home: URL, for source: AgentSource) -> URL? {
+    public static func relayFile(home: URL, for source: some Agent) -> URL? {
         source.hasStatusLine(home: home) ? source.statusLineFile(home: home) : nil
     }
 
     /// The files a press writes, the hooks file first; one entry when both
     /// parts live in the same file (Claude's `settings.json`).
-    public static func files(home: URL, for source: AgentSource) -> [URL] {
-        let hooks = source.settingsFile(home: home)
+    public static func files(home: URL, for source: some Agent) -> [URL] {
+        let hooks = source.hooksFile(home: home)
         guard let relay = relayFile(home: home, for: source), !sameFile(relay, hooks) else { return [hooks] }
         return [hooks, relay]
     }
 
     /// Both parts read fresh. A hooks folder the install would make
-    /// (`AgentSource.opensHooksDirectory`) reads as missing rather than
+    /// (`Parts.opensHooksDirectory`) reads as missing rather than
     /// unreadable, so the card has its Install to press; any other refusal
     /// to read is thrown.
-    public static func state(home: URL, for source: AgentSource) throws -> State {
+    public static func state(home: URL, for source: some Agent) throws -> State {
         let hooks: LocalHooks.State
         do {
-            hooks = try LocalHooks.state(at: source.settingsFile(home: home), for: source)
-        } catch SettingsFile.Failure.noDirectory where source.opensHooksDirectory {
+            hooks = try LocalHooks.state(at: source.hooksFile(home: home), for: source)
+        } catch SettingsFile.Failure.noDirectory where source.integration.opensHooksDirectory {
             hooks = .missing
         }
         let relay = try relayFile(home: home, for: source).map { relayState(of: try SettingsFile.read($0), source: source) }
@@ -113,8 +165,8 @@ public enum AgentIntegration {
     /// Every part that applies, installed. Parts in one file are one
     /// write, so that file is never left with half of them; a relay changed
     /// by hand is left as it is.
-    public static func install(home: URL, for source: AgentSource) throws {
-        let hooksFile = source.settingsFile(home: home)
+    public static func install(home: URL, for source: some Agent) throws {
+        let hooksFile = source.hooksFile(home: home)
         guard let relayFile = relayFile(home: home, for: source) else {
             try write(.hooks) { try LocalHooks.install(at: hooksFile, for: source) }
             return
@@ -133,8 +185,8 @@ public enum AgentIntegration {
     /// Every part taken out, the relay wherever Evlat's is found — also
     /// one left from when the agent's status line was here. A relay changed
     /// by hand stays.
-    public static func remove(home: URL, for source: AgentSource) throws {
-        let hooksFile = source.settingsFile(home: home)
+    public static func remove(home: URL, for source: some Agent) throws {
+        let hooksFile = source.hooksFile(home: home)
         guard let relayFile = source.statusLineFile(home: home) else {
             try write(.hooks) { try LocalHooks.remove(at: hooksFile, for: source) }
             return
@@ -152,7 +204,7 @@ public enum AgentIntegration {
             // A hooks folder the install would make, and has not: no hooks
             // to take out, as `state` reads it — the relay still goes.
             do { try LocalHooks.remove(at: hooksFile, for: source) }
-            catch SettingsFile.Failure.noDirectory where source.opensHooksDirectory {}
+            catch SettingsFile.Failure.noDirectory where source.integration.opensHooksDirectory {}
         }
         // No folder, no relay: the CLI was never here.
         guard (try? StatusLineRelay.state(at: relayFile, source: source)) == .current else { return }
@@ -161,7 +213,7 @@ public enum AgentIntegration {
 
     /// The usage line alone, taken out: the card's way to keep the hooks
     /// and not the relay.
-    public static func removeRelay(home: URL, for source: AgentSource) throws {
+    public static func removeRelay(home: URL, for source: some Agent) throws {
         guard let file = source.statusLineFile(home: home) else { return }
         try write(.usage) { try StatusLineRelay.remove(at: file, source: source) }
     }
@@ -170,7 +222,7 @@ public enum AgentIntegration {
     /// The relay's own backup (`StatusLineRelay.install`) is taken only when
     /// this write wraps the `statusLine` — a write that only updates the
     /// hooks must not replace the kept original with the wrapper.
-    private static func installTogether(at file: URL, for source: AgentSource) throws {
+    private static func installTogether(at file: URL, for source: some Agent) throws {
         let backup = file.appendingPathExtension(StatusLineRelay.backupExtension)
         do {
             _ = try SettingsFile.apply(at: file, backUp: { settings, mode in

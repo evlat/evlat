@@ -1,5 +1,6 @@
 import XCTest
 import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// The setup rows' model on a real controller's writers, all
@@ -121,7 +122,7 @@ final class SetupModelTests: XCTestCase {
     /// Hooks without the usage line: the card offers the rest, the menu
     /// and the side list stay quiet (no attention, no dot).
     func testOnlyTheHooksReadsNeedsUpdateAndWantsNoAttention() throws {
-        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        try LocalHooks.install(at: Claude().hooksFile(home: home), for: .claude)
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
@@ -152,7 +153,7 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.relayRemovalConsent(.claude),
                        ["~/.claude/settings.json · usage line removed, your previous statusLine back"])
         model.removeRelay(.claude)
-        let file = AgentSource.claude.settingsFile(home: home)
+        let file = Claude().hooksFile(home: home)
         XCTAssertEqual(try StatusLineRelay.state(at: file, source: .claude), .missing)
         XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current)
         XCTAssertEqual(model.row(.agent(.claude))?.status, .outdated)
@@ -163,7 +164,7 @@ final class SetupModelTests: XCTestCase {
     /// A usage line edited by hand is not a part: the hooks go in, the
     /// line is left byte for byte, and the card and the menu say so.
     func testAHandEditedUsageLineIsLeftAlone() throws {
-        let file = AgentSource.claude.settingsFile(home: home)
+        let file = Claude().hooksFile(home: home)
         let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
         try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": edited]]).write(to: file)
         let controller = try controller(home: home)
@@ -218,7 +219,7 @@ final class SetupModelTests: XCTestCase {
         let file = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
         XCTAssertEqual(try StatusLineRelay.state(at: file, source: .antigravity), .current)
         XCTAssertEqual(model.row(.agent(.antigravity))?.status, .installed)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.claude.settingsFile(home: home).path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home).path),
                        "Claude's file is not touched")
 
         let empty = root.appendingPathComponent("empty-agy.json")
@@ -274,10 +275,10 @@ final class SetupModelTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        for source in [AgentSource.claude, .codex] {
-            let file = root.appendingPathComponent("empty-\(source.rawValue).json")
+        for source in [Claude(), Codex()] as [any Agent] {
+            let file = root.appendingPathComponent("empty-\(source.id.rawValue).json")
             try LocalHooks.install(at: file, for: source)
-            XCTAssertEqual(model.manual(.agent(source))?.text, try String(contentsOf: file), "\(source)")
+            XCTAssertEqual(model.manual(.agent(source.id))?.text, try String(contentsOf: file), "\(source.id)")
         }
         let file = root.appendingPathComponent("empty-statusline.json")
         try StatusLineRelay.install(at: file, source: .claude)
@@ -351,12 +352,12 @@ final class SetupModelTests: XCTestCase {
     func testTheAttentionList() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        let settings = AgentSource.claude.settingsFile(home: home)
+        let settings = Claude().hooksFile(home: home)
         let old = "curl -s http://127.0.0.1:\(LocalAPI.defaultPort)/hook/claude old"
         try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\#(old)"}]}]},"statusLine":{"type":"command","command":"sh -c 'x' 127.0.0.1:\#(LocalAPI.defaultPort)/usage/claude"}}"#.utf8)
             .write(to: settings)
         // A refused write: `hooks.json` is a directory.
-        try FileManager.default.createDirectory(at: AgentSource.codex.settingsFile(home: home),
+        try FileManager.default.createDirectory(at: Codex().hooksFile(home: home),
                                                 withIntermediateDirectories: true)
         controller.setAgent(.codex, installed: true)
         let model = model(controller) { host in
@@ -439,7 +440,7 @@ final class SetupWritersTests: XCTestCase {
         defaults.set("top", forKey: AppController.edgeKey)
         XCTAssertFalse(controller.shouldOpenSetup(environment: plain), "any stored edge: not new")
         defaults.removeObject(forKey: AppController.edgeKey)
-        try LocalHooks.install(at: AgentSource.claude.settingsFile(home: home), for: .claude)
+        try LocalHooks.install(at: Claude().hooksFile(home: home), for: .claude)
         XCTAssertFalse(controller.shouldOpenSetup(environment: plain))
         XCTAssertFalse(AppController(defaults: nil, home: home).shouldOpenSetup(environment: plain), "no storage")
         XCTAssertFalse(AppController(defaults: defaults, home: nil).shouldOpenSetup(environment: plain))

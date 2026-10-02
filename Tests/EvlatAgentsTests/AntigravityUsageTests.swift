@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The Antigravity CLI's usage: its status line JSON, the route it is posted
 /// on, the provider it lands in and the relay that posts it. The body is
@@ -55,15 +56,17 @@ final class AntigravityUsageTests: XCTestCase {
     // MARK: - The route and the provider
 
     func testItsRouteDeliversItsReport() throws {
-        XCTAssertEqual(AgentSource.antigravity.usagePath, "/usage/antigravity")
-        XCTAssertEqual(LocalAPI.dispatch(method: "POST", target: "/usage/antigravity", origin: nil, host: nil),
+        XCTAssertEqual(Antigravity().statusLineUsage?.path, "/usage/antigravity")
+        XCTAssertEqual(LocalAPI.dispatch(method: "POST", target: "/usage/antigravity", origin: nil, host: nil,
+                                         routes: Agents.routes),
                        .usage(.antigravity))
-        XCTAssertEqual(LocalAPI.dispatch(method: "GET", target: "/usage/antigravity", origin: nil, host: nil),
+        XCTAssertEqual(LocalAPI.dispatch(method: "GET", target: "/usage/antigravity", origin: nil, host: nil,
+                                         routes: Agents.routes),
                        .notFound)
         let data = try JSONSerialization.data(withJSONObject: body())
         let request = HTTPRequest(method: "POST", target: "/usage/antigravity", body: data,
                                   taskID: nil, pid: nil, origin: nil, host: "127.0.0.1:48151")
-        guard case .usage(let report)? = LocalAPI.handle(request).delivery else { return XCTFail("no report") }
+        guard case .usage(let report)? = LocalAPI.handleAsTheApp(request).delivery else { return XCTFail("no report") }
         XCTAssertEqual(report.source, .antigravity)
         XCTAssertEqual(report.windows.count, 2)
     }
@@ -146,9 +149,9 @@ final class AntigravityUsageTests: XCTestCase {
 
     func testItsFileIsTheCLIsSettings() {
         let home = URL(fileURLWithPath: "/h")
-        XCTAssertEqual(AgentSource.antigravity.statusLineFile(home: home)?.path,
+        XCTAssertEqual(Antigravity().statusLineFile(home: home)?.path,
                        "/h/.gemini/antigravity-cli/settings.json")
-        XCTAssertEqual(AgentSource.claude.statusLineFile(home: home), AgentSource.claude.settingsFile(home: home))
-        XCTAssertNil(AgentSource.codex.statusLineFile(home: home))
+        XCTAssertEqual(Claude().statusLineFile(home: home), Claude().hooksFile(home: home))
+        XCTAssertNil(Codex().statusLineFile(home: home))
     }
 }

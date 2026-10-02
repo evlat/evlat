@@ -31,7 +31,7 @@ final class SessionsProviderTests: XCTestCase {
     }
 
     private func provider(alive: @escaping (Int32) -> Bool = { _ in true }) -> SessionsProvider {
-        SessionsProvider(directory: dir, platform: Platform(isAlive: alive))
+        SessionsProvider(directory: dir, platform: Platform(isAlive: alive), source: .claude)
     }
 
     // MARK: - Cases
@@ -63,7 +63,7 @@ final class SessionsProviderTests: XCTestCase {
     func testSessionsEvlatRunsAreLeftOut() throws {
         try write(pid: 100, sessionId: "chat-session", status: "busy")
         try write(pid: 101, sessionId: "s-2", status: "busy")
-        let p = SessionsProvider(directory: dir, platform: Platform(isAlive: { _ in true }),
+        let p = SessionsProvider(directory: dir, platform: Platform(isAlive: { _ in true }), source: .claude,
                                  excluding: { ["chat-session"] })
         XCTAssertEqual(p.currentSignals().map(\.entity), ["s-2"])
     }
@@ -130,7 +130,7 @@ final class SessionsProviderTests: XCTestCase {
 
     func testMissingDirectoryYieldsNoSignals() {
         let p = SessionsProvider(directory: dir.appendingPathComponent("absent"),
-                                 platform: Platform(isAlive: { _ in true }))
+                                 platform: Platform(isAlive: { _ in true }), source: .claude)
         XCTAssertEqual(p.currentSignals().count, 0, "a missing directory means an empty list, not a crash")
     }
 
@@ -160,7 +160,7 @@ final class SessionsProviderTests: XCTestCase {
 extension SessionsProviderTests {
     private func providerWithStart(_ start: @escaping (Int32) -> Date?) -> SessionsProvider {
         SessionsProvider(directory: dir,
-                         platform: Platform(isAlive: { _ in true }, processStartedAt: start))
+                         platform: Platform(isAlive: { _ in true }, processStartedAt: start), source: .claude)
     }
 
     /// macOS recycles pids and session records live for months. If another

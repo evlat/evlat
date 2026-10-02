@@ -188,7 +188,7 @@ final class ChatStore {
 
     /// A permission request held by the listener: a card on its turn's
     /// chat, or a refusal — an unknown token, a turn not running.
-    func permissionAsked(_ request: PermissionHook.Request) {
+    func permissionAsked(_ request: HeldRequest) {
         guard let token = request.token, let id = tokens[token], var chat = provider[id] else {
             permissions?.answer(request.id, with: LocalAPI.unknownToken)
             return

@@ -1,5 +1,6 @@
 import Foundation
 import EvlatCore
+import EvlatAgents
 
 /// Runs `RemoteSettings`' scripts over `ssh` — per change, read → plan →
 /// write — and `RemoteCommand`'s, one call each; and the machine's one
@@ -96,11 +97,13 @@ final class RemoteInstaller {
                           patience: Int = RemotePath.patience) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
         let nonce = UUID().uuidString
         guard let answer = try? run(ssh, RemoteSettings.arguments(target: target, controlPath: controlPath),
-                                    script: RemoteSettings.readingScript(nonce: nonce, patience: patience)) else {
+                                    script: RemoteSettings.readingScript(nonce: nonce, agents: Agents.all,
+                                                                       patience: patience)) else {
             return .failure(.unreachable)
         }
         do {
-            return .success(try RemoteSettings.reading(exitCode: answer.status, output: answer.output, nonce: nonce))
+            return .success(try RemoteSettings.reading(exitCode: answer.status, output: answer.output, nonce: nonce,
+                                                      agents: Agents.all.ids))
         } catch {
             return .failure(.unreachable)
         }

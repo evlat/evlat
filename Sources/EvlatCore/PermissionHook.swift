@@ -143,97 +143,6 @@ public enum PermissionHook {
         }
     }
 
-    /// What Claude asks: one tool call, and the grants it suggests.
-    public struct Request: Equatable {
-        /// Evlat's name for this request, given when it is read: the held
-        /// connection and the card are both keyed by it.
-        public let id: String
-        /// Which turn it belongs to; `nil` when the header was missing.
-        public let token: String?
-        public let tool: String
-        /// `HookEvent.subject(of:)` over the input: the one line a card says.
-        /// The input itself is not kept (`Write` carries a whole file) —
-        /// except a question's, which its answer sends back (`input`).
-        public let subject: String?
-        /// A `Bash` command whole (`HookEvent.fullCommand(of:)`): what the
-        /// card shows in place of the subject, so nothing runs unseen.
-        public let command: String?
-        /// The `addRules` suggestions that allow, flattened. Other kinds
-        /// (`setMode`, `replaceRules`, …) are dropped here and never granted.
-        public let rules: [Rule]
-        /// The `addDirectories` suggestions: a folder outside the chat's.
-        public let directories: [String]
-        public let sessionID: String?
-        public let cwd: String?
-        /// `agent_id`: a subagent's request carries its parent's session, so
-        /// what answers it is told apart by the actor (`ApprovalHook.resolves`).
-        public let agentID: String?
-        /// An `AskUserQuestion`'s questions, when the card can answer them;
-        /// `nil` for every other tool.
-        public let questions: [AskQuestion.Question]?
-        /// That tool's input as it came, sorted-keys JSON: `updatedInput`
-        /// replaces the whole input, so the answer carries every field of
-        /// it, modelled or not. Kept only beside `questions`.
-        public let input: Data?
-
-        public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
-                    rules: [Rule] = [], directories: [String] = [], sessionID: String? = nil,
-                    cwd: String? = nil, agentID: String? = nil,
-                    questions: [AskQuestion.Question]? = nil, input: Data? = nil) {
-            self.id = id
-            self.token = token
-            self.tool = tool
-            self.subject = subject
-            self.command = command
-            self.rules = rules
-            self.directories = directories
-            self.sessionID = sessionID
-            self.cwd = cwd
-            self.agentID = agentID
-            self.questions = input == nil ? nil : questions
-            self.input = questions == nil ? nil : input
-        }
-
-        /// The hook's body. `nil` when it is not a `PermissionRequest` with a
-        /// tool — a body Evlat cannot put on a card is refused, not guessed.
-        public init?(json: [String: Any], token: String?, id: String = UUID().uuidString) {
-            guard json["hook_event_name"] as? String ?? "PermissionRequest" == "PermissionRequest",
-                  let tool = json["tool_name"] as? String, !tool.isEmpty else { return nil }
-            var rules: [Rule] = []
-            var directories: [String] = []
-            for suggestion in json["permission_suggestions"] as? [[String: Any]] ?? [] {
-                switch suggestion["type"] as? String {
-                case "addRules" where suggestion["behavior"] as? String == "allow":
-                    for rule in suggestion["rules"] as? [[String: Any]] ?? [] {
-                        guard let name = rule["toolName"] as? String, !name.isEmpty else { continue }
-                        let made = Rule(toolName: name, ruleContent: rule["ruleContent"] as? String)
-                        if !rules.contains(made), !PermissionHook.isOverruled(made) { rules.append(made) }
-                    }
-                case "addDirectories":
-                    for directory in suggestion["directories"] as? [String] ?? []
-                    where !directory.isEmpty && !directories.contains(directory) {
-                        directories.append(directory)
-                    }
-                default:
-                    // `setMode` would switch the whole session to accepting
-                    // edits; nothing but a rule or a folder is ever granted.
-                    continue
-                }
-            }
-            let input = json["tool_input"] as? [String: Any]
-            let questions = tool == AskQuestion.tool ? AskQuestion.questions(in: input) : nil
-            let kept = questions == nil ? nil : input.flatMap {
-                try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])
-            }
-            self.init(id: id, token: token, tool: tool,
-                      subject: HookEvent.subject(of: input), command: HookEvent.fullCommand(of: input),
-                      rules: rules, directories: directories,
-                      sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String,
-                      agentID: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                      questions: questions, input: kept)
-        }
-    }
-
     // MARK: - The decision
 
     public enum Decision: Equatable {
@@ -281,5 +190,46 @@ public enum PermissionHook {
         let data = (try? JSONSerialization.data(withJSONObject: output,
                                                 options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data()
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+extension HeldRequest {
+    /// The hook's body. `nil` when it is not a `PermissionRequest` with a
+    /// tool — a body Evlat cannot put on a card is refused, not guessed.
+    public init?(json: [String: Any], token: String?, id: String = UUID().uuidString) {
+        guard json["hook_event_name"] as? String ?? "PermissionRequest" == "PermissionRequest",
+              let tool = json["tool_name"] as? String, !tool.isEmpty else { return nil }
+        var rules: [PermissionHook.Rule] = []
+        var directories: [String] = []
+        for suggestion in json["permission_suggestions"] as? [[String: Any]] ?? [] {
+            switch suggestion["type"] as? String {
+            case "addRules" where suggestion["behavior"] as? String == "allow":
+                for rule in suggestion["rules"] as? [[String: Any]] ?? [] {
+                    guard let name = rule["toolName"] as? String, !name.isEmpty else { continue }
+                    let made = PermissionHook.Rule(toolName: name, ruleContent: rule["ruleContent"] as? String)
+                    if !rules.contains(made), !PermissionHook.isOverruled(made) { rules.append(made) }
+                }
+            case "addDirectories":
+                for directory in suggestion["directories"] as? [String] ?? []
+                where !directory.isEmpty && !directories.contains(directory) {
+                    directories.append(directory)
+                }
+            default:
+                // `setMode` would switch the whole session to accepting
+                // edits; nothing but a rule or a folder is ever granted.
+                continue
+            }
+        }
+        let input = json["tool_input"] as? [String: Any]
+        let questions = tool == AskQuestion.tool ? AskQuestion.questions(in: input) : nil
+        let kept = questions == nil ? nil : input.flatMap {
+            try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])
+        }
+        self.init(id: id, token: token, tool: tool,
+                  subject: HookEvent.subject(of: input), command: HookEvent.fullCommand(of: input),
+                  rules: rules, directories: directories,
+                  sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String,
+                  agentID: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  questions: questions, input: kept)
     }
 }

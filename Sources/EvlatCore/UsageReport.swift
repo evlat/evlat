@@ -8,7 +8,7 @@ import Foundation
 /// more than limits: the model, the working directory, the session id, the
 /// cost. None of it has a field here, so none of it can be kept, printed or
 /// logged by accident — the parser reads the definition's root
-/// (`AgentSource.usage`) and lets the dictionary go.
+/// (`StatusLineUsage`) and lets the dictionary go.
 ///
 /// Pure and clockless, like `LocalAPI`: when the numbers were seen is stamped
 /// by the provider that receives the report.
@@ -30,7 +30,7 @@ public struct UsageReport: Equatable {
     }
 
     /// Whose status line said it: the provider it goes to.
-    public let source: AgentSource
+    public let source: AgentID
     public let windows: [Window]
     /// Keys under the root this adapter does not draw — Claude's
     /// `spend_limit`, which has no length, and Antigravity's `3p-*`. Named so a new window is **visible**
@@ -38,20 +38,24 @@ public struct UsageReport: Equatable {
     /// `SessionsProvider.unrecognizedStatuses` keeps an unknown status.
     public let unrecognizedWindows: Set<String>
 
-    public init(windows: [Window], unrecognizedWindows: Set<String>, source: AgentSource) {
+    public init(windows: [Window], unrecognizedWindows: Set<String>, source: AgentID) {
         self.source = source
         self.windows = windows
         self.unrecognizedWindows = unrecognizedWindows
     }
 
     /// Reads an agent's status line JSON, as its definition says
-    /// (`AgentSource.usage`). No root is an empty report, not an error:
+    /// (`StatusLineUsage`). No root is an empty report, not an error:
     /// Claude's `rate_limits` is absent before the session's first API
     /// answer and for anyone without a subscription. A window whose fields
     /// are missing or of the wrong type is left out; the other still counts.
-    /// A source with no status line (Codex) reads as an empty report.
-    public init(statusLine json: [String: Any], source: AgentSource) {
-        guard let usage = source.usage.statusLine, let root = json[usage.root] as? [String: Any] else {
+    /// An agent with no status line reads as an empty report.
+    public init(statusLine json: [String: Any], source agent: some Agent) {
+        self.init(statusLine: json, source: agent.id, usage: agent.statusLineUsage)
+    }
+
+    public init(statusLine json: [String: Any], source: AgentID, usage: StatusLineUsage?) {
+        guard let usage, let root = json[usage.root] as? [String: Any] else {
             self.init(windows: [], unrecognizedWindows: [], source: source)
             return
         }
@@ -64,7 +68,7 @@ public struct UsageReport: Equatable {
     }
 
     private static func window(_ fields: [String: Any], minutes: Int,
-                               _ reading: AgentSource.UsageReading) -> Window? {
+                               _ reading: StatusLineUsage.Reading) -> Window? {
         switch reading {
         case .usedPercentage:
             guard let used = number(fields["used_percentage"]),

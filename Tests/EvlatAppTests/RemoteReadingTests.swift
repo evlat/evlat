@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 @testable import EvlatCore
+@testable import EvlatAgents
 @testable import EvlatApp
 
 /// A machine's state read over `ssh`: one script, one call,
@@ -56,8 +57,8 @@ final class RemoteReadingTests: XCTestCase {
         var sshRuns: Int {
             ((try? String(contentsOf: runs, encoding: .utf8)) ?? "").split(separator: "\n").count
         }
-        var claude: URL { AgentSource.claude.settingsFile(home: home) }
-        var codex: URL { AgentSource.codex.settingsFile(home: home) }
+        var claude: URL { Claude().hooksFile(home: home) }
+        var codex: URL { Codex().hooksFile(home: home) }
         var command: URL { home.appendingPathComponent(RemoteCommand.commandPath) }
         var key: URL { home.appendingPathComponent(RemoteCommand.keyPath) }
         func file(_ name: String) -> URL { home.appendingPathComponent(name) }
@@ -120,15 +121,15 @@ final class RemoteReadingTests: XCTestCase {
         return Server(home: home, ssh: fake.path, runs: runs, shell: loginShell)
     }
 
-    private func folder(_ source: AgentSource, in server: Server) throws {
-        try FileManager.default.createDirectory(at: source.configDirectory(home: server.home),
+    private func folder(_ source: some Agent, in server: Server) throws {
+        try FileManager.default.createDirectory(at: source.hooksFile(home: server.home).deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
     }
 
-    private func seed(_ source: AgentSource, _ text: String?, in server: Server) throws {
+    private func seed(_ source: some Agent, _ text: String?, in server: Server) throws {
         try folder(source, in: server)
         guard let text else { return }
-        try Data(text.utf8).write(to: source.settingsFile(home: server.home))
+        try Data(text.utf8).write(to: source.hooksFile(home: server.home))
     }
 
     private func read(_ server: Server) -> Result<RemoteSettings.Reading, RemoteSettings.Failure> {
@@ -146,7 +147,7 @@ final class RemoteReadingTests: XCTestCase {
 
     /// Everything the automatic buttons would write, one call each.
     private func installAutomatically(_ server: Server) {
-        for change in [RemoteSettings.Change.hooks(.claude), .hooks(.codex), .statusLine] {
+        for change in [RemoteSettings.Change.hooks(.claude), .hooks(.codex), .statusLine(.claude)] {
             _ = RemoteInstaller.apply(change, .install, target: "fake", ssh: server.ssh)
         }
         _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
@@ -230,7 +231,7 @@ final class RemoteReadingTests: XCTestCase {
             XCTAssertEqual(server.sshRuns - before, 1, "\(shell): one ssh call per machine")
             XCTAssertEqual(reading.hooks(.claude), .state(.current), shell)
             XCTAssertEqual(reading.hooks(.codex), .state(.current), shell)
-            XCTAssertEqual(reading.statusLine, .state(.current), shell)
+            XCTAssertEqual(reading.statusLine(.claude), .state(.current), shell)
             XCTAssertEqual(reading.command, .installed(version: RemoteCommand.version, key: true), shell)
             XCTAssertTrue(reading.command.isCurrent, shell)
         }
@@ -242,7 +243,7 @@ final class RemoteReadingTests: XCTestCase {
             let reading = try self.reading(server)
             XCTAssertEqual(reading.hooks(.claude), .noDirectory, shell)
             XCTAssertEqual(reading.hooks(.codex), .noDirectory, shell)
-            XCTAssertEqual(reading.statusLine, .noDirectory, shell)
+            XCTAssertEqual(reading.statusLine(.claude), .noDirectory, shell)
             XCTAssertEqual(reading.command, .missing, shell)
             try folder(.claude, in: server)
             XCTAssertEqual(try self.reading(server).hooks(.claude), .state(.missing), "\(shell): a folder, no file")
@@ -259,16 +260,16 @@ final class RemoteReadingTests: XCTestCase {
             var reading = try self.reading(server)
             XCTAssertEqual(reading.hooks(.claude), .state(.outdated), shell)
             XCTAssertEqual(reading.hooks(.codex), .state(.missing), shell)
-            XCTAssertEqual(reading.statusLine, .state(.missing), shell)
+            XCTAssertEqual(reading.statusLine(.claude), .state(.missing), shell)
 
             try seed(.claude, String(decoding: try SettingsFile.encode(["statusLine": ["type": "command", "command": modified]]),
                                      as: UTF8.self), in: server)
-            XCTAssertEqual(try self.reading(server).statusLine, .state(.modified), "\(shell): a wrapper changed by hand")
+            XCTAssertEqual(try self.reading(server).statusLine(.claude), .state(.modified), "\(shell): a wrapper changed by hand")
 
             try seed(.claude, "{ not json", in: server)
             reading = try self.reading(server)
             XCTAssertEqual(reading.hooks(.claude), .unreadable, "\(shell): broken JSON")
-            XCTAssertEqual(reading.statusLine, .unreadable, shell)
+            XCTAssertEqual(reading.statusLine(.claude), .unreadable, shell)
 
             try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: server.claude.path)
             XCTAssertEqual(try self.reading(server).hooks(.claude), .unreadable, "\(shell): no read permission")
@@ -326,7 +327,7 @@ final class RemoteReadingTests: XCTestCase {
         try seed(.claude, existing, in: first)
         try seed(.codex, "{}", in: first)
         installAutomatically(first)
-        let script = RemoteSettings.readingScript(nonce: "N0NCE")
+        let script = RemoteSettings.readingScript(nonce: "N0NCE", agents: Agents.all)
         for shell in shells {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: shell)
@@ -346,7 +347,7 @@ final class RemoteReadingTests: XCTestCase {
             XCTAssertEqual(process.terminationStatus, 0, shell)
         }
         XCTAssertEqual(Set(outputs.values).count, 1, "the same bytes under \(shells)")
-        let reading = try RemoteSettings.reading(exitCode: 0, output: try XCTUnwrap(outputs["/bin/dash"]), nonce: "N0NCE")
+        let reading = try RemoteSettings.reading(exitCode: 0, output: try XCTUnwrap(outputs["/bin/dash"]), nonce: "N0NCE", agents: Agents.all.ids)
         XCTAssertEqual(reading.hooks(.claude), .state(.current))
     }
 
@@ -376,7 +377,7 @@ final class RemoteReadingTests: XCTestCase {
     func testSSHsOwnFailureIsUnreachable() throws {
         let server = try self.server("/bin/sh", .unreachable)
         XCTAssertEqual(read(server).failure, .unreachable)
-        XCTAssertThrowsError(try RemoteSettings.reading(exitCode: 0, output: Data("hello\n".utf8), nonce: "N"),
+        XCTAssertThrowsError(try RemoteSettings.reading(exitCode: 0, output: Data("hello\n".utf8), nonce: "N", agents: Agents.all.ids),
                              "no answer line is no answer")
     }
 
@@ -393,7 +394,7 @@ final class RemoteReadingTests: XCTestCase {
                     if text != nil { try Data("alias ll='ls -l'".utf8).write(to: server.file(".bashrc")) }
                 }
                 installAutomatically(automatic)
-                let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(hand), key: key), shell)
+                let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(hand), key: key, agents: Agents.all), shell)
                 XCTAssertEqual(try paste(shell, block, home: hand.home, loginShell: hand.shell).status, 0, shell)
 
                 let label = "\(shell): \(text == nil ? "no file" : "a file")"
@@ -426,7 +427,7 @@ final class RemoteReadingTests: XCTestCase {
                                Data(((text == nil ? "" : "alias ll='ls -l'\n") + RemotePath.line + "\n").utf8),
                                "\(label): the PATH line, on a line of its own")
 
-                XCTAssertNil(RemoteSettings.combinedScript(try reading(hand), key: key),
+                XCTAssertNil(RemoteSettings.combinedScript(try reading(hand), key: key, agents: Agents.all),
                              "\(label): nothing left to write, no block")
             }
         }
@@ -437,17 +438,17 @@ final class RemoteReadingTests: XCTestCase {
             let server = try self.server(shell)
             try seed(.claude, existing, in: server)
             try folder(.codex, in: server)
-            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all))
             let theirs = Data(#"{"model":"sonnet"}"#.utf8)
             try theirs.write(to: server.claude)
 
             let pasted = try paste(shell, block, home: server.home, loginShell: server.shell)
             XCTAssertEqual(bytes(server.claude), theirs, "\(shell): theirs is kept")
-            XCTAssertTrue(pasted.errors.contains(AgentSource.claude.settingsPath), "\(shell): \(pasted.errors)")
+            XCTAssertTrue(pasted.errors.contains(Claude().integration.hooksFile), "\(shell): \(pasted.errors)")
             XCTAssertEqual(try HookSettings.state(at: server.codex, for: .codex), .current, "\(shell): Codex is written")
             XCTAssertEqual(bytes(server.command), Data(RemoteCommand.script.utf8), "\(shell): the command is written")
             let leftovers = try FileManager.default.contentsOfDirectory(
-                atPath: AgentSource.claude.configDirectory(home: server.home).path).filter { $0.hasSuffix(".tmp") }
+                atPath: Claude().hooksFile(home: server.home).deletingLastPathComponent().path).filter { $0.hasSuffix(".tmp") }
             XCTAssertEqual(leftovers, [], shell)
         }
     }
@@ -462,8 +463,8 @@ final class RemoteReadingTests: XCTestCase {
             let foreign = Data("#!/bin/sh\n# somebody else's evlat\necho mine\n".utf8)
             try foreign.write(to: server.command)
 
-            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
-            XCTAssertFalse(block.contains(AgentSource.codex.settingsPath), "\(shell): no Codex on the server, no Codex part")
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all))
+            XCTAssertFalse(block.contains(Codex().integration.hooksFile), "\(shell): no Codex on the server, no Codex part")
             XCTAssertFalse(block.contains(RemoteCommand.marker), "\(shell): somebody else's evlat, no command part")
             XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
 
@@ -472,7 +473,7 @@ final class RemoteReadingTests: XCTestCase {
             XCTAssertEqual((settings?["statusLine"] as? [String: Any])?["command"] as? String, modified,
                            "\(shell): the wrapper changed by hand is not touched")
             XCTAssertEqual(bytes(server.command), foreign, shell)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: AgentSource.codex.configDirectory(home: server.home).path),
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: server.home).deletingLastPathComponent().path),
                            "\(shell): no folder is made")
         }
     }
@@ -481,7 +482,7 @@ final class RemoteReadingTests: XCTestCase {
         let server = try self.server("/bin/sh")
         try seed(.claude, existing, in: server)
         try folder(.codex, in: server)
-        let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+        let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all))
         let lines = block.split(separator: "\n", omittingEmptySubsequences: false)
         XCTAssertEqual(lines.filter { $0 == RemoteSettings.combinedDelimiter[...] }.count, 4,
                        "four parts (two files, the command, the PATH), each closed once")
@@ -660,12 +661,12 @@ extension RemoteReadingTests {
         func agents(_ claude: Result<RemoteSettings.Snapshot, SettingsFile.Failure>,
                     _ codex: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory),
                     _ antigravity: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory))
-            -> [AgentSource: SetupStatus] {
+            -> [AgentID: SetupStatus] {
             RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex, .antigravity: antigravity],
                                             command: .missing)).agents
         }
         let codex = HookSettings.installing(into: [:], for: .codex)
-        let antigravity = AntigravityHooks.installing(into: [:])
+        let antigravity = AntigravityHooks.installing(into: [:], hooks: Antigravity().hooks)
         XCTAssertEqual(agents(try file(unit), try file(codex), try file(antigravity)),
                        [.claude: .installed, .codex: .installed, .antigravity: .installed],
                        "Antigravity's card on a server is its hooks alone")
@@ -862,7 +863,7 @@ extension RemoteReadingTests {
     func testTheBlocksPathPartWritesNothingWhenThePathAlreadyHasTheFolder() throws {
         for shell in shells {
             let server = try self.server(shell)
-            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all))
             XCTAssertTrue(block.contains(RemotePath.line), shell)
             let path = server.home.appendingPathComponent(RemotePath.directory).path + ":" + Self.rootPath
             XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell, path: path).status, 0, shell)
@@ -875,7 +876,7 @@ extension RemoteReadingTests {
         for shell in shells {
             let server = try self.server(shell, login: "zsh")
             try Data((RemotePath.line + "\n").utf8).write(to: server.file(".zshrc"))
-            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key))
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all))
             // The shell the user pastes into has not read the file yet.
             XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
             XCTAssertEqual(bytes(server.file(".zshrc")), Data((RemotePath.line + "\n").utf8), shell)
@@ -887,12 +888,12 @@ extension RemoteReadingTests {
         for shell in shells {
             let server = try self.server(shell, login: "sh")
             _ = RemoteInstaller.applyCommand(.install, key: key, target: "fake", ssh: server.ssh)
-            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key),
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all),
                                       "\(shell): the command is current, the PATH is not")
             XCTAssertFalse(block.contains(RemoteCommand.marker), "\(shell): no command part")
             XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
             XCTAssertEqual(bytes(server.file(".profile")), Data((RemotePath.line + "\n").utf8), shell)
-            XCTAssertNil(RemoteSettings.combinedScript(try reading(server), key: key), "\(shell): nothing left")
+            XCTAssertNil(RemoteSettings.combinedScript(try reading(server), key: key, agents: Agents.all), "\(shell): nothing left")
         }
     }
 }

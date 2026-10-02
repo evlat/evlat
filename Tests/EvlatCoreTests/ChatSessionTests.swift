@@ -163,8 +163,8 @@ final class ChatSessionPermissionTests: XCTestCase {
     }
 
     private func request(_ id: String, tool: String = "Write", rules: [PermissionHook.Rule] = [],
-                         directories: [String] = []) -> PermissionHook.Request {
-        PermissionHook.Request(id: id, token: "T", tool: tool, subject: "/tmp/project/a.txt",
+                         directories: [String] = []) -> HeldRequest {
+        HeldRequest(id: id, token: "T", tool: tool, subject: "/tmp/project/a.txt",
                                rules: rules, directories: directories)
     }
 
@@ -185,7 +185,7 @@ final class ChatSessionPermissionTests: XCTestCase {
     /// stays what the bar and the "not done" match read.
     func testACardCarriesTheWholeCommand() throws {
         var chat = running()
-        chat.ask(PermissionHook.Request(id: "R1", token: "T", tool: "Bash", subject: "ls && rm a",
+        chat.ask(HeldRequest(id: "R1", token: "T", tool: "Bash", subject: "ls && rm a",
                                         command: "ls && rm a\nfind ."), at: t0)
         guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
         XCTAssertEqual(card.command, "ls && rm a\nfind .")

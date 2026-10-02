@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// Antigravity: the installed entry, the route that takes the event from a
 /// header, and the adapter over bodies measured from the app (2.18.1) and
@@ -11,7 +12,7 @@ final class AntigravityHooksTests: XCTestCase {
     override func setUpWithError() throws {
         home = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("evlat-antigravity-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: AgentSource.antigravity.configDirectory(home: home),
+        try FileManager.default.createDirectory(at: Antigravity().hooksFile(home: home).deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
     }
 
@@ -19,7 +20,7 @@ final class AntigravityHooksTests: XCTestCase {
         try? FileManager.default.removeItem(at: home)
     }
 
-    private var file: URL { AgentSource.antigravity.settingsFile(home: home) }
+    private var file: URL { Antigravity().hooksFile(home: home) }
 
     // MARK: - Fixtures (measured)
 
@@ -57,7 +58,7 @@ final class AntigravityHooksTests: XCTestCase {
     /// the pid written in (`LocalAPI.handle`).
     private func delivered(_ event: String, _ body: [String: Any], pid: Int32 = 4242) -> HookEvent? {
         let data = try! JSONSerialization.data(withJSONObject: body)
-        let outcome = LocalAPI.handle(HTTPRequest(method: "POST", target: "/hook/antigravity", body: data,
+        let outcome = LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: "/hook/antigravity", body: data,
                                                   pid: String(pid), host: "127.0.0.1:48151", event: event))
         guard case .hook(let hook)? = outcome.delivery else { return nil }
         return hook
@@ -77,9 +78,9 @@ final class AntigravityHooksTests: XCTestCase {
     }
 
     func testTheEntryHasEveryEventInItsShape() throws {
-        let entry = AntigravityHooks.installed
+        let entry = AntigravityHooks.installed(hooks: Antigravity().hooks)
         XCTAssertEqual(entry["enabled"] as? Bool, true)
-        for event in AgentSource.antigravity.hookEvents {
+        for event in Antigravity().hooks.events {
             let list = try XCTUnwrap(entry[event] as? [[String: Any]], event)
             let hook: [String: Any]
             if event == "PreToolUse" || event == "PostToolUse" {
@@ -113,16 +114,16 @@ final class AntigravityHooksTests: XCTestCase {
         let fresh = home.appendingPathComponent("fresh")
         try FileManager.default.createDirectory(at: fresh.appendingPathComponent(".gemini/antigravity-cli"),
                                                 withIntermediateDirectories: true)
-        let file = AgentSource.antigravity.settingsFile(home: fresh)
+        let file = Antigravity().hooksFile(home: fresh)
         XCTAssertEqual(try LocalHooks.install(at: file, for: .antigravity), .written)
         XCTAssertEqual(try LocalHooks.state(at: file, for: .antigravity), .current)
     }
 
     func testAChangedEntryReadsOutdated() {
-        var entry = AntigravityHooks.installed
+        var entry = AntigravityHooks.installed(hooks: Antigravity().hooks)
         entry["enabled"] = false
-        XCTAssertEqual(AntigravityHooks.state(of: ["evlat": entry]), .outdated)
-        XCTAssertEqual(AntigravityHooks.state(of: ["evlat": "x"]), .outdated)
+        XCTAssertEqual(AntigravityHooks.state(of: ["evlat": entry], hooks: Antigravity().hooks), .outdated)
+        XCTAssertEqual(AntigravityHooks.state(of: ["evlat": "x"], hooks: Antigravity().hooks), .outdated)
     }
 
     /// A server gets it too, in its own shape and with its command alone.
@@ -131,23 +132,23 @@ final class AntigravityHooksTests: XCTestCase {
         let write = try XCTUnwrap(try RemoteSettings.plan(.hooks(.antigravity), .install, original: original))
         let written = try XCTUnwrap(JSONSerialization.jsonObject(with: write.contents) as? [String: Any])
         XCTAssertNotNil(written["their-hook"])
-        XCTAssertEqual(AntigravityHooks.state(of: written), .current)
+        XCTAssertEqual(AntigravityHooks.state(of: written, hooks: Antigravity().hooks), .current)
         XCTAssertNil(try RemoteSettings.plan(.hooks(.antigravity), .install, original: write.contents),
                      "installed: nothing to write")
         let removed = try XCTUnwrap(try RemoteSettings.plan(.hooks(.antigravity), .remove, original: write.contents))
         let left = try XCTUnwrap(JSONSerialization.jsonObject(with: removed.contents) as? [String: Any])
         XCTAssertNil(left["evlat"])
-        XCTAssertTrue(RemoteSettings.manual.hooks(for: .antigravity).contains("/hook/antigravity"))
+        XCTAssertTrue(RemoteSettings.manual(agents: Agents.all).hooks(for: .antigravity).contains("/hook/antigravity"))
     }
 
     func testItIsPresentWithTheAppsOrTheCLIsDirectory() throws {
         let bare = home.appendingPathComponent("bare")
         try FileManager.default.createDirectory(at: bare.appendingPathComponent(".gemini/config"),
                                                 withIntermediateDirectories: true)
-        XCTAssertFalse(AgentSource.antigravity.isPresent(home: bare), "Gemini CLI alone is not Antigravity")
+        XCTAssertFalse(Antigravity().isPresent(home: bare), "Gemini CLI alone is not Antigravity")
         try FileManager.default.createDirectory(at: bare.appendingPathComponent(".gemini/antigravity-cli"),
                                                 withIntermediateDirectories: true)
-        XCTAssertTrue(AgentSource.antigravity.isPresent(home: bare))
+        XCTAssertTrue(Antigravity().isPresent(home: bare))
     }
 
     // MARK: - The route and the adapter
@@ -157,7 +158,7 @@ final class AntigravityHooksTests: XCTestCase {
         XCTAssertEqual(event.name, "Stop")
         XCTAssertEqual(event.source, .antigravity)
         let named = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s"])
-        let claude = LocalAPI.handle(HTTPRequest(method: "POST", target: "/hook", body: named,
+        let claude = LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: "/hook", body: named,
                                                  host: "127.0.0.1:48151", event: "PreToolUse"))
         guard case .hook(let hook)? = claude.delivery else { return XCTFail("no event") }
         XCTAssertEqual(hook.name, "Stop", "a body that names its event keeps it")
@@ -177,7 +178,8 @@ final class AntigravityHooksTests: XCTestCase {
     }
 
     func testAMeasuredTurnWorksThenFinishes() throws {
-        let hooks = HooksProvider(platform: Platform(isAlive: { _ in true }, processStartedAt: { _ in nil }))
+        let hooks = HooksProvider(platform: Platform(isAlive: { _ in true }, processStartedAt: { _ in nil }),
+                                  isQuestion: Agents.isQuestion)
         var phases: [Phase] = []
         for (name, body) in Self.turn {
             hooks.handle(try XCTUnwrap(delivered(name, body)))
@@ -238,7 +240,7 @@ final class AntigravityHooksTests: XCTestCase {
         body["transcriptPath"] = path
         body.merge(extra) { $1 }
         let data = try JSONSerialization.data(withJSONObject: body)
-        let outcome = LocalAPI.handle(HTTPRequest(method: "POST", target: "/hook/antigravity", body: data,
+        let outcome = LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: "/hook/antigravity", body: data,
                                                   host: "127.0.0.1:48151", event: "Stop"),
                                       listener: LocalAPI.Listener(origin: origin,
                                                                   transcriptRoots: AntigravityTranscript.roots(home: home)))
@@ -259,7 +261,7 @@ final class AntigravityHooksTests: XCTestCase {
     func testClaudesOwnReplyIsUntouched() throws {
         let body = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",
                                                                "last_assistant_message": "Claude's reply."])
-        let outcome = LocalAPI.handle(HTTPRequest(method: "POST", target: "/hook", body: body, host: "127.0.0.1:48151"),
+        let outcome = LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: "/hook", body: body, host: "127.0.0.1:48151"),
                                       listener: LocalAPI.Listener(transcriptRoots: AntigravityTranscript.roots(home: home)))
         guard case .hook(let event)? = outcome.delivery else { return XCTFail("no event") }
         XCTAssertEqual(event.lastReply, "Claude's reply.")

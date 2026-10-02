@@ -37,7 +37,7 @@ import EvlatCore
 /// counters stay open), crisp enough at the indicator's size. An official
 /// vector would be exact at any size.
 struct SourceGlyph: Shape {
-    let source: AgentSource
+    let source: AgentID
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -54,12 +54,13 @@ struct SourceGlyph: Shape {
         CGPoint(x: rect.minX + p.x * rect.width, y: rect.minY + p.y * rect.height)
     }
 
-    /// Exhaustive: a new source does not compile until it has a mark.
-    static func outline(for source: AgentSource) -> [[CGPoint]] {
-        switch source {
-        case .claude: return claude
-        case .codex: return openai
-        case .antigravity: return arch
+    /// By the agent's id; an id with no outline here draws no mark.
+    static func outline(for source: AgentID) -> [[CGPoint]] {
+        switch source.rawValue {
+        case "claude": return claude
+        case "codex": return openai
+        case "antigravity": return arch
+        default: return []
         }
     }
 

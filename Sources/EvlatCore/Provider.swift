@@ -1,7 +1,7 @@
 import Foundation
 
 /// A source of signals. Everything source-specific stays here; the core only
-/// ever sees the canonical vocabulary (v1's `AgentSource.canonical` pattern).
+/// ever sees the canonical vocabulary (each agent's `HookChannel.canonical`).
 ///
 /// A provider is a **compiled** type; no code is loaded from outside. The way
 /// in for third parties is posting signals to the local API.

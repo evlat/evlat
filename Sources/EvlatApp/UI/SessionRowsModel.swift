@@ -123,7 +123,7 @@ public struct SessionRow: Equatable, Identifiable {
     public let label: String
     public let phase: Phase
     /// The tool the session runs in; its mark is drawn inside the ring.
-    public let source: AgentSource?
+    public let source: AgentID?
     /// 0, or this row's number among rows with the same name in the same tool
     /// on the same machine (2, 3, …). The first of them keeps the bare name.
     public let duplicate: Int
@@ -186,7 +186,7 @@ public struct SessionRow: Equatable, Identifiable {
     public var id: String { entity }
 
     public init(entity: String, label: String, phase: Phase,
-                source: AgentSource? = nil, duplicate: Int = 0, branch: String? = nil,
+                source: AgentID? = nil, duplicate: Int = 0, branch: String? = nil,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
                 machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session,
                 progress: Int? = nil, sender: String? = nil, passive: Bool = false) {
@@ -398,7 +398,7 @@ public final class SessionRowsModel: ObservableObject {
         -> [String: (number: Int, branch: String?)] {
         // A struct, not a joined string: a sender may hold any separator.
         struct Group: Hashable {
-            let tag: String?, source: AgentSource?, label: String
+            let tag: String?, source: AgentID?, label: String
         }
         var groups: [Group: [Signal]] = [:]
         for signal in signals {

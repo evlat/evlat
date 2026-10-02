@@ -13,10 +13,10 @@ import Foundation
 /// approval has had its `PreToolUse` and nothing more, so the row reads
 /// `working` on it. The hook's parent is the agent's own process — `agy`, or
 /// the app's `language_server`, shared by every conversation of the app.
-enum AntigravityHookAdapter {
-    static func canonical(_ json: [String: Any]) -> [String: Any] {
+public enum AntigravityHookAdapter {
+    public static func canonical(_ json: [String: Any]) -> [String: Any] {
         var out: [String: Any] = [:]
-        // The server's own keys pass through (`AgentSource.canonical`).
+        // The server's own keys pass through (`HookChannel.canonical`).
         // So does the reply the server read from the transcript
         // (`AntigravityTranscript`).
         for key in [HookEvent.pidKey, HookEvent.taskKey, "hook_event_name", "last_assistant_message"] {
@@ -73,30 +73,31 @@ public enum AntigravityHooks {
     static let name = "evlat"
     static let toolEvents: Set<String> = ["PreToolUse", "PostToolUse"]
 
-    /// Evlat's entry as written; the golden test pins it.
-    public static var installed: [String: Any] {
+    /// Evlat's entry as written, for the agent's `hooks`; the golden test
+    /// pins it.
+    public static func installed(hooks: HookChannel) -> [String: Any] {
         var entry: [String: Any] = ["enabled": true]
-        for event in AgentSource.antigravity.hookEvents {
+        for event in hooks.events {
             let hook: [String: Any] = ["type": "command", "timeout": 5,
-                                       "command": LocalAPI.installedHookCommand(for: .antigravity, event: event)]
+                                       "command": LocalAPI.installedHookCommand(for: hooks, event: event)]
             entry[event] = toolEvents.contains(event) ? [["matcher": "*", "hooks": [hook]]] : [hook]
         }
         return entry
     }
 
-    public static func state(of settings: [String: Any]) -> State {
+    public static func state(of settings: [String: Any], hooks: HookChannel) -> State {
         guard let ours = settings[name] else { return .missing }
         guard let entry = ours as? [String: Any] else { return .outdated }
-        return NSDictionary(dictionary: entry).isEqual(to: installed) ? .current : .outdated
+        return NSDictionary(dictionary: entry).isEqual(to: installed(hooks: hooks)) ? .current : .outdated
     }
 
-    public static func installing(into settings: [String: Any]) -> [String: Any] {
+    public static func installing(into settings: [String: Any], hooks: HookChannel) -> [String: Any] {
         var result = settings
-        result[name] = installed
+        result[name] = installed(hooks: hooks)
         return result
     }
 
-    public static func removing(from settings: [String: Any]) -> [String: Any] {
+    public static func removing(from settings: [String: Any], hooks: HookChannel) -> [String: Any] {
         var result = settings
         result.removeValue(forKey: name)
         return result
