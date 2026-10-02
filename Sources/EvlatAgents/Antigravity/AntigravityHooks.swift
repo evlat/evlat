@@ -1,4 +1,5 @@
 import Foundation
+import EvlatCore
 
 /// Antigravity's differences from the canonical vocabulary. The app, the IDE
 /// and the `agy` CLI share one hook system (measured: CLI 1.2.14, app
@@ -13,8 +14,8 @@ import Foundation
 /// approval has had its `PreToolUse` and nothing more, so the row reads
 /// `working` on it. The hook's parent is the agent's own process — `agy`, or
 /// the app's `language_server`, shared by every conversation of the app.
-public enum AntigravityHookAdapter {
-    public static func canonical(_ json: [String: Any]) -> [String: Any] {
+enum AntigravityHookAdapter {
+    static func canonical(_ json: [String: Any]) -> [String: Any] {
         var out: [String: Any] = [:]
         // The server's own keys pass through (`HookChannel.canonical`).
         // So does the reply the server read from the transcript
@@ -67,15 +68,15 @@ public enum AntigravityHookAdapter {
 /// the measured runs used. Another tool's names are never touched.
 ///
 /// Pure: dictionary in, dictionary out; the file is `LocalHooks`'.
-public enum AntigravityHooks {
-    public typealias State = HookSettings.State
+enum AntigravityHooks {
+    typealias State = HookSettings.State
 
     static let name = "evlat"
     static let toolEvents: Set<String> = ["PreToolUse", "PostToolUse"]
 
     /// Evlat's entry as written, for the agent's `hooks`; the golden test
     /// pins it.
-    public static func installed(hooks: HookChannel) -> [String: Any] {
+    static func installed(hooks: HookChannel) -> [String: Any] {
         var entry: [String: Any] = ["enabled": true]
         for event in hooks.events {
             let hook: [String: Any] = ["type": "command", "timeout": 5,
@@ -85,19 +86,19 @@ public enum AntigravityHooks {
         return entry
     }
 
-    public static func state(of settings: [String: Any], hooks: HookChannel) -> State {
+    static func state(of settings: [String: Any], hooks: HookChannel) -> State {
         guard let ours = settings[name] else { return .missing }
         guard let entry = ours as? [String: Any] else { return .outdated }
         return NSDictionary(dictionary: entry).isEqual(to: installed(hooks: hooks)) ? .current : .outdated
     }
 
-    public static func installing(into settings: [String: Any], hooks: HookChannel) -> [String: Any] {
+    static func installing(into settings: [String: Any], hooks: HookChannel) -> [String: Any] {
         var result = settings
         result[name] = installed(hooks: hooks)
         return result
     }
 
-    public static func removing(from settings: [String: Any], hooks: HookChannel) -> [String: Any] {
+    static func removing(from settings: [String: Any], hooks: HookChannel) -> [String: Any] {
         var result = settings
         result.removeValue(forKey: name)
         return result
@@ -120,12 +121,12 @@ public enum AntigravityHooks {
 /// "content": "…"}` is a reply, and the one that ends a turn is the last with
 /// text (a reply before a tool call can be empty). Measured on CLI 1.2.14
 /// and app 2.18.1.
-public enum AntigravityTranscript {
+enum AntigravityTranscript {
     /// Enough for the last reply; a transcript grows with the conversation.
     static let tailBytes = 64 * 1024
 
     /// Where the app, the CLI and the IDE keep their conversations.
-    public static func roots(home: URL) -> [URL] {
+    static func roots(home: URL) -> [URL] {
         ["antigravity", "antigravity-cli", "antigravity-ide"].map {
             home.appendingPathComponent(".gemini/\($0)/brain", isDirectory: true)
         }
@@ -141,7 +142,7 @@ public enum AntigravityTranscript {
         }
     }
 
-    public static func lastReply(at path: String, roots: [URL]) -> String? {
+    static func lastReply(at path: String, roots: [URL]) -> String? {
         guard isAllowed(path, roots: roots), let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         guard let size = try? handle.seekToEnd() else { return nil }

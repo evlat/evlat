@@ -559,22 +559,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         SessionHost.startedAt(pid)
     }
 
-    /// The provider bound to the real location. Path and liveness both come
-    /// from outside, so a test can fake either.
-    ///
-    /// `EVLAT_SESSIONS` overrides the directory. It exists because the "nothing
-    /// is live" state cannot be produced on a machine that has live sessions,
-    /// and that state is exactly what the idle-cost measurement needs. v1 uses
-    /// the same pattern (`EVLAT_PORT`, `EVLAT_PET`). Without it the directory
-    /// follows the resolved home, so `EVLAT_HOME` moves it too.
-    nonisolated public static func sessionsDirectory(
-        _ environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> URL {
-        sessionRecords(environment) ?? SessionsProvider.defaultDirectory(home: resolvedHome(environment))
-    }
-
     /// `EVLAT_SESSIONS`, when set: where the agents' session records are
     /// read instead of their own folders (`ProviderContext.sessionRecords`).
+    ///
+    /// It exists because the "nothing is live" state cannot be produced on a
+    /// machine that has live sessions, and that state is exactly what the
+    /// idle-cost measurement needs. v1 uses the same pattern (`EVLAT_PORT`,
+    /// `EVLAT_PET`). Without it the records follow the resolved home, so
+    /// `EVLAT_HOME` moves them too.
     nonisolated static func sessionRecords(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {
@@ -584,8 +576,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The home the app works under: `EVLAT_HOME` (tilde expanded, blank
     /// ignored), else the user's. It exists so the hook entries can be tried
-    /// by hand against a temporary directory. Only `launch()` and the
-    /// sessions directory ask for it; a controller built without a home
+    /// by hand against a temporary directory. Only `launch()` and
+    /// `--list` ask for it; a controller built without a home
     /// never does.
     ///
     /// Launched with `open`, the shell's environment does not reach the app
@@ -607,6 +599,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     ) -> ProviderContext {
         ProviderContext(home: home, platform: darwinPlatform, sessionRecords: sessionRecords(),
                         excludingSessions: excluding)
+    }
+
+    /// The agents' own providers as `--list` reads them: under the resolved
+    /// home, with the records folder `EVLAT_SESSIONS` names. Each one says
+    /// where it reads in its `diagnostics`.
+    nonisolated static func listedProviders(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [Provider] {
+        let context = ProviderContext(home: resolvedHome(environment), platform: darwinPlatform,
+                                      sessionRecords: sessionRecords(environment))
+        return Agents.all.flatMap { $0.providers(context) }
     }
 
     /// Where the chats are kept (`ChatStore.root`) — only with a home: a
@@ -851,10 +854,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// only asked whether someone is already answering there.
     nonisolated public static func printSignalsAndExit(capturingFor window: TimeInterval? = nil) -> Never {
         let registry = Registry()
-        let providers = Agents.all.flatMap { $0.providers(providerContext(home: resolvedHome())) }
+        let providers = listedProviders()
         providers.forEach(registry.register)
-        let records = providers.compactMap { $0 as? SessionsProvider }
-        let codex = providers.compactMap { $0 as? CodexUsageProvider }
         // The one reload this process does; timed, because it runs on the
         // app's main queue when the bar opens.
         let started = DispatchTime.now()
@@ -863,7 +864,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // One scan, every derived value — see Registry.Snapshot for why the
         // separate accessors are gone.
         let snapshot = registry.snapshot()
-        print("provider: \(SessionsProvider.id)  ·  directory: \(sessionsDirectory().path)")
+        // Each provider's own account of itself — where it reads, and the
+        // drift that would otherwise look like a healthy idle machine — after
+        // the reload above, so it is this reading's.
+        for line in providers.flatMap(\.diagnostics) { print(line) }
         print("live sessions: \(snapshot.ordered.count)  ·  aggregate: \(snapshot.aggregate.rawValue)  ·  hasLive: \(snapshot.hasLive)")
         // Resolved here too, so the lookup can be checked against the live
         // sessions on this machine without opening a card.
@@ -875,30 +879,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         for signal in snapshot.usage {
             print(usageLine(signal))
         }
-        // The format is undocumented and the provider goes quiet when it
-        // drifts; quiet must not read as "Codex has no limits".
-        for codex in codex where codex.lastReadFailed {
-            print("codex usage: unreadable (format may have drifted)"
-                + (codex.currentSignals().isEmpty ? "" : "; showing the last good reading"))
-        }
         print(String(format: "usage reload: %.1f ms", reloadMs))
-        for provider in records {
-            if !provider.unrecognizedStatuses.isEmpty {
-                print("unrecognised status: \(provider.unrecognizedStatuses.sorted().joined(separator: ", "))")
-            }
-            if provider.recordsMissingUpdatedAt > 0 {
-                print("records with unreadable updatedAt: \(provider.recordsMissingUpdatedAt) (format may have drifted)")
-            }
-            // The row's stamp comes from `statusUpdatedAt`; falling back to
-            // `updatedAt` silently would restore the skew that moved it there.
-            if provider.recordsMissingStatusUpdatedAt > 0 {
-                print("records with unreadable statusUpdatedAt: \(provider.recordsMissingStatusUpdatedAt) (format may have drifted)")
-            }
-            // The drift that would otherwise look like a healthy idle machine.
-            if provider.recordsUnparseable > 0 {
-                print("records that could not be parsed: \(provider.recordsUnparseable) (format may have drifted)")
-            }
-        }
         printHookEndpoint(capturingFor: window)
         printRemoteMachines()
         exit(0)
@@ -2089,9 +2070,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         let listener = HookListener(
             port: choice.port,
-            // Antigravity's last reply is read from its own folders under
-            // this home, and from nowhere without one.
-            transcriptRoots: home.map(AntigravityTranscript.roots) ?? [],
+            // A finish with no reply in it is read from the agent's own
+            // folders under this home, and from nowhere without one.
+            transcriptRoots: home.map { home in Agents.all.flatMap { $0.hooks.finishRoots(home) } } ?? [],
             // Written once bound, under this controller's home: a controller
             // built without one (every test) has no key and refuses `/signal`.
             signalKey: Self.signalKeyWriter(home: home, written: signalKeyWritten),

@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The `claude-sessions` provider's contract. Entirely **headless**: fixtures
 /// are written to a temporary directory and liveness is handed in as a fake

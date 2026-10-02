@@ -10,6 +10,15 @@ public protocol Provider {
     var id: String { get }
     /// Signals as of now. Called on the main queue.
     func currentSignals() -> [Signal]
+    /// What `Evlat --list` prints about the provider itself: where it reads,
+    /// and the drift that would otherwise look like a quiet, healthy source.
+    /// The provider says it; the shell prints it without knowing which
+    /// provider spoke.
+    var diagnostics: [String] { get }
+}
+
+extension Provider {
+    public var diagnostics: [String] { [] }
 }
 
 /// A provider whose reading is expensive, done at the moment the **caller**

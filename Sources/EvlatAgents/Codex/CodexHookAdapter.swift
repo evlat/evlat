@@ -5,8 +5,8 @@ import Foundation
 /// differ is translated here (v1, set 008 → M2, M4, M5). A tool failure is not
 /// translated: Codex sends no stable error field (`tool_response` is plain
 /// text) and nothing is guessed from text.
-public enum CodexHookAdapter {
-    public static func canonical(_ json: [String: Any]) -> [String: Any] {
+enum CodexHookAdapter {
+    static func canonical(_ json: [String: Any]) -> [String: Any] {
         var translated = json
         // Codex sends no `Stop` when the user interrupts a turn; it sends
         // `Interrupt`. Untranslated, the session would keep reporting `working`

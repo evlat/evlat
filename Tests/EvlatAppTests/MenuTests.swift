@@ -409,12 +409,19 @@ final class MenuTests: XCTestCase {
     }
 
     func testTheSessionsFollowTheHomeUnlessNamed() {
-        XCTAssertEqual(AppController.sessionsDirectory(["EVLAT_HOME": "/tmp/h"]).path, "/tmp/h/.claude/sessions")
-        XCTAssertEqual(AppController.sessionsDirectory(["EVLAT_HOME": "/tmp/h", "EVLAT_SESSIONS": "/tmp/s"]).path,
+        XCTAssertEqual(Self.recordsDirectory(["EVLAT_HOME": "/tmp/h"]), "/tmp/h/.claude/sessions")
+        XCTAssertEqual(Self.recordsDirectory(["EVLAT_HOME": "/tmp/h", "EVLAT_SESSIONS": "/tmp/s"]),
                        "/tmp/s", "EVLAT_SESSIONS comes first")
-        XCTAssertEqual(AppController.sessionsDirectory(["EVLAT_SESSIONS": ""]).standardizedFileURL.path,
+        XCTAssertEqual(Self.recordsDirectory(["EVLAT_SESSIONS": ""]).map { URL(fileURLWithPath: $0).standardizedFileURL.path },
                        FileManager.default.homeDirectoryForCurrentUser
                            .appendingPathComponent(".claude/sessions").standardizedFileURL.path)
+    }
+
+    /// The folder `--list` says the session records are read from.
+    nonisolated static func recordsDirectory(_ environment: [String: String]) -> String? {
+        let marker = "  ·  directory: "
+        return AppController.listedProviders(environment).flatMap(\.diagnostics)
+            .first { $0.contains(marker) }?.components(separatedBy: marker).last
     }
 
     // MARK: - Choosing an edge

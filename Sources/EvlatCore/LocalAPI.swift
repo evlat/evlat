@@ -430,7 +430,7 @@ public enum LocalAPI {
         installedHookCommand(for: agent.hooks, event: event)
     }
 
-    static func installedHookCommand(for hooks: HookChannel, event: String? = nil) -> String {
+    public static func installedHookCommand(for hooks: HookChannel, event: String? = nil) -> String {
         let named = hooks.eventInHeader ? event.map { " -H 'X-Evlat-Event: \($0)'" } ?? "" : ""
         return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
             + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""

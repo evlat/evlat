@@ -24,7 +24,8 @@ struct Antigravity: Agent {
             guard json["hook_event_name"] as? String == "Stop",
                   let path = json["transcriptPath"] as? String else { return nil }
             return AntigravityTranscript.lastReply(at: path, roots: roots)
-        })
+        },
+        finishRoots: AntigravityTranscript.roots)
 
     /// The hooks folder is shared by the app, the IDE and the CLI
     /// (documented; seen as `{}`) and its presence does not say Antigravity

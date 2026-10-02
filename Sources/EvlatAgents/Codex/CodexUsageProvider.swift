@@ -1,4 +1,5 @@
 import Foundation
+import EvlatCore
 
 /// Codex's rate-limit windows, read from its own session log:
 /// `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`.
@@ -12,18 +13,18 @@ import Foundation
 /// Reading happens only in `reload()` (`Reloadable`): the shell calls it when
 /// the bar opens. `currentSignals()` answers from memory — it is asked every
 /// 1.5 s and on every hook event, and the newest rollout can be tens of MB.
-public final class CodexUsageProvider: Provider, Reloadable {
+final class CodexUsageProvider: Provider, Reloadable {
     /// The provider's id, named like the status line providers'
     /// (`StatusLineUsage.providerID`).
-    public static let id = "codex-usage"
-    public var id: String { Self.id }
+    static let id = "codex-usage"
+    var id: String { Self.id }
     /// The name the windows are grouped under on the bar.
-    public static let group = "Codex"
+    static let group = "Codex"
     /// An undocumented rollout file: `.derived`, drawn with `~`.
     static let fidelity = Signal.Fidelity.derived
     /// How much of the newest file is read, from its end. Never the whole
     /// file: a long session's rollout was measured at 62 MB.
-    public static let tailBytes = 256 * 1024
+    static let tailBytes = 256 * 1024
 
     private let directory: URL
     private var reading: [Signal] = []
@@ -32,24 +33,32 @@ public final class CodexUsageProvider: Provider, Reloadable {
     /// the tail. The last good reading (if any) is still what is shown; this
     /// is what `--list` prints so the silence is not mistaken for health.
     /// No rollout at all is **not** a failure — Codex may never have run.
-    public private(set) var lastReadFailed = false
+    private(set) var lastReadFailed = false
     /// Files opened so far. Only `reload()` moves it; a test holds
     /// `currentSignals()` to that.
-    public private(set) var reads = 0
+    private(set) var reads = 0
 
     /// Rooted at `home`, with no default: a caller that has no home reads
     /// nothing, so a test never falls through to the real `~/.codex`.
-    public init(home: URL) {
+    init(home: URL) {
         directory = Self.sessionsDirectory(home: home)
     }
 
-    public static func sessionsDirectory(home: URL) -> URL {
+    static func sessionsDirectory(home: URL) -> URL {
         home.appendingPathComponent(".codex/sessions")
     }
 
-    public func currentSignals() -> [Signal] { reading }
+    func currentSignals() -> [Signal] { reading }
 
-    public func reload() {
+    /// The format is undocumented and the provider goes quiet when it
+    /// drifts; quiet must not read as "Codex has no limits".
+    var diagnostics: [String] {
+        guard lastReadFailed else { return [] }
+        return ["codex usage: unreadable (format may have drifted)"
+            + (reading.isEmpty ? "" : "; showing the last good reading")]
+    }
+
+    func reload() {
         // The newest by mtime across **every** day directory: a long session
         // keeps writing into the directory of the day it started.
         guard let newest = Self.newestRollout(in: directory) else {

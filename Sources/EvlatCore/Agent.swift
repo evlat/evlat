@@ -110,15 +110,20 @@ public struct HookChannel {
     /// only of a request from this Mac. With a hook here, the body's own
     /// `last_assistant_message` is never taken.
     public let finish: ((_ json: [String: Any], _ roots: [URL]) -> String?)?
+    /// The folders under a home that `finish` may read from: the listener's
+    /// `roots`, never a constant. Empty without a `finish`.
+    public let finishRoots: (_ home: URL) -> [URL]
 
     public init(paths: [String], events: [String], eventInHeader: Bool = false,
                 canonical: @escaping ([String: Any]) -> [String: Any] = { $0 },
-                finish: ((_ json: [String: Any], _ roots: [URL]) -> String?)? = nil) {
+                finish: ((_ json: [String: Any], _ roots: [URL]) -> String?)? = nil,
+                finishRoots: @escaping (_ home: URL) -> [URL] = { _ in [] }) {
         self.paths = paths
         self.events = events
         self.eventInHeader = eventInHeader
         self.canonical = canonical
         self.finish = finish
+        self.finishRoots = finishRoots
     }
 }
 

@@ -50,7 +50,8 @@ final class SessionsDirectoryTests: XCTestCase {
         // turn an environment precondition into a red suite.
         try XCTSkipIf(ProcessInfo.processInfo.environment["EVLAT_SESSIONS"] != nil,
                       "EVLAT_SESSIONS is set; this test covers the default path")
-        XCTAssertEqual(AppController.sessionsDirectory().lastPathComponent, "sessions")
-        XCTAssertTrue(AppController.sessionsDirectory().path.contains(".claude"))
+        let directory = try XCTUnwrap(MenuTests.recordsDirectory(ProcessInfo.processInfo.environment))
+        XCTAssertEqual(URL(fileURLWithPath: directory).lastPathComponent, "sessions")
+        XCTAssertTrue(directory.contains(".claude"))
     }
 }

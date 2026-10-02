@@ -1,4 +1,5 @@
 import Foundation
+import EvlatCore
 
 /// Reads Claude Code's own session records: `~/.claude/sessions/<pid>.json`.
 ///
@@ -16,9 +17,9 @@ import Foundation
 /// **The format is undocumented** (`peerProtocol: 1` implies something
 /// versioned), so `Fidelity` is `.derived` and unrecognised `status` values
 /// stay visible in `unrecognizedStatuses`.
-public final class SessionsProvider: Provider {
-    public static let id = "claude-sessions"
-    public var id: String { Self.id }
+final class SessionsProvider: Provider {
+    static let id = "claude-sessions"
+    var id: String { Self.id }
 
     private let directory: URL
     private let platform: Platform
@@ -33,7 +34,7 @@ public final class SessionsProvider: Provider {
     /// rest of the process — a historical gap was indistinguishable from a live
     /// one, and the key comes straight out of an untrusted file, so a churning
     /// status grew the set without bound.
-    public private(set) var unrecognizedStatuses: Set<String> = []
+    private(set) var unrecognizedStatuses: Set<String> = []
     /// Records that could not be parsed at all in the last scan.
     ///
     /// This is the drift that would otherwise be **invisible**: if `pid` or
@@ -41,16 +42,16 @@ public final class SessionsProvider: Provider {
     /// would come back empty, and the diagnostics would report a healthy idle
     /// machine. The file's contract is that an unrecognised value is never
     /// invisible; that has to hold for the worst case too.
-    public private(set) var recordsUnparseable = 0
+    private(set) var recordsUnparseable = 0
     /// How many records had an unreadable `updatedAt`. A non-zero count may
     /// mean the format drifted, so like an unrecognised `status` it stays
     /// **visible**.
-    public private(set) var recordsMissingUpdatedAt = 0
+    private(set) var recordsMissingUpdatedAt = 0
     /// How many records had an unreadable `statusUpdatedAt`. Counted
     /// separately from the field above because the two are different facts and
     /// the row's stamp is this one: a silent fallback to `updatedAt` would
     /// bring back exactly the skew that moved the stamp here.
-    public private(set) var recordsMissingStatusUpdatedAt = 0
+    private(set) var recordsMissingStatusUpdatedAt = 0
 
     /// Session ids that are not the user's sessions but Evlat's own chats.
     /// A `claude -p` turn writes a record like any other session
@@ -62,7 +63,7 @@ public final class SessionsProvider: Provider {
     /// SDK sessions.
     private let excluding: () -> Set<String>
 
-    public init(directory: URL, platform: Platform, source: AgentID,
+    init(directory: URL, platform: Platform, source: AgentID,
                 excluding: @escaping () -> Set<String> = { [] }) {
         self.source = source
         self.directory = directory
@@ -72,11 +73,32 @@ public final class SessionsProvider: Provider {
 
     /// The default location. Never hard-coded at the call site: the caller's
     /// path wins, so tests can hand over a temporary directory.
-    public static func defaultDirectory(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> URL {
+    static func defaultDirectory(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> URL {
         home.appendingPathComponent(".claude/sessions")
     }
 
-    public func currentSignals() -> [Signal] {
+    /// Where the records are read, then the drift counted in the last scan:
+    /// each one would otherwise look like a healthy idle machine.
+    var diagnostics: [String] {
+        var lines = ["provider: \(id)  ·  directory: \(directory.path)"]
+        if !unrecognizedStatuses.isEmpty {
+            lines.append("unrecognised status: \(unrecognizedStatuses.sorted().joined(separator: ", "))")
+        }
+        if recordsMissingUpdatedAt > 0 {
+            lines.append("records with unreadable updatedAt: \(recordsMissingUpdatedAt) (format may have drifted)")
+        }
+        // The row's stamp comes from `statusUpdatedAt`; falling back to
+        // `updatedAt` silently would restore the skew that moved it there.
+        if recordsMissingStatusUpdatedAt > 0 {
+            lines.append("records with unreadable statusUpdatedAt: \(recordsMissingStatusUpdatedAt) (format may have drifted)")
+        }
+        if recordsUnparseable > 0 {
+            lines.append("records that could not be parsed: \(recordsUnparseable) (format may have drifted)")
+        }
+        return lines
+    }
+
+    func currentSignals() -> [Signal] {
         // A missing directory is not an error: Claude Code may never have run.
         let files = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil)) ?? []

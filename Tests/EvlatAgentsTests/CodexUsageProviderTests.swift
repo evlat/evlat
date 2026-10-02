@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The `codex-usage` provider's contract. Headless: the rollout tree is built
 /// under a temporary home, so the real `~/.codex` is never read.

@@ -60,7 +60,7 @@ extension Platform {
     /// The default tolerance absorbs second-level resolution and the moment
     /// between a process starting and its record being written — measured
     /// across 21 real records, 0.7–6.3 s. On a recycled pid the gap is days.
-    func sameProcess(pid: Int32, startedAt: Date?, tolerance: TimeInterval = 120) -> Bool {
+    public func sameProcess(pid: Int32, startedAt: Date?, tolerance: TimeInterval = 120) -> Bool {
         guard isAlive(pid) else { return false }
         guard let reference = startedAt, let actual = processStartedAt(pid) else { return true }
         return abs(actual.timeIntervalSince(reference)) < tolerance
