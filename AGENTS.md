@@ -34,6 +34,7 @@ Tests/EvlatAppTests/
 Tests/Fixtures/      fake `claude`, fake `codex app-server`, fake `ssh`
 Resources/<lang>.lproj/Evlat.strings
 docs/media/          README's banner and screenshots; not bundled into the app
+docs/characters/     example look packs (`CharacterPack`); not bundled
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
                         of the signature (ad-hoc, or EVLAT_SIGN_IDENTITY) and
                         the version (EVLAT_VERSION, EVLAT_BUILD)

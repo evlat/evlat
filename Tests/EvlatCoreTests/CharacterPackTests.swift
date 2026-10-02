@@ -60,4 +60,16 @@ final class CharacterPackTests: XCTestCase {
         let pack = try CharacterPack.validate(json, directory: root, fileSize: size).get()
         XCTAssertEqual(pack.eyes, eyes)
     }
+
+    /// The example packs in `docs/characters` stay valid packs.
+    func testTheExamplePacksAreValid() throws {
+        let docs = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("docs/characters")
+        let names = try FileManager.default.contentsOfDirectory(atPath: docs.path).filter { !$0.hasPrefix(".") }
+        XCTAssertFalse(names.isEmpty)
+        for name in names {
+            let pack = try XCTUnwrap(CharacterPack.read(directory: docs.appendingPathComponent(name)), name)
+            XCTAssertEqual(pack.name, name, "the folder is named after the pack")
+        }
+    }
 }
