@@ -50,6 +50,13 @@ struct MascotView: View {
         // a stored value, whose scheduled steps close over a copy (AGENTS.md →
         // Pitfalls). The walk goes on underneath; the face is the file's.
         .environment(\.caughtGaze, model.caughtGaze)
+        .environment(\.mascotCharacter, model.character)
+        .environment(\.mascotPhase, model.effectivePhase)
+        .environment(\.mascotResting, !model.isAwake && model.isShown)
+        .environment(\.mascotCallout, model.callout)
+        .environment(\.mascotPortrait, model.portrait)
+        .environment(\.mascotPokes, model.pokes)
+        .environment(\.mascotTones, model.cubeTint ? model.tones : nil)
         .background { dropRing }
         .animation(MascotPose.transition, value: model.effectivePhase)
         .animation(MascotPose.transition, value: model.gaze)
@@ -218,14 +225,37 @@ struct MascotBody: View {
     let pose: MascotPose
     let size: CGFloat
     @Environment(\.caughtGaze) private var caughtGaze
+    @Environment(\.mascotCharacter) private var character
+    @Environment(\.mascotPortrait) private var portrait
+    @Environment(\.mascotPokes) private var pokes
+    @Environment(\.mascotTones) private var tones
 
     private var drawn: MascotPose { MascotPose.drawn(pose, catching: caughtGaze) }
 
+    /// A poke is a blink on top of the pose: a beat of its own, ~0.3 s, so
+    /// it never waits on the clip. The fairy turns it into a flap.
     var body: some View {
-        let pose = drawn
-        return ZStack {
-            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-                .fill(Color.white.opacity(0.92))
+        KeyframeAnimator(initialValue: 1.0, trigger: pokes) { open in
+            character(drawn.blinked(open))
+        } keyframes: { _ in
+            CubicKeyframe(0.08, duration: 0.08)
+            CubicKeyframe(0.08, duration: 0.06)
+            CubicKeyframe(1, duration: 0.14)
+        }
+    }
+
+    @ViewBuilder private func character(_ pose: MascotPose) -> some View {
+        switch (character, portrait) {
+        case (.fairy, _): FairyBody(pose: pose, size: size)
+        case (.portrait, let portrait?): PortraitBody(pose: pose, size: size, portrait: portrait)
+        default: cube(pose)
+        }
+    }
+
+    private func cube(_ pose: MascotPose) -> some View {
+        ZStack {
+            CubeFill(counts: tones)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
             eyes(pose)
         }
         .scaleEffect(x: pose.scaleX, y: pose.scaleY, anchor: .center)

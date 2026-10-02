@@ -27,6 +27,12 @@ struct Codex: Agent {
     /// Its app-server, as the chat bubble's second backend.
     let chat: (any ChatBackend)? = CodexChat()
 
+    /// `codex exec` with image generation, the picture attached and the
+    /// prompt on stdin; its sandbox writes only its own folder.
+    let imageMaker: ImageMaker? = ImageMaker(executable: "codex") { picture in
+        ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "-i", picture, "-"]
+    }
+
     let display = AgentDisplay(nameKey: "source.codex", outline: Self.outline)
 
     /// Its rate-limit windows, read from its newest rollout file.

@@ -314,6 +314,51 @@ folder is shared with every OpenPeon player: a pack another player
 installed shows up here, and "Remove" moves it to the Trash, never deletes.
 An isolated process without its own `EVLAT_HOME` has no sheet.
 
+### Looks
+
+Settings → Mascot → Appearance picks **who** is drawn; who speaks is the
+voice above, and the two are independent.
+
+- **Look** (`mascot.character`, `MascotCharacter`): the cube (default) or
+  the fairy. A look only draws a `MascotPose`: phases, clips, gaze and the
+  `failed` shudder are the mascot's and the same for every look.
+  `MascotBody` switches on `\.mascotCharacter`; a new look is a case and a
+  view. The fairy also reads `\.mascotPhase` for her colour (blue at rest
+  and at work, yellow `waiting`, green `review`, red `failed`) and
+  `\.mascotCallout` to flare when a moment speaks
+  (`AppController.calloutTone`).
+- **Custom look** (`portrait`, `Portrait`, `CharacterMaker`): the user's
+  own, made from any picture. The catalogue's image maker (`Agent.imageMaker`,
+  Codex's `exec` with image generation, the picture attached, an errand under
+  `TurnLaunch.taskVariable`) draws a bot icon by the user's own prompt
+  (`prompt.md` beside the look, from "Paste New") and `EyeFinder` (core,
+  pure) finds the icon's two capsule eyes, paints them out with the face
+  around them and keeps where they were. `PortraitShaper` (core, pure) then
+  makes it a floating head: the background (joined to the edge, within 12 of
+  its colour — dark hair is warmer) made transparent, the frame's cut edges
+  filled from their mirror across the eyes' axis, the head turned upright by
+  the eyes' lean, cropped to the head. `PortraitBody` draws it unframed with
+  the cube's eyes there: it blinks, looks and squints as the cube does,
+  leans with the pose and hovers on a breath. A version-1 look (framed,
+  tilted) is shaped once on load. An icon without two solid, matching
+  capsules is refused, not guessed at. One slot,
+  `Application Support/Evlat/Character` (`face.png`, `character.json`);
+  "Create via Upload" takes an icon made elsewhere. The picture leaves the
+  Mac only through the user's own login to that agent. **Evlat ships no
+  prompt.** It was built for Serio_ai's Grokbot Icon prompt (@Multi_Serio_Ai),
+  which is CC BY-NC 4.0 — non-commercial, so it cannot be bundled under this
+  repository's license and CLA. Settings links its page and credits it; any
+  prompt that draws two solid capsule eyes works.
+- **Status colours** (`mascot.cubeTint`, off): the cube's face blends the
+  live sessions by share (`CubeTint`), each read as the face reads it — a
+  finish already seen is at rest: yellow `waiting`, red `failed`, green
+  `review`, blue `working`, white at rest. A `MeshGradient` on macOS 15, a
+  diagonal `LinearGradient` on 14. The fairy is drawn at 1.35× so her light
+  and wings weigh what the cube's face does.
+- **A click is seen**: `[Go to session]` pokes the mascot
+  (`MascotModel.poke`), a ~0.3 s blink on top of the pose for every look —
+  the fairy's blink is a flap.
+
 ### News and passive
 
 A finish (`review`, `failed`) is **news** until the user has seen it, then
@@ -362,6 +407,12 @@ is lost with the process.
   produces no frames and reads no mouse. The sliver and its dot are static.
   The mascot's view stays in the tree at every level, so `failed`'s shake
   (a `keyframeAnimator`) still fires on the way into the peek.
+- **Looks move in the same beats.** The fairy adds only bursts of her
+  own: a flap (~0.9 s, a blink is too quick to read as a wing) and a callout
+  (~1.2 s, when a moment speaks). Asleep, where the cube is still, she flaps
+  once every 25–45 s (`FairyBody.restingFlutter`) — the one thing that moves
+  on an idle bar, and only with the fairy chosen. Measured asleep and
+  untouched: 0.33% CPU over 90 s, against ~0.1% for the still cube.
 
 ### Window
 

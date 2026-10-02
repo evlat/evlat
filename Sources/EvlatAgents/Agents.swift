@@ -15,6 +15,10 @@ public enum Agents {
     /// The agents that can be the chat bubble's backend, in the catalogue's
     /// order: the first is the chat's until one is chosen.
     public static let chatBackends: [any ChatBackend] = all.compactMap(\.chat)
+
+    /// The agent that draws the Custom character's picture, if any does:
+    /// the catalogue's first.
+    public static var imageMaker: (any Agent)? { all.first { $0.imageMaker != nil } }
 }
 
 extension AgentID {

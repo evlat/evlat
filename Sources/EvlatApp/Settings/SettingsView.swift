@@ -257,6 +257,9 @@ private struct MascotSection: View {
     @State private var showsCharacters = false
 
     var body: some View {
+        SettingsGroup(title: model.t("settings.mascot.look")) {
+            LookRows(model: model)
+        }
         SettingsGroup(title: model.t("settings.mascot.sounds"),
                       note: model.t(model.voicePack == nil ? "settings.mascot.sounds.note"
                                                            : "settings.mascot.sounds.note.pack")) {
@@ -281,6 +284,75 @@ private struct MascotSection: View {
                     showsCharacters = false
                     model.objectWillChange.send()
                 })
+            }
+        }
+    }
+}
+
+/// "Appearance": who is drawn at the head of the bar, the cube's status
+/// colours, and the Custom look made from a picture.
+private struct LookRows: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t("settings.mascot.look.row"), detail: model.t("settings.mascot.look.detail"))
+                Picker("", selection: Binding(get: { model.character }, set: { model.setCharacter($0) })) {
+                    ForEach(model.characterChoices, id: \.character) { Text($0.title).tag($0.character) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel(model.t("settings.mascot.look.row"))
+            }
+        }
+        if model.character == .cube {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.mascot.cubeTint"), detail: model.t("settings.mascot.cubeTint.detail"))
+                    Toggle("", isOn: Binding(get: { model.cubeTint }, set: { model.setCubeTint($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.mascot.cubeTint"))
+                }
+            }
+        }
+        RowBox {
+            RowTitle(name: model.t("settings.mascot.custom"), detail: model.t("settings.mascot.custom.detail"))
+            HStack(spacing: 8) {
+                if let agent = model.imageMakerName {
+                    Button(model.t("settings.mascot.custom.create")) { model.createCharacter() }
+                        .help(model.t("settings.mascot.custom.create.help", ["agent": agent]))
+                }
+                Button(model.t("settings.mascot.custom.import")) { model.importCharacterIcon() }
+                    .help(model.t("settings.mascot.custom.import.help"))
+            }
+            .buttonStyle(SmallButtonStyle())
+            .disabled(model.characterMaking == .working)
+            HStack(spacing: 6) {
+                Text(model.t(model.hasCharacterPrompt ? "settings.mascot.custom.prompt.set"
+                                                      : "settings.mascot.custom.prompt.none"))
+                Text("·")
+                Button(model.t("settings.mascot.custom.source")) { model.openCharacterPromptSource() }
+                    .buttonStyle(.link)
+                    .help(model.t("settings.mascot.custom.credit"))
+                Text("·")
+                Button(model.t("settings.mascot.custom.prompt")) { model.pasteCharacterPrompt() }
+                    .buttonStyle(.link)
+                    .help(model.t("settings.mascot.custom.prompt.help"))
+            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(SettingsPalette.body)
+            if let line = model.characterMakingText {
+                HStack(spacing: 6) {
+                    if model.characterMaking == .working { ProgressView().controlSize(.mini) }
+                    Text(line)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(SettingsPalette.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
