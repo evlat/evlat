@@ -410,8 +410,16 @@ is lost with the process.
   only (`ProxyCommand=/usr/bin/false`: a gone master is no call, never a
   login), with the session id checked as a UUID. It walks the agent's
   parents to its connection's `sshd` (the one under the listener) and says
-  `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock; in a
-  tmux or herdr pane it says nothing yet. On this Mac the candidates are the
+  `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock. In a
+  tmux or herdr pane it walks from the client instead, by this Mac's rules:
+  tmux's client of the pane's session that did something last, asked of
+  the server's own executable (`<proc>/<pid>/exe`, `timeout 2` where there
+  is one) once `TMUX` names an ancestor that is tmux; herdr's newest client
+  with a terminal connected to its server's `herdr-client.sock` (the
+  server's ends from `/proc/net/unix` and its `fd` links, their peers from
+  `ss -x`). No client attached is said as `none`, which is no button; a
+  pane it cannot ask says nothing, and never falls back to the pane's own,
+  stale `SSH_CONNECTION`. On this Mac the candidates are the
   user's `ssh` processes connected to the same end as Evlat's own tunnel
   `ssh` (`Ssh`, `PROC_PIDFDSOCKETINFO`): the exact client port, else the
   only one (unless its start is > 10 s off), else the start nearest the
@@ -830,6 +838,13 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   a cmux tab long closed, or Ghostty while the client is in cmux — so the
   tab link is read from the client.
 - **A closed tab's herdr client lives on, attached** (herdr 0.9.3, Bateri).
+- **`/proc/net/unix` names no peer, and `ss -x` prints big inodes
+  negative.** A server's accepted ends carry the socket's path there, a
+  client's end carries nothing, and no column pairs them; `ss -x`'s
+  `Peer Address:Port` does (sock_diag, no privilege). iproute2 6.1 prints
+  an inode above 2^31 as a signed 32-bit number (`-10595714` for
+  `4284371582` in `/proc/net/unix` and `fd` links, seen on Ubuntu, kernel 6.8):
+  add 2^32 before comparing.
   The tab closed, its `login` sat exiting, and the `herdr` client stayed with
   no terminal (`tty ??`), still connected to the server, ignoring `TERM`
   and `HUP` — only `KILL` ended it. Its pid was the highest and its chain

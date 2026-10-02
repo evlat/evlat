@@ -43,8 +43,9 @@ Markdown; keep it to a few bullets.
   over `ssh` on a remote machine now has the **Go to session** button: it
   opens the terminal tab that `ssh` runs in on your Mac. When Evlat can't
   tell two tabs to the same server apart, it brings their app forward
-  instead; sessions inside tmux or herdr on the server don't have the
-  button yet.
+  instead. Inside tmux or herdr on the server it opens the tab that is
+  attached to the session now, not the one it was started from; with
+  nothing attached there is no button.
 - **Ten new languages:** German, Spanish, French, Brazilian Portuguese,
   Ukrainian, Russian, Japanese, Korean, and Simplified and Traditional
   Chinese. Evlat follows your Mac's language, or the one you pick in

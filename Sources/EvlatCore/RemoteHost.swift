@@ -15,8 +15,9 @@ public enum RemoteHost {
         /// The ssh connection the session's process runs under.
         case connection(Connection)
         /// The process runs under no ssh connection the script can see — a
-        /// console, a service, a socket-activated `sshd -i`. Said outright,
-        /// so it is never mistaken for "the one ssh there is".
+        /// console, a service, a socket-activated `sshd -i` — or it is in a
+        /// tmux or herdr pane no client is attached to. Said outright, so
+        /// it is never mistaken for "the one ssh there is".
         case noConnection
     }
 
@@ -87,16 +88,26 @@ public enum RemoteHost {
     /// It finds a record under `$HOME/<directory>` whose `idKey` is the
     /// session, takes its live `pidKey`, and reads that process's
     /// environment and parents under `proc` (a parameter so a test can hand
-    /// it a tree of its own):
-    /// - a session in tmux or herdr prints **nothing**: its environment is
-    ///   the server's first client's, which may be long gone;
-    /// - otherwise the parents are walked up to the connection's `sshd` —
-    ///   the one whose parent is the listener (`sshd`, parent 1), whatever
-    ///   it is called (`sshd`, or `sshd-session` from 9.8) — and its start
-    ///   is printed with `SSH_CONNECTION`'s ports and the script's own time;
-    /// - no such `sshd`: `none`.
-    /// Not Linux (no `<proc>/self`), no record, no live process: nothing.
-    /// Only a walk up the parents, never a scan of every process.
+    /// it a tree of its own). The process whose connection is said is:
+    /// - in a tmux pane (`TMUX`), the client of the pane's session that did
+    ///   something last, with a terminal — asked of the server's own
+    ///   executable (`<proc>/<pid>/exe`, never `PATH`), the same question
+    ///   and the same rule as this Mac's (`TmuxQuery`);
+    /// - in a herdr pane (`HERDR_ENV`), the newest client connected to the
+    ///   server's `herdr-client.sock`, with a terminal: the server's ends of
+    ///   that socket from `<proc>/net/unix` and its `fd` links, their peers
+    ///   from `ss -x` (`/proc` names no peer);
+    /// - otherwise the agent itself. A pane's environment is the server's
+    ///   first client's, which may be long gone, so a pane never falls back
+    ///   to it.
+    /// From that process the parents are walked up to the connection's
+    /// `sshd` — the one whose parent is the listener (`sshd`, parent 1),
+    /// whatever it is called (`sshd`, or `sshd-session` from 9.8) — and its
+    /// start is printed with `SSH_CONNECTION`'s ports and the script's own
+    /// time. No such `sshd`, or a pane with no client attached: `none`.
+    /// Not Linux (no `<proc>/self`), no record, no live process, a pane whose
+    /// values do not check out or whose server cannot be asked: nothing.
+    /// Every process the script runs only reads: `tmux` lists, `ss` lists.
     public static func script(sessionID: String, records: SessionRecords, nonce: String,
                               proc: String = "/proc") -> String? {
         guard isSessionID(sessionID) else { return nil }
@@ -118,7 +129,6 @@ public enum RemoteHost {
         done
         [ -n "$p" ] || exit 0
         e=$(tr '\000' '\n' < "$r/$p/environ" 2>/dev/null) || exit 0
-        if printf '%s\n' "$e" | grep -Eq '^(TMUX|HERDR_ENV)='; then exit 0; fi
         st() {
           s=$(cat "$r/$1/stat" 2>/dev/null) || return 1
           C=${s#*\(}
@@ -128,35 +138,150 @@ public enum RemoteHost {
           set +f
           [ $# -ge 20 ] || return 1
           P=$2
+          Y=$5
           shift 19
           T=$1
         }
-        x=$p
-        k=0
-        while [ $k -lt 64 ]; do
-          st "$x" || break
-          c=$C
-          u=$P
-          t=$T
-          case $c in
-            sshd|sshd-session)
-              if [ "$u" -gt 1 ] 2>/dev/null && st "$u" && [ "$C" = sshd ] && [ "$P" = 1 ]; then
-                b=$(sed -n 's/^btime //p' "$r/stat" 2>/dev/null)
-                set -f
-                set -- $(printf '%s\n' "$e" | sed -n 's/^SSH_CONNECTION=//p' | head -n 1)
-                set +f
-                [ $# -eq 4 ] || exit 0
-                printf '%s ssh %s %s %s %s %s\n' "$n" "$2" "$4" "$b" "$t" "$(date +%s.%N)"
-                exit 0
+        val() {
+          printf '%s\n' "$e" | sed -n "s/^$1=//p" | head -n 1
+        }
+        num() {
+          case $1 in ''|*[!0-9]*) return 1 ;; esac
+        }
+        above() {
+          x=$1
+          k=0
+          while [ $k -lt 64 ]; do
+            st "$x" || return 1
+            [ "$P" = "$2" ] && return 0
+            [ "$P" -gt 1 ] 2>/dev/null || return 1
+            x=$P
+            k=$((k + 1))
+          done
+          return 1
+        }
+        socks() {
+          ls -l "$r/$1/fd" 2>/dev/null | sed -n 's/.*socket:\[\([0-9][0-9]*\)\].*/\1/p'
+        }
+        say() {
+          x=$1
+          k=0
+          while [ $k -lt 64 ]; do
+            st "$x" || break
+            c=$C
+            u=$P
+            t=$T
+            case $c in
+              sshd|sshd-session)
+                if [ "$u" -gt 1 ] 2>/dev/null && st "$u" && [ "$C" = sshd ] && [ "$P" = 1 ]; then
+                  b=$(sed -n 's/^btime //p' "$r/stat" 2>/dev/null)
+                  set -f
+                  set -- $(val SSH_CONNECTION)
+                  set +f
+                  [ $# -eq 4 ] || exit 0
+                  printf '%s ssh %s %s %s %s %s\n' "$n" "$2" "$4" "$b" "$t" "$(date +%s.%N)"
+                  exit 0
+                fi
+                ;;
+            esac
+            [ "$u" -gt 1 ] 2>/dev/null || break
+            x=$u
+            k=$((k + 1))
+          done
+          printf '%s none\n' "$n"
+          exit 0
+        }
+        o=
+        if command -v timeout >/dev/null 2>&1; then o='timeout 2'; fi
+        h=
+        hs=-1
+        if printf '%s\n' "$e" | grep -q '^TMUX='; then
+          v=$(val TMUX)
+          w=$(val TMUX_PANE)
+          v=${v%,*}
+          sv=${v##*,}
+          so=${v%,*}
+          case $so in /*) ;; *) exit 0 ;; esac
+          num "$sv" && [ "$sv" -gt 1 ] || exit 0
+          case $w in %*) ;; *) exit 0 ;; esac
+          num "${w#%}" && [ ${#w} -le 12 ] || exit 0
+          above "$p" "$sv" || exit 0
+          x=$(readlink "$r/$sv/exe" 2>/dev/null) || exit 0
+          x=${x% (deleted)}
+          [ "${x##*/}" = tmux ] || exit 0
+          a=$($o "$r/$sv/exe" -S "$so" display-message -p -t "$w" '#{session_id}' \; \
+            list-clients -F '#{client_pid} #{client_activity} #{session_id}' 2>/dev/null) || exit 0
+          set -f
+          set -- $a
+          set +f
+          case $1 in \$*) ;; *) exit 0 ;; esac
+          se=$1
+          shift
+          while [ $# -ge 3 ]; do
+            if [ "$3" = "$se" ] && num "$1" && num "$2" && [ "$1" -gt 1 ] && st "$1" && [ "$Y" != 0 ]; then
+              if [ "$2" -gt "$hs" ] || { [ "$2" -eq "$hs" ] && [ "$1" -gt "$h" ]; }; then
+                h=$1
+                hs=$2
               fi
-              ;;
-          esac
-          [ "$u" -gt 1 ] 2>/dev/null || break
-          x=$u
-          k=$((k + 1))
-        done
-        printf '%s none\n' "$n"
-        exit 0
+            fi
+            shift 3
+          done
+        elif printf '%s\n' "$e" | grep -q '^HERDR_ENV='; then
+          case $(val HERDR_SOCKET_PATH) in /*) ;; *) exit 0 ;; esac
+          sv=
+          x=$p
+          k=0
+          while [ $k -lt 64 ]; do
+            st "$x" || break
+            [ "$P" -gt 1 ] 2>/dev/null || break
+            x=$P
+            set -f
+            set -- $(tr '\000' ' ' < "$r/$x/cmdline" 2>/dev/null)
+            set +f
+            if [ "${1##*/}" = herdr ] && [ "$2" = server ]; then sv=$x; break; fi
+            k=$((k + 1))
+          done
+          [ -n "$sv" ] || exit 0
+          i=" $(socks "$sv" | tr '\n' ' ') "
+          [ "$i" != "  " ] || exit 0
+          ac=
+          for x in $(awk '$6 == "03" && $NF ~ /(^|\/)herdr-client\.sock$/ { print $7 }' "$r/net/unix" 2>/dev/null); do
+            case $i in *" $x "*) ac="$ac $x" ;; esac
+          done
+          if [ -n "$ac" ]; then
+            command -v ss >/dev/null 2>&1 || exit 0
+            pe=" $(ss -xn 2>/dev/null | awk -v want="$ac" '
+              function u(x) { x += 0; if (x < 0) x += 4294967296; return sprintf("%.0f", x) }
+              BEGIN { m = split(want, w, " "); for (j = 1; j <= m; j++) W[w[j]] = 1 }
+              NF >= 4 { l = u($(NF - 2)); if (l in W) print u($NF) }' | tr '\n' ' ') "
+            [ "$pe" != "  " ] || exit 0
+            for f in $(grep -l '^[0-9][0-9]* (herdr) ' "$r"/[0-9]*/stat 2>/dev/null); do
+              x=${f%/stat}
+              x=${x##*/}
+              [ "$x" != "$sv" ] && st "$x" && [ "$Y" != 0 ] || continue
+              z=$T
+              for y in $(socks "$x"); do
+                case $pe in
+                  *" $y "*)
+                    if [ "$z" -gt "$hs" ] || { [ "$z" -eq "$hs" ] && [ "$x" -gt "$h" ]; }; then
+                      h=$x
+                      hs=$z
+                    fi
+                    break
+                    ;;
+                esac
+              done
+            done
+          fi
+        else
+          say "$p"
+        fi
+        if [ -z "$h" ]; then
+          printf '%s none\n' "$n"
+          exit 0
+        fi
+        e=$(tr '\000' '\n' < "$r/$h/environ" 2>/dev/null) || exit 0
+        say "$h"
 
         """#
     }

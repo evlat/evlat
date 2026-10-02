@@ -153,19 +153,6 @@ final class RemoteHostTests: XCTestCase {
         XCTAssertEqual(try run("/bin/sh"), "n none")
     }
 
-    /// In tmux or herdr the environment is the server's first client's:
-    /// nothing is said this phase.
-    func testAMultiplexersPaneSaysNothing() throws {
-        for variable in ["TMUX=/tmp/tmux-0/default,1,0", "HERDR_ENV=1"] {
-            try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5),
-                             (800, "claude", 600, 7)],
-                     agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22", variable])
-            for shell in Self.shells {
-                XCTAssertEqual(try run(shell), "", "\(shell) \(variable)")
-            }
-        }
-    }
-
     func testNotLinuxNoRecordOrNoProcessSaysNothing() throws {
         let chain: [(Int, String, Int, Int)] = [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5),
                                                 (800, "claude", 600, 7)]
@@ -191,34 +178,290 @@ final class RemoteHostTests: XCTestCase {
         XCTAssertEqual(try listing(), before)
     }
 
+    // MARK: - In a pane: the attached client's connection
+
+    /// The pane's environment holds the first client's `SSH_CONNECTION`
+    /// (`9999`), long gone; the connection said is the client's.
+    func testTmuxSaysTheMostActiveClientOfThePanesSession() throws {
+        try muxTree(tmuxOutput: "$0\n602 100 $0\n612 200 $0\n622 900 $1\n")
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", shell)
+        }
+    }
+
+    /// Another session's client is never taken, however active; a client
+    /// without a terminal is no tab; equal activity goes to the higher pid,
+    /// as on this Mac.
+    func testTmuxSkipsOtherSessionsAndClientsWithoutATerminal() throws {
+        try muxTree(tmuxOutput: "$0\n602 100 $0\n632 500 $0\n622 900 $1\n")
+        XCTAssertEqual(try run("/bin/sh"), "n ssh 1111 22 1000 600 2000.25", "632 has no terminal")
+        try muxTree(tmuxOutput: "$0\n602 300 $0\n612 300 $0\n")
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", shell)
+        }
+    }
+
+    /// Nobody attached is said outright, so the Mac's "the one ssh there
+    /// is" never stands in for it.
+    func testTmuxWithNoClientIsNoConnection() throws {
+        for output in ["$0\n", "$0\n622 900 $1\n"] {
+            try muxTree(tmuxOutput: output)
+            for shell in Self.shells {
+                XCTAssertEqual(try run(shell), "n none", "\(shell) \(output)")
+            }
+        }
+    }
+
+    /// Values that do not check out, a server that is not the agent's or
+    /// not tmux, or tmux failing: nothing — never the pane's stale
+    /// connection.
+    func testTmuxThatCannotBeAskedSaysNothing() throws {
+        let cases: [(String, (inout [String]) -> Void, String?)] = [
+            ("relative socket", { $0[0] = "TMUX=tmp/tmux-0/default,700,0" }, nil),
+            ("no server pid", { $0[0] = "TMUX=/tmp/tmux-0/default,0" }, nil),
+            ("not the agent's server", { $0[0] = "TMUX=/tmp/tmux-0/default,612,0" }, nil),
+            ("pane not %n", { $0[1] = "TMUX_PANE=%3;x" }, nil),
+            ("no pane", { $0[1] = "OTHER=1" }, nil),
+            ("tmux fails", { _ in }, "garbage"),
+        ]
+        for (label, change, output) in cases {
+            var environment = Self.tmuxPane
+            change(&environment)
+            try muxTree(tmuxOutput: output ?? "$0\n612 200 $0\n", agentEnvironment: environment,
+                        tmuxFails: output != nil)
+            for shell in Self.shells {
+                XCTAssertEqual(try run(shell), "", "\(shell) \(label)")
+            }
+        }
+        try muxTree(tmuxOutput: "$0\n612 200 $0\n", exeName: "bash")
+        XCTAssertEqual(try run("/bin/sh"), "", "the server's executable is not tmux")
+    }
+
+    /// herdr: connected to the server's `herdr-client.sock`, with a
+    /// terminal, newest start. The ghost of a closed tab (no terminal) and
+    /// a CLI call on the API socket are newer and not taken. `ss` prints an
+    /// inode above 2^31 as negative; read back, it is the client's.
+    func testHerdrSaysTheNewestConnectedClientWithATerminal() throws {
+        try herdrTree()
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", shell)
+        }
+    }
+
+    func testHerdrWithNoClientIsNoConnection() throws {
+        try herdrTree(connected: [])
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n none", "\(shell) nobody connected")
+        }
+        try herdrTree(connected: [632])
+        XCTAssertEqual(try run("/bin/sh"), "n none", "only the ghost")
+    }
+
+    /// Without `ss` the peers are unknown: nothing, not "nobody".
+    func testHerdrWithoutPeersSaysNothing() throws {
+        try herdrTree(ss: false)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "", shell)
+        }
+        try herdrTree(serverArguments: ["herdr"])
+        XCTAssertEqual(try run("/bin/sh"), "", "no `herdr server` above the agent")
+    }
+
+    func testAPaneWritesNothing() throws {
+        try muxTree(tmuxOutput: "$0\n612 200 $0\n")
+        var before = try listing()
+        for shell in Self.shells { _ = try run(shell) }
+        XCTAssertEqual(try listing(), before)
+        try herdrTree()
+        before = try listing()
+        for shell in Self.shells { _ = try run(shell) }
+        XCTAssertEqual(try listing(), before)
+    }
+
+    // MARK: - Pane trees
+
+    private static let tmuxPane = ["TMUX=/tmp/tmux-0/default,700,0", "TMUX_PANE=%3",
+                                   "SSH_CONNECTION=9.9.9.9 9999 2.2.2.2 22"]
+
+    /// Two ssh connections, each a shell running a client: 602 (port 1111,
+    /// connection started 600) and 612 (port 2222, started 610). 622 runs
+    /// on the console, 632 lost its terminal. The server 700 (parent 1)
+    /// runs a shell running the agent 800.
+    private func clients(client: String) -> [Proc] {
+        [Proc(1, "systemd", 0, 1), Proc(500, "sshd", 1, 300),
+         Proc(600, "sshd", 500, 600), Proc(601, "bash", 600, 601),
+         Proc(602, client, 601, 5000, environment: ["SSH_CONNECTION=1.1.1.1 1111 2.2.2.2 22"]),
+         Proc(610, "sshd", 500, 610), Proc(611, "bash", 610, 611),
+         Proc(612, client, 611, 6000, environment: ["SSH_CONNECTION=1.1.1.1 2222 2.2.2.2 22"]),
+         Proc(621, "login", 1, 620),
+         Proc(622, client, 621, 7000, environment: ["TERM=linux"]),
+         Proc(632, client, 1, 8000, tty: 0, environment: ["SSH_CONNECTION=1.1.1.1 3333 2.2.2.2 22"])]
+    }
+
+    private func muxTree(tmuxOutput: String, agentEnvironment: [String] = RemoteHostTests.tmuxPane,
+                         tmuxFails: Bool = false, exeName: String = "tmux") throws {
+        let tmux = root.appendingPathComponent("opt/\(exeName)")
+        var procs = clients(client: "tmux: client")
+        procs += [Proc(700, "tmux: server", 1, 100, tty: 0, exe: tmux.path), Proc(701, "bash", 700, 101),
+                  Proc(800, "claude", 701, 102, environment: agentEnvironment)]
+        try build(procs, agent: 800)
+        // tmux is reached only through the server's `exe`: it is on no `PATH`.
+        let expected = "-S /tmp/tmux-0/default display-message -p -t %3 #{session_id} ; "
+            + "list-clients -F #{client_pid} #{client_activity} #{session_id}"
+        try executable(tmux, """
+            #!/bin/sh
+            [ "$*" = '\(expected)' ] || exit 1
+            printf '%s' '\(tmuxOutput)'
+            exit \(tmuxFails ? 1 : 0)
+            """)
+    }
+
+    private func herdrTree(connected: [Int] = [602, 612, 632], ss: Bool = true,
+                           serverArguments: [String] = ["/usr/local/bin/herdr", "server"]) throws {
+        // The server's ends of `herdr-client.sock`, and their peers in the
+        // clients; 612's pair is above 2^31. 4010 is the API socket's
+        // connection from the CLI call 642.
+        let ends: [Int: (server: UInt64, client: UInt64)] = [602: (4001, 5001), 612: (4284371582, 4284213423),
+                                                             632: (4003, 5003)]
+        var procs = clients(client: "herdr")
+        for index in procs.indices {
+            if let pair = ends[procs[index].pid], connected.contains(procs[index].pid) {
+                procs[index].sockets = [7, pair.client]
+            }
+        }
+        procs += [Proc(642, "herdr", 611, 9000, sockets: [5010]),
+                  Proc(700, "herdr", 1, 100, tty: 0, cmdline: serverArguments,
+                       sockets: [4000, 4010] + connected.compactMap { ends[$0]?.server }),
+                  Proc(701, "bash", 700, 101),
+                  Proc(800, "claude", 701, 102, environment: ["HERDR_ENV=1", "HERDR_PANE_ID=w1:p2",
+                                                              "HERDR_SOCKET_PATH=/root/.config/herdr/herdr.sock",
+                                                              "SSH_CONNECTION=9.9.9.9 9999 2.2.2.2 22"])]
+        try build(procs, agent: 800)
+        let folder = "/root/.config/herdr/"
+        var unix = ["Num       RefCount Protocol Flags    Type St Inode Path",
+                    "ff00: 00000002 00000000 00010000 0001 01 4000 \(folder)herdr-client.sock",
+                    "ff01: 00000002 00000000 00010000 0001 01 3999 \(folder)herdr.sock",
+                    "ff02: 00000003 00000000 00000000 0001 03 4010 \(folder)herdr.sock",
+                    "ff03: 00000003 00000000 00000000 0001 03 5010",
+                    "ff04: 00000003 00000000 00000000 0001 03 9 /run/dbus/system_bus_socket"]
+        var lines = ["Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process",
+                     "u_str ESTAB 0 0 \(folder)herdr.sock 4010 * 5010",
+                     "u_str ESTAB 0 0 * 5010 * 4010",
+                     "u_str ESTAB 0 0 /run/dbus/system_bus_socket 9 * 10"]
+        for pid in connected {
+            let pair = try XCTUnwrap(ends[pid])
+            unix.append("ff1\(pid): 00000003 00000000 00000000 0001 03 \(pair.server) \(folder)herdr-client.sock")
+            unix.append("ff2\(pid): 00000003 00000000 00000000 0001 03 \(pair.client)")
+            lines.append("u_str ESTAB 0 0 \(folder)herdr-client.sock \(Self.ssInode(pair.server)) * \(Self.ssInode(pair.client))")
+            lines.append("u_str ESTAB 0 0 * \(Self.ssInode(pair.client)) * \(Self.ssInode(pair.server))")
+        }
+        try FileManager.default.createDirectory(at: proc.appendingPathComponent("net"), withIntermediateDirectories: true)
+        try (unix.joined(separator: "\n") + "\n").write(to: proc.appendingPathComponent("net/unix"),
+                                                        atomically: true, encoding: .utf8)
+        if ss {
+            try executable(bin.appendingPathComponent("ss"), """
+                #!/bin/sh
+                [ "$*" = '-xn' ] || exit 1
+                cat <<'END'
+                \(lines.joined(separator: "\n"))
+                END
+                """)
+        }
+    }
+
+    /// How iproute2 6.1's `ss` prints an inode: as a signed 32-bit number.
+    private static func ssInode(_ inode: UInt64) -> String {
+        String(Int32(truncatingIfNeeded: inode))
+    }
+
+    private func executable(_ url: URL, _ text: String) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try (text + "\n").write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     // MARK: - Helpers
 
     private var proc: URL { root.appendingPathComponent("proc") }
     private var home: URL { root.appendingPathComponent("home") }
     private var bin: URL { root.appendingPathComponent("bin") }
 
+    /// One process of a fake `/proc`: `stat` always; `environ`, `cmdline`,
+    /// an `exe` link and `fd` links to sockets when given. `tty` is
+    /// `stat`'s seventh field, a terminal unless 0.
+    private struct Proc {
+        let pid: Int
+        let name: String
+        let parent: Int
+        let start: Int
+        var tty = 34816
+        var environment: [String]? = nil
+        var cmdline: [String]? = nil
+        var exe: String? = nil
+        var sockets: [UInt64] = []
+
+        init(_ pid: Int, _ name: String, _ parent: Int, _ start: Int, tty: Int = 34816,
+             environment: [String]? = nil, cmdline: [String]? = nil, exe: String? = nil, sockets: [UInt64] = []) {
+            self.pid = pid
+            self.name = name
+            self.parent = parent
+            self.start = start
+            self.tty = tty
+            self.environment = environment
+            self.cmdline = cmdline
+            self.exe = exe
+            self.sockets = sockets
+        }
+    }
+
     /// A `/proc` with `chain` (pid, name, parent, start ticks), `btime 1000`,
-    /// the agent's environment, and its record under the home. `date` is a
-    /// fake on `PATH` that prints `2000.25`: this Mac's has no `%N`.
+    /// the agent's environment, and its record under the home.
     private func tree(chain: [(pid: Int, name: String, parent: Int, start: Int)], agent: Int,
                       environment: [String], linux: Bool = true,
                       recordedID: String = RemoteHostTests.session, recordedPid: Int? = nil) throws {
+        let procs = chain.map { Proc($0.pid, $0.name, $0.parent, $0.start,
+                                     environment: $0.pid == agent ? environment : nil) }
+        try build(procs, agent: agent, linux: linux, recordedID: recordedID, recordedPid: recordedPid)
+    }
+
+    /// `procs` as a `/proc`, `btime 1000`, and the agent's record under the
+    /// home. `date` is a fake on `PATH` that prints `2000.25`: this Mac's
+    /// has no `%N`.
+    private func build(_ procs: [Proc], agent: Int, linux: Bool = true,
+                       recordedID: String = RemoteHostTests.session, recordedPid: Int? = nil) throws {
         let fm = FileManager.default
         try? fm.removeItem(at: root)
         try fm.createDirectory(at: proc, withIntermediateDirectories: true)
         if linux { try fm.createDirectory(at: proc.appendingPathComponent("self"), withIntermediateDirectories: true) }
         try "cpu  1 2 3\nbtime 1000\nprocesses 9\n".write(to: proc.appendingPathComponent("stat"),
                                                           atomically: true, encoding: .utf8)
-        for entry in chain {
+        for entry in procs {
             let folder = proc.appendingPathComponent(String(entry.pid))
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-            // Fields 3…: state, ppid, then up to 22 (starttime) and a few more.
-            let middle = Array(repeating: "0", count: 17).joined(separator: " ")
-            let stat = "\(entry.pid) (\(entry.name)) S \(entry.parent) \(middle) \(entry.start) 4096 300 0\n"
+            // Fields 3…: state, ppid, pgrp, session, tty, then up to 22
+            // (starttime) and a few more.
+            var middle = Array(repeating: "0", count: 17)
+            middle[2] = String(entry.tty)
+            let stat = "\(entry.pid) (\(entry.name)) S \(entry.parent) \(middle.joined(separator: " ")) \(entry.start) 4096 300 0\n"
             try stat.write(to: folder.appendingPathComponent("stat"), atomically: true, encoding: .utf8)
-            if entry.pid == agent {
+            if let environment = entry.environment {
                 let bytes = environment.map { $0 + "\0" }.joined()
                 try bytes.write(to: folder.appendingPathComponent("environ"), atomically: true, encoding: .utf8)
+            }
+            if let cmdline = entry.cmdline {
+                try cmdline.map { $0 + "\0" }.joined().write(to: folder.appendingPathComponent("cmdline"),
+                                                             atomically: true, encoding: .utf8)
+            }
+            if let exe = entry.exe {
+                try fm.createSymbolicLink(atPath: folder.appendingPathComponent("exe").path, withDestinationPath: exe)
+            }
+            if !entry.sockets.isEmpty {
+                let fds = folder.appendingPathComponent("fd")
+                try fm.createDirectory(at: fds, withIntermediateDirectories: true)
+                for (fd, inode) in entry.sockets.enumerated() {
+                    try fm.createSymbolicLink(atPath: fds.appendingPathComponent(String(fd + 3)).path,
+                                              withDestinationPath: "socket:[\(inode)]")
+                }
             }
         }
         let records = home.appendingPathComponent(Self.records.directory)
