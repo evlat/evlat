@@ -37,9 +37,9 @@ import Foundation
 /// carry them to a remote session, where the server reads them
 /// (`RemoteHost`) — on this Mac the `ssh` that carried them is Apple's, whose
 /// environment no other process can read. The value is checked by the same
-/// rule as on this Mac. The table is the only place a terminal is named:
-/// the server's script gets the names as arguments, and `Ssh` asks here
-/// whose a name is.
+/// rule as on this Mac, and only for the app the walk reached. The table is
+/// the only place a terminal is named: the server's script gets the names
+/// as arguments.
 struct TabLink {
     /// Read in this order; every one must be there.
     let variables: [String]
@@ -131,11 +131,5 @@ struct TabLink {
     /// script is asked to read.
     static var forwardedNames: [String] {
         Set(known.values.flatMap(\.forwarded)).sorted()
-    }
-
-    /// The apps that forward a value under `name`, sorted: one app can ship
-    /// under more than one bundle id.
-    static func owners(ofForwarded name: String) -> [String] {
-        known.filter { $0.value.forwarded.contains(name) }.map(\.key).sorted()
     }
 }

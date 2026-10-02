@@ -246,8 +246,6 @@ final class RemoteHostTests: XCTestCase {
         }
     }
 
-    /// Nothing is written: the tree and the home are byte for byte the same
-    /// after a run.
     /// The agent's forwarded values are said before its connection, in the
     /// order asked; a name it lacks is not; a long value is cut past what
     /// the Mac takes, a spaced one kept whole.
@@ -267,6 +265,8 @@ final class RemoteHostTests: XCTestCase {
         }
     }
 
+    /// Nothing is written: the tree and the home are byte for byte the same
+    /// after a run.
     func testTheScriptWritesNothing() throws {
         try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5), (800, "claude", 600, 7)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])

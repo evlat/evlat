@@ -427,9 +427,10 @@ is lost with the process.
   `LC_BATERI_TAB_URL`): the script gets the table's names as checked
   arguments (`LC_[A-Z0-9_]{1,64}`, 16 at most) and knows no terminal, and
   prints the ones the same process has (a value past 512 bytes is cut and
-  refused, never taken for whole). On this
-  Mac a value its terminal's rule takes, in a terminal that runs, is the
-  tab outright, before any candidate. Otherwise the candidates are the
+  refused, never taken for whole). On this Mac such a value only fills the
+  tab the walk below could not read, by the rule of the app the walk
+  reached and not past a multiplexer's server; it never picks the app,
+  since whatever a tab starts inherits it. The candidates are the
   user's `ssh` processes connected to the same end as Evlat's own tunnel
   `ssh` (`Ssh`, `PROC_PIDFDSOCKETINFO`): the exact client port, else the
   only one (unless its start is > 10 s off), else the start nearest the

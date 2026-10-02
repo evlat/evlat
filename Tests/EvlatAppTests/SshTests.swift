@@ -193,8 +193,6 @@ extension SessionHostTests {
     /// names stand for its variables one for one.
     func testTheForwardedNamesAreTheTablesAndPassTheCore() {
         XCTAssertEqual(TabLink.forwardedNames, ["LC_BATERI_TAB_URL"])
-        XCTAssertEqual(TabLink.owners(ofForwarded: "LC_BATERI_TAB_URL"), ["dev.bateri.bateri", "io.github.bateri.bateri"])
-        XCTAssertEqual(TabLink.owners(ofForwarded: "BATERI_TAB_URL"), [])
         for (bundleID, entry) in TabLink.known {
             XCTAssertTrue(entry.forwarded.isEmpty || entry.forwarded.count == entry.variables.count, bundleID)
             for name in entry.forwarded { XCTAssertTrue(RemoteHost.isForwardedName(name), "\(bundleID) \(name)") }
@@ -214,18 +212,35 @@ extension SessionHostTests {
                                  forwarded: true), "an app that forwards nothing")
     }
 
-    /// A forwarded tab names it outright: no candidate is needed, none is
-    /// matched — not even when two are too close to tell apart.
-    func testAForwardedTabComesBeforeTheCandidates() {
+    /// On this Mac a tab's `ssh` is Apple's, whose environment cannot be
+    /// read: the forwarded value fills the tab the walk could not — when
+    /// one candidate is picked, and when two too close to tell apart are in
+    /// one app and give the same.
+    func testAForwardedTabFillsTheWalkedAppsTab() {
         let reply = connection(forwarded: ["LC_OTHER=1", Self.forwardedTab(Self.newerTab)])
-        let running = ["dev.bateri.bateri": bateri]
-        XCTAssertEqual(tab(of: remote(reply, running: running, tunnel: nil)), "bateri://tab/\(Self.newerTab)",
-                       "no tunnel, no candidate")
+        XCTAssertEqual(tab(of: remote(reply, environment: [:])), "bateri://tab/\(Self.newerTab)", "one candidate")
         let started: [Int32: TimeInterval] = [1001: Self.tabStart, 1101: Self.tabStart + 5]
         XCTAssertEqual(tab(of: remote(reply, table: twoTabs, sockets: twoTabSockets, started: started,
-                                      running: running)), "bateri://tab/\(Self.newerTab)")
-        XCTAssertEqual(remote(reply, table: twoTabs, sockets: twoTabSockets, started: started), .app(bateri),
-                       "Bateri not running: today's order, which brings the app only")
+                                      environment: [:])), "bateri://tab/\(Self.newerTab)", "two close ones")
+        XCTAssertEqual(remote(reply, tunnel: nil), .notFound, "no candidate: the value alone picks nothing")
+    }
+
+    /// The walk's own tab stands: through a local multiplexer it is the
+    /// client's, and the forwarded value is the server's start environment.
+    func testTheWalksOwnTabBeatsTheForwardedOne() {
+        let reply = connection(forwarded: [Self.forwardedTab(Self.newerTab)])
+        XCTAssertEqual(tab(of: remote(reply)), "bateri://tab/\(Self.olderTab)")
+    }
+
+    /// Anything started from a Bateri tab inherits its value: an `ssh` in
+    /// another app opens that app, never Bateri's tab.
+    func testAForwardedValueNeverChoosesTheApp() {
+        var table = sshInBateri
+        table[1000] = Proc(parent: 500, path: "/bin/zsh")
+        table[500] = Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm)
+        let host = remote(connection(forwarded: [Self.forwardedTab(Self.newerTab)]), table: table, environment: [:],
+                          running: ["dev.bateri.bateri": bateri])
+        XCTAssertEqual(host, .app(metalterm))
     }
 
     /// A value that is not a tab, or none at all: today's order.

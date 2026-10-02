@@ -114,7 +114,10 @@ enum SessionHost: Equatable {
     /// (`Multiplexer`).
     /// The walk ends at launchd, at a process that is its own parent, at one
     /// that cannot be read, or at the step limit.
-    static func resolve(pid: Int32?, _ probe: Probe) -> SessionHost {
+    /// `forwarded` (`NAME=value` lines a server read, `Ssh`) fills a tab the
+    /// walk could not read, and only for the app the walk reached: a value is
+    /// inherited by whatever its tab starts, so it never chooses the app.
+    static func resolve(pid: Int32?, forwarded: [String] = [], _ probe: Probe) -> SessionHost {
         guard let agent = pid else { return .notFound }
         switch walk(pid: agent, probe) {
         case (.app(var app), let terminal, let passedServer):
@@ -130,6 +133,11 @@ enum SessionHost: Equatable {
             // them too.
             if TabLink.of(app.bundleID) != nil, terminal != agent || !passedServer {
                 app.tab = TabLink.url(bundleID: app.bundleID, environment: probe.environment(terminal))
+            }
+            // Past a multiplexer's server the forwarded value is that
+            // server's start environment, stale like the agent's own.
+            if app.tab == nil, !passedServer, !forwarded.isEmpty {
+                app.tab = TabLink.url(bundleID: app.bundleID, environment: forwarded, forwarded: true)
             }
             return .app(app)
         case (let other, _, _):

@@ -13,15 +13,7 @@ import EvlatCore
 /// so its end is theirs — DNS, NAT and `ProxyJump` included. No tunnel, no
 /// candidate.
 ///
-/// First of all, a tab link the terminal forwarded over `ssh` and the server
-/// read (`Connection.forwarded`, `TabLink.forwarded`): it names the tab
-/// outright, so no candidate is matched. On this Mac the `ssh` that carried
-/// it is Apple's, whose environment no other process can read; the server's
-/// copy of it can be. Checked by its terminal's rule, and taken only while
-/// that terminal runs. Its ids are UUIDs: a value forwarded from another
-/// computer's tab (a tmux session last used there) names no tab of this
-/// Mac, so it cannot select a wrong one; the terminal comes forward.
-/// Otherwise, in order:
+/// In order:
 ///  1. the candidate whose local port is the server's client port (no NAT);
 ///  2. the only candidate, unless its start is past `apart` from the
 ///     connection's — then it is another connection;
@@ -29,6 +21,16 @@ import EvlatCore
 ///     clock — within `nearest`, and every other one past `apart`;
 ///  4. otherwise ambiguous: the app alone when every candidate is in the
 ///     same one, else nothing. A tab chosen at random would be a lie.
+/// The pick is walked as a local session. A tab link the terminal forwarded
+/// over `ssh` and the server read (`Connection.forwarded`,
+/// `TabLink.forwarded`) fills the tab the walk could not read — on this Mac
+/// the `ssh` that carried it is Apple's, whose environment no other process
+/// can read — checked by the rule of the app the walk reached, and only that
+/// app's. It never picks the app: anything started from a tab (an editor,
+/// another terminal, a local tmux) inherits the value, so a value alone
+/// would open a tab the session is not in. Ambiguous picks in one app keep a
+/// tab only when every one gives the same: riders of one `ControlMaster`
+/// whose session's value names it.
 /// A pick that is a `ControlMaster` with other `ssh` riding it is ambiguous
 /// too: the server sees all of them as one connection.
 /// Measured on an Ubuntu server (OpenSSH 9.6p1): the connection's `sshd`
@@ -133,47 +135,31 @@ extension SessionHost {
     /// no pane: it is right to bring forward, and nothing more is known.
     static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?, evlat: Int32,
                         _ probe: Probe) -> SessionHost {
-        guard case .connection(let connection) = reply else { return .notFound }
-        if let forwarded = forwardedTab(connection.forwarded, probe) { return forwarded }
-        guard let tunnel else { return .notFound }
+        guard case .connection(let connection) = reply, let tunnel else { return .notFound }
+        let forwarded = connection.forwarded
         let candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, probe)
         switch Ssh.choose(candidates, for: connection, startedAt: probe.startedAt) {
         case .one(let pid):
             let riders = Ssh.muxClients(of: pid, probe)
-            guard riders.isEmpty else { return sameApp([pid] + riders, probe) }
-            return resolve(pid: pid, probe)
+            guard riders.isEmpty else { return sameApp([pid] + riders, forwarded: forwarded, probe) }
+            return resolve(pid: pid, forwarded: forwarded, probe)
         case .ambiguous(let pids):
-            return sameApp(pids, probe)
+            return sameApp(pids, forwarded: forwarded, probe)
         case .none:
             return .notFound
         }
     }
 
-    /// The first forwarded value, in the server's order, that its terminal's
-    /// rule takes for a tab, in a terminal that is running: that app with
-    /// that tab. `nil` when none is.
-    static func forwardedTab(_ forwarded: [String], _ probe: Probe) -> SessionHost? {
-        for line in forwarded {
-            guard let name = line.split(separator: "=", maxSplits: 1).first else { continue }
-            for bundleID in TabLink.owners(ofForwarded: String(name)) {
-                guard let tab = TabLink.url(bundleID: bundleID, environment: forwarded, forwarded: true),
-                      var app = probe.running(bundleID) else { continue }
-                app.tab = tab
-                return .app(app)
-            }
-        }
-        return nil
-    }
-
-    /// The one app every pid's walk reaches, with no tab and no pane; else
-    /// nothing.
-    private static func sameApp(_ pids: [Int32], _ probe: Probe) -> SessionHost {
-        let apps = pids.map { resolve(pid: $0, probe) }.map { host -> App? in
-            if case .app(let app) = host { return App(bundleID: app.bundleID, name: app.name, pid: app.pid) }
+    /// The one app every pid's walk reaches, with no pane, and with a tab
+    /// only when every walk gives that same tab; else nothing.
+    private static func sameApp(_ pids: [Int32], forwarded: [String], _ probe: Probe) -> SessionHost {
+        let apps = pids.map { resolve(pid: $0, forwarded: forwarded, probe) }.map { host -> App? in
+            if case .app(let app) = host { return App(bundleID: app.bundleID, name: app.name, pid: app.pid, tab: app.tab) }
             return nil
         }
-        guard let first = apps.first ?? nil,
+        guard var first = apps.first ?? nil,
               apps.allSatisfy({ $0?.bundleID == first.bundleID }) else { return .notFound }
+        if first.tab == nil || !apps.allSatisfy({ $0?.tab == first.tab }) { first.tab = nil }
         return .app(first)
     }
 
