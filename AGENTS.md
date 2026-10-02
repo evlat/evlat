@@ -281,13 +281,38 @@ Stop                                             → review
 The session file's `status` does not carry this distinction; that file is for
 discovery, liveness, name and pid.
 
-A wait can also be heard and told: Settings → General → Waiting reminder
-(off by default) chooses N minutes, a sound (on) and a notification (off).
-A wait that outlasts N rings a chime synthesized in code (`Chime`, `NSSound`,
-no sound file) and posts one notification per session (`WaitingNotifier`),
-once per wait, timed from when this process first saw it waiting
-(`WaitingNudge`). An answer re-arms it and takes the notification back; a
-click on it opens that session's card on the bar.
+The mascot can speak (Settings → Mascot). **Who speaks** is one choice
+(`SoundVoice`): Evlat's own tones, drawn in code (`EvlatSound`, `Chime`: no
+sound file), or a character — an OpenPeon / CESP pack (`SoundPack`, from PR
+#8) with several lines per moment, one picked at random and never the same
+twice in a row (`SoundPicker`). **When** is a switch per moment
+(`SoundMoment`: done, error, waiting for approval, waiting for an answer;
+all off by default): a finish speaks as it is told — the peek's moment and
+rule below, whatever the body mode, an error's line if one failed; a wait as
+it begins, under the same rules (not at the first scan, not on the open bar
+or beside the balloon). One sound at a time: anything within
+`AppController.soundGap` (1.5 s) of the last is let go. A character with no
+line for a moment cannot switch it on.
+
+"Remind again" (off by default) speaks once more after N minutes — waits
+until answered, or with "Everything" also finishes until seen (the
+registry's `news`, never a guess) — only where that moment's row is on,
+and posts a notification if asked (`WaitingNotifier`), taken back on the
+answer or the look; a click opens that session's card on the bar. Waits are
+timed from when this process first saw them (`WaitingNudge`), finishes from
+when they were told; a finish that entered silently is never reminded of.
+An upgrade from the old reminder keeps its sound: with minutes and "Play a
+sound" stored, the two wait rows start on (`storedSoundOn`), so those users
+now also hear a wait begin.
+
+Characters are installed from the OpenPeon registry by the user's press in
+the characters sheet (`SoundPackBrowser`) — Evlat's only download besides
+Sparkle's feed: the manifest checked against the index's sha256, every
+sound against the manifest's, 1 MB a file and 50 MB a pack, assembled in a
+temporary folder and moved into `~/.openpeon/packs/<name>` whole. That
+folder is shared with every OpenPeon player: a pack another player
+installed shows up here, and "Remove" moves it to the Trash, never deletes.
+An isolated process without its own `EVLAT_HOME` has no sheet.
 
 ### News and passive
 
@@ -305,8 +330,9 @@ merge that holds a finish back for a while neither retells nor revives it):
   close.
 - **announced** — a finish is told once, from one place: news not yet told,
   while the bar and the balloon are closed, peeks in the newest finish's
-  colour. News that came while either was open, or with the first scan, enters
-  silently. A forced phase ("Force state") still peeks on its own.
+  colour, and speaks if its moment is on (above). News that came while
+  either was open, or with the first scan, enters silently. A forced phase
+  ("Force state") still peeks on its own, without a sound.
 
 A seen chat (`job`) stays through the close it was seen at and goes to the
 balloon's history at the next one (`ChatStore.markSeen`, which writes it
@@ -394,7 +420,7 @@ is lost with the process.
 ### Permissions
 
 **No macOS permission is requested**, with one exception: notifications, asked
-only when the user turns on the waiting reminder's notification; refused, the
+only when the user turns on "Remind again"'s notification; refused, the
 sound still works. `UNUserNotificationCenter` needs a bundle, so under
 `swift run` and in tests `WaitingNotifier.make()` returns `nil`. Any other path
 that needs Accessibility, Screen Recording, Apple Events or a new permission is
@@ -547,8 +573,8 @@ the script bumps its version.
 
 `~/.claude/settings.json`, `~/.claude/statusline-*.sh`, `~/.codex/hooks.json`,
 `~/.codex/config.toml`, `~/.gemini/config/hooks.json`,
-`~/.gemini/antigravity-cli/settings.json`, `~/.local/bin/evlat` and login items belong to the
-user. **Agents do not write them.** Writers are tested against a temporary root
+`~/.gemini/antigravity-cli/settings.json`, `~/.local/bin/evlat`, `~/.openpeon/packs`
+and login items belong to the user. **Agents do not write them.** Writers are tested against a temporary root
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
 So does the login keychain: no test or trial writes an Evlat entry to it.
 The masters' sockets (`$TMPDIR/evlat`, `0700`) are Evlat's own; a stale one
@@ -794,6 +820,13 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   (`unsi_conn_pcb` = the server's accepted `soi_pcb`, what `lsof -U` shows
   as `->0x…`), newest start first. Every client shows the same view: a
   switch in one window was seen in the other at once.
+
+- **macOS cannot play Ogg Vorbis.** An OpenPeon line in Ogg (`Evet_M.ogg`,
+  22 kHz mono, from the Turkish villager packs) is opened by `NSSound` and
+  `AVAudioPlayer` alike, and both answer `false` to `play()`; mp3 and wav
+  play. 21 of the registry's packs are Ogg: the sheet marks them "Doesn't
+  play on Mac" and offers no install, and a line is judged by its name
+  (`AudioSupport`). A decoder would be a new dependency.
 
 ### SwiftUI and AppKit
 

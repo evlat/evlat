@@ -32,7 +32,9 @@ struct SettingsView: View {
                     .accessibilityAddTraits(.isHeader)
                 Rectangle().fill(SettingsPalette.paneLine).frame(height: 1)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) { section }
+                    // 24 between groups: a group's note is its last line, and at 14
+                    // the next group's heading read as the note's.
+                    VStack(alignment: .leading, spacing: 24) { section }
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                         .padding(.bottom, 20)
@@ -53,6 +55,7 @@ struct SettingsView: View {
     @ViewBuilder private var section: some View {
         switch model.section {
         case .general: GeneralSection(model: model, setup: setup)
+        case .mascot: MascotSection(model: model)
         case .agents: AgentsSection(model: model, setup: setup)
         case .usage: UsageSection(model: model)
         case .chat: ChatSection(model: model, recorder: model.recorder, setup: setup)
@@ -124,9 +127,6 @@ private struct GeneralSection: View {
                 DisplayRow(model: model)
             }
             BodyRows(model: model)
-        }
-        SettingsGroup(title: model.t("settings.general.nudge")) {
-            NudgeRows(model: model)
         }
         if let row = setup.row(.loginItem) {
             SettingsGroup(title: model.t("settings.general.start")) {
@@ -248,33 +248,202 @@ private struct BodyRows: View {
     }
 }
 
-/// "Waiting reminder": after how long, and how — a sound, a notification,
-/// either or both. The two switches rest while the reminder is off.
-private struct NudgeRows: View {
+// MARK: - Mascot
+
+/// Who speaks and when (mockups 1–3): the voice first — Evlat's tones or a
+/// character's lines — then a switch per moment, the reminder last.
+private struct MascotSection: View {
+    @ObservedObject var model: SettingsModel
+    @State private var showsCharacters = false
+
+    var body: some View {
+        SettingsGroup(title: model.t("settings.mascot.sounds"),
+                      note: model.t(model.voicePack == nil ? "settings.mascot.sounds.note"
+                                                           : "settings.mascot.sounds.note.pack")) {
+            VoiceRow(model: model, showsCharacters: $showsCharacters)
+            ForEach(SoundMoment.allCases, id: \.self) { MomentRow(model: model, moment: $0) }
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.mascot.volume"))
+                    Slider(value: Binding(get: { model.soundVolume }, set: { model.setSoundVolume($0) }), in: 0...1)
+                        .controlSize(.small)
+                        .frame(width: 160)
+                        .accessibilityLabel(model.t("settings.mascot.volume"))
+                }
+            }
+        }
+        SettingsGroup(title: model.t("settings.mascot.remind.group"), note: model.t("settings.mascot.remind.note")) {
+            RemindRows(model: model)
+        }
+        .sheet(isPresented: $showsCharacters) {
+            if let browser = model.packBrowser {
+                SoundPackBrowserView(browser: browser, t: { model.t($0, $1) }, close: {
+                    showsCharacters = false
+                    model.objectWillChange.send()
+                })
+            }
+        }
+    }
+}
+
+/// "Who speaks?": Evlat, the characters installed, and the way to more.
+private struct VoiceRow: View {
+    @ObservedObject var model: SettingsModel
+    @Binding var showsCharacters: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let pack = model.voicePack {
+                VoiceInitial(name: pack.displayName, key: pack.name)
+            } else {
+                EvlatMark()
+            }
+            RowTitle(name: model.t("settings.mascot.voice"), detail: model.voiceDetail)
+            Menu(model.voiceTitle) {
+                Button { model.setVoice(.evlat) } label: {
+                    if model.voicePack == nil { Label(model.t("settings.mascot.voice.evlat"), systemImage: "checkmark") }
+                    else { Text(model.t("settings.mascot.voice.evlat")) }
+                }
+                let characters = model.characterOptions
+                if !characters.isEmpty {
+                    Section(model.t("settings.mascot.voice.characters")) {
+                        ForEach(characters) { option in
+                            Button { model.setVoice(option.voice) } label: {
+                                if model.voice == option.voice { Label(option.title, systemImage: "checkmark") }
+                                else { Text(option.title) }
+                            }
+                        }
+                    }
+                }
+                if model.packBrowser != nil {
+                    Divider()
+                    Button(model.t("settings.mascot.voice.more")) { showsCharacters = true }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .padding(.vertical, 3).padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 6).fill(SettingsPalette.key))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(SettingsPalette.keyLine))
+            .accessibilityLabel(model.t("settings.mascot.voice"))
+        }
+        .padding(12)
+        .background(SettingsPalette.serverRows)
+    }
+}
+
+/// Evlat's own mark beside "Who speaks?": the cube's face.
+private struct EvlatMark: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9).fill(SettingsPalette.selected)
+            RoundedRectangle(cornerRadius: 5).fill(SettingsPalette.selectedInk).frame(width: 18, height: 18)
+            HStack(spacing: 3) {
+                Capsule().fill(SettingsPalette.selected).frame(width: 2.4, height: 7)
+                Capsule().fill(SettingsPalette.selected).frame(width: 2.4, height: 7)
+            }
+        }
+        .frame(width: 32, height: 32)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One moment: its name (and, for a character, one of its lines), Evlat's
+/// tone where Evlat speaks, ▶, and the switch.
+private struct MomentRow: View {
+    @ObservedObject var model: SettingsModel
+    let moment: SoundMoment
+
+    var body: some View {
+        let speaks = model.canSpeak(moment)
+        RowBox {
+            HStack(spacing: 10) {
+                RowTitle(name: model.t(moment.nameKey), detail: model.lineText(moment))
+                    .opacity(model.soundOn(moment) && speaks ? 1 : 0.6)
+                if model.voicePack == nil {
+                    ToneMenu(model: model, moment: moment)
+                }
+                PlayButton(label: model.t("settings.mascot.play"), enabled: speaks) { model.preview(moment) }
+                Toggle("", isOn: Binding(get: { model.soundOn(moment) }, set: { model.setSoundOn($0, for: moment) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .disabled(!speaks)
+                    .accessibilityLabel(model.t(moment.nameKey))
+            }
+        }
+    }
+}
+
+/// Evlat's tone for a moment: its nine sounds, macOS's in a submenu so the
+/// list stays short. Choosing one plays it.
+private struct ToneMenu: View {
+    @ObservedObject var model: SettingsModel
+    let moment: SoundMoment
+
+    var body: some View {
+        let options = model.toneOptions
+        let current = model.tone(moment)
+        let title = (options.evlat + options.system).first { $0.tone == current }?.title ?? ""
+        Menu(title) {
+            ForEach(options.evlat) { option in item(option, current) }
+            if !options.system.isEmpty {
+                Divider()
+                Menu(model.t("settings.mascot.tones.system")) {
+                    ForEach(options.system) { option in item(option, current) }
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .frame(minWidth: 96, alignment: .leading)
+        .accessibilityLabel(model.t(moment.nameKey))
+    }
+
+    @ViewBuilder private func item(_ option: SettingsModel.ToneOption, _ current: AlertSound) -> some View {
+        Button { model.setTone(option.tone, for: moment) } label: {
+            if option.tone == current { Label(option.title, systemImage: "checkmark") } else { Text(option.title) }
+        }
+    }
+}
+
+/// "If you don't answer": after how long a wait speaks once more, and a
+/// notification with it. The notification rests while the reminder is off.
+private struct RemindRows: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
         RowBox {
             HStack(spacing: 10) {
-                RowTitle(name: model.t("settings.general.nudge.after"), detail: model.t("settings.general.nudge.after.detail"))
+                RowTitle(name: model.t("settings.mascot.remind"))
                 Picker("", selection: Binding(get: { model.nudgeMinutes }, set: { model.setNudgeMinutes($0) })) {
                     ForEach(AppController.nudgeChoices, id: \.self) { minutes in
-                        Text(minutes == 0 ? model.t("settings.general.nudge.off")
-                                          : model.t("settings.general.nudge.minutes", ["n": String(minutes)]))
-                            .tag(minutes)
+                        Text(model.nudgeTitle(minutes)).tag(minutes)
                     }
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .fixedSize()
-                .accessibilityLabel(model.t("settings.general.nudge.after"))
+                .accessibilityLabel(model.t("settings.mascot.remind"))
             }
         }
-        toggle("settings.general.nudge.sound", on: model.nudgeSound) { model.setNudgeSound($0) }
+        // What it covers, each with what it means (the chat modes' radio).
+        ForEach([NudgeScope.waits, .all], id: \.self) { scope in
+            ChoiceRow(title: model.t("settings.mascot.remind." + scope.rawValue),
+                      detail: model.t("settings.mascot.remind." + scope.rawValue + ".detail"),
+                      selected: model.nudgeScope == scope) { model.setNudgeScope(scope) }
+                .disabled(!model.reminds)
+                .opacity(model.reminds ? 1 : 0.5)
+        }
         RowBox {
             HStack(spacing: 10) {
-                RowTitle(name: model.t("settings.general.nudge.notify"), detail: model.t("settings.general.nudge.notify.detail"))
-                switchView("settings.general.nudge.notify", on: model.nudgeNotify) { model.setNudgeNotify($0) }
+                RowTitle(name: model.t("settings.mascot.notify"), detail: model.t("settings.mascot.notify.detail"))
+                Toggle("", isOn: Binding(get: { model.nudgeNotify }, set: { model.setNudgeNotify($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .disabled(!model.reminds)
+                    .accessibilityLabel(model.t("settings.mascot.notify"))
             }
             if model.notificationsDenied {
                 HStack(spacing: 10) {
@@ -287,24 +456,6 @@ private struct NudgeRows: View {
                 }
             }
         }
-    }
-
-    private func toggle(_ key: String, on: Bool, set: @escaping (Bool) -> Void) -> some View {
-        RowBox {
-            HStack(spacing: 10) {
-                RowTitle(name: model.t(key), detail: model.t(key + ".detail"))
-                switchView(key, on: on, set: set)
-            }
-        }
-    }
-
-    private func switchView(_ key: String, on: Bool, set: @escaping (Bool) -> Void) -> some View {
-        Toggle("", isOn: Binding(get: { on }, set: set))
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .labelsHidden()
-            .disabled(model.nudgeMinutes == 0)
-            .accessibilityLabel(model.t(key))
     }
 }
 

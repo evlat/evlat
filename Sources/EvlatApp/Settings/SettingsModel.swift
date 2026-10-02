@@ -62,8 +62,27 @@ final class SettingsModel: ObservableObject {
         /// General's "Waiting reminder": minutes, 0 is off.
         var nudgeMinutes: () -> Int = { 0 }
         var setNudgeMinutes: (Int) -> Void = { _ in }
-        var nudgeSound: () -> Bool = { true }
-        var setNudgeSound: (Bool) -> Void = { _ in }
+        /// Mascot → Sounds: who speaks, the characters installed, each
+        /// moment's switch and Evlat's tone for it, the ▶ and the volume.
+        var voice: () -> SoundVoice = { .evlat }
+        var setVoice: (SoundVoice) -> Void = { _ in }
+        var packs: () -> [SoundPack] = { [] }
+        var voicePack: () -> SoundPack? = { nil }
+        var nudgeScope: () -> NudgeScope = { .waits }
+        var setNudgeScope: (NudgeScope) -> Void = { _ in }
+        var soundOn: (SoundMoment) -> Bool = { _ in false }
+        var setSoundOn: (Bool, SoundMoment) -> Void = { _, _ in }
+        var tone: (SoundMoment) -> AlertSound = { $0.defaultTone }
+        var setTone: (AlertSound, SoundMoment) -> Void = { _, _ in }
+        var canSpeak: (SoundMoment) -> Bool = { _ in true }
+        var preview: (SoundMoment) -> Void = { _ in }
+        var soundVolume: () -> Double = { 1 }
+        var setSoundVolume: (Double) -> Void = { _ in }
+        /// macOS's alert sounds, offered after Evlat's own.
+        var systemSounds: () -> [String] = { AlertSound.installedSystemNames }
+        /// The characters sheet; `nil` with no home or in an isolated
+        /// process, which download nothing.
+        var packBrowser: () -> SoundPackBrowser? = { nil }
         /// Usage's switch: leave out what was not seen for the hour.
         var hidesStaleUsage: () -> Bool = { false }
         var setHidesStaleUsage: (Bool) -> Void = { _ in }
@@ -262,7 +281,108 @@ final class SettingsModel: ObservableObject {
         objectWillChange.send()
     }
 
-    var nudgeSound: Bool { host.nudgeSound() }
+    /// The notification rests while waits are not reminded of.
+    var reminds: Bool { nudgeMinutes != 0 }
+
+    /// "After {n} min" or "Off".
+    func nudgeTitle(_ minutes: Int) -> String {
+        minutes == 0 ? t("settings.general.nudge.off")
+                     : t("settings.general.nudge.minutes", ["n": String(minutes)])
+    }
+
+    var nudgeScope: NudgeScope { host.nudgeScope() }
+
+    func setNudgeScope(_ scope: NudgeScope) {
+        guard scope != host.nudgeScope() else { return }
+        host.setNudgeScope(scope)
+        objectWillChange.send()
+    }
+
+    // MARK: - Mascot → Sounds
+
+    var voice: SoundVoice { host.voice() }
+
+    func setVoice(_ voice: SoundVoice) {
+        guard voice != host.voice() else { return }
+        host.setVoice(voice)
+        objectWillChange.send()
+    }
+
+    struct VoiceOption: Hashable, Identifiable {
+        let voice: SoundVoice
+        let title: String
+        var id: String { voice.stored }
+    }
+
+    /// The characters installed, by name; Evlat itself is the menu's first
+    /// line, apart.
+    var characterOptions: [VoiceOption] {
+        host.packs().map { VoiceOption(voice: .pack($0.name), title: $0.displayName) }
+    }
+
+    /// The speaking character, `nil` for Evlat (or a character gone).
+    var voicePack: SoundPack? { host.voicePack() }
+
+    var voiceTitle: String { voicePack?.displayName ?? t("settings.mascot.voice.evlat") }
+
+    var voiceDetail: String {
+        voicePack == nil ? t("settings.mascot.voice.evlat.detail") : t("settings.mascot.voice.pack.detail")
+    }
+
+    func soundOn(_ moment: SoundMoment) -> Bool { host.soundOn(moment) }
+
+    func setSoundOn(_ on: Bool, for moment: SoundMoment) {
+        guard on != host.soundOn(moment) else { return }
+        host.setSoundOn(on, moment)
+        objectWillChange.send()
+    }
+
+    func tone(_ moment: SoundMoment) -> AlertSound { host.tone(moment) }
+
+    func setTone(_ tone: AlertSound, for moment: SoundMoment) {
+        host.setTone(tone, moment)
+        objectWillChange.send()
+    }
+
+    func canSpeak(_ moment: SoundMoment) -> Bool { host.canSpeak(moment) }
+
+    func preview(_ moment: SoundMoment) { host.preview(moment) }
+
+    struct ToneOption: Hashable, Identifiable {
+        let tone: AlertSound
+        let title: String
+        var id: String { tone.stored ?? title }
+    }
+
+    /// Evlat's tones, then macOS's.
+    var toneOptions: (evlat: [ToneOption], system: [ToneOption]) {
+        (EvlatSound.allCases.map { ToneOption(tone: .evlat($0), title: t($0.nameKey)) },
+         host.systemSounds().map { ToneOption(tone: .system($0), title: $0) })
+    }
+
+    /// Under a character's row: one of its lines and how many more, so it
+    /// reads as a voice with lines, not one sound. A line the manifest gives
+    /// no words for is only counted.
+    func lineText(_ moment: SoundMoment) -> String? {
+        guard let pack = voicePack else { return nil }
+        let lines = pack.sounds[moment.category] ?? []
+        guard !lines.isEmpty else { return t("settings.mascot.noLine") }
+        guard let said = lines.first(where: \.hasLabel) else {
+            return t("settings.mascot.lines", ["count": String(lines.count)])
+        }
+        return lines.count == 1 ? t("settings.mascot.line.one", ["line": said.label])
+                                : t("settings.mascot.line", ["line": said.label, "count": String(lines.count - 1)])
+    }
+
+    var soundVolume: Double { host.soundVolume() }
+
+    func setSoundVolume(_ volume: Double) {
+        host.setSoundVolume(volume)
+        objectWillChange.send()
+    }
+
+    var packBrowser: SoundPackBrowser? { host.packBrowser() }
+
     var hidesStaleUsage: Bool { host.hidesStaleUsage() }
 
     func setHidesStaleUsage(_ on: Bool) {
@@ -270,13 +390,8 @@ final class SettingsModel: ObservableObject {
         host.setHidesStaleUsage(on)
         objectWillChange.send()
     }
-    var nudgeNotify: Bool { host.nudgeNotify() }
 
-    func setNudgeSound(_ on: Bool) {
-        guard on != host.nudgeSound() else { return }
-        host.setNudgeSound(on)
-        objectWillChange.send()
-    }
+    var nudgeNotify: Bool { host.nudgeNotify() }
 
     /// A refusal leaves the switch off and the row pointing at System Settings.
     func setNudgeNotify(_ on: Bool) {
@@ -494,6 +609,22 @@ final class SettingsModel: ObservableObject {
         "settings.general.body.peekWaiting", "settings.general.body.peekWaiting.detail",
         "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.bare",
         "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
+        "settings.general.nudge.off", "settings.general.nudge.minutes",
+        "settings.general.nudge.notify.denied", "settings.general.nudge.notify.open",
+        "settings.mascot.sounds", "settings.mascot.voice", "settings.mascot.voice.evlat",
+        "settings.mascot.voice.evlat.detail", "settings.mascot.voice.pack.detail",
+        "settings.mascot.voice.characters", "settings.mascot.voice.more",
+        "settings.mascot.line", "settings.mascot.line.one", "settings.mascot.lines", "settings.mascot.noLine",
+        "settings.mascot.play", "settings.mascot.tones.system", "settings.mascot.volume",
+        "settings.mascot.sounds.note", "settings.mascot.sounds.note.pack",
+        "settings.mascot.remind.group", "settings.mascot.remind", "settings.mascot.remind.note",
+        "settings.mascot.remind.waits", "settings.mascot.remind.waits.detail",
+        "settings.mascot.remind.all", "settings.mascot.remind.all.detail",
+        "notify.finished.title", "notify.finished.body", "notify.failed.title", "notify.failed.body",
+        "settings.mascot.notify", "settings.mascot.notify.detail",
+        "packs.title", "packs.intro", "packs.search", "packs.failed", "packs.retry", "packs.install",
+        "packs.use", "packs.inUse", "packs.remove", "packs.remove.help", "packs.count", "packs.installed", "packs.unplayable", "packs.unplayable.help",
+        "packs.note", "packs.done", "packs.error",
         "settings.agents.group", "settings.agents.note", "settings.usage.bar",
         "settings.usage.hideStale", "settings.usage.hideStale.detail",
         "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",
@@ -521,4 +652,6 @@ final class SettingsModel: ObservableObject {
         "settings.remote.path.add", "settings.remote.what.path", "settings.remote.what.path.remove",
         "settings.remote.path.manual", "settings.remote.path.manual.remove",
     ] + Agents.chatBackends.compactMap(\.noteKey)
+        + EvlatSound.allCases.map(\.nameKey)
+        + SoundMoment.allCases.map(\.nameKey)
 }

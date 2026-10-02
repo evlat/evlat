@@ -31,6 +31,14 @@ Markdown; keep it to a few bullets.
 - **Usage has its own page:** Settings → Usage.
 - **Settings opens in front** of the app you were using and takes the
   keyboard. While it is open, Evlat shows an icon in the Dock.
+- **The mascot can speak.** A new **Mascot** tab in Settings chooses who
+  speaks — Evlat's own tones, or a character voice from the OpenPeon
+  community, installed with one click — and at which moments: done,
+  error, waiting for approval, waiting for an answer. Every moment is off
+  until you switch it on.
+- **Remind again** (the old waiting reminder) now lives in the Mascot tab
+  and can also remind you of finished work you haven't looked at. If you
+  used the reminder with its sound, you'll now also hear a wait begin.
 - **Ten new languages:** German, Spanish, French, Brazilian Portuguese,
   Ukrainian, Russian, Japanese, Korean, and Simplified and Traditional
   Chinese. Evlat follows your Mac's language, or the one you pick in

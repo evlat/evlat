@@ -15,6 +15,8 @@ struct WaitingNudge {
     private var told: Set<String> = []
 
     struct Change: Equatable {
+        /// Rows seen waiting for the first time.
+        var began: Set<String> = []
         /// Rows that have just waited `after`.
         var due: Set<String> = []
         /// Told rows that stopped waiting: their notification is taken back.
@@ -28,7 +30,10 @@ struct WaitingNudge {
         change.ended = told.subtracting(waiting)
         since = since.filter { waiting.contains($0.key) }
         told.formIntersection(waiting)
-        for entity in waiting where since[entity] == nil { since[entity] = now }
+        for entity in waiting where since[entity] == nil {
+            since[entity] = now
+            change.began.insert(entity)
+        }
         guard let after else { return change }
         change.due = waiting.filter { !told.contains($0) && now.timeIntervalSince(since[$0]!) >= after }
         told.formUnion(change.due)

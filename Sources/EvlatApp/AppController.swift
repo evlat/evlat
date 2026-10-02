@@ -193,24 +193,47 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// choice but never store it, so a forced launch — an isolated copy
     /// looked at or measured — leaves the user's choice alone.
     var bodyForced = false
-    /// Minutes a session may wait before the chime (Settings → General);
-    /// 0 is off, and so is nothing stored.
+    /// Minutes a session may wait before it is reminded of (Settings →
+    /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
     /// Settings → Agents → Git branch (`BranchDisplay`). Handed to the
     /// rows, and read by the card's reader so that `off` reads nothing.
     var branchDisplay: BranchDisplay = .auto {
         didSet { sessionRows.branchDisplay = branchDisplay }
     }
-    /// How the reminder tells a wait: the chime (on unless turned off) and a
-    /// notification (off unless turned on, which asks macOS first).
-    var nudgeSound = true
+    /// Settings → Mascot → Sounds: who speaks, which moments do, Evlat's
+    /// tone for each, and how loud (`storedSound…`). Whether a reminded wait
+    /// also posts a notification: off unless turned on, which asks macOS.
+    var soundVoice = SoundVoice.evlat
+    var soundOn: [SoundMoment: Bool] = [:]
+    var soundTones: [SoundMoment: AlertSound] = [:]
     var nudgeNotify = false
+    /// What "Remind again" covers: waits only, or finishes not looked at too.
+    var nudgeScope = NudgeScope.waits
+    /// Finishes told (`tellNews`), when; reminded once each, and those whose
+    /// reminder posted a notification. A finish leaves when it is seen or
+    /// its row moves on (`remindOfFinishes`). One entering silently — on the
+    /// open bar, at the first scan — was never told and is not reminded.
+    private var toldFinishes: [Finish: Date] = [:]
+    private var remindedFinishes: Set<Finish> = []
+    /// The character speaking, read when it is chosen; `nil` for Evlat's
+    /// tones, or a pack gone from its folder.
+    private(set) var voicePack: SoundPack?
+    private var linePicker = SoundPicker()
+    /// One sound at a time: what comes within `soundGap` of the last is let
+    /// go, whatever its source — a finish and a wait in one refresh would
+    /// only cut each other off.
+    private var lastSound: Date?
+    nonisolated static let soundGap: TimeInterval = 1.5
     /// Settings → Usage: leave out a window not seen for the
     /// hour (`UsageBlockModel.lines`). Off unless turned on.
     var hidesStaleUsage = false
     private var waitingNudge = WaitingNudge()
-    /// How the nudge sounds. A `var` so a test counts it instead of hearing it.
-    var chime: () -> Void = { Chime.play() }
+    /// How a sound is made. A `var` so a test records it instead of hearing it.
+    var playSound: (AlertSound) -> Void = { SoundPlayer.play($0) }
+    /// Waits seen at the first scan were already there: they make no sound,
+    /// as the first scan's finishes do not.
+    private var waitsScanned = false
     /// `nil` outside the bundle and in tests (`WaitingNotifier.make`).
     private var notifier: WaitingNotifier?
     /// Whether the menu-bar icon is the amber one (`TrayIcon.isAmber`).
@@ -751,8 +774,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// When a session's branch is drawn; nothing stored is `auto`, the bar's
     /// behaviour before the setting existed.
     nonisolated static let branchDisplayKey = "rows.branch"
+    /// The reminder's old "Play a sound". No longer written; read for the
+    /// waits' switches when none is stored (`storedSoundOn`).
     nonisolated static let nudgeSoundKey = "nudge.sound"
+    nonisolated static let soundVoiceKey = "sound.voice"
+    nonisolated static let soundVolumeKey = "sound.volume"
     nonisolated static let nudgeNotifyKey = "nudge.notify"
+    nonisolated static let nudgeScopeKey = "nudge.scope"
     nonisolated static let hideStaleUsageKey = "usage.hideStale"
     /// What the setting offers; 0 is off.
     nonisolated static let nudgeChoices = [0, 1, 2, 5, 10, 20]
@@ -762,6 +790,29 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static func storedNudgeMinutes(_ defaults: UserDefaults?) -> Int {
         let minutes = defaults?.integer(forKey: nudgeKey) ?? 0
         return nudgeChoices.contains(minutes) ? minutes : 0
+    }
+
+    /// Whether a moment speaks. Nothing stored: a finish is silent, as it
+    /// was before it could speak. A wait speaks where the old reminder rang —
+    /// on with its minutes and its "Play a sound" (on unless turned off) — so
+    /// an upgrade keeps hearing the reminder, whose sound is now the row's.
+    nonisolated static func storedSoundOn(_ moment: SoundMoment, _ defaults: UserDefaults?) -> Bool {
+        if let on = defaults?.object(forKey: moment.onKey) as? Bool { return on }
+        switch moment {
+        case .done, .failed: return false
+        case .approval, .answer:
+            return storedNudgeMinutes(defaults) > 0 && (defaults?.object(forKey: nudgeSoundKey) as? Bool ?? true)
+        }
+    }
+
+    /// Evlat's tone for a moment; nothing stored, or one no longer known, is
+    /// its default.
+    nonisolated static func storedTone(_ moment: SoundMoment, _ defaults: UserDefaults?) -> AlertSound {
+        defaults?.string(forKey: moment.toneKey).flatMap(AlertSound.init(stored:)) ?? moment.defaultTone
+    }
+
+    nonisolated static func storedSoundVolume(_ defaults: UserDefaults?) -> Double {
+        min(1, max(0, defaults?.object(forKey: soundVolumeKey) as? Double ?? 1))
     }
 
     /// The stored branch display; nothing stored or an unknown value is `auto`.
@@ -1211,7 +1262,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
         // Before the panel, so its first hover area is already the mode's.
         nudgeMinutes = Self.storedNudgeMinutes(defaults)
-        nudgeSound = defaults?.object(forKey: Self.nudgeSoundKey) as? Bool ?? true
+        nudgeScope = NudgeScope(rawValue: defaults?.string(forKey: Self.nudgeScopeKey) ?? "") ?? .waits
+        for moment in SoundMoment.allCases {
+            soundOn[moment] = Self.storedSoundOn(moment, defaults)
+            soundTones[moment] = Self.storedTone(moment, defaults)
+        }
+        SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
+        useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
         branchDisplay = Self.storedBranchDisplay(defaults)
         detail.resolveBranch = { [weak self] folder in
@@ -2439,8 +2496,21 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setBranchDisplay: { [weak self] in self?.setBranchDisplay($0) },
             nudgeMinutes: { [weak self] in self?.nudgeMinutes ?? 0 },
             setNudgeMinutes: { [weak self] in self?.setNudgeMinutes($0) },
-            nudgeSound: { [weak self] in self?.nudgeSound ?? true },
-            setNudgeSound: { [weak self] in self?.setNudgeSound($0) },
+            voice: { [weak self] in self?.soundVoice ?? .evlat },
+            setVoice: { [weak self] in self?.setVoice($0) },
+            packs: { [weak self] in self?.installedPacks ?? [] },
+            voicePack: { [weak self] in self?.voicePack },
+            nudgeScope: { [weak self] in self?.nudgeScope ?? .waits },
+            setNudgeScope: { [weak self] in self?.setNudgeScope($0) },
+            soundOn: { [weak self] in self?.soundOn[$0] ?? false },
+            setSoundOn: { [weak self] in self?.setSoundOn($0, for: $1) },
+            tone: { [weak self] in self?.soundTones[$0] ?? $0.defaultTone },
+            setTone: { [weak self] in self?.setTone($0, for: $1) },
+            canSpeak: { [weak self] in self?.canSpeak($0) ?? true },
+            preview: { [weak self] in self?.preview($0) },
+            soundVolume: { Double(SoundPlayer.volume) },
+            setSoundVolume: { [weak self] in self?.setSoundVolume($0) },
+            packBrowser: { [weak self] in self?.packBrowser },
             hidesStaleUsage: { [weak self] in self?.hidesStaleUsage ?? false },
             setHidesStaleUsage: { [weak self] in self?.setHidesStaleUsage($0) },
             nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
@@ -2855,6 +2925,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyPresence()
         tellNews(snapshot.news)
         remindOfWaits(snapshot)
+        remindOfFinishes(snapshot)
         if isChatOpen { syncChat() }
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
@@ -3402,8 +3473,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = toggles
     }
 
-    /// The nudge's minutes. Choosing one plays the chime, so the sound is
-    /// known before it comes unannounced.
     /// Settings → Agents → Git branch. Stored, then drawn at once: the
     /// branches are read again so a switch to `on` shows every row's.
     func setBranchDisplay(_ display: BranchDisplay) {
@@ -3416,13 +3485,108 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func setNudgeMinutes(_ minutes: Int) {
         defaults?.set(minutes, forKey: Self.nudgeKey)
         nudgeMinutes = minutes
-        if minutes > 0 && nudgeSound { chime() }
     }
 
-    func setNudgeSound(_ on: Bool) {
-        defaults?.set(on, forKey: Self.nudgeSoundKey)
-        nudgeSound = on
-        if on { chime() }
+    func setNudgeScope(_ scope: NudgeScope) {
+        defaults?.set(scope.rawValue, forKey: Self.nudgeScopeKey)
+        nudgeScope = scope
+    }
+
+    // MARK: Sounds
+
+    /// The packs in the spec's folder under `home` with a line this Mac can
+    /// play (`AudioSupport`); none without a home.
+    var installedPacks: [SoundPack] {
+        (home.map { SoundPack.installed(in: SoundPack.directory(home: $0), isPlayable: AudioSupport.canPlay) } ?? [])
+            .filter { !$0.sounds.isEmpty }
+    }
+
+    /// A pack gone from its folder speaks as Evlat until it is back.
+    func useVoice(_ voice: SoundVoice) {
+        soundVoice = voice
+        linePicker = SoundPicker()
+        if case .pack(let name) = voice {
+            voicePack = installedPacks.first { $0.name == name }
+        } else {
+            voicePack = nil
+        }
+    }
+
+    func setVoice(_ voice: SoundVoice) {
+        defaults?.set(voice.stored, forKey: Self.soundVoiceKey)
+        useVoice(voice)
+    }
+
+    func setSoundOn(_ on: Bool, for moment: SoundMoment) {
+        defaults?.set(on, forKey: moment.onKey)
+        soundOn[moment] = on
+    }
+
+    /// Stored, then played once: what was chosen is heard.
+    func setTone(_ tone: AlertSound, for moment: SoundMoment) {
+        guard let stored = tone.stored else { return }
+        defaults?.set(stored, forKey: moment.toneKey)
+        soundTones[moment] = tone
+        playSound(tone)
+    }
+
+    func setSoundVolume(_ volume: Double) {
+        let volume = min(1, max(0, volume))
+        defaults?.set(volume, forKey: Self.soundVolumeKey)
+        SoundPlayer.volume = Float(volume)
+    }
+
+    /// What a moment says now: Evlat's tone, or one of the character's lines
+    /// for it; `nil` where the character has none.
+    func sound(for moment: SoundMoment) -> AlertSound? {
+        guard case .pack = soundVoice, let pack = voicePack else {
+            return soundTones[moment] ?? moment.defaultTone
+        }
+        return linePicker.pick(moment.category, from: pack).map { .line($0.file) }
+    }
+
+    /// Whether a moment can speak with this voice at all.
+    func canSpeak(_ moment: SoundMoment) -> Bool {
+        guard case .pack = soundVoice, let pack = voicePack else { return true }
+        return !(pack.sounds[moment.category] ?? []).isEmpty
+    }
+
+    /// The ▶ beside a row: heard whether or not the row is on, and never
+    /// held back by the gap — it was asked for.
+    func preview(_ moment: SoundMoment) {
+        if let sound = sound(for: moment) { playSound(sound) }
+    }
+
+    /// A moment speaks: only when its row is on, and one sound at a time.
+    private func speak(_ moment: SoundMoment) {
+        guard soundOn[moment] == true else { return }
+        let now = now()
+        if let last = lastSound, now.timeIntervalSince(last) < Self.soundGap { return }
+        guard let sound = sound(for: moment) else { return }
+        lastSound = now
+        playSound(sound)
+    }
+
+    /// The characters sheet's model, made on first use. Only with a home,
+    /// and in an isolated process only with a home of its own (`EVLAT_HOME`):
+    /// a measurement or a test downloads nothing into the user's folder.
+    private(set) lazy var packBrowser: SoundPackBrowser? = {
+        guard let home, !Isolation.isIsolated(ProcessInfo.processInfo.environment) || ProcessInfo.processInfo.environment["EVLAT_HOME"] != nil
+        else { return nil }
+        let browser = SoundPackBrowser(home: home)
+        browser.voice = { [weak self] in self?.soundVoice ?? .evlat }
+        browser.use = { [weak self] in self?.setVoice(.pack($0)) }
+        browser.remove = { [weak self] in self?.removePack($0) }
+        return browser
+    }()
+
+    /// "Remove" in the characters sheet: to the Trash, not deleted — the
+    /// folder is shared with every OpenPeon player. The voice it was falls
+    /// back to Evlat's.
+    func removePack(_ name: String) {
+        guard let pack = installedPacks.first(where: { $0.name == name }) else { return }
+        try? FileManager.default.trashItem(at: pack.directory, resultingItemURL: nil)
+        if soundVoice == .pack(name) { setVoice(.evlat) }
     }
 
     /// Stored, then drawn: the block reads it on the refresh it schedules.
@@ -3447,18 +3611,27 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    /// Reads who waits now, rings and notifies for a wait that has just
-    /// outlasted the chosen minutes, and takes back the notifications of
-    /// waits that ended.
+    /// Reads who waits now. A wait that has just begun speaks, under the
+    /// finishes' rules: not at the first scan, not on the open bar or beside
+    /// the balloon. One that has just outlasted the chosen minutes speaks
+    /// once more and notifies. A wait that ended takes its notification back.
     private func remindOfWaits(_ snapshot: Registry.Snapshot) {
         let rows = snapshot.ordered.filter { $0.isLive && snapshot.layers[$0.entity] == .waiting }
         let change = waitingNudge.update(waiting: Set(rows.map(\.entity)), now: now(),
                                          after: nudgeMinutes > 0 ? TimeInterval(nudgeMinutes * 60) : nil)
+        let first = !waitsScanned
+        waitsScanned = true
         notifier?.remove(entities: change.ended)
-        guard !change.due.isEmpty else { return }
-        if nudgeSound { chime() }
+        // The first row's kind for several at once: one sound, not a chord.
+        if !first, !barState.isOpen, !isChatOpen,
+           let began = rows.first(where: { change.began.contains($0.entity) }) {
+            speak(Self.waitMoment(began.activity?.waitKind))
+        }
+        let due = rows.filter { change.due.contains($0.entity) }
+        guard !due.isEmpty else { return }
+        speak(Self.waitMoment(due[0].activity?.waitKind))
         guard nudgeNotify, let notifier else { return }
-        for row in rows where change.due.contains(row.entity) {
+        for row in due {
             let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
             notifier.post(entity: row.entity,
                           title: L10n.t("notify.waiting.title", ["name": name]),
@@ -3509,13 +3682,62 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let first = !scanned
         scanned = true
         // `news` is newest first.
-        guard let fresh = news.first(where: { !announced.contains($0) }) else { return }
+        let untold = news.filter { !announced.contains($0) }
+        guard let fresh = untold.first else { return }
         announced.formUnion(news)
         guard !first, !barState.isOpen, !isChatOpen else { return }
         // An older peek's timer finds the generation moved and does nothing.
         peekGeneration &+= 1
         announce(fresh.phase)
         applyPresence()
+        let told = now()
+        for finish in untold { toldFinishes[finish] = told }
+        // Told with the peek, and like it once. Whatever the body shows: the
+        // sound is its own switch. Finishes told together make one sound, a
+        // failure's if one failed.
+        speak(untold.contains { $0.phase == .failed } ? .failed : .done)
+    }
+
+    /// "Remind again → Everything": a finish told and not looked at for the
+    /// chosen minutes speaks once more, a failure's sound if one failed, and
+    /// notifies; seen, its notification is taken back. Seeing is the
+    /// registry's fact (`snapshot.news`), never a guess.
+    private func remindOfFinishes(_ snapshot: Registry.Snapshot) {
+        let unseen = Set(snapshot.news)
+        let gone = toldFinishes.keys.filter { !unseen.contains($0) }
+        let wasReminded = Set(gone.filter { remindedFinishes.contains($0) }.map(\.entity))
+        for finish in gone {
+            toldFinishes[finish] = nil
+            remindedFinishes.remove(finish)
+        }
+        // A wait's notification shares the row's id: only take back what a
+        // finish's reminder posted and the row is not now waiting on.
+        let waiting = Set(snapshot.ordered.filter { snapshot.layers[$0.entity] == .waiting }.map(\.entity))
+        notifier?.remove(entities: wasReminded.subtracting(waiting))
+        guard nudgeScope == .all, nudgeMinutes > 0 else { return }
+        let after = TimeInterval(nudgeMinutes * 60)
+        let due = toldFinishes.filter { !remindedFinishes.contains($0.key) && now().timeIntervalSince($0.value) >= after }
+            .map(\.key)
+        guard !due.isEmpty else { return }
+        remindedFinishes.formUnion(due)
+        speak(due.contains { $0.phase == .failed } ? .failed : .done)
+        guard nudgeNotify, let notifier else { return }
+        for finish in due {
+            let row = snapshot.ordered.first { $0.entity == finish.entity }
+            let name = row.map { $0.label.isEmpty ? L10n.t("notify.waiting.unnamed") : $0.label }
+                ?? L10n.t("notify.waiting.unnamed")
+            let failed = finish.phase == .failed
+            notifier.post(entity: finish.entity,
+                          title: L10n.t(failed ? "notify.failed.title" : "notify.finished.title", ["name": name]),
+                          body: L10n.t(failed ? "notify.failed.body" : "notify.finished.body",
+                                       ["n": String(nudgeMinutes)]))
+        }
+    }
+
+    /// What a wait sounds as: a file row that did not say on what is taken
+    /// for an approval, the commoner wait.
+    nonisolated static func waitMoment(_ kind: Signal.Activity.WaitKind?) -> SoundMoment {
+        kind == .answer ? .answer : .approval
     }
 
     /// Menu-bar entry. Its menu is rebuilt each time it opens

@@ -161,7 +161,7 @@ enum SetupAttention: Equatable {
     /// Where the settings window shows it: its sections, in the side
     /// list's order. The raw value is `EVLAT_SETTINGS`'.
     enum Section: String, CaseIterable, Equatable {
-        case general, agents, usage, chat, commandLine = "command", remote
+        case general, mascot, agents, usage, chat, commandLine = "command", remote
     }
 
     var section: Section {

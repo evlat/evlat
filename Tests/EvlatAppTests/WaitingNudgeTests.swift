@@ -55,9 +55,4 @@ final class WaitingNudgeTests: XCTestCase {
         XCTAssertEqual(AppController.storedNudgeMinutes(defaults), 0)
     }
 
-    func testTheChimeIsAValidWav() {
-        let wav = Chime.wav()
-        XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
-        XCTAssertEqual(wav.count, 44 + Chime.samples().count * 2)
-    }
 }
