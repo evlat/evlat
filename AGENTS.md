@@ -50,21 +50,35 @@ never sees it.
 
 ## Architecture
 
-Two layers, one hard seam. In one sentence: **the core does not import UI.**
+Two layers, one hard seam, and the agents beside the core. In one sentence:
+**the core does not import UI, and the shared code names no agent.**
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │  EvlatApp  (AppKit + SwiftUI)                        │
 │  NSPanel · bar geometry · rings · detail card        │
 │  mascot · chat bubble · settings · setup             │
-└──────────────────────┬───────────────────────────────┘
-                       │  seam: Signal ↓  /  Action ↑
-┌──────────────────────┴───────────────────────────────┐
+└──────────┬───────────────────────────┬───────────────┘
+           │  seam: Signal ↓ Action ↑  │  Agents.all
+           │                ┌──────────┴───────────────┐
+           │                │  EvlatAgents             │
+           │                │  (Foundation + core)     │
+           │                │  Claude/ Codex/          │
+           │                │  Antigravity/ · catalog  │
+           │                └──────────┬───────────────┘
+┌──────────┴───────────────────────────┴───────────────┐
 │  EvlatCore  (Foundation + Dispatch only)             │
-│  Provider · Signal · Registry · Snapshot             │
+│  Provider · Signal · Registry · Snapshot · Agent     │
 │  local HTTP API (routing, parsing, defenses)         │
 └──────────────────────────────────────────────────────┘
 ```
+
+Three targets, one direction: `EvlatCore` ← `EvlatAgents` ← `EvlatApp`.
+`EvlatAgents` holds what is particular to each agent — its routes, hooks,
+usage, approvals, files and mark — as the values of one `Agent` each
+(`Claude/`, `Codex/`, `Antigravity/`); the types are `internal` and only the
+catalog, `Agents.all`, is open. The core sees an agent only as an `Agent`
+and an opaque `AgentID`; the shell reaches one only through the catalog.
 
 ### Core rules
 
@@ -78,6 +92,15 @@ Two layers, one hard seam. In one sentence: **the core does not import UI.**
   compiles.
 - **Paths are parameters**, never constants (`~/.claude/sessions` is the
   provider's argument).
+- **The shared code names no agent.** The core is closed by the compiler: it
+  depends on nothing, so it cannot import `EvlatAgents`. The shell, which
+  can, is closed by `BoundaryTests` (`Tests/EvlatCoreTests/`), and so is a
+  name the compiler cannot see (a `"claude"` literal, a `.codex` path): every
+  agent's name and every `EvlatAgents` type, comments aside, in
+  `Sources/EvlatCore` and `Sources/EvlatApp`, against an allowlist with an
+  exact count and a reason per file. Only the session host's tab links and the chat bubble's chain
+  are on it. A rule that branches on one agent is that agent's value.
+- **`EvlatAgents` imports only `Foundation` and `EvlatCore`** (`BoundaryTests`).
 
 This is free discipline, not infrastructure: macOS is the only target today,
 but a core that obeys these rules should compile elsewhere; only the UI would
@@ -125,11 +148,11 @@ prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
 
 | provider | role | source | fidelity |
 |---|---|---|---|
-| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (each agent's `HookChannel`: `CodexHookAdapter`, `AntigravityHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
-| `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid | derived |
+| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (each agent's `HookChannel`: `Codex/CodexHookAdapter`, `Antigravity/AntigravityHooks`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
+| `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid (`Claude/SessionsProvider`, the agent's `providers`) | derived |
 | `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept (`StatusLineUsageProvider`; id, group, fidelity and the windows read are the agent's `StatusLineUsage`) | official |
 | `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`StatusLineUsageProvider(source:)`); the format is undocumented | derived |
-| `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens | derived |
+| `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens (`Codex/CodexUsageProvider`, the agent's `providers`) | derived |
 | `evlat` | chat jobs | the chat bubble's turns (`ChatsProvider`) | official |
 | `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
 
@@ -378,7 +401,8 @@ versions must keep talking to this one unchanged.
   to stdout**. The server's reply never reaches Claude Code — if it did, a
   stray JSON on `PermissionRequest` could grant or deny. `POST /hook` always
   returns `{}`.
-- Golden-string tests hold it byte for byte:
+- Golden-string tests hold it byte for byte, beside the agents in
+  `Tests/EvlatAgentsTests/`:
   `LocalAPITests.testTheInstalledHookCommandIsUnchanged`,
   `testTheInstalledCommandFailsSilently`,
   `testTheCommandSendsTheHeadersTheServerReads`,
@@ -390,7 +414,7 @@ versions must keep talking to this one unchanged.
 
 The status-line relay (`StatusLineRelay`) is the second installed contract: a
 `sh -c` wrapper that preserves the user's original command's output and exit
-code byte for byte (`StatusLineRelayTests`).
+code byte for byte (`EvlatAgentsTests.StatusLineRelayTests`).
 
 On this Mac an agent is one card in Settings → Agents and one unit to
 install (`AgentIntegration`): its hooks, its approval hook where it has one,
@@ -405,7 +429,11 @@ a card; one not on this Mac is dim with nothing to press.
 
 The approval hook (`ApprovalHook`) is another installed contract: one
 `type: "http"` `PermissionRequest` group pointing at `/approval`
-(`ApprovalHookTests.testTheInstalledHookIsUnchanged`). On this Mac it is
+(`EvlatAgentsTests.ApprovalHookTests.testTheInstalledHookIsUnchanged`).
+Its type is split: the route and the canonical rules that read an answer
+(`ApprovalHook.path`, `resolves`, `supersedes`) are the core's; the
+installed bytes are Claude's (`Claude/ApprovalHook.swift`, an extension of
+it). On this Mac it is
 part of the Claude Code card, installed and removed with the command as one
 (`LocalHooks`); the command alone reads outdated, which is how a copy from
 before it is offered the update. A server's hooks never include it

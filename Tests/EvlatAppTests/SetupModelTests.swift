@@ -395,8 +395,9 @@ final class SetupModelTests: XCTestCase {
     }
 
     func testEveryKeyIsInBothTables() {
+        // An agent's own way out is looked up, not listed: the one written.
         for lang in ["en", "tr"] {
-            for key in SetupModel.keys {
+            for key in SetupModel.keys + ["setup.manual.remove.antigravity"] {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }
         }

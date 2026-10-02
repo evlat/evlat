@@ -847,10 +847,11 @@ final class RemoteMachinesModel: ObservableObject {
     // MARK: - Catalogue
 
     /// Every key this window asks for, besides the ones it borrows
-    /// (`source.*`, `summary.sessions*`, `time.*`).
+    /// (`source.*`, `summary.sessions*`, `time.*`) and an agent's own hints
+    /// (`remote.hint.<action>.<agent>`), which it asks for only when the
+    /// catalogue has them.
     static var keys: [String] {
-        var keys = ["remote.hint.install.claude", "remote.hint.install.codex", "remote.hint.remove.codex",
-                    "remote.hint.usage", "remote.status.notFound", "remote.manual.agent", "remote.manual.statusLine",
+        var keys = ["remote.hint.usage", "remote.status.notFound", "remote.manual.agent", "remote.manual.statusLine",
                     "remote.manual.wrapping",
                     "remote.empty.title", "remote.empty.body", "remote.empty.requirement",
                     "remote.add.placeholder", "remote.add", "remote.add.duplicate",

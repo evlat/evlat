@@ -679,7 +679,9 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    /// Every key this file asks the catalogue for (`L10nTests`' pattern).
+    /// Every key this file asks the catalogue for (`L10nTests`' pattern),
+    /// but an agent's own way out (`setup.manual.remove.<agent>`), asked for
+    /// only when the catalogue has it.
     static let keys: [String] = SetupItem.allCases.map(\.nameKey)
         + [SetupStatus.installed, .outdated, .missing, .foreign, .unknown, .notFound].map(\.key)
         + [SetupAction.install, .update, .remove].map(\.key)
@@ -699,7 +701,7 @@ final class SetupModel: ObservableObject {
            "setup.consent.command.remove", "setup.consent.login.on", "setup.consent.login.off",
            "setup.manual.open", "setup.manual.copy", "setup.manual.copied", "setup.manual.check",
            "setup.manual.auto", "setup.manual.wrapping",
-           "setup.manual.remove.hooks", "setup.manual.remove.antigravity", "setup.manual.remove.usage",
+           "setup.manual.remove.hooks", "setup.manual.remove.usage",
            "setup.manual.remove.command",
            "setup.attention.hooksOutdated", "setup.attention.usageModified", "setup.attention.refused",
            "setup.attention.hotKey", "setup.attention.machine", "setup.attention.machinePassword",

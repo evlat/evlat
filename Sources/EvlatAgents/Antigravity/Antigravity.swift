@@ -55,7 +55,7 @@ struct Antigravity: Agent {
 
     let approvals: (any ApprovalChannel)? = nil
 
-    let display = AgentDisplay(nameKey: "source.antigravity")
+    let display = AgentDisplay(nameKey: "source.antigravity", outline: Self.outline)
 
     func providers(_ context: ProviderContext) -> [Provider] { [] }
 }

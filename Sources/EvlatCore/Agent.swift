@@ -205,12 +205,16 @@ public protocol ApprovalChannel {
 }
 
 /// What the shell draws for an agent, as plain data.
-public struct AgentDisplay: Equatable {
+public struct AgentDisplay {
     /// The catalogue key of its name (`source.{id}`).
     public let nameKey: String
+    /// Its mark, drawn inside a session's ring: rings of points in a unit
+    /// box, filled even-odd. Empty draws no mark.
+    public let outline: [[CGPoint]]
 
-    public init(nameKey: String) {
+    public init(nameKey: String, outline: [[CGPoint]] = []) {
         self.nameKey = nameKey
+        self.outline = outline
     }
 }
 

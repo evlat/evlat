@@ -24,7 +24,7 @@ struct Codex: Agent {
 
     let approvals: (any ApprovalChannel)? = nil
 
-    let display = AgentDisplay(nameKey: "source.codex")
+    let display = AgentDisplay(nameKey: "source.codex", outline: Self.outline)
 
     /// Its rate-limit windows, read from its newest rollout file.
     func providers(_ context: ProviderContext) -> [Provider] {

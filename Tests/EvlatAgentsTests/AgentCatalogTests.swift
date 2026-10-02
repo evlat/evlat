@@ -40,6 +40,27 @@ final class AgentCatalogTests: XCTestCase {
         }
     }
 
+    /// Each agent has a mark to draw in its rings, and no two look alike:
+    /// rings of at least three points, in the unit box the shell scales (a
+    /// traced outline overshoots it by a hair).
+    func testEveryAgentHasAMark() {
+        for agent in Agents.all {
+            let outline = agent.display.outline
+            XCTAssertFalse(outline.isEmpty, agent.id.rawValue)
+            for ring in outline {
+                XCTAssertGreaterThanOrEqual(ring.count, 3, agent.id.rawValue)
+                for point in ring {
+                    XCTAssertTrue((-0.1...1.1).contains(point.x) && (-0.1...1.1).contains(point.y),
+                                  "\(agent.id.rawValue): \(point)")
+                }
+            }
+        }
+        let outlines = Agents.all.map { $0.display.outline.map { $0.map { [$0.x, $0.y] } } }
+        for (i, outline) in outlines.enumerated() {
+            XCTAssertFalse(outlines[(i + 1)...].contains(outline), Agents.all[i].id.rawValue)
+        }
+    }
+
     /// The stored switches and the routes speak the same words as before
     /// the catalog: `agents.enabled` and a machine's `agents` keep their
     /// values.

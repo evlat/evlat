@@ -578,8 +578,10 @@ final class RemoteMachinesTests: XCTestCase {
     }
 
     func testEveryKeyIsInBothTables() {
+        // An agent's own hints are looked up, not listed: the ones written.
+        let hints = ["remote.hint.install.claude", "remote.hint.install.codex", "remote.hint.remove.codex"]
         for lang in ["en", "tr"] {
-            for key in RemoteMachinesModel.keys {
+            for key in RemoteMachinesModel.keys + hints {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }
         }

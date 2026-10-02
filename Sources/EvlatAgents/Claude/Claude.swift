@@ -37,7 +37,7 @@ struct Claude: Agent {
 
     let approvals: (any ApprovalChannel)? = ClaudeApprovals()
 
-    let display = AgentDisplay(nameKey: "source.claude")
+    let display = AgentDisplay(nameKey: "source.claude", outline: Self.outline)
 
     /// Its session records (`~/.claude/sessions`): discovery, name, pid.
     func providers(_ context: ProviderContext) -> [Provider] {
