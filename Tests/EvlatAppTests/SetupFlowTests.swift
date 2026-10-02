@@ -66,8 +66,8 @@ final class SetupFlowTests: XCTestCase {
         var settings = controller.settingsHost
         let setEdge = settings.setEdge, setMode = settings.setDefaultMode
         settings.setEdge = { [unowned self] in writes.append("edge \($0.isLeft ? "left" : "right")"); setEdge($0) }
-        settings.setDefaultMode = { [unowned self] in writes.append("mode \($0.rawValue)"); setMode($0) }
-        settings.locateClaude = { $0(claude) }
+        settings.setDefaultMode = { [unowned self] in writes.append("mode \($0.id)"); setMode($0) }
+        settings.locateBackend = { $0(claude) }
         let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: setup, lang: "en"),
                                   recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
                                   close: { [unowned self] in writes.append("close") }, lang: "en")

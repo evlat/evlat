@@ -31,3 +31,12 @@ extension LocalAPI {
                agents: Agents.all)
     }
 }
+
+extension ChatMode {
+    /// Claude's modes, by the names its chat tests use.
+    static var ask: ChatMode { PermissionMode.ask.chatMode }
+    static var auto: ChatMode { PermissionMode.auto.chatMode }
+    static var acceptEdits: ChatMode { PermissionMode.acceptEdits.chatMode }
+    static var bypass: ChatMode { PermissionMode.bypass.chatMode }
+    static var standard: ChatMode { PermissionMode.standard.chatMode }
+}

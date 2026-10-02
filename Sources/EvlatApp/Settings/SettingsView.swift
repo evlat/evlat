@@ -427,33 +427,33 @@ private struct ChatSection: View {
         }
         if model.showsModes {
             SettingsGroup(title: model.t("settings.chat.modes"), note: model.t("settings.chat.modes.note")) {
-                ForEach(PermissionMode.offered, id: \.self) { mode in
-                    ChoiceRow(title: model.t(ChatModel.modeKey(mode)),
-                              badge: mode == .standard ? model.t("settings.chat.modes.recommended") : nil,
-                              detail: model.t(ChatModel.modeDetailKey(mode)),
+                ForEach(model.offeredModes, id: \.self) { mode in
+                    ChoiceRow(title: model.t(mode.nameKey),
+                              badge: mode == model.standardMode ? model.t("settings.chat.modes.recommended") : nil,
+                              detail: model.t(mode.detailKey),
                               selected: model.mode == mode) { model.setMode(mode) }
                 }
             }
         } else {
             SettingsGroup(title: model.t("settings.chat.modes")) {
                 RowBox {
-                    Text(model.t(model.claude == .looking ? "settings.chat.claude.looking" : "settings.chat.claude.missing"))
+                    Text(model.backendLine)
                         .font(.system(size: 12))
                         .foregroundStyle(SettingsPalette.body)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        if let count = model.memoryCount {
-            SettingsGroup(title: model.t("settings.chat.memory"), note: claudeNote) {
+        if let count = model.memoryCount, model.hasMemory {
+            SettingsGroup(title: model.t("settings.chat.memory"), note: foundNote) {
                 MemoryRow(model: model, count: count)
             }
         }
     }
 
-    private var claudeNote: String? {
-        guard case .found(let path) = model.claude else { return nil }
-        return model.t("settings.chat.claude.found", ["path": SettingsModel.tilde(path)])
+    private var foundNote: String? {
+        guard case .found = model.backend else { return nil }
+        return model.backendLine
     }
 }
 

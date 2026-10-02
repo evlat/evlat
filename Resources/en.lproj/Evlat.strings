@@ -471,9 +471,9 @@
 "settings.chat.modes" = "Permission mode for new chats";
 "settings.chat.modes.note" = "The mode button in the balloon changes that chat only.";
 "settings.chat.modes.recommended" = "recommended";
-"settings.chat.claude.found" = "claude found · {path}";
-"settings.chat.claude.missing" = "claude was not found. The modes appear once it is installed.";
-"settings.chat.claude.looking" = "Looking for claude…";
+"settings.chat.backend.found" = "{agent} found · {path}";
+"settings.chat.backend.missing" = "{agent} was not found. The modes appear once it is installed.";
+"settings.chat.backend.looking" = "Looking for {agent}…";
 "settings.chat.memory" = "Memory";
 "settings.chat.memory.title" = "Evlat's memory";
 "settings.chat.memory.count" = "{count} notes · workspace chats share them";

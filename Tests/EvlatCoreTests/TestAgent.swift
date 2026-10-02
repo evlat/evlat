@@ -12,10 +12,11 @@ struct TestAgent: Agent {
     var integration: AgentIntegration.Parts
     var statusLineUsage: StatusLineUsage?
     var approvals: (any ApprovalChannel)?
+    var chat: (any ChatBackend)?
     var display: AgentDisplay
 
     init(_ name: String = "test", paths: [String]? = nil, statusLineUsage: StatusLineUsage? = nil,
-         approvals: (any ApprovalChannel)? = nil,
+         approvals: (any ApprovalChannel)? = nil, chat: (any ChatBackend)? = nil,
          canonical: @escaping ([String: Any]) -> [String: Any] = { $0 }) {
         id = AgentID(name)
         presence = [".\(name)"]
@@ -25,6 +26,7 @@ struct TestAgent: Agent {
         integration = AgentIntegration.Parts(hooksFile: ".\(name)/hooks.json")
         self.statusLineUsage = statusLineUsage
         self.approvals = approvals
+        self.chat = chat
         display = AgentDisplay(nameKey: "source.\(name)")
     }
 
@@ -53,5 +55,54 @@ extension HookEvent {
     /// each time would only repeat it.
     init(json: [String: Any]) {
         self.init(json: json, source: .test)
+    }
+}
+
+/// A stand-in chat backend: one way, asking through the listener, its modes
+/// plain words. Its permission body is the canonical hook's; its answer the
+/// decision's own description.
+struct TestChatBackend: ChatBackend {
+    var id = AgentID.test
+    let executable = "testagent"
+
+    static let ask = ChatMode(id: "ask", nameKey: "chat.mode.test.ask")
+    /// Judges on its own; what it turns down may be tried again in `ask`.
+    static let auto = ChatMode(id: "auto", nameKey: "chat.mode.test.auto", retryDenialAs: "ask")
+    static let bypass = ChatMode(id: "bypass", nameKey: "chat.mode.test.bypass",
+                                 asksBeforePicking: true, mayBeDefault: false)
+
+    let modes = [TestChatBackend.ask, TestChatBackend.auto, TestChatBackend.bypass]
+    let offered = [TestChatBackend.auto, TestChatBackend.ask]
+    let standardMode = TestChatBackend.auto
+    let caps = ChatCapabilities(asks: true, alwaysOption: .rules, resume: true, memory: false, transport: .oneWay)
+    let stopPlan = ChatStopPlan.signal
+
+    func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch {
+        TurnLaunch(arguments: ["--mode", spec.mode.id], input: [Data((spec.prompt + "\n").utf8)],
+                   environment: [TurnLaunch.taskVariable: spec.chatID], directory: spec.directory)
+    }
+
+    func parser() -> any ChatParser { Quiet() }
+
+    func request(json: [String: Any], token: String) -> ChatRequest? {
+        guard json["hook_event_name"] as? String ?? "PermissionRequest" == "PermissionRequest",
+              let tool = json["tool_name"] as? String, !tool.isEmpty else { return nil }
+        return ChatRequest(id: UUID().uuidString, token: token, tool: tool,
+                           subject: HookEvent.subject(of: json["tool_input"] as? [String: Any]),
+                           replyTarget: .listener)
+    }
+
+    func encode(_ decision: ChatDecision, for request: ChatRequest) -> ChatReply {
+        .http(Data(String(describing: decision).utf8))
+    }
+
+    /// Reads nothing; every line is unrecognised.
+    struct Quiet: ChatParser {
+        private(set) var unrecognized: [String: Int] = [:]
+        mutating func feed(_ chunk: Data) -> (events: [ChatEvent], replies: [Data]) {
+            unrecognized["line", default: 0] += chunk.filter { $0 == 0x0A }.count
+            return ([], [])
+        }
+        mutating func finish() -> [ChatEvent] { [] }
     }
 }

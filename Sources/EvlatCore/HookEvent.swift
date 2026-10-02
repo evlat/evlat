@@ -102,7 +102,7 @@ public struct HookEvent: Equatable {
     }
 
     /// A tool input's one-line subject. Public because a chat's stream
-    /// (`ChatStream`) carries the same `tool_use` input and its line must read
+    /// (`ChatParser`) carries the same `tool_use` input and its line must read
     /// the same as a session's card.
     public static func subject(of input: [String: Any]?) -> String? {
         guard let input else { return nil }

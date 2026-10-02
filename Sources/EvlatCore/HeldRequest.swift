@@ -1,9 +1,8 @@
 import Foundation
 
 /// A permission request whose answer is held until the user presses a
-/// button on the card: an agent's terminal session asking (`ApprovalChannel`)
-/// or a chat turn asking (`PermissionHook`). One tool call, and the grants
-/// it suggests; the same value whichever produced it.
+/// button on the card: an agent's terminal session asking (`ApprovalChannel`).
+/// One tool call, and the grants it suggests.
 public struct HeldRequest: Equatable {
     /// Evlat's name for this request, given when it is read: the held
     /// connection and the card are both keyed by it.
@@ -20,7 +19,7 @@ public struct HeldRequest: Equatable {
     public let command: String?
     /// The `addRules` suggestions that allow, flattened. Other kinds
     /// (`setMode`, `replaceRules`, …) are dropped here and never granted.
-    public let rules: [PermissionHook.Rule]
+    public let rules: [PermissionRule]
     /// The `addDirectories` suggestions: a folder outside the chat's.
     public let directories: [String]
     public let sessionID: String?
@@ -37,7 +36,7 @@ public struct HeldRequest: Equatable {
     public let input: Data?
 
     public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
-                rules: [PermissionHook.Rule] = [], directories: [String] = [], sessionID: String? = nil,
+                rules: [PermissionRule] = [], directories: [String] = [], sessionID: String? = nil,
                 cwd: String? = nil, agentID: String? = nil,
                 questions: [AgentQuestion]? = nil, input: Data? = nil) {
         self.id = id

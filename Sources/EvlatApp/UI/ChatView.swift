@@ -86,7 +86,7 @@ struct ChatView: View {
         let shape = BalloonShape(tailOnLeft: isLeft, tailCenter: ChatPanel.tailCenter,
                                  tailDepth: ChatPanel.tailDepth)
         return VStack(alignment: .leading, spacing: 10) {
-            if model.claudeMissing {
+            if model.backendMissing {
                 missing
             } else {
                 if !model.messages.isEmpty { transcript }
@@ -329,7 +329,7 @@ struct ChatView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(model.messages.enumerated()), id: \.offset) { index, message in
                         MessageLine(message: message, folder: model.folder, answer: model.answer,
-                                    retry: retry).id(index)
+                                    retry: retry(message)).id(index)
                     }
                     if model.isRunning, !Self.isReplying(model.messages), !Self.isAsking(model.messages) {
                         Text(L10n.t("chat.working"))
@@ -357,9 +357,9 @@ struct ChatView: View {
 
     private static let workingID = "working"
 
-    /// A "not done" line's retry, while one can be offered.
-    private var retry: ((ChatSession.NotDone) -> Void)? {
-        guard model.canRetry else { return nil }
+    /// A "not done" line's retry, while one can be offered for it.
+    private func retry(_ message: ChatSession.Message) -> ((ChatSession.NotDone) -> Void)? {
+        guard case .notDone(let line) = message, model.canRetry(line) else { return nil }
         let model = model
         return { model.retry($0) }
     }
@@ -412,7 +412,7 @@ private struct MessageLine: View {
                 AnsweredLine(card: card)
             }
         case .notDone(let line):
-            NotDoneLine(line: line, retry: line.isAutoModes ? retry : nil)
+            NotDoneLine(line: line, retry: retry)
         }
     }
 }
@@ -552,15 +552,15 @@ private struct FolderLabel: View {
 }
 
 /// The chat's permission mode beside the folder, in the same quiet type:
-/// a click offers the modes (`PermissionMode`), for the next turn on.
+/// a click offers the modes (`ChatBackend.modes`), for the next turn on.
 /// Bypass stays red while it is in force, hovered or not.
 private struct ModeLabel: View {
-    let mode: PermissionMode
+    let mode: ChatMode
     let action: () -> Void
     @State private var hovered = false
 
     var body: some View {
-        let name = L10n.t(ChatModel.modeKey(mode))
+        let name = L10n.t(mode.nameKey)
         Button(action: action) {
             HStack(spacing: 2) {
                 Text(name.lowercased(with: Locale(identifier: L10n.language)))

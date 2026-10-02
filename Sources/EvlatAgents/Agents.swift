@@ -11,6 +11,10 @@ public enum Agents {
 
     /// The listener's routes, made from `all`.
     public static let routes = RouteTable(all)
+
+    /// The agents that can be the chat bubble's backend, in the catalogue's
+    /// order: the first is the chat's until one is chosen.
+    public static let chatBackends: [any ChatBackend] = all.compactMap(\.chat)
 }
 
 extension AgentID {

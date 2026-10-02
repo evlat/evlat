@@ -26,7 +26,7 @@ public enum LocalAPI {
         case hook(AgentID)
         /// A status line relaying its rate limits (`StatusLineUsage.path`).
         case usage(AgentID)
-        /// A chat turn's permission hook (`PermissionHook`).
+        /// A chat turn's permission request (`ChatRequest.path`).
         case permission
         /// A terminal session's permission, to approve from the bar
         /// (`ApprovalHook`).
@@ -73,7 +73,7 @@ public enum LocalAPI {
         // for anyone whose hooks spell it that way.
         case ("POST", let path) where routes.hooks[path] != nil: return .hook(routes.hooks[path]!)
         case ("POST", let path) where routes.usage[path] != nil: return .usage(routes.usage[path]!)
-        case ("POST", PermissionHook.path): return .permission
+        case ("POST", ChatRequest.path): return .permission
         case ("POST", ApprovalHook.path): return .approval
         case ("POST", SignalReport.path): return .signal
         case ("POST", Askpass.path): return .askpass
@@ -142,7 +142,7 @@ public enum LocalAPI {
         /// A permission request whose answer is **held**: the outcome has no
         /// response, and the listener keeps the connection open under the
         /// request's id until the user answers (`HookListener.answer`).
-        case permission(HeldRequest)
+        case permission(ChatRequest)
         /// A terminal session's permission request, held like `permission`
         /// until the user answers on the card or it is answered elsewhere.
         case approval(HeldRequest)
@@ -237,7 +237,9 @@ public enum LocalAPI {
                                                   body: error("forbidden", "a permission token is expected")),
                                delivery: nil)
             }
-            guard let asked = HeldRequest(json: json, token: token) else { return badRequest }
+            // Read by the backend whose turns ask here (`RouteTable.permission`).
+            guard let backend = listener.routes.permission.flatMap({ agents[id: $0]?.chat }),
+                  let asked = backend.request(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
         case .approval:
             // This Mac's own sessions only, as `/permission`: a tunnel never

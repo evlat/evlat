@@ -676,7 +676,7 @@ final class SSHProcess {
 /// The last bytes of a process's stderr. Written from the pipe's reading thread,
 /// read from the exit handler's; bounded, because a long-lived process
 /// may write a warning now and then for days. Shared by `SSHProcess` and
-/// `ClaudeRunner`.
+/// `TurnRunner`.
 final class StderrTail {
     private let lock = NSLock()
     private var data = Data()

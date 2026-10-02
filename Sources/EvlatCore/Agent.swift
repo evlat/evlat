@@ -41,6 +41,8 @@ public protocol Agent {
     /// The agent's permission requests, held on the bar's card; `nil` when
     /// it has no such event.
     var approvals: (any ApprovalChannel)? { get }
+    /// The agent as the chat bubble's backend; `nil` when it cannot be one.
+    var chat: (any ChatBackend)? { get }
     var display: AgentDisplay { get }
     /// The agent's own providers beside its hooks: what it reads from its
     /// own files. Registered while the agent is switched on.
@@ -48,6 +50,8 @@ public protocol Agent {
 }
 
 extension Agent {
+    public var chat: (any ChatBackend)? { nil }
+
     /// Whether the agent is on this Mac: one of its `presence` directories.
     public func isPresent(home: URL) -> Bool {
         presence.contains { AgentIntegration.isDirectory(home.appendingPathComponent($0)) }
@@ -196,7 +200,7 @@ public protocol ApprovalChannel {
     /// The request's body; `nil` when it is not one the card can hold.
     func request(json: [String: Any]) -> HeldRequest?
     /// The answer's body.
-    func body(_ decision: PermissionHook.Decision) -> String
+    func body(_ decision: ChatDecision) -> String
     /// The hook that sends the requests, beside the command in the same
     /// settings file (`LocalHooks`).
     func state(of settings: [String: Any]) -> HookSettings.State
@@ -255,11 +259,16 @@ public struct RouteTable: Equatable {
     public let usage: [String: AgentID]
     /// The agent whose permission requests `/approval` holds.
     public let approval: AgentID?
+    /// The agent whose chat turns post their permission requests to
+    /// `/permission` (`ChatRequest.path`): a one-way backend that asks.
+    public let permission: AgentID?
 
-    public init(hooks: [String: AgentID] = [:], usage: [String: AgentID] = [:], approval: AgentID? = nil) {
+    public init(hooks: [String: AgentID] = [:], usage: [String: AgentID] = [:], approval: AgentID? = nil,
+                permission: AgentID? = nil) {
         self.hooks = hooks
         self.usage = usage
         self.approval = approval
+        self.permission = permission
     }
 
     /// The table for `agents`. A path claimed twice keeps its first agent;
@@ -271,6 +280,10 @@ public struct RouteTable: Equatable {
             for path in agent.hooks.paths where hooks[path] == nil { hooks[path] = agent.id }
             if let path = agent.statusLineUsage?.path, usage[path] == nil { usage[path] = agent.id }
         }
-        self.init(hooks: hooks, usage: usage, approval: agents.first { $0.approvals != nil }?.id)
+        self.init(hooks: hooks, usage: usage, approval: agents.first { $0.approvals != nil }?.id,
+                  permission: agents.first {
+                      guard let caps = $0.chat?.caps else { return false }
+                      return caps.asks && caps.transport == .oneWay
+                  }?.id)
     }
 }

@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// `AskUserQuestion` answered from the bar: the questions read off the
 /// request, the draft that answers them one at a time, and the reply —

@@ -22,7 +22,7 @@ public struct ChatSession: Equatable {
 
     /// Evlat's id for the chat, a UUID; `entity` is built from it.
     public let id: String
-    /// Claude's session id, chosen by Evlat (`--session-id`).
+    /// The agent's session id, chosen by Evlat before the first turn.
     public let sessionID: String
     /// The working directory every turn runs in.
     public var folder: String
@@ -31,9 +31,9 @@ public struct ChatSession: Equatable {
     /// `nil` until the first reply gives one (its first sentence);
     /// the row falls back to the first prompt.
     public var title: String?
-    /// How much the next turn does without asking (`--permission-mode`).
-    /// The chat's own: a later turn — a `--resume` — runs in it too.
-    public var mode: PermissionMode
+    /// How much the next turn does without asking: one of its backend's
+    /// modes. The chat's own: a later turn — a resumed one — runs in it too.
+    public var mode: ChatMode
 
     public private(set) var messages: [Message] = []
     /// `nil` before the first prompt: such a chat has no row.
@@ -44,8 +44,8 @@ public struct ChatSession: Equatable {
     public private(set) var since: Date?
     public private(set) var failure: Failure?
     public private(set) var isRunning = false
-    /// Has any turn reached Claude? Until one has, there is no session to
-    /// resume and the next turn names it again.
+    /// Has any turn reached the agent? Until one has, there is no session
+    /// to resume and the next turn names it again.
     public private(set) var hasStarted = false
     public private(set) var stopRequested = false
     public private(set) var lastTool: Signal.Activity.Tool?
@@ -63,7 +63,7 @@ public struct ChatSession: Equatable {
     /// Where the running (or last) turn's messages start: its prompt.
     private var turnStart = 0
     /// The mode the running (or last) turn started in.
-    private var turnMode = PermissionMode.standard
+    private var turnMode: ChatMode
 
     public enum Message: Equatable {
         case user(text: String, attachments: [String])
@@ -73,8 +73,8 @@ public struct ChatSession: Equatable {
         case tool(id: String, name: String, subject: String?, failed: Bool?, output: String?)
         /// A permission request, open until answered.
         case permission(PermissionCard)
-        /// A tool call Claude made and was denied without a card — auto
-        /// mode's classifier, a deny rule.
+        /// A tool call the agent made and was denied without a card — a
+        /// mode's own judgement, a deny rule.
         case notDone(NotDone)
     }
 
@@ -87,24 +87,24 @@ public struct ChatSession: Equatable {
         public let subject: String?
         /// The mode the turn started in, not the chat's now: the label can
         /// change while a turn runs.
-        public let mode: PermissionMode
-        /// Claude's `decision_reason_type`. Only `classifier` is auto mode's
-        /// own judgement; any other (`rule`, `subcommandResults`, …) is a deny
-        /// rule, which denies in every mode — asking would not help.
+        public let mode: ChatMode
+        /// The agent's own word for the denial.
         public let reason: String?
+        /// The mode the call may be tried again in, where it would ask: set
+        /// only for the mode's own judgement (`ChatEvent.Denial.retryable`)
+        /// in a mode that names one (`ChatMode.retryDenialAs`). A deny rule
+        /// denies in every mode — asking would not help.
+        public let retryAs: String?
 
-        public init(toolUseID: String?, tool: String, subject: String?, mode: PermissionMode,
-                    reason: String? = "classifier") {
+        public init(toolUseID: String?, tool: String, subject: String?, mode: ChatMode,
+                    reason: String? = nil, retryAs: String? = nil) {
             self.toolUseID = toolUseID
             self.tool = tool
             self.subject = subject
             self.mode = mode
             self.reason = reason
+            self.retryAs = retryAs
         }
-
-        /// Auto mode's classifier said no, in auto mode: the one denial a
-        /// turn that asks instead could get past.
-        public var isAutoModes: Bool { mode == .auto && reason == "classifier" }
     }
 
     /// One permission request on the balloon (`R6`).
@@ -116,7 +116,7 @@ public struct ChatSession: Equatable {
         /// A command whole, shown in place of `subject` (`HeldRequest.command`).
         public var command: String? = nil
         /// What "always" would grant: the suggested rules…
-        public let rules: [PermissionHook.Rule]
+        public let rules: [PermissionRule]
         /// …and folders outside the chat's. With a folder the card offers
         /// access to it rather than a rule.
         public let directories: [String]
@@ -128,8 +128,8 @@ public struct ChatSession: Equatable {
             /// Allowed, with the rules or folders kept for the chat.
             case allowedAlways
             case denied
-            /// The request went away unanswered: Claude's time ran out, the
-            /// turn ended or was stopped.
+            /// The request went away unanswered: the agent's time ran out,
+            /// the turn ended or was stopped.
             case expired
         }
 
@@ -141,7 +141,8 @@ public struct ChatSession: Equatable {
     /// Why a chat failed. Reasons, not text: the balloon words them from the
     /// catalogue. `detail` is the process's own line.
     public enum Failure: Equatable {
-        /// No `claude` was found (`EVLAT_CLAUDE`, then the login shell's `PATH`).
+        /// The backend's program was not found (`EVLAT_<NAME>`, then the
+        /// login shell's `PATH`).
         case noBinary
         /// The process could not be started.
         case launch(String)
@@ -159,9 +160,10 @@ public struct ChatSession: Equatable {
 
     /// `hasStarted` is the index's word for a chat read back at launch.
     public init(id: String, sessionID: String, folder: String, isWorkspace: Bool, title: String? = nil,
-                hasStarted: Bool = false, mode: PermissionMode = .standard) {
+                hasStarted: Bool = false, mode: ChatMode) {
         self.hasStarted = hasStarted
         self.mode = mode
+        turnMode = mode
         self.id = id
         self.sessionID = sessionID
         self.folder = folder
@@ -169,10 +171,12 @@ public struct ChatSession: Equatable {
         self.title = title
     }
 
-    /// A prompt. Returns the turn to start, or `nil` while one is running.
-    /// The chat's granted directories and rules ride along.
+    /// A prompt. Returns the turn to start, or `nil` while one is running:
+    /// what the chat knows, which its backend makes a launch of
+    /// (`ChatBackend.turn`) once the shell knows the rest. The chat's
+    /// granted directories and rules ride along.
     public mutating func begin(prompt: String, attachments: [String], at now: Date,
-                               addDirectories: [String] = [], allowedTools: [String] = []) -> ClaudeInvocation? {
+                               addDirectories: [String] = [], allowedTools: [String] = []) -> TurnSpec? {
         guard !isRunning else { return nil }
         turnStart = messages.count
         turnMode = mode
@@ -187,13 +191,13 @@ public struct ChatSession: Equatable {
         lastReply = nil
         seen = false
         set(.working, word: "send", at: now)
-        return ClaudeInvocation.turn(chatID: id, sessionID: sessionID, resume: hasStarted,
-                                     prompt: prompt, attachments: attachments, directory: folder,
-                                     addDirectories: addDirectories, allowedTools: allowedTools, mode: mode)
+        return TurnSpec(chatID: id, sessionID: sessionID, resume: hasStarted,
+                        prompt: prompt, attachments: attachments, directory: folder,
+                        addDirectories: addDirectories, allowedTools: allowedTools, mode: mode)
     }
 
     /// One stream event of the running turn.
-    public mutating func apply(_ event: ChatStream.Event, at now: Date) {
+    public mutating func apply(_ event: ChatEvent, at now: Date) {
         switch event {
         case .started:
             hasStarted = true
@@ -245,15 +249,18 @@ public struct ChatSession: Equatable {
             }
         case .permissionDenied(let denial):
             if let line = notDone(denial) { messages.append(.notDone(line)) }
+        case .asked:
+            // A card is the store's to open (`ask`): it holds the reply target.
+            break
         }
     }
 
-    /// A denial the user did not give: not a hook's (a card's answer, or
-    /// its time running out), not one of this turn's cards by its tool and
-    /// line. Only a tool call Claude actually made gets a line — a request
-    /// the model turned down itself it already explains.
-    private func notDone(_ denial: ChatStream.Denial) -> NotDone? {
-        guard isRunning, denial.reason != "hook", let id = denial.toolUseID else { return nil }
+    /// A denial the user did not give: not a card's answer (or its time
+    /// running out), not one of this turn's cards by its tool and line.
+    /// Only a tool call the agent actually made gets a line — a request the
+    /// model turned down itself it already explains.
+    private func notDone(_ denial: ChatEvent.Denial) -> NotDone? {
+        guard isRunning, !denial.answered, let id = denial.toolUseID else { return nil }
         let turn = messages[min(turnStart, messages.count)...]
         guard let row = turn.lazy.compactMap({ message -> (String, String?)? in
             if case .tool(id, let name, let subject, _, _) = message { return (name, subject) }
@@ -267,7 +274,8 @@ public struct ChatSession: Equatable {
             if case .notDone(let line) = $0 { return line.toolUseID == id }
             return false
         }) else { return nil }
-        return NotDone(toolUseID: id, tool: row.0, subject: row.1, mode: turnMode, reason: denial.reason)
+        return NotDone(toolUseID: id, tool: row.0, subject: row.1, mode: turnMode, reason: denial.reason,
+                       retryAs: denial.retryable ? turnMode.retryDenialAs : nil)
     }
 
     // MARK: - Permission
@@ -280,13 +288,13 @@ public struct ChatSession: Equatable {
     /// A permission request of the running turn: a card, and the chat
     /// `waiting`. `false` when no turn runs — the caller denies it.
     @discardableResult
-    public mutating func ask(_ request: HeldRequest, at now: Date) -> Bool {
+    public mutating func ask(_ request: ChatRequest, at now: Date) -> Bool {
         guard isRunning, !stopRequested, card(request.id) == nil else { return false }
         replyOpen = false
-        // A folder the chat already works in is no access to give: Claude
-        // 2.1.281 suggests the working folder itself for `mkdir` in Ask
-        // mode (seen from the balloon), and the card called it "outside
-        // this chat's folder" and kept it for nothing.
+        // A folder the chat already works in is no access to give: an agent
+        // has suggested the working folder itself for `mkdir` in Ask mode
+        // (seen from the balloon), and the card called it "outside this
+        // chat's folder" and kept it for nothing.
         let outside = request.directories.filter { !Self.isWithin($0, folder) }
         messages.append(.permission(PermissionCard(id: request.id, tool: request.tool, subject: request.subject,
                                                    command: request.command,
@@ -309,9 +317,9 @@ public struct ChatSession: Equatable {
     /// that card is not open (answered, expired, never seen). `always` grants
     /// the card's rules and folders for this session; the caller keeps them
     /// for the chat's later turns.
-    public mutating func answer(_ id: String, _ decision: Action.Decision, at now: Date) -> PermissionHook.Decision? {
+    public mutating func answer(_ id: String, _ decision: Action.Decision, at now: Date) -> ChatDecision? {
         guard let index = cardIndex(id), case .permission(var card) = messages[index], card.isOpen else { return nil }
-        let sent: PermissionHook.Decision
+        let sent: ChatDecision
         switch decision {
         case .allow:
             card.outcome = .allowed
@@ -331,7 +339,7 @@ public struct ChatSession: Equatable {
     /// The request went away unanswered (the connection closed). A card
     /// already answered expires too: the listener reports only a request it
     /// never wrote an answer to, so an answer given as the connection closed
-    /// never reached Claude and the card must not say it did.
+    /// never reached the agent and the card must not say it did.
     public mutating func expire(_ id: String, at now: Date) {
         guard let index = cardIndex(id), case .permission(var card) = messages[index],
               card.outcome != .expired else { return }
@@ -471,14 +479,16 @@ public struct ChatSession: Equatable {
     }
 
     /// A chat read back from the index: the last reply as its one line (the
-    /// conversation stays Claude's), no row unless its end was never seen —
-    /// then `review` or `failed` from when it ended, as it was.
-    /// `mode` is for an entry written before chats had one.
-    public static func restored(_ entry: ChatIndex.Entry, mode: PermissionMode = .standard) -> ChatSession {
+    /// conversation stays the agent's), no row unless its end was never seen
+    /// — then `review` or `failed` from when it ended, as it was.
+    /// The entry's stored mode is read among `modes`, its backend's; `mode`
+    /// is for an entry written before chats had one, or with one this build
+    /// does not offer.
+    public static func restored(_ entry: ChatIndex.Entry, modes: [ChatMode], mode: ChatMode) -> ChatSession {
         var chat = ChatSession(id: entry.id, sessionID: entry.sessionID, folder: entry.folder,
                                isWorkspace: entry.isWorkspace, title: entry.title,
                                hasStarted: entry.started,
-                               mode: PermissionMode(stored: entry.permissionMode) ?? mode)
+                               mode: modes.first { $0.id == entry.permissionMode } ?? mode)
         chat.lastReply = entry.lastReply
         if let reply = entry.lastReply, !reply.isEmpty { chat.messages = [.reply(reply)] }
         if let phase = entry.unseen, phase == .review || phase == .failed {

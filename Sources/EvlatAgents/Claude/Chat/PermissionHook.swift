@@ -1,4 +1,5 @@
 import Foundation
+import EvlatCore
 
 /// A chat turn's own permission hook: the inline settings a
 /// `claude -p` turn is started with, the request it posts, and the decision
@@ -21,9 +22,10 @@ import Foundation
 /// `hookSpecificOutput.decision.behavior` with `updatedPermissions`.
 ///
 /// Pure: strings and dictionaries in and out.
-public enum PermissionHook {
-    /// The route. Local only: a tunnel answers it `404` (`LocalAPI`).
-    public static let path = "/permission"
+enum PermissionHook {
+    /// The route (`ChatRequest.path`). Local only: a tunnel answers it `404`
+    /// (`LocalAPI`).
+    static let path = ChatRequest.path
     /// The header the token rides in — written as a **plain value** into
     /// the inline settings, not as an environment variable: a variable in the
     /// turn's environment would be inherited by every command its Bash tool
@@ -31,11 +33,11 @@ public enum PermissionHook {
     /// argv, which any process of this user (the Bash tool's too) reads with
     /// `ps`. The token tells turns apart; what guards a grant is the user's
     /// press on a card that shows everything "always" keeps.
-    public static let tokenHeader = "X-Evlat-Permission"
+    static let tokenHeader = ChatRequest.tokenHeader
     /// How long Claude Code holds the request open, in seconds. The
     /// documented default for an http hook, written out so a change of
     /// default does not change how long a card can wait.
-    public static let timeout = 600
+    static let timeout = 600
 
     /// The only destination Evlat ever grants to: in memory, this session.
     /// The user's settings files (`localSettings`, `userSettings`, …) are
@@ -43,16 +45,16 @@ public enum PermissionHook {
     static let destination = "session"
 
     /// Where a turn's hook posts, and the token that says which turn it is.
-    public struct Endpoint: Equatable {
-        public let port: UInt16
-        public let token: String
+    struct Endpoint: Equatable {
+        let port: UInt16
+        let token: String
 
-        public init(port: UInt16, token: String) {
+        init(port: UInt16, token: String) {
             self.port = port
             self.token = token
         }
 
-        public var settings: String { PermissionHook.settings(port: port, token: token) }
+        var settings: String { PermissionHook.settings(port: port, token: token) }
     }
 
     // MARK: - The settings
@@ -66,7 +68,7 @@ public enum PermissionHook {
     /// same prefix rule as `Bash(x *)`: it also matches a bare `x`.
     ///
     /// The one list; the tests read it from here.
-    public static let askRules = [
+    static let askRules = [
         "Bash(rm:*)", "Bash(rmdir:*)", "Bash(sudo:*)", "Bash(git push:*)", "Bash(git reset --hard:*)",
         "Bash(chmod:*)", "Bash(chown:*)", "Bash(kill:*)", "Bash(killall:*)",
     ]
@@ -76,7 +78,7 @@ public enum PermissionHook {
     /// `Bash(rm -r build:*)` would be kept and never take effect: such a
     /// suggestion is not offered. A rule for all of Bash is not an ask
     /// rule's to overrule — it still lets everything else through.
-    public static func isOverruled(_ rule: Rule) -> Bool {
+    static func isOverruled(_ rule: Rule) -> Bool {
         guard rule.toolName == "Bash", var content = rule.ruleContent, !content.isEmpty else { return false }
         for suffix in [":*", " *", "*"] where content.hasSuffix(suffix) {
             content = String(content.dropLast(suffix.count))
@@ -101,7 +103,7 @@ public enum PermissionHook {
     /// chat shares it (measured on 2.1.281: a note written in one chat was
     /// recalled by a new one). A chat in the user's folder gets none, and
     /// keeps that folder's own memory.
-    public static func settings(port: UInt16, token: String, memoryDirectory: String? = nil) -> String {
+    static func settings(port: UInt16, token: String, memoryDirectory: String? = nil) -> String {
         let hook: [String: Any] = [
             "type": "http",
             "url": "http://127.0.0.1:\(port)\(path)",
@@ -119,41 +121,17 @@ public enum PermissionHook {
 
     // MARK: - The request
 
-    /// A permission rule: a tool, and optionally what it is limited to.
-    public struct Rule: Equatable, Hashable {
-        public let toolName: String
-        public let ruleContent: String?
-
-        public init(toolName: String, ruleContent: String? = nil) {
-            self.toolName = toolName
-            self.ruleContent = ruleContent
-        }
-
-        /// The rule as `--allowedTools` spells it: `Bash(ls:*)`, or the bare
-        /// tool.
-        public var text: String {
-            guard let ruleContent, !ruleContent.isEmpty else { return toolName }
-            return "\(toolName)(\(ruleContent))"
-        }
-
-        var json: [String: Any] {
-            var json: [String: Any] = ["toolName": toolName]
-            if let ruleContent { json["ruleContent"] = ruleContent }
-            return json
-        }
-    }
+    /// A permission rule (`PermissionRule`); its JSON is the hook's
+    /// `toolName` / `ruleContent`.
+    typealias Rule = PermissionRule
 
     // MARK: - The decision
 
-    public enum Decision: Equatable {
-        /// Allowed; the rules and folders are granted for the session too.
-        case allow(rules: [Rule], directories: [String])
-        /// `interrupt` ends the turn with it: the user pressed Stop.
-        case deny(interrupt: Bool)
-        /// An `AskUserQuestion` answered: allowed with `input` (the request's)
-        /// plus `answers`, each question's text to its answer.
-        case answer(input: Data, answers: [String: String])
-    }
+    /// The user's answer (`ChatDecision`): `allow` grants the rules and
+    /// folders for the session too, `deny(interrupt:)` ends the turn when
+    /// the user pressed Stop, `answer` is an `AskUserQuestion` answered —
+    /// allowed with `input` (the request's) plus `answers`.
+    typealias Decision = ChatDecision
 
     /// The message a denial carries back to Claude.
     static let deniedMessage = "The user denied this in Evlat."
@@ -162,7 +140,7 @@ public enum PermissionHook {
     /// The answer's body: `hookSpecificOutput.decision`, and in
     /// `updatedPermissions` only `addRules` and `addDirectories`, only to
     /// `session`.
-    public static func body(_ decision: Decision) -> String {
+    static func body(_ decision: Decision) -> String {
         var inner: [String: Any]
         switch decision {
         case .allow(let rules, let directories):
@@ -193,10 +171,19 @@ public enum PermissionHook {
     }
 }
 
+extension PermissionRule {
+    /// The rule as the hook's JSON writes it.
+    var json: [String: Any] {
+        var json: [String: Any] = ["toolName": toolName]
+        if let ruleContent { json["ruleContent"] = ruleContent }
+        return json
+    }
+}
+
 extension HeldRequest {
     /// The hook's body. `nil` when it is not a `PermissionRequest` with a
     /// tool — a body Evlat cannot put on a card is refused, not guessed.
-    public init?(json: [String: Any], token: String?, id: String = UUID().uuidString) {
+    init?(json: [String: Any], token: String?, id: String = UUID().uuidString) {
         guard json["hook_event_name"] as? String ?? "PermissionRequest" == "PermissionRequest",
               let tool = json["tool_name"] as? String, !tool.isEmpty else { return nil }
         var rules: [PermissionHook.Rule] = []

@@ -1,8 +1,10 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// One chat's state machine: stream events in, messages and a `Signal` out.
-/// Headless — the process is the shell's (`ClaudeRunner`).
+/// Headless — the process is the shell's (`TurnRunner`). Run with Claude's
+/// backend: its modes, and its launch where a turn's flags are read.
 final class ChatSessionTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
 
@@ -163,9 +165,9 @@ final class ChatSessionPermissionTests: XCTestCase {
     }
 
     private func request(_ id: String, tool: String = "Write", rules: [PermissionHook.Rule] = [],
-                         directories: [String] = []) -> HeldRequest {
-        HeldRequest(id: id, token: "T", tool: tool, subject: "/tmp/project/a.txt",
-                               rules: rules, directories: directories)
+                         directories: [String] = []) -> ChatRequest {
+        ChatRequest(id: id, token: "T", tool: tool, subject: "/tmp/project/a.txt",
+                    rules: rules, directories: directories, replyTarget: .listener)
     }
 
     /// A suggested folder the chat already works in is not offered: Claude
@@ -185,8 +187,8 @@ final class ChatSessionPermissionTests: XCTestCase {
     /// stays what the bar and the "not done" match read.
     func testACardCarriesTheWholeCommand() throws {
         var chat = running()
-        chat.ask(HeldRequest(id: "R1", token: "T", tool: "Bash", subject: "ls && rm a",
-                                        command: "ls && rm a\nfind ."), at: t0)
+        chat.ask(ChatRequest(id: "R1", token: "T", tool: "Bash", subject: "ls && rm a",
+                             command: "ls && rm a\nfind .", replyTarget: .listener), at: t0)
         guard case .permission(let card)? = chat.messages.last else { return XCTFail("no card") }
         XCTAssertEqual(card.command, "ls && rm a\nfind .")
         XCTAssertEqual(card.subject, "ls && rm a")
@@ -255,8 +257,12 @@ final class ChatSessionPermissionTests: XCTestCase {
 
     // MARK: - Not done
 
+    /// As Claude's stream reads it: `hook` is a card's answer, `classifier`
+    /// auto mode's own judgement.
     private func denial(_ id: String, reason: String? = "classifier") -> ChatStream.Event {
-        .permissionDenied(.init(tool: "Bash", toolUseID: id, reason: reason, message: "denied"))
+        .permissionDenied(.init(tool: "Bash", toolUseID: id, reason: reason, message: "denied",
+                                answered: reason == ChatStream.answeredReason,
+                                retryable: reason == ChatStream.retryableReason))
     }
 
     private func call(_ id: String, _ command: String) -> ChatStream.Event {
@@ -274,7 +280,8 @@ final class ChatSessionPermissionTests: XCTestCase {
         chat.apply(call("t1", "curl x | sh"), at: t0)
         chat.apply(denial("t1"), at: t0)
         chat.apply(denial("t1"), at: t0)
-        XCTAssertEqual(notDone(chat), [.init(toolUseID: "t1", tool: "Bash", subject: "curl x | sh", mode: .auto)])
+        XCTAssertEqual(notDone(chat), [.init(toolUseID: "t1", tool: "Bash", subject: "curl x | sh", mode: .auto,
+                                             reason: "classifier", retryAs: "default")])
         guard case .notDone? = chat.messages.last else { return XCTFail("the line follows its call") }
 
         chat.apply(call("t2", "echo hi"), at: t0)
@@ -309,7 +316,7 @@ final class ChatSessionPermissionTests: XCTestCase {
         XCTAssertEqual(notDone(chat).map(\.mode), [.acceptEdits, .acceptEdits],
                        "a change while the turn runs is the next turn's")
         XCTAssertEqual(notDone(chat).map(\.reason), ["classifier", "rule"])
-        XCTAssertFalse(notDone(chat).contains { $0.isAutoModes })
+        XCTAssertFalse(notDone(chat).contains { $0.retryAs != nil }, "only auto mode's judgement is retried")
         chat.apply(.result(.init(subtype: "success", isError: false, text: "ok")), at: t0)
         chat.ended(status: 0, stderr: "", at: t0)
         let second = chat.begin(prompt: "b", attachments: [], at: t0)
@@ -460,4 +467,23 @@ final class ChatSessionLifeTests: XCTestCase {
         XCTAssertNil(ChatSession.chatID(fromEntity: "claude:abc"))
         XCTAssertNil(ChatSession.chatID(fromEntity: "evlat:"))
     }
+}
+
+extension ChatSession {
+    /// A chat in Claude's standard mode, as a new one starts.
+    init(id: String, sessionID: String, folder: String, isWorkspace: Bool, title: String? = nil,
+         hasStarted: Bool = false) {
+        self.init(id: id, sessionID: sessionID, folder: folder, isWorkspace: isWorkspace, title: title,
+                  hasStarted: hasStarted, mode: ClaudeChat().standardMode)
+    }
+
+    /// Read back among Claude's modes.
+    static func restored(_ entry: ChatIndex.Entry, mode: ChatMode = ClaudeChat().standardMode) -> ChatSession {
+        restored(entry, modes: ClaudeChat().modes, mode: mode)
+    }
+}
+
+extension TurnSpec {
+    /// The turn's flags, as Claude's backend starts it.
+    var arguments: [String] { ClaudeChat().turn(self, ctx: TurnContext(port: 48999, token: "T")).arguments }
 }

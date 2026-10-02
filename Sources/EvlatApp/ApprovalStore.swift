@@ -24,9 +24,9 @@ final class ApprovalStore {
 
     /// The answer's body, in the asking agent's format
     /// (`ApprovalChannel.body`).
-    private let body: (PermissionHook.Decision) -> String
+    private let body: (ChatDecision) -> String
 
-    init(body: @escaping (PermissionHook.Decision) -> String) {
+    init(body: @escaping (ChatDecision) -> String) {
         self.body = body
     }
 
@@ -65,7 +65,7 @@ final class ApprovalStore {
         pending.removeAll { $0.id == id }
         drafts[id] = nil
         // Allow once: no rule, no folder, no mode is ever kept from the bar.
-        let decision: PermissionHook.Decision = allow ? .allow(rules: [], directories: []) : .deny(interrupt: false)
+        let decision: ChatDecision = allow ? .allow(rules: [], directories: []) : .deny(interrupt: false)
         respond(id, LocalAPI.Response(status: .ok, body: body(decision)))
         onChange()
         return true

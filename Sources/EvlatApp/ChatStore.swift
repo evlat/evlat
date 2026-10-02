@@ -1,31 +1,36 @@
 import Foundation
 import EvlatCore
+import EvlatAgents
 
 /// The chats: each one's running turn's process and the index file.
 /// Their state machines live in `provider` (`ChatsProvider`, the core's),
 /// which is what the registry holds.
 ///
-/// The core decides (`ChatSession`, `ChatIndex`), this carries it out: a
-/// process started, signalled, its output fed back; the file written.
+/// The core decides (`ChatSession`, `ChatIndex`), the backend words it
+/// (`ChatBackend`), this carries it out: a process started, stopped, its
+/// output fed back; the file written. Which agent the backend is, it never
+/// asks.
 ///
 /// **Main queue only**, like the provider it writes: actions arrive from the UI,
 /// the runner hops its output and exit here.
 ///
-/// Permission requests arrive from the listener's held
-/// connections, are matched to a running turn by their token, and are
-/// answered through `permissions` when the user presses a card's button.
+/// Permission requests are matched to a running turn by their token, and
+/// are answered at their reply target when the user presses a card's
+/// button: the listener's held connection (`permissions`), or the turn's
+/// own stdin.
 final class ChatStore {
-    /// Where a turn's permission hook posts and how it is answered: the
-    /// hook listener, or a test's stand-in. Weak: the controller owns it.
+    /// Where a one-way turn's permission requests post and how they are
+    /// answered: the hook listener, or a test's stand-in. Weak: the
+    /// controller owns it.
     weak var permissions: PermissionDesk?
-    /// The index's file name under the root.
-    static let indexName = "chats.json"
 
     /// Where the index and the workspaces live; `nil` keeps everything in
     /// memory and workspaces in a temporary directory.
     private let root: URL?
     private let platform: Platform
-    private let locator: ClaudeLocator
+    /// The chats' agent: its turns, its stream, its answers.
+    let backend: any ChatBackend
+    private let locator: AgentLocator
     private let now: () -> Date
     /// Sends a signal to a pid; `kill`, handed in so the orphan rule's
     /// effect stays one line.
@@ -43,12 +48,12 @@ final class ChatStore {
     /// The mode a chat gets when it has none of its own: a new one, or one
     /// read back from before chats had modes. The user's choice, read when
     /// it is needed (`UserDefaults`, the app's).
-    private let defaultMode: () -> PermissionMode
+    private let defaultMode: () -> ChatMode
 
     /// The chats' state, and their rows. Read against the store's clock.
     let provider: ChatsProvider
-    private var runners: [String: ClaudeRunner] = [:]
-    private var streams: [String: ChatStream] = [:]
+    private var runners: [String: TurnRunner] = [:]
+    private var streams: [String: any ChatParser] = [:]
     /// The running turns' permission tokens → their chat. A turn's token is
     /// made when it starts and forgotten when it ends, so a request from a
     /// turn that is over matches nothing.
@@ -58,14 +63,18 @@ final class ChatStore {
     /// written: someone's history is not replaced with an empty list.
     private(set) var indexError: ChatIndex.DecodeError?
 
-    init(root: URL?, platform: Platform, locator: ClaudeLocator, now: @escaping () -> Date = Date.init,
+    /// `backend` is the chats' agent: the catalogue's first unless one is
+    /// handed in. `defaultMode` falls back to its standard mode.
+    init(root: URL?, platform: Platform, backend: any ChatBackend = Agents.chatBackends[0],
+         locator: AgentLocator, now: @escaping () -> Date = Date.init,
          signal: @escaping (Int32, Int32) -> Void = { _ = kill($0, $1) },
          environment: [String: String] = ProcessInfo.processInfo.environment,
          trash: @escaping (URL) throws -> Void = ChatStore.setAside,
-         defaultMode: @escaping () -> PermissionMode = { .standard },
+         defaultMode: (() -> ChatMode)? = nil,
          onChange: @escaping () -> Void = {}) {
         provider = ChatsProvider(now: now)
-        self.defaultMode = defaultMode
+        self.backend = backend
+        self.defaultMode = defaultMode ?? { [standard = backend.standardMode] in standard }
         self.trash = trash
         self.environment = environment
         self.root = root
@@ -129,9 +138,9 @@ final class ChatStore {
 
     var sessionIDs: Set<String> { provider.sessionIDs }
 
-    /// Is there a `claude` to send to? For the balloon's empty state; the
+    /// Is there a program to send to? For the balloon's empty state; the
     /// same lookup a turn makes, so the two never disagree. Main queue.
-    func locateClaude(_ completion: @escaping (Bool) -> Void) {
+    func locateBackend(_ completion: @escaping (Bool) -> Void) {
         locator.locate { completion($0.executable != nil) }
     }
 
@@ -142,7 +151,7 @@ final class ChatStore {
     /// something is sent.
     /// `mode` is the balloon's pick, else the default.
     @discardableResult
-    func newChat(folder: String? = nil, mode: PermissionMode? = nil) -> String {
+    func newChat(folder: String? = nil, mode: ChatMode? = nil) -> String {
         let id = UUID().uuidString
         let workspace = ChatIndex.workspace(of: id, under: workspaceBase)
             ?? workspaceBase.appendingPathComponent("chats/\(id)", isDirectory: true)
@@ -154,12 +163,12 @@ final class ChatStore {
 
     /// The chat's mode from its next turn on; a running turn keeps the one
     /// it started with. Kept in its entry once it has one.
-    func setMode(_ id: String, _ mode: PermissionMode) {
+    func setMode(_ id: String, _ mode: ChatMode) {
         guard var chat = provider[id], chat.mode != mode else { return }
         chat.mode = mode
         provider[id] = chat
         if let i = index.entries.firstIndex(where: { $0.id == id }) {
-            index.entries[i].permissionMode = mode.rawValue
+            index.entries[i].permissionMode = mode.id
             save()
         }
         onChange()
@@ -171,13 +180,14 @@ final class ChatStore {
             send(id, text: text, attachments: attachments)
         case .stop(let id):
             guard let open = provider[id]?.requestStop(at: now()) else { return }
-            // Each open card is denied with `interrupt`, so Claude ends the
-            // turn too rather than trying something else.
-            for request in open {
-                requests[request] = nil
-                permissions?.answer(request, with: Self.response(.deny(interrupt: true)))
+            // Each open card is denied with `interrupt`, at its own target,
+            // so the agent ends the turn too rather than trying something
+            // else.
+            for requestID in open {
+                guard let held = requests.removeValue(forKey: requestID) else { continue }
+                reply(held.request, .deny(interrupt: true), chat: id)
             }
-            runners[id]?.interrupt()
+            runners[id]?.stop(backend.stopPlan)
             onChange()
         case .answer(let request, let decision):
             answer(request, decision)
@@ -186,46 +196,55 @@ final class ChatStore {
 
     // MARK: - Permission
 
-    /// A permission request held by the listener: a card on its turn's
-    /// chat, or a refusal — an unknown token, a turn not running.
-    func permissionAsked(_ request: HeldRequest) {
-        guard let token = request.token, let id = tokens[token], var chat = provider[id] else {
+    /// A permission request of a running turn: a card on its chat, or a
+    /// refusal — an unknown token, a turn not running.
+    func permissionAsked(_ request: ChatRequest) {
+        guard let token = request.token, let id = tokens[token], provider[id] != nil else {
+            // Nobody to word an answer for: the listener's own refusal.
             permissions?.answer(request.id, with: LocalAPI.unknownToken)
             return
         }
+        ask(request, chat: id)
+    }
+
+    /// A request of chat `id`'s running turn — through the listener, or on
+    /// its own channel (`ChatEvent.asked`).
+    private func ask(_ request: ChatRequest, chat id: String) {
+        guard var chat = provider[id] else { return }
         guard chat.ask(request, at: now()) else {
             // After Stop, a request that slipped in ends the turn too, like
             // the cards Stop denied.
-            permissions?.answer(request.id, with: Self.response(.deny(interrupt: chat.stopRequested)))
+            reply(request, .deny(interrupt: chat.stopRequested), chat: id)
             return
         }
-        requests[request.id] = id
+        requests[request.id] = (id, request)
         provider[id] = chat
         onChange()
     }
 
     /// The request's connection closed unanswered: the card goes.
     func permissionAbandoned(_ requestID: String) {
-        guard let id = requests.removeValue(forKey: requestID), var chat = provider[id] else { return }
+        guard let id = requests.removeValue(forKey: requestID)?.chat, var chat = provider[id] else { return }
         chat.expire(requestID, at: now())
         provider[id] = chat
         onChange()
     }
 
-    /// Held requests → their chat: open, or answered but not known to have
-    /// reached Claude. An answer is written on the listener's queue; one
-    /// that finds the connection already closed is followed by
-    /// `permissionAbandoned`, which needs the chat to expire the card.
-    /// Forgotten when the turn ends.
-    private var requests: [String: String] = [:]
+    /// Held requests → their chat, and the request (its reply target): open,
+    /// or answered but not known to have reached the agent. An answer is
+    /// written on the listener's queue; one that finds the connection
+    /// already closed is followed by `permissionAbandoned`, which needs the
+    /// chat to expire the card. Forgotten when the turn ends.
+    private var requests: [String: (chat: String, request: ChatRequest)] = [:]
 
     private func answer(_ requestID: String, _ decision: Action.Decision) {
-        guard let id = requests[requestID], var chat = provider[id],
+        guard let held = requests[requestID], var chat = provider[held.chat],
               let sent = chat.answer(requestID, decision, at: now()) else { return }
+        let id = held.chat
         provider[id] = chat
-        permissions?.answer(requestID, with: Self.response(sent))
+        reply(held.request, sent, chat: id)
         // What "always" granted is the chat's from now on: its later turns
-        // start with it (`--allowedTools`, `--add-dir`).
+        // start with it (`TurnSpec.allowedTools`, `addDirectories`).
         if case .allow(let rules, let directories) = sent, !rules.isEmpty || !directories.isEmpty,
            let i = index.entries.firstIndex(where: { $0.id == id }) {
             for rule in rules.map(\.text) where !index.entries[i].allowedRules.contains(rule) {
@@ -239,8 +258,15 @@ final class ChatStore {
         onChange()
     }
 
-    static func response(_ decision: PermissionHook.Decision) -> LocalAPI.Response {
-        LocalAPI.Response(status: .ok, body: PermissionHook.body(decision))
+    /// The decision, in the backend's words, at the request's target.
+    private func reply(_ request: ChatRequest, _ decision: ChatDecision, chat id: String) {
+        switch backend.encode(decision, for: request) {
+        case .http(let body):
+            permissions?.answer(request.id, with: LocalAPI.Response(status: .ok,
+                                                                    body: String(decoding: body, as: UTF8.self)))
+        case .line(let line):
+            runners[id]?.write(line)
+        }
     }
 
     /// Evlat is quitting: every turn gets SIGTERM. Its record stays in the
@@ -252,20 +278,20 @@ final class ChatStore {
     private func send(_ id: String, text: String, attachments: [String]) {
         guard var chat = provider[id], !chat.isRunning else { return }
         let entry = index.entries.first { $0.id == id }
-        guard let invocation = chat.begin(prompt: text, attachments: attachments, at: now(),
-                                          addDirectories: entry?.addedDirectories ?? [],
-                                          allowedTools: entry?.allowedRules ?? []) else { return }
+        guard let spec = chat.begin(prompt: text, attachments: attachments, at: now(),
+                                    addDirectories: entry?.addedDirectories ?? [],
+                                    allowedTools: entry?.allowedRules ?? []) else { return }
         provider[id] = chat
         record(chat)
         onChange()
         locator.locate { [weak self] location in
-            self?.start(id, invocation: invocation, location: location)
+            self?.start(id, spec: spec, location: location)
         }
     }
 
-    private func start(_ id: String, invocation: ClaudeInvocation, location: ClaudeLocator.Location) {
+    private func start(_ id: String, spec: TurnSpec, location: AgentLocator.Location) {
         guard var chat = provider[id], chat.isRunning, runners[id] == nil else { return }
-        // Stopped while `claude` was still being looked for: nothing to
+        // Stopped while the program was still being looked for: nothing to
         // start, and the turn ends as stopped.
         guard !chat.stopRequested else {
             chat.ended(status: 0, stderr: "", at: now())
@@ -284,15 +310,15 @@ final class ChatStore {
         }
         let token = UUID().uuidString
         // A workspace chat remembers in Evlat's one memory folder; a chat in
-        // the user's folder keeps that folder's own (Claude's default).
-        let invocation = invocation.asking(PermissionHook.Endpoint(port: port, token: token),
-                                           memoryDirectory: chat.isWorkspace ? memoryDirectory.path : nil)
+        // the user's folder keeps that folder's own (the agent's default).
+        let memory = chat.isWorkspace && backend.caps.memory ? memoryDirectory.path : nil
+        let launch = backend.turn(spec, ctx: TurnContext(port: port, token: token, memoryDirectory: memory))
         if chat.isWorkspace {
             try? FileManager.default.createDirectory(atPath: chat.folder, withIntermediateDirectories: true)
         }
-        streams[id] = ChatStream()
-        let runner = ClaudeRunner(
-            executable: executable, invocation: invocation, path: location.path,
+        streams[id] = backend.parser()
+        let runner = TurnRunner(
+            executable: executable, launch: launch, path: location.path,
             environment: environment,
             onOutput: { [weak self] data in self?.output(id, data) },
             onExit: { [weak self] status, stderr in self?.exited(id, status: status, stderr: stderr) })
@@ -308,8 +334,9 @@ final class ChatStore {
 
     private func output(_ id: String, _ data: Data) {
         guard var stream = streams[id], var chat = provider[id] else { return }
-        let events = stream.feed(data)
+        let (events, replies) = stream.feed(data)
         streams[id] = stream
+        replies.forEach { runners[id]?.write($0) }
         apply(events, to: &chat, id: id)
     }
 
@@ -328,18 +355,25 @@ final class ChatStore {
         tokens = tokens.filter { $0.value != id }
         // Its held requests go unanswered: the listener's connections close
         // with the process, and the cards are expired below.
-        requests = requests.filter { $0.value != id }
+        requests = requests.filter { $0.value.chat != id }
         chat.ended(status: status, stderr: stderr, at: now())
         finish(id, chat)
     }
 
-    private func apply(_ events: [ChatStream.Event], to chat: inout ChatSession, id: String) {
+    private func apply(_ events: [ChatEvent], to chat: inout ChatSession, id: String) {
         guard !events.isEmpty else { return }
         for event in events {
+            if case .asked(let request) = event {
+                // Its card is opened on the chat as it stands, then read back.
+                provider[id] = chat
+                ask(request, chat: id)
+                chat = provider[id] ?? chat
+                continue
+            }
             chat.apply(event, at: now())
             // The result is the turn's end: stdin closes and the process
-            // exits by itself.
-            if case .result = event { runners[id]?.closeInput() }
+            // exits by itself (one way: nothing is answered on it after).
+            if case .result = event, backend.caps.transport == .oneWay { runners[id]?.closeInput() }
         }
         provider[id] = chat
         onChange()
@@ -361,9 +395,9 @@ final class ChatStore {
 
     // MARK: - Memory
 
-    /// Where workspace chats remember (`autoMemoryDirectory`): one folder
-    /// beside `chats/`, shared by all of them. Claude makes it with its
-    /// first note. Not a workspace: the week's pruning never reaches it
+    /// Where workspace chats remember (`TurnContext.memoryDirectory`): one
+    /// folder beside `chats/`, shared by all of them. The agent makes it
+    /// with its first note. Not a workspace: the week's pruning never reaches it
     /// (`removableWorkspace` takes only `chats/<UUID>`), it is kept until
     /// the user clears it.
     var memoryDirectory: URL {
@@ -442,7 +476,7 @@ final class ChatStore {
     func open(_ id: String) -> Bool {
         if provider[id] != nil { return true }
         guard let entry = index.entries.first(where: { $0.id == id }) else { return false }
-        provider[id] = ChatSession.restored(entry, mode: defaultMode())
+        provider[id] = restored(entry)
         return true
     }
 
@@ -537,9 +571,18 @@ final class ChatStore {
 
     // MARK: - Index
 
+    /// An entry read back as a chat, its stored mode among the backend's.
+    private func restored(_ entry: ChatIndex.Entry) -> ChatSession {
+        ChatSession.restored(entry, modes: backend.modes, mode: defaultMode())
+    }
+
+    /// The backend's own file: another backend's is never read or written
+    /// here (`ChatIndex.fileName`).
+    var indexFile: String { backend.indexFile }
+
     private func load() {
         guard let root else { return }
-        let file = root.appendingPathComponent(Self.indexName)
+        let file = root.appendingPathComponent(indexFile)
         guard let data = try? Data(contentsOf: file) else { return }
         do {
             index = try ChatIndex.decode(data)
@@ -552,7 +595,7 @@ final class ChatStore {
         orphans.terminate.forEach { signal($0, SIGTERM) }
         for i in index.entries.indices where orphans.interrupted.contains(index.entries[i].id) {
             let entry = index.entries[i]
-            var chat = ChatSession.restored(entry, mode: defaultMode())
+            var chat = restored(entry)
             chat.fail(.interrupted, at: entry.lastActivity)
             provider[entry.id] = chat
             index.entries[i].run = nil
@@ -561,7 +604,7 @@ final class ChatStore {
         // An end the balloon never showed keeps its row across a relaunch,
         // until its time is up (`ChatSession.unseenLifetime`).
         for entry in index.entries where entry.unseen != nil && provider[entry.id] == nil {
-            provider[entry.id] = ChatSession.restored(entry, mode: defaultMode())
+            provider[entry.id] = restored(entry)
         }
         if !orphans.interrupted.isEmpty { save() }
         prune()
@@ -576,14 +619,14 @@ final class ChatStore {
             index.entries[i].started = chat.hasStarted
             index.entries[i].run = chat.isRunning ? (run ?? index.entries[i].run) : nil
             index.entries[i].unseen = chat.unseenPhase
-            index.entries[i].permissionMode = chat.mode.rawValue
+            index.entries[i].permissionMode = chat.mode.id
             if let reply = chat.lastReply { index.entries[i].lastReply = reply }
         } else {
             index.entries.append(ChatIndex.Entry(
                 id: chat.id, sessionID: chat.sessionID, title: chat.title ?? chat.promptLabel, folder: chat.folder,
                 isWorkspace: chat.isWorkspace, createdAt: stamp, lastActivity: stamp,
                 lastReply: chat.lastReply, run: chat.isRunning ? run : nil, started: chat.hasStarted,
-                unseen: chat.unseenPhase, permissionMode: chat.mode.rawValue))
+                unseen: chat.unseenPhase, permissionMode: chat.mode.id))
         }
         save()
     }
@@ -593,7 +636,7 @@ final class ChatStore {
         guard let root, indexError == nil else { return }
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            try index.encoded().write(to: root.appendingPathComponent(Self.indexName), options: .atomic)
+            try index.encoded().write(to: root.appendingPathComponent(indexFile), options: .atomic)
         } catch {
             NSLog("Evlat: chat index not written (%@)", error.localizedDescription)
         }

@@ -98,7 +98,7 @@ and an opaque `AgentID`; the shell reaches one only through the catalog.
   name the compiler cannot see (a `"claude"` literal, a `.codex` path): every
   agent's name and every `EvlatAgents` type, comments aside, in
   `Sources/EvlatCore` and `Sources/EvlatApp`, against an allowlist with an
-  exact count and a reason per file. Only the session host's tab links and the chat bubble's chain
+  exact count and a reason per file. Only the session host's tab links
   are on it. A rule that branches on one agent is that agent's value.
 - **`EvlatAgents` imports only `Foundation` and `EvlatCore`** (`BoundaryTests`).
 
@@ -141,8 +141,27 @@ Every provider reduces to one type, `Signal`: `provider`, `entity`, `kind`
   phase. An idle session or a seen finish lets the mascot sleep.
 
 The reverse direction, `Action`, carries three things from UI to core: send a
-prompt, answer a permission, stop. The shell (`ChatStore`) executes them with a
-`claude -p` subprocess and a held permission connection.
+prompt, answer a permission, stop. The shell (`ChatStore`) executes them
+through the chat's backend (`ChatBackend`, an agent's `chat`), and never asks
+which agent it is:
+
+- `ChatSession.begin` gives a `TurnSpec`; the backend makes it a
+  `TurnLaunch` (`turn(spec, ctx:)`) once the shell knows the listener's port,
+  the turn's token and the memory folder (`TurnContext`). `TurnRunner` starts
+  one process per turn; `AgentLocator` finds its program (`EVLAT_<NAME>`, then
+  the login shell's `PATH`).
+- The backend's `parser()` reads stdout into `ChatEvent`s; an unknown word is
+  counted, not swallowed. Transport is **one way** (stdout streams, a
+  permission is posted to `/permission` and answered on the held connection)
+  or **duplex** (asked and answered on the process's own stdio).
+- A `ChatRequest` carries its reply target; the answer is the backend's
+  `encode(ChatDecision, for:)`. Stop denies every open card at its own
+  target, then applies the backend's `stopPlan`.
+- Modes are the backend's (`ChatMode`): a mode's own denial is retried in
+  the mode it names (`retryDenialAs`). The new chats' default is stored per
+  backend (`modeKey`), and so is the index (`indexFile`); Claude Code keeps
+  the names it had before (`chat.permissionMode`, `chats.json`), and an older
+  build that rewrites `chats.json` never sees another backend's file.
 
 ### Providers
 
@@ -785,7 +804,7 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   markers** (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
   `CLAUDE_CODE_SESSION_ID`, …) and `claude -p` then thinks it is a child
   session. The environment is filtered through
-  `ClaudeInvocation.parentSessionVariables`.
+  `ClaudeInvocation.parentSessionVariables` (`TurnLaunch.removedEnvironment`).
 - **The first run of a freshly written executable pays for macOS's
   assessment** (`syspolicyd`/`XprotectService`): ~0.2 s, once ~50 s. A fake
   that enters a timed wait is warmed once untimed first

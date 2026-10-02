@@ -1,10 +1,11 @@
 import AppKit
 import EvlatCore
+import EvlatAgents
 
 /// The settings window's state: which section is open, the
 /// dots of the sections that want attention, and the few things the rows'
 /// shared model does not hold — the edge, the shortcut, the next chats'
-/// mode, `claude`'s place and the memory's inline confirmation.
+/// mode, the chat program's place and the memory's inline confirmation.
 ///
 /// It composes rather than repeats: the install rows are `SetupModel`'s,
 /// the machines `RemoteMachinesModel`'s, the shortcut row's keys
@@ -25,11 +26,13 @@ final class SettingsModel: ObservableObject {
         var isHotKeyOn: () -> Bool
         var setHotKey: (Bool) -> Void
         var hotKey: () -> HotKeyCombination
-        var defaultMode: () -> PermissionMode
-        var setDefaultMode: (PermissionMode) -> Void
-        /// `claude`'s path, or `nil` when there is none; called back on the
-        /// main queue.
-        var locateClaude: (@escaping (String?) -> Void) -> Void
+        /// The chats' agent: its modes and its program's name.
+        var chatBackend: () -> any ChatBackend = { Agents.chatBackends[0] }
+        var defaultMode: () -> ChatMode
+        var setDefaultMode: (ChatMode) -> Void
+        /// The backend's program's path, or `nil` when there is none;
+        /// called back on the main queue.
+        var locateBackend: (@escaping (String?) -> Void) -> Void
         /// What the chats' memory folder holds; `nil` when there is no chat
         /// store (every test that does not hand one).
         var memoryCount: () -> Int?
@@ -60,8 +63,8 @@ final class SettingsModel: ObservableObject {
         var notificationsDenied: (@escaping (Bool) -> Void) -> Void = { $0(false) }
     }
 
-    /// Where `claude` is, once looked for.
-    enum Claude: Equatable {
+    /// Where the chat backend's program is, once looked for.
+    enum Location: Equatable {
         case looking
         case found(String)
         case missing
@@ -72,7 +75,7 @@ final class SettingsModel: ObservableObject {
     @Published var section: Section = .general {
         didSet { if section != oldValue { recorder.cancel() } }
     }
-    @Published private(set) var claude: Claude = .looking
+    @Published private(set) var backend: Location = .looking
     @Published private(set) var memoryCount: Int?
     /// "Clear…" was pressed: the row asks in place (no `NSAlert`).
     @Published private(set) var confirmingClear = false
@@ -105,8 +108,8 @@ final class SettingsModel: ObservableObject {
         memoryCount = host.memoryCount()
         confirmingClear = false
         host.notificationsDenied { [weak self] in self?.notificationsDenied = $0 }
-        host.locateClaude { [weak self] path in
-            self?.claude = path.map(Claude.found) ?? .missing
+        host.locateBackend { [weak self] path in
+            self?.backend = path.map(Location.found) ?? .missing
             // The lookup reads the login shell's `PATH`, which the command
             // link's "not on your PATH" note is made from: read above, the
             // first opening had none yet.
@@ -273,16 +276,36 @@ final class SettingsModel: ObservableObject {
         objectWillChange.send()
     }
 
-    /// The modes are offered only when there is a `claude` to run them.
+    /// The modes are offered only when there is a program to run them.
     var showsModes: Bool {
-        if case .found = claude { return true }
+        if case .found = backend { return true }
         return false
     }
 
-    var mode: PermissionMode { host.defaultMode() }
+    var mode: ChatMode { host.defaultMode() }
+
+    /// The new chats' modes on offer, recommended first.
+    var offeredModes: [ChatMode] { host.chatBackend().offered }
+    /// The one marked recommended.
+    var standardMode: ChatMode { host.chatBackend().standardMode }
+    /// Whether the backend's workspace chats share a memory folder.
+    var hasMemory: Bool { host.chatBackend().caps.memory }
+
+    /// The backend's line under the modes: found where, missing, or still
+    /// being looked for.
+    var backendLine: String { Self.backendLine(backend, program: host.chatBackend().executable, t) }
+
+    static func backendLine(_ location: Location, program: String,
+                            _ t: (String, [String: String]) -> String) -> String {
+        switch location {
+        case .found(let path): return t("settings.chat.backend.found", ["agent": program, "path": tilde(path)])
+        case .missing: return t("settings.chat.backend.missing", ["agent": program])
+        case .looking: return t("settings.chat.backend.looking", ["agent": program])
+        }
+    }
 
     /// The next chats' mode; an open chat keeps its own (`setDefaultMode`).
-    func setMode(_ mode: PermissionMode) {
+    func setMode(_ mode: ChatMode) {
         host.setDefaultMode(mode)
         objectWillChange.send()
     }
@@ -357,7 +380,7 @@ final class SettingsModel: ObservableObject {
         "settings.chat.hotkey.change", "settings.chat.hotkey.cancel", "settings.chat.hotkey.recording",
         "settings.chat.hotkey.off",
         "settings.chat.modes", "settings.chat.modes.note", "settings.chat.modes.recommended",
-        "settings.chat.claude.found", "settings.chat.claude.missing", "settings.chat.claude.looking",
+        "settings.chat.backend.found", "settings.chat.backend.missing", "settings.chat.backend.looking",
         "settings.chat.memory", "settings.chat.memory.title", "settings.chat.memory.count",
         "settings.chat.memory.one", "settings.chat.memory.empty", "settings.chat.memory.show",
         "settings.chat.memory.clear", "settings.chat.memory.confirm", "settings.chat.memory.confirm.detail",

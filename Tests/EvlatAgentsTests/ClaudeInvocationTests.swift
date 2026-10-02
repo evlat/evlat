@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The arguments and input one `claude -p` turn is started with. The flag
 /// set is the one measured on 2.1.281; `--verbose` is not

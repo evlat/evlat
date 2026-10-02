@@ -282,7 +282,7 @@ final class GoToSessionTests: XCTestCase {
             .encoded().write(to: root.appendingPathComponent(ChatStore.indexName))
         let controller = AppController()
         let chats = ChatStore(root: root, platform: .unknown,
-                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
         controller.chats = chats
         controller.registry.register(chats.provider)
         controller.detail.resolveHost = { [unowned self] pid in self.resolved.append(pid); return .notFound }

@@ -8,7 +8,8 @@ import XCTest
 final class LocalAPITests: XCTestCase {
     /// One agent, posting to the bare hook prefix and relaying a status
     /// line: the rules below hold for any agent's route.
-    private static let agent = TestAgent(paths: [RouteTable.installedPrefix], statusLineUsage: .test())
+    private static let agent = TestAgent(paths: [RouteTable.installedPrefix], statusLineUsage: .test(),
+                                         chat: TestChatBackend())
     private static let routes = RouteTable([agent])
 
     private func handle(_ request: HTTPRequest,
@@ -423,7 +424,7 @@ final class LocalAPITests: XCTestCase {
     /// A key on the tunnel's listener opens `/signal` and nothing else:
     /// `/permission` stays this Mac's own.
     func testAKeyedTunnelStillHasNoPermissionRoute() {
-        let request = HTTPRequest(method: "POST", target: PermissionHook.path, body: Data(permissionBody.utf8),
+        let request = HTTPRequest(method: "POST", target: ChatRequest.path, body: Data(permissionBody.utf8),
                                   host: "127.0.0.1:48151", permissionToken: "t", signalKey: key)
         let outcome = handle(request, listener: LocalAPI.Listener(origin: .tunneled, signalKey: key, routes: Self.routes))
         XCTAssertEqual(outcome.response?.status, .notFound)

@@ -45,7 +45,7 @@ final class SetupFlowModel: ObservableObject {
     @Published private(set) var blinks = 0
     /// "Install" was pressed on this visit: the hint about open sessions.
     @Published private(set) var installed = false
-    @Published private(set) var claude: SettingsModel.Claude = .looking
+    @Published private(set) var backend: SettingsModel.Location = .looking
 
     let setup: SetupModel
     let recorder: HotKeyRecorder
@@ -68,7 +68,7 @@ final class SetupFlowModel: ObservableObject {
     func t(_ key: String, _ values: [String: String] = [:]) -> String { L10n.t(key, values, in: lang) }
 
     /// The window opens (or opens again) at `step`: every row read fresh,
-    /// the queue back to its defaults, `claude` looked for.
+    /// the queue back to its defaults, the chat program looked for.
     func start(at step: Step = .hello) {
         recorder.cancel()
         installed = false
@@ -81,8 +81,8 @@ final class SetupFlowModel: ObservableObject {
         look()
         self.step = step
         if step == .edge || step == .done { blinks += 1 }
-        settings.locateClaude { [weak self] path in
-            self?.claude = path.map(SettingsModel.Claude.found) ?? .missing
+        settings.locateBackend { [weak self] path in
+            self?.backend = path.map(SettingsModel.Location.found) ?? .missing
             // The login `PATH` for the command link's note (`SettingsModel.reload`).
             self?.setup.reload()
         }
@@ -208,14 +208,23 @@ final class SetupFlowModel: ObservableObject {
     // MARK: - Chat
 
     var showsModes: Bool {
-        if case .found = claude { return true }
+        if case .found = backend { return true }
         return false
     }
 
-    var mode: PermissionMode { settings.defaultMode() }
+    var mode: ChatMode { settings.defaultMode() }
+
+    /// The new chats' modes on offer, recommended first.
+    var offeredModes: [ChatMode] { settings.chatBackend().offered }
+    var standardMode: ChatMode { settings.chatBackend().standardMode }
+
+    /// The backend's line: found where, missing, or still being looked for.
+    var backendLine: String {
+        SettingsModel.backendLine(backend, program: settings.chatBackend().executable, t)
+    }
 
     /// The next chats' mode; an open chat keeps its own.
-    func setMode(_ mode: PermissionMode) {
+    func setMode(_ mode: ChatMode) {
         settings.setDefaultMode(mode)
         objectWillChange.send()
     }
@@ -263,7 +272,7 @@ final class SetupFlowModel: ObservableObject {
         return lines
     }
 
-    static func modeSummaryKey(_ mode: PermissionMode) -> String { "setup.flow.summary.mode.\(mode.rawValue)" }
+    static func modeSummaryKey(_ mode: ChatMode) -> String { "setup.flow.summary.mode.\(mode.id)" }
 
     // MARK: - The window's keys
 
@@ -303,5 +312,5 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.summary.chat", "setup.flow.summary.chat.mode",
         "setup.flow.summary.login", "setup.flow.summary.command", "setup.flow.summary.command.manual",
         "settings.general.setup", "settings.general.setup.detail", "settings.general.setup.open",
-    ] + PermissionMode.offered.map(modeSummaryKey)
+    ] + Agents.chatBackends.flatMap(\.offered).map(modeSummaryKey)
 }

@@ -1,5 +1,6 @@
 import Foundation
 import EvlatCore
+import EvlatAgents
 
 /// What the balloon draws, and the one way out of it: a prompt.
 ///
@@ -14,8 +15,9 @@ final class ChatModel: ObservableObject {
     @Published private(set) var messages: [ChatSession.Message] = []
     @Published private(set) var isRunning = false
     @Published private(set) var failure: ChatSession.Failure?
-    /// No `claude` was found: the balloon says so instead of offering a line.
-    @Published var claudeMissing = false
+    /// The chat backend's program was not found: the balloon says so
+    /// instead of offering a line.
+    @Published var backendMissing = false
     /// The line being typed.
     @Published var draft = ""
     /// Counts the balloon's openings; a change takes the field's focus.
@@ -31,7 +33,7 @@ final class ChatModel: ObservableObject {
     @Published private(set) var folderLocked = false
     /// The chat's permission mode — or, before the first prompt, the one
     /// it will start in. The corner label beside the folder shows it.
-    @Published private(set) var mode: PermissionMode = .standard
+    @Published private(set) var mode: ChatMode = Agents.chatBackends[0].standardMode
     /// A file is being dragged over the balloon.
     @Published var dropTargeted = false
     /// Does the balloon speak for a chat? Then `[+ New]` takes the hint's
@@ -142,35 +144,28 @@ final class ChatModel: ObservableObject {
         }
     }
 
-    /// Each mode's name. A switch, so a new mode does not compile without one.
-    nonisolated static func modeKey(_ mode: PermissionMode) -> String {
-        switch mode {
-        case .ask: return "chat.mode.ask"
-        case .auto: return "chat.mode.auto"
-        case .acceptEdits: return "chat.mode.acceptEdits"
-        case .bypass: return "chat.mode.bypass"
-        }
-    }
+    /// Every chat backend's modes' names, and what each does in one line
+    /// (the menu's tooltips).
+    static let modeKeys = Agents.chatBackends.flatMap(\.modes).map(\.nameKey)
+    static let modeDetailKeys = Agents.chatBackends.flatMap(\.modes).map(\.detailKey)
 
-    /// What each mode does, in one line: the menu's tooltips.
-    nonisolated static func modeDetailKey(_ mode: PermissionMode) -> String { modeKey(mode) + ".detail" }
-
-    static let modeKeys = PermissionMode.allCases.map(modeKey)
-    static let modeDetailKeys = PermissionMode.allCases.map(modeDetailKey)
-
-    /// A "not done" line's first words: auto mode is named only for its
-    /// classifier's denial.
+    /// A "not done" line's first words: the mode is named only for its own
+    /// judgement, the denial a retry could get past.
     nonisolated static func notDoneKey(_ line: ChatSession.NotDone) -> String {
-        line.isAutoModes ? "chat.notDone.auto" : "chat.notDone"
+        line.retryAs != nil ? "chat.notDone.auto" : "chat.notDone"
     }
 
     /// Can "not done" lines be tried again where they would ask? Not while
-    /// a turn runs, and not when the chat already asks.
-    var canRetry: Bool { !isRunning && mode != .ask && onRetry != nil }
+    /// a turn runs.
+    private var canRetry: Bool { !isRunning && onRetry != nil }
 
-    /// This line's retry: only the classifier's denial — a deny rule denies
-    /// in Ask mode too, and the retry would switch the chat for nothing.
-    func canRetry(_ line: ChatSession.NotDone) -> Bool { canRetry && line.isAutoModes }
+    /// This line's retry: only the mode's own judgement — a deny rule denies
+    /// in every mode — and not when the chat is already in the mode the
+    /// retry would switch it to: that would switch it for nothing.
+    func canRetry(_ line: ChatSession.NotDone) -> Bool {
+        guard canRetry, let target = line.retryAs else { return false }
+        return mode.id != target
+    }
 
     static let outcomeKeys = ["chat.permission.allowed", "chat.permission.allowedAlways",
                               "chat.permission.denied", "chat.permission.expired"]
@@ -224,7 +219,7 @@ final class ChatModel: ObservableObject {
     @discardableResult
     func submit(_ text: String) -> Bool {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, !isRunning, !claudeMissing, let onSend else { return false }
+        guard !prompt.isEmpty, !isRunning, !backendMissing, let onSend else { return false }
         draft = ""
         onSend(prompt)
         return true
@@ -266,7 +261,7 @@ final class ChatModel: ObservableObject {
         return attachments
     }
 
-    func setMode(_ mode: PermissionMode) {
+    func setMode(_ mode: ChatMode) {
         if self.mode != mode { self.mode = mode }
     }
 

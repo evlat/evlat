@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// A chat turn's permission hook: the settings it starts with, the request it
 /// posts, the decision that goes back — and that nothing but a rule or a

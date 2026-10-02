@@ -10,7 +10,7 @@ import Foundation
 /// `X-Evlat-Pid` are what the installed hook command sends, `Origin` and `Host`
 /// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`),
 /// `X-Evlat-Permission` is the token a chat's own permission hook carries
-/// (`PermissionHook`), and `X-Evlat-Key` is an outside program's key
+/// (`ChatRequest.tokenHeader`), and `X-Evlat-Key` is an outside program's key
 /// for `/signal`, `X-Evlat-Askpass` the token an `ssh` askpass helper
 /// carries (`Askpass`).
 public struct HTTPRequest: Equatable {

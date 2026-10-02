@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import EvlatCore
 @testable import EvlatApp
+@testable import EvlatAgents
 
 /// The settings window's model: the side list's dots, the
 /// modes only with a `claude`, the memory's inline confirmation, the menu's
@@ -30,7 +31,7 @@ final class SettingsTests: XCTestCase {
         var cleared = 0
         var unreachable: [String] = []
         var hotKeyRefused = false
-        var mode = PermissionMode.auto
+        var mode = ChatMode.auto
         /// Only for the command link's row: a temporary home and a binary.
         var home: URL?
         var binary: URL?
@@ -50,7 +51,7 @@ final class SettingsTests: XCTestCase {
             displays: { recorder.displays }, display: { recorder.display },
             setDisplay: { id in recorder.display = id.map { id in (id, recorder.displays.first { $0.id == id }?.name ?? id) } }, isHotKeyOn: { true }, setHotKey: { _ in },
             hotKey: { .standard }, defaultMode: { recorder.mode }, setDefaultMode: { recorder.mode = $0 },
-            locateClaude: { recorder.onLookup(); $0(recorder.claude) },
+            locateBackend: { recorder.onLookup(); $0(recorder.claude) },
             memoryCount: { recorder.memory },
             showMemory: {},
             clearMemory: { recorder.cleared += 1; recorder.memory = 0 },
@@ -175,7 +176,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(model.mode, .acceptEdits)
         recorder.claude = nil
         model.reload()
-        XCTAssertEqual(model.claude, .missing)
+        XCTAssertEqual(model.backend, .missing)
         XCTAssertFalse(model.showsModes, "no claude, no mode to pick")
     }
 

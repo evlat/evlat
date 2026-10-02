@@ -80,7 +80,7 @@ public enum CommandLink {
     /// Taking it away by hand.
     public static let removeLine = "rm \(displayPath)"
 
-    /// Whether a `PATH` (the login shell's, `ClaudeLocator`) finds the link's
+    /// Whether a `PATH` (the login shell's, `AgentLocator`) finds the link's
     /// directory under `home`. `~` and `$HOME` are spelled out as a profile
     /// may leave them.
     public static func isOnPath(_ path: String, home: URL) -> Bool {

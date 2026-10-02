@@ -53,7 +53,7 @@ final class ChatStoreTests: XCTestCase {
 
     func testAWorkspaceChatLivesUnderTheRoot() throws {
         let store = ChatStore(root: directory, platform: .unknown,
-                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
         let id = store.newChat()
         XCTAssertEqual(store.chat(id)?.folder, directory.appendingPathComponent("chats/\(id)").path)
         XCTAssertEqual(store.chat(id)?.isWorkspace, true)
@@ -66,12 +66,40 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertEqual(entry.title, "hi", "the prompt until a reply names it: never the workspace's UUID")
     }
 
-    /// A file the store cannot read is left exactly as it was.
+    /// Another backend's chats are in a file of their own: the index this
+    /// store reads and rewrites whole — the one an older build reads and
+    /// rewrites — never carries them, so a save cannot drop them. Until a
+    /// second backend writes its file, a stand-in holds its place.
+    func testASaveLeavesAnotherBackendsIndexAsItWas() throws {
+        let other = directory.appendingPathComponent(ChatIndex.fileName(for: AgentID("codex")))
+        let theirs = Data(#"{"version":1,"entries":[{"id":"not-read-here"}]}"#.utf8)
+        try theirs.write(to: other)
+        let ours = ChatIndex.Entry(id: entryID, sessionID: "S", folder: directory.path, isWorkspace: false,
+                                   createdAt: Date(), lastActivity: Date())
+        try writeIndex(ChatIndex(entries: [ours]))
+
+        // What an older build does: decode its own file, change it, save it.
+        var old = try readIndex()
+        old.entries[0].pinned = true
+        try old.encoded().write(to: directory.appendingPathComponent(ChatStore.indexName), options: .atomic)
+        // And what this one does.
+        let store = ChatStore(root: directory, platform: .unknown,
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+        XCTAssertEqual(store.indexFile, ChatStore.indexName)
+        store.setPinned(entryID, false)
+        store.perform(.send(chat: store.newChat(), text: "hi", attachments: []))
+
+        XCTAssertEqual(try readIndex().entries.count, 2)
+        XCTAssertEqual(try readIndex().entries.first?.pinned, false)
+        XCTAssertEqual(try Data(contentsOf: other), theirs, "the other backend's file is not touched")
+    }
+
+        /// A file the store cannot read is left exactly as it was.
     func testAnUnreadableIndexIsNeverOverwritten() throws {
         let path = directory.appendingPathComponent(ChatStore.indexName)
         try Data("{broken".utf8).write(to: path)
         let store = ChatStore(root: directory, platform: .unknown,
-                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
         XCTAssertEqual(store.indexError, .unreadable)
         let id = store.newChat()
         store.perform(.send(chat: id, text: "hi", attachments: []))
@@ -96,7 +124,7 @@ final class ChatStoreTests: XCTestCase {
 
         let registry = Registry()
         let store = ChatStore(root: directory, platform: AppController.darwinPlatform,
-                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]),
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]),
                               now: { t0 + 60 })
         registry.register(store.provider)
         sleeper.waitUntilExit()
@@ -114,7 +142,7 @@ final class ChatStoreTests: XCTestCase {
     /// temporary directory.
     func testNoRootMeansNoFile() {
         let store = ChatStore(root: nil, platform: .unknown,
-                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
         let id = store.newChat()
         XCTAssertTrue(store.chat(id)?.folder.hasPrefix(FileManager.default.temporaryDirectory.path) ?? false)
         store.perform(.send(chat: id, text: "hi", attachments: []))
@@ -137,7 +165,7 @@ final class ChatStoreTests: XCTestCase {
 
     private func store(trashed: @escaping (URL) -> Void = { _ in }, at time: Date? = nil) -> ChatStore {
         ChatStore(root: directory, platform: .unknown,
-                  locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]),
+                  locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]),
                   now: { [now] in time ?? now }, trash: { trashed($0) })
     }
 
@@ -165,7 +193,7 @@ final class ChatStoreTests: XCTestCase {
         _ = try makeWorkspace(ids[1])
         try writeIndex(ChatIndex(entries: [entry(ids[1], days: 8)]))
         _ = ChatStore(root: directory, platform: .unknown,
-                      locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]), now: { [now] in now })
+                      locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]), now: { [now] in now })
         XCTAssertTrue(FileManager.default.fileExists(atPath: bin.appendingPathComponent(ids[1]).path))
     }
 

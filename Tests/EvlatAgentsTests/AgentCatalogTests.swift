@@ -14,7 +14,7 @@ final class AgentCatalogTests: XCTestCase {
     func testNoRouteCollides() {
         let hooks = Agents.all.flatMap(\.hooks.paths)
         let usage = Agents.all.compactMap(\.statusLineUsage?.path)
-        let fixed = [PermissionHook.path, ApprovalHook.path, SignalReport.path, Askpass.path, "/health"]
+        let fixed = [ChatRequest.path, ApprovalHook.path, SignalReport.path, Askpass.path, "/health"]
         XCTAssertEqual(Set(hooks + usage + fixed).count, hooks.count + usage.count + fixed.count)
         XCTAssertEqual(Agents.routes.hooks.count, hooks.count)
         XCTAssertEqual(Agents.routes.usage.count, usage.count)

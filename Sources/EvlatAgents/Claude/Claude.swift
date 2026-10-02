@@ -37,6 +37,8 @@ struct Claude: Agent {
 
     let approvals: (any ApprovalChannel)? = ClaudeApprovals()
 
+    let chat: (any ChatBackend)? = ClaudeChat()
+
     let display = AgentDisplay(nameKey: "source.claude", outline: Self.outline)
 
     /// Its session records (`~/.claude/sessions`): discovery, name, pid.
@@ -53,7 +55,7 @@ struct ClaudeApprovals: ApprovalChannel {
 
     func request(json: [String: Any]) -> HeldRequest? { HeldRequest(json: json, token: nil) }
 
-    func body(_ decision: PermissionHook.Decision) -> String { PermissionHook.body(decision) }
+    func body(_ decision: ChatDecision) -> String { PermissionHook.body(decision) }
 
     func state(of settings: [String: Any]) -> HookSettings.State { ApprovalHook.state(of: settings) }
 

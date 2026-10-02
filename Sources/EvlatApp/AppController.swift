@@ -49,9 +49,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// points it at a bundle of its own.
     var executable: URL? = Bundle.main.executableURL
     public let registry = Registry()
-    /// Finds `claude` for the chats; its login `PATH` is also the command
-    /// link row's. Nothing runs until a chat or the row asks.
-    let claudeLocator = ClaudeLocator()
+    /// The chats' agent: the catalogue's first chat backend.
+    let chatBackend: any ChatBackend = Agents.chatBackends[0]
+    /// Finds the backend's program for the chats; its login `PATH` is also
+    /// the command link row's. Nothing runs until a chat or the row asks.
+    let chatLocator = AgentLocator(name: Agents.chatBackends[0].executable)
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
     /// mascot in `refresh()`, observed by its own column.
@@ -1162,10 +1164,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // .accessory: no Dock icon, no Cmd-Tab entry. The bar should behave
         // like part of the system rather than like an app.
         NSApp.setActivationPolicy(.accessory)
-        // Before the record provider: a chat's `claude -p` turn writes a
-        // session record, and the chat's sessions are left out of it.
+        // Before the record provider: a chat's turn writes a session record
+        // too, and the chat's sessions are left out of it.
         let chats = ChatStore(root: Self.chatRoot(home: home), platform: Self.darwinPlatform,
-                              locator: claudeLocator,
+                              backend: chatBackend, locator: chatLocator,
                               now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
                               trash: ChatStore.trash(environment: ProcessInfo.processInfo.environment),
                               defaultMode: { [unowned self] in MainActor.assumeIsolated { self.defaultMode } },
@@ -1433,11 +1435,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if chatModel.edge != bar.edge { chatModel.edge = bar.edge }
         syncChat()
         refreshFolder()
-        // Asked each time: `claude` may have been installed since. Known at
-        // once after the first find (or with `EVLAT_CLAUDE`).
-        chats?.locateClaude { [weak self] found in
-            guard let self, self.chatModel.claudeMissing == found else { return }
-            self.chatModel.claudeMissing = !found
+        // Asked each time: the program may have been installed since. Known
+        // at once after the first find (or with `EVLAT_<NAME>`).
+        chats?.locateBackend { [weak self] found in
+            guard let self, self.chatModel.backendMissing == found else { return }
+            self.chatModel.backendMissing = !found
         }
         chatModel.opened()
         // A short fade in: it comes out of the mascot rather than popping.
@@ -1872,25 +1874,26 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     // MARK: - Permission mode
 
-    /// A new chat's mode, stored by its CLI value; none stored is auto.
-    nonisolated static let permissionModeKey = "chat.permissionMode"
-
-    /// A stored mode that may not be a default (bypass) reads as none.
-    nonisolated static func storedMode(_ defaults: UserDefaults?) -> PermissionMode {
-        PermissionMode(stored: defaults?.string(forKey: permissionModeKey))
-            .flatMap { $0.mayBeDefault ? $0 : nil } ?? .standard
+    /// A new chat's mode, stored under the backend's own key by its id;
+    /// none stored is the backend's standard mode. A stored mode that may
+    /// not be a default (bypass) reads as none.
+    nonisolated static func storedMode(_ defaults: UserDefaults?, for backend: any ChatBackend) -> ChatMode {
+        backend.mode(stored: defaults?.string(forKey: backend.modeKey))
+            .flatMap { $0.mayBeDefault ? $0 : nil } ?? backend.standardMode
     }
 
     /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
     /// `EVLAT_CHATS`), which must not change the user's default — kept here.
-    private var modeUnstored = PermissionMode.standard
+    private var modeUnstored: ChatMode?
     private var modeDefaults: UserDefaults? {
         ChatStore.isolated(ProcessInfo.processInfo.environment) ? nil : defaults
     }
-    var defaultMode: PermissionMode { modeDefaults.map(Self.storedMode) ?? modeUnstored }
+    var defaultMode: ChatMode {
+        modeDefaults.map { Self.storedMode($0, for: chatBackend) } ?? modeUnstored ?? chatBackend.standardMode
+    }
 
     /// The mode picked for a chat not made yet; `nil` is the default.
-    private(set) var chosenMode: PermissionMode?
+    private(set) var chosenMode: ChatMode?
 
     /// The mode the label shows: the chat's, or the next chat's.
     private func refreshMode() {
@@ -1905,11 +1908,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// ticked, each with what it does as its tooltip; bypass in red.
     private func showModes() {
         let menu = NSMenu()
-        for mode in PermissionMode.allCases {
-            let item = menu.addItem(withTitle: L10n.t(ChatModel.modeKey(mode)),
+        for mode in chatBackend.modes {
+            let item = menu.addItem(withTitle: L10n.t(mode.nameKey),
                                     action: #selector(chooseMode(_:)), keyEquivalent: "")
-            item.representedObject = mode.rawValue
-            item.toolTip = L10n.t(ChatModel.modeDetailKey(mode))
+            item.representedObject = mode.id
+            item.toolTip = L10n.t(mode.detailKey)
             item.state = chatModel.mode == mode ? .on : .off
             if mode.asksBeforePicking {
                 item.attributedTitle = NSAttributedString(string: item.title,
@@ -1922,13 +1925,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// A mode picked from the label: the chat's from its next turn, and
     /// the default for the chats after it — except bypass, which is this
-    /// chat's alone (`PermissionMode.mayBeDefault`).
+    /// chat's alone (`ChatMode.mayBeDefault`).
     @objc private func chooseMode(_ sender: NSMenuItem) {
-        guard let mode = (sender.representedObject as? String).flatMap(PermissionMode.init(rawValue:)) else { return }
+        guard let mode = chatBackend.mode(stored: sender.representedObject as? String) else { return }
         choose(mode)
     }
 
-    func choose(_ mode: PermissionMode) {
+    func choose(_ mode: ChatMode) {
         guard mayPick(mode, over: chatModel.mode) else { return }
         if let id = currentChat, chats?.chat(id) != nil {
             chats?.setMode(id, mode)
@@ -1941,9 +1944,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The next chats' mode, and nothing else: the open chat —
     /// and a mode picked in the balloon for a chat not made yet — keeps
     /// its own. Stored under `modeDefaults`' isolation.
-    func setDefaultMode(_ mode: PermissionMode) {
+    func setDefaultMode(_ mode: ChatMode) {
         guard mode.mayBeDefault else { return }
-        if let modeDefaults { modeDefaults.set(mode.rawValue, forKey: Self.permissionModeKey) } else { modeUnstored = mode }
+        if let modeDefaults { modeDefaults.set(mode.id, forKey: chatBackend.modeKey) } else { modeUnstored = mode }
         refreshMode()
     }
 
@@ -1954,17 +1957,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Whether `mode` may replace `current`: every pick may, except a
     /// switch *to* bypass, which takes a yes. Picking bypass where it is
     /// already in force asks nothing.
-    func mayPick(_ mode: PermissionMode, over current: PermissionMode) -> Bool {
+    func mayPick(_ mode: ChatMode, over current: ChatMode) -> Bool {
         guard mode.asksBeforePicking, mode != current else { return true }
         return confirmBypass()
     }
 
-    /// `[Retry in Ask mode]` on a "not done" line: this chat asks from now
-    /// on — the default stays — and Claude is asked to try the call again,
-    /// so it comes back as a card.
+    /// `[Retry in Ask mode]` on a "not done" line: this chat is in the mode
+    /// the line names from now on (`ChatMode.retryDenialAs`) — the default
+    /// stays — and the agent is asked to try the call again, so it comes
+    /// back as a card.
     func retryAsking(_ line: ChatSession.NotDone) {
-        guard let id = currentChat, let chat = chats?.chat(id), !chat.isRunning else { return }
-        chats?.setMode(id, .ask)
+        guard let id = currentChat, let chat = chats?.chat(id), !chat.isRunning,
+              let mode = chatBackend.mode(stored: line.retryAs) else { return }
+        chats?.setMode(id, mode)
         refreshMode()
         send(L10n.t("chat.notDone.prompt", ["command": line.subject ?? line.tool]), attaching: false)
     }
@@ -2243,7 +2248,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             home: { [weak self] in self?.home },
             binary: { [weak self] in self?.executable },
             loginStatus: { [weak self] in self?.loginItem?.status },
-            loginPath: { [weak self] in self?.claudeLocator.lastLoginPath },
+            loginPath: { [weak self] in self?.chatLocator.lastLoginPath },
             hotKeyRefused: { [weak self] in self?.hotKeyStatus.map { $0 != noErr } ?? false },
             unreachableMachines: { [weak self] in
                 guard let remote = self?.remote else { return [] }
@@ -2283,11 +2288,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
-            defaultMode: { [weak self] in self?.defaultMode ?? .standard },
+            chatBackend: { [chatBackend] in chatBackend },
+            defaultMode: { [weak self, chatBackend] in self?.defaultMode ?? chatBackend.standardMode },
             setDefaultMode: { [weak self] in self?.setDefaultMode($0) },
-            locateClaude: { [weak self] completion in
+            locateBackend: { [weak self] completion in
                 guard let self else { return completion(nil) }
-                self.claudeLocator.locate { completion($0.executable) }
+                self.chatLocator.locate { completion($0.executable) }
             },
             memoryCount: { [weak self] in
                 guard let chats = self?.chats else { return nil }

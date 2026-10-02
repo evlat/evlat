@@ -21,19 +21,6 @@ final class BoundaryTests: XCTestCase {
     /// File (relative to `Sources`) → (mentions, why).
     private static let allowed: [String: (count: Int, reason: String)] = [
         "EvlatApp/SessionHost/TabLink.swift": (3, "host layer: an app's tab link, not an agent's"),
-        // The chat bubble still runs one agent's command line; these files
-        // are its chain, until the chat speaks through a backend of its own.
-        "EvlatCore/ClaudeInvocation.swift": (16, "chat seam"),
-        "EvlatCore/ChatSession.swift": (2, "chat seam"),
-        "EvlatApp/ClaudeRunner.swift": (9, "chat seam"),
-        "EvlatApp/ChatStore.swift": (7, "chat seam"),
-        "EvlatApp/AppController.swift": (9, "chat seam"),
-        "EvlatApp/UI/ChatModel.swift": (2, "chat seam"),
-        "EvlatApp/UI/ChatView.swift": (1, "chat seam"),
-        "EvlatApp/Settings/SettingsModel.swift": (11, "chat seam"),
-        "EvlatApp/Settings/SettingsView.swift": (7, "chat seam"),
-        "EvlatApp/Settings/SetupFlowModel.swift": (6, "chat seam"),
-        "EvlatApp/Settings/SetupView.swift": (4, "chat seam"),
     ]
 
     private static var repo: URL {

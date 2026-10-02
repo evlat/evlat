@@ -28,10 +28,10 @@ final class HTTPRequestTests: XCTestCase {
     }
 
     /// A chat turn's permission hook sends its token in its own header; the
-    /// name is `PermissionHook`'s, the one the inline settings write.
+    /// name is `ChatRequest.tokenHeader`, the one the inline settings write.
     func testReadsThePermissionToken() throws {
         let request = try XCTUnwrap(HTTPRequest.parse(raw(
-            "POST /permission HTTP/1.1\r\nHost: 127.0.0.1\r\n\(PermissionHook.tokenHeader): T-1\r\n\r\n")))
+            "POST /permission HTTP/1.1\r\nHost: 127.0.0.1\r\n\(ChatRequest.tokenHeader): T-1\r\n\r\n")))
         XCTAssertEqual(request.permissionToken, "T-1")
         XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /hook HTTP/1.1\r\nx-evlat-permission:\r\n\r\n")))
             .permissionToken, "empty counts as absent")

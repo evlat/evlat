@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 import SwiftUI
 import EvlatCore
 @testable import EvlatApp
+@testable import EvlatAgents
 
 /// The balloon: the machine-verifiable half of "it takes the
 /// keyboard and nothing else". The bar never takes focus and still does not;
@@ -285,7 +286,7 @@ final class ChatPanelTests: XCTestCase {
         defer { close(controller) }
         let fake = try fakeClaude()
         controller.chats = ChatStore(root: directory, platform: .unknown,
-                                     locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": fake]),
+                                     locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": fake]),
                                      environment: ["PATH": "/usr/bin:/bin"])
         let listener = HookListener(port: 0) { _ in }
         listener.start()
@@ -324,7 +325,7 @@ final class ChatPanelTests: XCTestCase {
         defer { close(controller) }
         let fake = try fakeClaude()
         controller.chats = ChatStore(root: directory, platform: .unknown,
-                                     locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": fake]),
+                                     locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": fake]),
                                      environment: ["PATH": "/usr/bin:/bin", "FAKE_CLAUDE_SCENARIO": "denied"],
                                      defaultMode: { [unowned controller] in
                                          MainActor.assumeIsolated { controller.defaultMode } })
@@ -377,7 +378,7 @@ final class ChatPanelTests: XCTestCase {
             if case .user = $0 { return true } else { return false }
         }), .user(text: L10n.t("chat.notDone.prompt", ["command": line.subject ?? ""]), attachments: []))
         settle("the retry ends")
-        XCTAssertFalse(controller.chatModel.canRetry, "a chat that asks has nothing to retry into")
+        XCTAssertFalse(controller.chatModel.canRetry(line), "a chat that asks has nothing to retry into")
 
         // The settings' default: the next chats', never the open one's.
         controller.setDefaultMode(.acceptEdits)
@@ -430,10 +431,43 @@ final class ChatPanelTests: XCTestCase {
         let suite = "evlat.tests.bypass.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("bypassPermissions", forKey: AppController.permissionModeKey)
-        XCTAssertEqual(AppController.storedMode(defaults), .standard)
-        defaults.set("acceptEdits", forKey: AppController.permissionModeKey)
-        XCTAssertEqual(AppController.storedMode(defaults), .acceptEdits)
+        defaults.set("bypassPermissions", forKey: ClaudeChat().modeKey)
+        XCTAssertEqual(AppController.storedMode(defaults, for: ClaudeChat()), .standard)
+        defaults.set("acceptEdits", forKey: ClaudeChat().modeKey)
+        XCTAssertEqual(AppController.storedMode(defaults, for: ClaudeChat()), .acceptEdits)
+    }
+
+    /// Each backend's new chats' mode is stored under its own key: Claude's
+    /// is the one stored before backends (`chat.permissionMode`), another's
+    /// `chat.<id>.mode`. One never reads the other's.
+    func testTheDefaultModeIsEachBackendsOwn() throws {
+        struct Other: ChatBackend {
+            let id = AgentID("other")
+            let executable = "other"
+            static let ask = ChatMode(id: "ask", nameKey: "chat.mode.ask")
+            static let edit = ChatMode(id: "edit", nameKey: "chat.mode.acceptEdits")
+            let modes = [Other.ask, Other.edit]
+            let offered = [Other.ask, Other.edit]
+            let standardMode = Other.ask
+            let caps = ChatCapabilities(asks: true, alwaysOption: .thisCommand, resume: true, memory: false,
+                                        transport: .duplex)
+            let stopPlan = ChatStopPlan.signal
+            func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch {
+                TurnLaunch(arguments: [], input: [], environment: [:], directory: spec.directory)
+            }
+            func parser() -> any ChatParser { ChatStream() }
+            func encode(_ decision: ChatDecision, for request: ChatRequest) -> ChatReply { .line(Data()) }
+        }
+        let suite = "evlat.tests.modes.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(ClaudeChat().modeKey, "chat.permissionMode")
+        XCTAssertEqual(Other().modeKey, "chat.other.mode")
+        defaults.set("acceptEdits", forKey: ClaudeChat().modeKey)
+        XCTAssertEqual(AppController.storedMode(defaults, for: Other()), Other.ask, "Claude's value is not the other's")
+        defaults.set("edit", forKey: Other().modeKey)
+        XCTAssertEqual(AppController.storedMode(defaults, for: Other()), Other.edit)
+        XCTAssertEqual(AppController.storedMode(defaults, for: ClaudeChat()), .acceptEdits)
     }
 
     /// The settings' default leaves a mode picked in the balloon for
@@ -476,9 +510,9 @@ final class ChatPanelTests: XCTestCase {
         let controller = controller()
         defer { close(controller) }
         controller.chats = ChatStore(root: directory, platform: .unknown,
-                                     locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]))
+                                     locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
         controller.openChat()
-        XCTAssertTrue(controller.chatModel.claudeMissing)
+        XCTAssertTrue(controller.chatModel.backendMissing)
     }
 
     // MARK: - Dropped files
@@ -557,7 +591,7 @@ final class ChatPanelTests: XCTestCase {
         // A `claude` that is found: no listener is handed in, so the turn
         // ends before anything runs — the prompt and its files are recorded.
         controller.chats = ChatStore(root: directory, platform: .unknown,
-                                     locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/usr/bin/true"]))
+                                     locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/usr/bin/true"]))
         controller.attach([ChatFolder.Item(path: folder.appendingPathComponent("rapor.pdf").path, isDirectory: false),
                            ChatFolder.Item(path: "/elsewhere/fatura.pdf", isDirectory: false)])
         XCTAssertNil(controller.chatModel.folder, "nothing in common but the root: its own workspace")

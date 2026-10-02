@@ -1,4 +1,5 @@
 @testable import EvlatAgents
+@testable import EvlatApp
 import EvlatCore
 
 // The catalog's agents by name, for tests that are about one of them:
@@ -20,4 +21,19 @@ extension HookEvent {
     init(json: [String: Any]) {
         self.init(json: json, source: .claude)
     }
+}
+
+extension ChatMode {
+    /// Claude's modes, by the names the chat tests use.
+    static var ask: ChatMode { PermissionMode.ask.chatMode }
+    static var auto: ChatMode { PermissionMode.auto.chatMode }
+    static var acceptEdits: ChatMode { PermissionMode.acceptEdits.chatMode }
+    static var bypass: ChatMode { PermissionMode.bypass.chatMode }
+    static var standard: ChatMode { PermissionMode.standard.chatMode }
+}
+
+extension ChatStore {
+    /// Claude's index file: the name written before each backend had its
+    /// own, which an older build reads and rewrites.
+    static let indexName = "chats.json"
 }

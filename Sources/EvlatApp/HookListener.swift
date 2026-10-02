@@ -351,7 +351,8 @@ public final class HookListener {
     /// session's (`ApprovalHook`), or a tunnel's `ssh` prompt (`Askpass`).
     private static func heldID(_ delivery: LocalAPI.Delivery?) -> String? {
         switch delivery {
-        case .permission(let asked)?, .approval(let asked)?: return asked.id
+        case .permission(let asked)?: return asked.id
+        case .approval(let asked)?: return asked.id
         case .askpass(let asked)?: return asked.id
         default: return nil
         }

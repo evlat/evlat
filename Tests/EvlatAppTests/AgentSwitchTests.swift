@@ -246,7 +246,7 @@ final class AgentSwitchTests: XCTestCase {
 
     private func flow(_ controller: AppController) -> SetupFlowModel {
         var settings = controller.settingsHost
-        settings.locateClaude = { $0(nil) }
+        settings.locateBackend = { $0(nil) }
         let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: controller.setupHost, lang: "en"),
                                   recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
                                   close: {}, lang: "en")

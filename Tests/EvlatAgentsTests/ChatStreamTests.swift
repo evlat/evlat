@@ -1,5 +1,6 @@
 import XCTest
 @testable import EvlatCore
+@testable import EvlatAgents
 
 /// The stream-json reader. Lines are shaped like the ones a real
 /// `claude -p --output-format stream-json --verbose --include-partial-messages`
@@ -8,7 +9,7 @@ final class ChatStreamTests: XCTestCase {
     private func events(_ lines: [String]) -> ([ChatStream.Event], ChatStream) {
         var stream = ChatStream()
         let data = Data(lines.map { $0 + "\n" }.joined().utf8)
-        return (stream.feed(data), stream)
+        return (stream.feed(data).events, stream)
     }
 
     func testInitGivesTheSessionID() {
@@ -103,15 +104,15 @@ final class ChatStreamTests: XCTestCase {
         XCTAssertNotEqual(whole.startIndex, 0)
         var stream = ChatStream()
         let cut = whole.startIndex + 20
-        var events = stream.feed(whole[whole.startIndex..<cut])
+        var events = stream.feed(whole[whole.startIndex..<cut]).events
         XCTAssertEqual(events, [])
-        events += stream.feed(whole[cut...])
+        events += stream.feed(whole[cut...]).events
         XCTAssertEqual(events, [.started(sessionID: "S1"), .textDelta("hi")])
     }
 
     func testAFinalLineWithoutANewlineIsReadAtTheEnd() {
         var stream = ChatStream()
-        XCTAssertEqual(stream.feed(Data(#"{"type":"result","subtype":"success","is_error":false}"#.utf8)), [])
+        XCTAssertEqual(stream.feed(Data(#"{"type":"result","subtype":"success","is_error":false}"#.utf8)).events, [])
         XCTAssertEqual(stream.finish(), [.result(.init(subtype: "success", isError: false, text: nil))])
         XCTAssertEqual(stream.finish(), [])
     }

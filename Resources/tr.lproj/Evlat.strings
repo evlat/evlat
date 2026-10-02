@@ -416,9 +416,9 @@
 "settings.chat.modes" = "Yeni sohbetlerin izin kipi";
 "settings.chat.modes.note" = "Balondaki kip düğmesi yalnız o sohbeti değiştirir.";
 "settings.chat.modes.recommended" = "önerilen";
-"settings.chat.claude.found" = "claude bulundu · {path}";
-"settings.chat.claude.missing" = "claude bulunamadı. Kipler claude kurulunca açılır.";
-"settings.chat.claude.looking" = "claude aranıyor…";
+"settings.chat.backend.found" = "{agent} bulundu · {path}";
+"settings.chat.backend.missing" = "{agent} bulunamadı. Kipler {agent} kurulunca açılır.";
+"settings.chat.backend.looking" = "{agent} aranıyor…";
 "settings.chat.memory" = "Hafıza";
 "settings.chat.memory.title" = "Evlat'ın hafızası";
 "settings.chat.memory.count" = "{count} not · çalışma alanı sohbetleri paylaşır";

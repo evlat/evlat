@@ -417,22 +417,15 @@ private struct ChatStep: View {
             }
             if model.showsModes {
                 SettingsRows {
-                    ForEach(PermissionMode.offered, id: \.self) { mode in
-                        ChoiceRow(title: model.t(ChatModel.modeKey(mode)),
-                                  badge: mode == .standard ? model.t("settings.chat.modes.recommended") : nil,
-                                  detail: model.t(ChatModel.modeDetailKey(mode)),
+                    ForEach(model.offeredModes, id: \.self) { mode in
+                        ChoiceRow(title: model.t(mode.nameKey),
+                                  badge: mode == model.standardMode ? model.t("settings.chat.modes.recommended") : nil,
+                                  detail: model.t(mode.detailKey),
                                   selected: model.mode == mode) { model.setMode(mode) }
                     }
                 }
             }
-            switch model.claude {
-            case .found(let path):
-                Paragraph(text: model.t("settings.chat.claude.found", ["path": SettingsModel.tilde(path)]), small: true)
-            case .missing:
-                Paragraph(text: model.t("settings.chat.claude.missing"), small: true)
-            case .looking:
-                Paragraph(text: model.t("settings.chat.claude.looking"), small: true)
-            }
+            Paragraph(text: model.backendLine, small: true)
         }
     }
 }

@@ -1,37 +1,38 @@
 import Foundation
 import EvlatCore
 
-/// One chat turn's `claude -p` process: stdin a pipe that
-/// carries the one user line, stdout read chunk by chunk and handed to the
-/// main queue, the tail of stderr kept for the failure.
+/// One chat turn's process: stdin a pipe that carries the launch's lines,
+/// stdout read chunk by chunk and handed to the main queue, the tail of
+/// stderr kept for the failure. One way: what it reads is never answered
+/// on stdin, which closes once the turn's result is in.
 ///
-/// The rules are the core's (`ClaudeInvocation`, `ChatStream`,
+/// The rules are the core's and the backend's (`TurnLaunch`, `ChatParser`,
 /// `ChatSession`); this is only the process — `SSHProcess`'s pattern.
 ///
 /// **Main queue** for every callback: chunks and the exit are hopped there
 /// in order, so the stream is fed where the store lives.
-final class ClaudeRunner {
+final class TurnRunner {
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
     private let errors = Pipe()
     private let tail = StderrTail()
-    private let invocation: ClaudeInvocation
+    private let launch: TurnLaunch
     private let onOutput: (Data) -> Void
     private let onExit: (Int32, String) -> Void
 
     /// `path` replaces the inherited `PATH` when given: the login shell's,
     /// so the turn's own tools find what the user's terminal finds.
-    init(executable: String, invocation: ClaudeInvocation, path: String?,
+    init(executable: String, launch: TurnLaunch, path: String?,
          environment: [String: String] = ProcessInfo.processInfo.environment,
          onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32, String) -> Void) {
-        self.invocation = invocation
+        self.launch = launch
         self.onOutput = onOutput
         self.onExit = onExit
         process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = invocation.arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: invocation.directory, isDirectory: true)
-        var environment = invocation.environment(inheriting: environment)
+        process.arguments = launch.arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: launch.directory, isDirectory: true)
+        var environment = launch.environment(inheriting: environment)
         if let path { environment["PATH"] = path }
         process.environment = environment
         process.standardInput = input
@@ -42,8 +43,8 @@ final class ClaudeRunner {
     var isRunning: Bool { process.isRunning }
     var processIdentifier: Int32 { process.processIdentifier }
 
-    /// Starts the process and writes the user line: `nil`, or why it could
-    /// not start (then `onExit` is never called).
+    /// Starts the process and writes the launch's lines: `nil`, or why it
+    /// could not start (then `onExit` is never called).
     func run() -> String? {
         let tail = self.tail
         let onOutput = self.onOutput
@@ -90,16 +91,21 @@ final class ClaudeRunner {
         // SIGPIPE and take Evlat with it. The flag turns that into an error.
         let fd = input.fileHandleForWriting.fileDescriptor
         _ = fcntl(fd, F_SETNOSIGPIPE, 1)
-        // Off the main queue: a line past the pipe's 64 KB (a pasted log)
-        // would block until `claude` reads stdin, the UI with it. The same
-        // serial queue closes stdin, so a close never cuts a write short.
-        let writer = input.fileHandleForWriting, line = invocation.input
-        stdin.async { try? writer.write(contentsOf: line) }
+        launch.input.forEach(write)
         return nil
     }
 
+    /// One line to stdin, after what was written before it. Off the main
+    /// queue: a line past the pipe's 64 KB (a pasted log) would block until
+    /// the turn reads stdin, the UI with it. The same serial queue closes
+    /// stdin, so a close never cuts a write short.
+    func write(_ line: Data) {
+        let writer = input.fileHandleForWriting
+        stdin.async { try? writer.write(contentsOf: line) }
+    }
+
     /// Stdin's writes and its close, in order.
-    private let stdin = DispatchQueue(label: "dev.kalaomer.evlat.claude-stdin")
+    private let stdin = DispatchQueue(label: "dev.kalaomer.evlat.turn-stdin")
 
     /// Stdin closed. After the `result` this is what lets the process exit
     /// (measured: 0.8 s later).
@@ -111,11 +117,24 @@ final class ClaudeRunner {
     /// How long Stop waits after SIGINT before SIGTERM.
     static let stopGrace: TimeInterval = 5
 
-    /// Ends the turn: SIGINT, the documented way ("To end the turn instead,
-    /// send SIGINT"), and stdin closed so the process does not wait for a
-    /// next message. Whether SIGINT alone exits 2.1.281 is not measured, so
-    /// a turn still running `stopGrace` later gets SIGTERM: Stop must end
-    /// it, or the chat stays running until Evlat quits.
+    /// Ends the turn the backend's way (`ChatStopPlan`).
+    func stop(_ plan: ChatStopPlan) {
+        switch plan {
+        case .signal: interrupt()
+        case .line(let line):
+            // The turn ends itself; one that does not is ended all the same.
+            write(line)
+            let process = self.process
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.stopGrace) {
+                if process.isRunning { process.terminate() }
+            }
+        }
+    }
+
+    /// Ends the turn: SIGINT, and stdin closed so the process does not wait
+    /// for a next message. Whether SIGINT alone exits every version is not
+    /// measured, so a turn still running `stopGrace` later gets SIGTERM:
+    /// Stop must end it, or the chat stays running until Evlat quits.
     func interrupt() {
         guard process.isRunning else { return closeInput() }
         kill(process.processIdentifier, SIGINT)
@@ -133,11 +152,11 @@ final class ClaudeRunner {
     }
 }
 
-/// Finds `claude` once: `EVLAT_CLAUDE` first; else the login
-/// shell's `PATH`, read once with a time limit, because an app opened from
-/// Finder inherits a short `PATH` and would find neither `claude` nor the
-/// tools its turns run.
-final class ClaudeLocator {
+/// Finds a chat backend's program once: `EVLAT_<NAME>` first; else the
+/// login shell's `PATH`, read once with a time limit, because an app opened
+/// from Finder inherits a short `PATH` and would find neither the program
+/// nor the tools its turns run.
+final class AgentLocator {
     struct Location: Equatable {
         /// The binary, or `nil` when there is none.
         let executable: String?
@@ -145,6 +164,8 @@ final class ClaudeLocator {
         let path: String?
     }
 
+    /// The program looked for (`ChatBackend.executable`).
+    let name: String
     private let environment: [String: String]
     private let loginPath: () -> String?
     private var found: Location?
@@ -157,11 +178,13 @@ final class ClaudeLocator {
     /// may print a banner, and only what is between them is read.
     static let marker = "__EVLAT_PATH__"
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment,
-         loginPath: @escaping () -> String? = { ClaudeLocator.readLoginPath() }) {
+    init(name: String, environment: [String: String] = ProcessInfo.processInfo.environment,
+         loginPath: @escaping () -> String? = { AgentLocator.readLoginPath() }) {
+        self.name = name
         self.environment = environment
         self.loginPath = loginPath
-        if let raw = environment["EVLAT_CLAUDE"]?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+        if let raw = environment[ChatBackends.variable(for: name)]?.trimmingCharacters(in: .whitespaces),
+           !raw.isEmpty {
             let path = (raw as NSString).expandingTildeInPath
             found = Location(executable: FileManager.default.isExecutableFile(atPath: path) ? path : nil,
                              path: nil)
@@ -176,14 +199,15 @@ final class ClaudeLocator {
         guard waiting.count == 1 else { return }
         let loginPath = self.loginPath
         let inherited = environment["PATH"]
+        let name = self.name
         DispatchQueue.global(qos: .userInitiated).async {
             let path = loginPath()
-            let location = Location(executable: Self.find("claude", in: path ?? inherited ?? ""),
+            let location = Location(executable: Self.find(name, in: path ?? inherited ?? ""),
                                     path: path)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if let path { self.lastLoginPath = path }
-                // A miss is not kept: `claude` may be installed, or a slow
+                // A miss is not kept: the program may be installed, or a slow
                 // shell may answer, by the next send. Nor a hit on the
                 // inherited `PATH` alone: turns would run with Finder's
                 // short one for good.
@@ -256,7 +280,7 @@ final class ClaudeLocator {
             lock.withLock {
                 data.append(chunk)
                 let complete = chunk.isEmpty
-                    || String(decoding: data, as: UTF8.self).components(separatedBy: ClaudeLocator.marker).count >= 3
+                    || String(decoding: data, as: UTF8.self).components(separatedBy: AgentLocator.marker).count >= 3
                 guard complete, !signalled else { return false }
                 signalled = true
                 return true

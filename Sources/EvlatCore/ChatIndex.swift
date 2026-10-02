@@ -10,6 +10,12 @@ import Foundation
 public struct ChatIndex: Equatable, Codable {
     public static let currentVersion = 1
 
+    /// A backend's own index file under the store's root, unless it kept
+    /// one from before backends had their own (`ChatBackend.indexFile`).
+    /// Each file is written whole, so a build that knows one backend never
+    /// drops another's chats.
+    public static func fileName(for backend: AgentID) -> String { "chats-\(backend.rawValue).json" }
+
     public var version: Int
     public var entries: [Entry]
 
@@ -47,10 +53,11 @@ public struct ChatIndex: Equatable, Codable {
         /// `ChatSession.unseenLifetime`. Optional, so a file written before
         /// it existed still reads (a missing key is `nil`, "seen").
         public var unseen: Phase?
-        /// The chat's `PermissionMode`, by its CLI value. A string, not the
-        /// enum: a value this build does not know (or none, from a file
-        /// written before modes) reads as `nil` rather than making the whole
-        /// file unreadable; `PermissionMode(stored:)` falls back.
+        /// The chat's mode, by its id (`ChatMode.id`, the backend's own
+        /// word). A string: a value this build does not know (or none, from
+        /// a file written before modes) is passed over rather than making the
+        /// whole file unreadable; `ChatSession.restored` falls back. The key
+        /// keeps its first name: renaming it would lose every stored value.
         public var permissionMode: String?
 
         public init(id: String, sessionID: String, title: String? = nil, folder: String,

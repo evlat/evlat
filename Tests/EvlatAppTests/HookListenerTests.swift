@@ -1,6 +1,7 @@
 import XCTest
 import EvlatCore
 @testable import EvlatApp
+@testable import EvlatAgents
 
 /// The listener against a **real socket**. Everything a request means is
 /// already pinned without one (`LocalAPITests`, `HTTPRequestTests`); what is
@@ -273,10 +274,10 @@ final class HookListenerTests: XCTestCase {
     private let permissionBody = #"{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}"#
 
     private func permissionRequest(port: UInt16, timeout: TimeInterval = 5) -> URLRequest {
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(PermissionHook.path)")!)
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(ChatRequest.path)")!)
         request.httpMethod = "POST"
         request.httpBody = Data(permissionBody.utf8)
-        request.setValue("T-1", forHTTPHeaderField: PermissionHook.tokenHeader)
+        request.setValue("T-1", forHTTPHeaderField: ChatRequest.tokenHeader)
         request.timeoutInterval = timeout
         return request
     }
@@ -284,7 +285,7 @@ final class HookListenerTests: XCTestCase {
     /// The answer is the user's: the connection stays open until `answer`,
     /// and what is written then is what the client reads.
     func testAPermissionRequestIsHeldUntilAnswered() throws {
-        var asked: HeldRequest?
+        var asked: ChatRequest?
         let arrived = expectation(description: "request on the main queue")
         let listener = HookListener(port: Self.anyPort, onAbandoned: { _ in }) { delivery in
             if case .permission(let request) = delivery { asked = request }
@@ -316,7 +317,7 @@ final class HookListenerTests: XCTestCase {
     /// Claude's time runs out, or its turn ends: the far side closes and the
     /// card must go.
     func testAHeldRequestThatClosesIsAbandoned() throws {
-        var asked: HeldRequest?
+        var asked: ChatRequest?
         var abandoned: String?
         let gone = expectation(description: "abandoned on the main queue")
         let listener = HookListener(port: Self.anyPort, onAbandoned: { id in
@@ -332,8 +333,8 @@ final class HookListenerTests: XCTestCase {
 
         let curl = Process()
         curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        curl.arguments = ["-s", "-m", "1", "-X", "POST", "-H", "\(PermissionHook.tokenHeader): T-1",
-                          "--data-binary", permissionBody, "http://127.0.0.1:\(port)\(PermissionHook.path)"]
+        curl.arguments = ["-s", "-m", "1", "-X", "POST", "-H", "\(ChatRequest.tokenHeader): T-1",
+                          "--data-binary", permissionBody, "http://127.0.0.1:\(port)\(ChatRequest.path)"]
         curl.standardOutput = FileHandle.nullDevice
         try curl.run()
         wait(for: [gone], timeout: 5)

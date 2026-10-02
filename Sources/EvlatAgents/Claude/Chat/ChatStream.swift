@@ -1,4 +1,5 @@
 import Foundation
+import EvlatCore
 
 /// Reads a `claude -p --output-format stream-json` stdout, line by line, into
 /// the few events a chat shows.
@@ -15,77 +16,35 @@ import Foundation
 /// partial-message machinery around the text) is quiet and uncounted.
 ///
 /// Pure: no process, no queue. The shell feeds it on the main queue.
-public struct ChatStream {
-    public enum Event: Equatable {
-        /// `system/init`: the turn reached Claude and this is its session.
-        case started(sessionID: String)
-        /// A piece of the reply as it is written.
-        case textDelta(String)
-        /// A finished assistant message: its text (blocks joined) and the
-        /// tools it calls, each reduced to one line.
-        case assistant(text: String?, tools: [ToolCall])
-        /// A tool's result: whether it failed, and the first line of what it
-        /// said, capped — the one line a tool call's row opens to.
-        case toolResult(id: String, isError: Bool, output: String?)
-        case result(Result)
-        /// `system/permission_denied`: a tool call denied without a prompt —
-        /// auto mode's classifier, a deny rule — or by a `PermissionRequest`
-        /// hook (`reason` `hook`: a card's answer). Measured on 2.1.281:
-        /// `tool_name`, `tool_use_id`,
-        /// `decision_reason_type` (`subcommandResults` for a rule on a
-        /// compound command; `classifier`, `rule`, `mode`, `hook`, … in the
-        /// schema) and `message`, the text the tool's result carries too.
-        case permissionDenied(Denial)
-    }
+struct ChatStream: ChatParser {
+    /// The events are the bubble's own (`ChatEvent`); these names are the
+    /// stream's words for them.
+    ///
+    /// `system/init`: the turn reached Claude and this is its session.
+    /// `system/permission_denied`: a tool call denied without a prompt —
+    /// auto mode's classifier, a deny rule — or by a `PermissionRequest`
+    /// hook (`decision_reason_type` `hook`: a card's answer). Measured on
+    /// 2.1.281: `tool_name`, `tool_use_id`, `decision_reason_type`
+    /// (`subcommandResults` for a rule on a compound command; `classifier`,
+    /// `rule`, `mode`, `hook`, … in the schema) and `message`, the text the
+    /// tool's result carries too.
+    typealias Event = ChatEvent
+    typealias ToolCall = ChatEvent.ToolCall
+    typealias Denial = ChatEvent.Denial
+    typealias Result = ChatEvent.Result
 
-    public struct ToolCall: Equatable {
-        public let id: String
-        public let name: String
-        /// `HookEvent.subject(of:)` over the input — the same line a session's
-        /// card shows. The raw input is never kept (`Write` carries a file).
-        public let subject: String?
-
-        public init(id: String, name: String, subject: String?) {
-            self.id = id
-            self.name = name
-            self.subject = subject
-        }
-    }
-
-    public struct Denial: Equatable {
-        public let tool: String?
-        public let toolUseID: String?
-        /// `decision_reason_type`, as Claude words it.
-        public let reason: String?
-        public let message: String?
-
-        public init(tool: String?, toolUseID: String? = nil, reason: String? = nil, message: String? = nil) {
-            self.tool = tool
-            self.toolUseID = toolUseID
-            self.reason = reason
-            self.message = message
-        }
-    }
-
-    public struct Result: Equatable {
-        /// `success`, or an `error_*` word.
-        public let subtype: String
-        public let isError: Bool
-        /// The final reply text, when the source gives one.
-        public let text: String?
-
-        public init(subtype: String, isError: Bool, text: String?) {
-            self.subtype = subtype
-            self.isError = isError
-            self.text = text
-        }
-    }
+    /// The denial reason that is a card's answer: the card already says so.
+    static let answeredReason = "hook"
+    /// The denial reason that is auto mode's classifier: its own judgement,
+    /// the one a turn that asks instead could get past. Any other (`rule`,
+    /// `subcommandResults`, …) is a deny rule, which denies in every mode.
+    static let retryableReason = "classifier"
 
     /// The key a line that is not a JSON object is counted under.
-    public static let unparsable = "(unparsable)"
+    static let unparsable = "(unparsable)"
 
     /// Words read but not known, with how often: `type`, or `system/<subtype>`.
-    public private(set) var unrecognized: [String: Int] = [:]
+    private(set) var unrecognized: [String: Int] = [:]
 
     private var buffer = Data()
 
@@ -98,12 +57,12 @@ public struct ChatStream {
         "thinking_tokens",
     ]
 
-    public init() {}
+    init() {}
 
     /// Takes one chunk as read from the pipe and returns the events of every
     /// line it completed. The chunk may be a slice: indices are taken from
     /// `startIndex`, never from zero (`AGENTS.md` → Pitfalls).
-    public mutating func feed(_ chunk: Data) -> [Event] {
+    mutating func feed(_ chunk: Data) -> (events: [ChatEvent], replies: [Data]) {
         buffer.append(chunk)
         var events: [Event] = []
         while let newline = buffer.firstIndex(of: 0x0A) {
@@ -111,11 +70,12 @@ public struct ChatStream {
             if let event = parse(line: line) { events.append(event) }
             buffer.removeSubrange(buffer.startIndex...newline)
         }
-        return events
+        // One way: nothing is written back.
+        return (events, [])
     }
 
     /// The pipe closed: a last line without a newline is still a line.
-    public mutating func finish() -> [Event] {
+    mutating func finish() -> [Event] {
         defer { buffer = Data() }
         return parse(line: buffer).map { [$0] } ?? []
     }
@@ -137,10 +97,13 @@ public struct ChatStream {
                 guard let id = json["session_id"] as? String, !id.isEmpty else { break }
                 return .started(sessionID: id)
             case "permission_denied":
+                let reason = json["decision_reason_type"] as? String
                 return .permissionDenied(Denial(tool: json["tool_name"] as? String,
                                                 toolUseID: json["tool_use_id"] as? String,
-                                                reason: json["decision_reason_type"] as? String,
-                                                message: json["message"] as? String))
+                                                reason: reason,
+                                                message: json["message"] as? String,
+                                                answered: reason == Self.answeredReason,
+                                                retryable: reason == Self.retryableReason))
             case let quiet where Self.quietSystem.contains(quiet):
                 return nil
             default:

@@ -1,25 +1,24 @@
 import Foundation
+import EvlatCore
 
 /// How one chat turn is started: `claude -p`'s arguments, the one stdin line
 /// and what the environment gains (a process per turn).
 ///
-/// Pure — the shell resolves the binary and the `PATH` and runs it
-/// (`ClaudeRunner`).
-public struct ClaudeInvocation: Equatable {
-    public let arguments: [String]
+/// Pure — the shell resolves the binary and the `PATH` and runs it, as the
+/// backend's `TurnLaunch` (`ClaudeChat.turn`).
+struct ClaudeInvocation: Equatable {
+    let arguments: [String]
     /// One documented stream-json user line, newline-terminated. The stream
     /// stays open after it: the shell closes stdin when the `result` arrives,
     /// which is when the process exits (measured).
-    public let input: Data
+    let input: Data
     /// Added to the inherited environment.
-    public let environment: [String: String]
+    let environment: [String: String]
     /// The working directory the turn runs in.
-    public let directory: String
+    let directory: String
 
-    /// The variable the installed hook command sends as `X-Evlat-Task`
-    /// (`LocalAPI.installedHookCommand`), so the user's own hooks mark this
-    /// turn's events as an Evlat errand and `HooksProvider` leaves them out.
-    public static let taskVariable = "EVLAT_TASK"
+    /// The variable the installed hook command sends as `X-Evlat-Task`.
+    static let taskVariable = TurnLaunch.taskVariable
 
     /// What a Claude Code session puts in its children's environment to say
     /// "you run inside me" (read off 2.1.281's bundle). An Evlat
@@ -27,7 +26,7 @@ public struct ClaudeInvocation: Equatable {
     /// them would take itself for a child session and reach for the parent's
     /// messaging socket. User settings (`CLAUDE_CODE_USE_BEDROCK`, …) are not
     /// on the list and pass.
-    public static let parentSessionVariables: Set<String> = [
+    static let parentSessionVariables: Set<String> = [
         "CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENT",
         "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
         "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ATTENDED",
@@ -36,15 +35,14 @@ public struct ClaudeInvocation: Equatable {
 
     /// The turn's whole environment: `inherited` without a parent session's
     /// markers, plus what this turn adds.
-    public func environment(inheriting inherited: [String: String]) -> [String: String] {
-        inherited.filter { !Self.parentSessionVariables.contains($0.key) }
-            .merging(environment) { _, new in new }
+    func environment(inheriting inherited: [String: String]) -> [String: String] {
+        launch.environment(inheriting: inherited)
     }
 
     /// The flags every turn carries. `--verbose` is required by stream-json
     /// output on 2.1.281; `--include-partial-messages` is what streams the
     /// reply as it is written.
-    public static let base = ["-p", "--input-format", "stream-json", "--output-format", "stream-json",
+    static let base = ["-p", "--input-format", "stream-json", "--output-format", "stream-json",
                        "--verbose", "--include-partial-messages"]
 
     /// The first turn names the session (`--session-id`: Evlat picks the id,
@@ -60,7 +58,7 @@ public struct ClaudeInvocation: Equatable {
     /// folder.
     ///
     /// `mode` is the chat's (`PermissionMode`): `--permission-mode`.
-    public static func turn(chatID: String, sessionID: String, resume: Bool,
+    static func turn(chatID: String, sessionID: String, resume: Bool,
                             prompt: String, attachments: [String], directory: String,
                             addDirectories: [String] = [], allowedTools: [String] = [],
                             mode: PermissionMode = .standard) -> ClaudeInvocation {
@@ -91,11 +89,18 @@ public struct ClaudeInvocation: Equatable {
     /// `memoryDirectory` goes into the same settings as
     /// `autoMemoryDirectory` (`PermissionHook.settings`): a workspace chat's,
     /// never a chat in the user's folder.
-    public func asking(_ endpoint: PermissionHook.Endpoint, memoryDirectory: String? = nil) -> ClaudeInvocation {
+    func asking(_ endpoint: PermissionHook.Endpoint, memoryDirectory: String? = nil) -> ClaudeInvocation {
         let settings = PermissionHook.settings(port: endpoint.port, token: endpoint.token,
                                                memoryDirectory: memoryDirectory)
         return ClaudeInvocation(arguments: arguments + ["--permission-prompts", "none", "--settings", settings],
                                 input: input, environment: environment, directory: directory)
+    }
+
+    /// The turn as the shell starts it: one stdin line, and a parent
+    /// session's markers taken out of what it inherits.
+    var launch: TurnLaunch {
+        TurnLaunch(arguments: arguments, input: [input], environment: environment,
+                   removedEnvironment: Self.parentSessionVariables, directory: directory)
     }
 
     /// `{"type":"user","message":{"role":"user","content":…}}`. Attached

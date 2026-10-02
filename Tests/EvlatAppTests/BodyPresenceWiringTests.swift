@@ -513,7 +513,7 @@ final class BodyPresenceWiringTests: XCTestCase {
                                     started: true, unseen: .review)
         try? ChatIndex(entries: [entry]).encoded().write(to: directory.appendingPathComponent(ChatStore.indexName))
         let store = ChatStore(root: directory, platform: .unknown,
-                              locator: ClaudeLocator(environment: ["EVLAT_CLAUDE": "/nonexistent"]),
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]),
                               now: { clock.now })
         controller.chats = store
         controller.registry.register(store.provider)
