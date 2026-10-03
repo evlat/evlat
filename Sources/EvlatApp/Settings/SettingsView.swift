@@ -135,6 +135,22 @@ private struct GeneralSection: View {
                 LoginRow(row: row, setup: setup)
             }
         }
+        if model.hasUpdater {
+            SettingsGroup(title: model.t("settings.general.updates")) {
+                RowBox {
+                    HStack(spacing: 10) {
+                        RowTitle(name: model.t("settings.general.autoUpdate"),
+                                 detail: model.t("settings.general.autoUpdate.detail"))
+                        Toggle("", isOn: Binding(get: { model.automaticallyUpdates },
+                                                 set: { model.setAutomaticallyUpdates($0) }))
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .labelsHidden()
+                            .accessibilityLabel(model.t("settings.general.autoUpdate"))
+                    }
+                }
+            }
+        }
         SettingsGroup(title: model.t("settings.general.setup")) {
             RowBox {
                 HStack(spacing: 10) {

@@ -85,7 +85,10 @@ if [ -n "${EVLAT_FEED_URL:-}" ] || [ -n "${EVLAT_ED_KEY:-}" ]; then
   fi
   UPDATES="  <key>SUFeedURL</key><string>$EVLAT_FEED_URL</string>
   <key>SUPublicEDKey</key><string>$EVLAT_ED_KEY</string>
-  <key>SUEnableAutomaticChecks</key><true/>"
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>3600</integer>
+  <key>SUScheduledImpatientCheckInterval</key><integer>86400</integer>
+  <key>SUAutomaticallyUpdate</key><true/>"
 fi
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

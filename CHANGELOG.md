@@ -21,6 +21,12 @@ Markdown; keep it to a few bullets.
   takes both out of the running sandboxes. **Go to session** opens the tab
   of the `sbx run` that started the session, when it can tell which.
   Sandboxes in Docker's cloud can't reach your Mac.
+- **Updates on their own.** Evlat now looks for a new version every hour,
+  downloads it in the background and installs it when Evlat quits. If
+  Evlat stays open, it asks once a day to restart and install. Turn it
+  off in Settings → General → **Install updates automatically**. If you
+  choose **Remind Me Later**, Evlat won't ask again for a day; the menu
+  shows **Update Available** until then.
 
 ## 0.2.0
 

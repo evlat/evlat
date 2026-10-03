@@ -2741,6 +2741,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             soundVolume: { Double(SoundPlayer.volume) },
             setSoundVolume: { [weak self] in self?.setSoundVolume($0) },
             packBrowser: { [weak self] in self?.packBrowser },
+            hasUpdater: { [weak self] in self?.updater?.offersAutomaticUpdates == true },
+            automaticallyUpdates: { [weak self] in self?.updater?.automaticallyUpdates() ?? false },
+            setAutomaticallyUpdates: { [weak self] in self?.updater?.setAutomaticallyUpdates($0) },
             hidesStaleUsage: { [weak self] in self?.hidesStaleUsage ?? false },
             setHidesStaleUsage: { [weak self] in self?.setHidesStaleUsage($0) },
             nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
@@ -2969,7 +2972,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 defaults: .standard, home: resolvedHome(),
                 loginItem: LoginItem(service: LoginItem.service(environment: environment)),
                 updater: Updater.feed(info: Bundle.main.infoDictionary ?? [:], environment: environment)
-                    .map { Updater.sparkle(feed: $0) })
+                    .map { Updater.sparkle(feed: $0, defaults: Isolation.isIsolated(environment) ? nil : .standard) })
             controller.languageDomain = Bundle.main.bundleIdentifier
             app.delegate = controller
             app.run()
@@ -4080,7 +4083,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                  action: #selector(openSetupFromMenu(_:)), keyEquivalent: "")
         setup.target = self
         if updater != nil {
-            let update = menu.addItem(withTitle: L10n.t("menu.update", in: lang),
+            // A found update the user put off is said here until its window
+            // opens again (`UpdateReminder`); the same click brings it.
+            let title = updater?.pendingVersion().map { L10n.t("menu.update.pending", ["version": $0], in: lang) }
+                ?? L10n.t("menu.update", in: lang)
+            let update = menu.addItem(withTitle: title,
                                       action: #selector(checkForUpdates(_:)), keyEquivalent: "")
             update.target = self
         }

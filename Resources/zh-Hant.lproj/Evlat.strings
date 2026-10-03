@@ -403,6 +403,9 @@
 "settings.general.display.missing" = "{name}（未連接）";
 "settings.general.display.seam" = "這一側與另一個螢幕相鄰。游標不會停在那裡，因此可能不容易打開長條。";
 "settings.general.start" = "啟動";
+"settings.general.updates" = "更新";
+"settings.general.autoUpdate" = "自動安裝更新";
+"settings.general.autoUpdate.detail" = "新版本會在背景下載，並在結束 Evlat 時安裝。如果 Evlat 一直開著，它每天詢問一次是否重新啟動以安裝。";
 "settings.general.body" = "本體";
 "settings.general.body.detail" = "長條如何停靠在螢幕邊緣。";
 "settings.general.body.always" = "一律顯示";
@@ -545,6 +548,7 @@
 
 "menu.setup" = "設定輔助程式…";
 "menu.update" = "檢查更新…";
+"menu.update.pending" = "有可用的更新：{version}…";
 "settings.general.setup" = "設定輔助程式";
 "settings.general.setup.detail" = "重新走一次首次啟動的步驟。";
 "settings.general.setup.open" = "打開設定輔助程式…";

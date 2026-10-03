@@ -404,6 +404,9 @@
 "settings.general.display.missing" = "{name} (не подключён)";
 "settings.general.display.seam" = "За этим краем другой экран. Курсор там не останавливается, поэтому полосу может быть трудно открыть.";
 "settings.general.start" = "Запуск";
+"settings.general.updates" = "Обновления";
+"settings.general.autoUpdate" = "Устанавливать обновления автоматически";
+"settings.general.autoUpdate.detail" = "Новые версии загружаются в фоне и устанавливаются при выходе из Evlat. Если Evlat не закрывать, раз в день он предложит перезапуститься для установки.";
 "settings.general.body" = "Тело";
 "settings.general.body.detail" = "Как полоса стоит у края экрана.";
 "settings.general.body.always" = "Всегда видна";
@@ -546,6 +549,7 @@
 
 "menu.setup" = "Настройка…";
 "menu.update" = "Проверить обновления…";
+"menu.update.pending" = "Доступно обновление: {version}…";
 "settings.general.setup" = "Настройка";
 "settings.general.setup.detail" = "Пройти шаги первого запуска ещё раз.";
 "settings.general.setup.open" = "Открыть настройку…";

@@ -83,6 +83,12 @@ final class SettingsModel: ObservableObject {
         /// The characters sheet; `nil` with no home or in an isolated
         /// process, which download nothing.
         var packBrowser: () -> SoundPackBrowser? = { nil }
+        /// General's "Updates": only a copy with an updater that offers the
+        /// switch has the row (`Updater.offersAutomaticUpdates`), and the
+        /// switch is Sparkle's own (`Updater.automaticallyUpdates`).
+        var hasUpdater: () -> Bool = { false }
+        var automaticallyUpdates: () -> Bool = { false }
+        var setAutomaticallyUpdates: (Bool) -> Void = { _ in }
         /// Usage's switch: leave out what was not seen for the hour.
         var hidesStaleUsage: () -> Bool = { false }
         var setHidesStaleUsage: (Bool) -> Void = { _ in }
@@ -431,6 +437,15 @@ final class SettingsModel: ObservableObject {
     }
 
     var packBrowser: SoundPackBrowser? { host.packBrowser() }
+
+    var hasUpdater: Bool { host.hasUpdater() }
+    var automaticallyUpdates: Bool { host.automaticallyUpdates() }
+
+    func setAutomaticallyUpdates(_ on: Bool) {
+        guard on != host.automaticallyUpdates() else { return }
+        host.setAutomaticallyUpdates(on)
+        objectWillChange.send()
+    }
 
     var hidesStaleUsage: Bool { host.hidesStaleUsage() }
 
@@ -821,6 +836,7 @@ final class SettingsModel: ObservableObject {
         "language.name",
         "settings.general.bar", "settings.general.edge", "settings.general.edge.detail",
         "settings.general.edge.left", "settings.general.edge.right", "settings.general.start",
+        "settings.general.updates", "settings.general.autoUpdate", "settings.general.autoUpdate.detail",
         "settings.general.display", "settings.general.display.detail", "settings.general.display.main",
         "settings.general.display.missing", "settings.general.display.seam",
         "settings.general.body", "settings.general.body.detail", "settings.general.body.always",

@@ -404,6 +404,9 @@
 "settings.general.display.missing" = "{name} (non connecté)";
 "settings.general.display.seam" = "Ce bord touche un autre écran. Le pointeur ne s’y arrête pas, la barre peut donc être difficile à ouvrir.";
 "settings.general.start" = "Démarrage";
+"settings.general.updates" = "Mises à jour";
+"settings.general.autoUpdate" = "Installer les mises à jour automatiquement";
+"settings.general.autoUpdate.detail" = "Les nouvelles versions se téléchargent en arrière-plan et s’installent quand vous quittez Evlat. Si Evlat reste ouvert, il propose une fois par jour de redémarrer pour l’installer.";
 "settings.general.body" = "Corps";
 "settings.general.body.detail" = "La façon dont la barre se tient au bord de l’écran.";
 "settings.general.body.always" = "Toujours visible";
@@ -546,6 +549,7 @@
 
 "menu.setup" = "Configuration…";
 "menu.update" = "Rechercher des mises à jour…";
+"menu.update.pending" = "Mise à jour disponible : {version}…";
 "settings.general.setup" = "Configuration";
 "settings.general.setup.detail" = "Refaire les étapes du premier lancement.";
 "settings.general.setup.open" = "Ouvrir la configuration…";

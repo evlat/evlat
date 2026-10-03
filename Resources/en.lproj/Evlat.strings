@@ -468,6 +468,9 @@
 "settings.general.display.missing" = "{name} (not connected)";
 "settings.general.display.seam" = "This edge borders another screen. The cursor won't stop there, so the bar may be hard to open.";
 "settings.general.start" = "Startup";
+"settings.general.updates" = "Updates";
+"settings.general.autoUpdate" = "Install updates automatically";
+"settings.general.autoUpdate.detail" = "New versions download in the background and install when Evlat quits. If Evlat stays open, it asks once a day to restart and install.";
 "settings.general.body" = "Body";
 "settings.general.body.detail" = "How the bar sits on the edge of the screen.";
 "settings.general.body.always" = "Always out";
@@ -614,6 +617,7 @@
 /* The setup window (014/phase-3) */
 "menu.setup" = "Setup…";
 "menu.update" = "Check for Updates…";
+"menu.update.pending" = "Update Available: {version}…";
 "settings.general.setup" = "Setup";
 "settings.general.setup.detail" = "Walk through the first launch's steps again.";
 "settings.general.setup.open" = "Open Setup…";

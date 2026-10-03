@@ -403,6 +403,9 @@
 "settings.general.display.missing" = "{name} (nicht verbunden)";
 "settings.general.display.seam" = "Dieser Rand grenzt an einen anderen Bildschirm. Der Zeiger hält dort nicht an, die Leiste lässt sich also schwer öffnen.";
 "settings.general.start" = "Start";
+"settings.general.updates" = "Updates";
+"settings.general.autoUpdate" = "Updates automatisch installieren";
+"settings.general.autoUpdate.detail" = "Neue Versionen werden im Hintergrund geladen und beim Beenden von Evlat installiert. Bleibt Evlat geöffnet, fragt es einmal am Tag, ob es zum Installieren neu starten soll.";
 "settings.general.body" = "Körper";
 "settings.general.body.detail" = "Wie die Leiste am Bildschirmrand sitzt.";
 "settings.general.body.always" = "Immer draußen";
@@ -545,6 +548,7 @@
 
 "menu.setup" = "Einrichtung …";
 "menu.update" = "Nach Updates suchen …";
+"menu.update.pending" = "Update verfügbar: {version} …";
 "settings.general.setup" = "Einrichtung";
 "settings.general.setup.detail" = "Die Schritte des ersten Starts noch einmal durchgehen.";
 "settings.general.setup.open" = "Einrichtung öffnen …";

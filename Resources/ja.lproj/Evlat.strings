@@ -403,6 +403,9 @@
 "settings.general.display.missing" = "{name}（未接続）";
 "settings.general.display.seam" = "この端は別のディスプレイと接しています。ポインタがそこで止まらないため、バーを開きにくい場合があります。";
 "settings.general.start" = "起動";
+"settings.general.updates" = "アップデート";
+"settings.general.autoUpdate" = "アップデートを自動的にインストール";
+"settings.general.autoUpdate.detail" = "新しいバージョンはバックグラウンドでダウンロードされ、Evlat の終了時にインストールされます。Evlat を開いたままにしている場合は、再起動してインストールするか 1 日に 1 回確認します。";
 "settings.general.body" = "表示";
 "settings.general.body.detail" = "バーを画面の端にどう置くか。";
 "settings.general.body.always" = "常に表示";
@@ -545,6 +548,7 @@
 
 "menu.setup" = "セットアップ…";
 "menu.update" = "アップデートを確認…";
+"menu.update.pending" = "アップデートがあります: {version}…";
 "settings.general.setup" = "セットアップ";
 "settings.general.setup.detail" = "初回起動時の手順をもう一度たどります。";
 "settings.general.setup.open" = "セットアップを開く…";

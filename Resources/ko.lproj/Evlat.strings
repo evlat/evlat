@@ -403,6 +403,9 @@
 "settings.general.display.missing" = "{name}(연결 안 됨)";
 "settings.general.display.seam" = "이 가장자리는 다른 화면과 맞닿아 있습니다. 커서가 멈추지 않으므로 바를 열기 어려울 수 있습니다.";
 "settings.general.start" = "시작";
+"settings.general.updates" = "업데이트";
+"settings.general.autoUpdate" = "업데이트 자동 설치";
+"settings.general.autoUpdate.detail" = "새 버전은 백그라운드에서 다운로드되고 Evlat을 종료할 때 설치됩니다. Evlat이 계속 열려 있으면 다시 시작해 설치할지 하루에 한 번 묻습니다.";
 "settings.general.body" = "본체";
 "settings.general.body.detail" = "바가 화면 가장자리에 어떻게 놓일지 정합니다.";
 "settings.general.body.always" = "항상 표시";
@@ -545,6 +548,7 @@
 
 "menu.setup" = "설정 도우미…";
 "menu.update" = "업데이트 확인…";
+"menu.update.pending" = "업데이트 있음: {version}…";
 "settings.general.setup" = "설정 도우미";
 "settings.general.setup.detail" = "처음 실행할 때의 단계를 다시 진행합니다.";
 "settings.general.setup.open" = "설정 도우미 열기…";

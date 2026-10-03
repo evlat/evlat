@@ -53,6 +53,8 @@ final class SettingsTests: XCTestCase {
         /// Sandboxes: what the section draws from, and the presses.
         var sandboxes = SettingsModel.Sandboxes()
         var retried: [String] = []
+        /// General's "Updates": nil is a copy with no updater.
+        var autoUpdate: Bool? = nil
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
@@ -80,6 +82,9 @@ final class SettingsTests: XCTestCase {
         host.sandboxes = { recorder.sandboxes }
         host.setSandboxes = { recorder.sandboxes.on = $0 }
         host.retrySandbox = { recorder.retried.append($0) }
+        host.hasUpdater = { recorder.autoUpdate != nil }
+        host.automaticallyUpdates = { recorder.autoUpdate ?? false }
+        host.setAutomaticallyUpdates = { recorder.autoUpdate = $0 }
         let setup = SetupModel(host: SetupModel.Host(
             home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
             loginPath: { recorder.loginPath },
@@ -98,6 +103,19 @@ final class SettingsTests: XCTestCase {
     private static func screen(_ id: String, _ name: String, x: CGFloat) -> BarDisplay {
         let frame = NSRect(x: x, y: 0, width: 1920, height: 1080)
         return BarDisplay(id: id, name: name, frame: frame, visibleFrame: frame)
+    }
+
+    /// The updates row comes with an updater, and its switch is the updater's.
+    func testTheAutomaticUpdateSwitchIsTheUpdaters() {
+        let recorder = Recorder()
+        XCTAssertFalse(model(recorder).hasUpdater, "a development build has no row")
+        recorder.autoUpdate = true
+        let model = model(recorder)
+        XCTAssertTrue(model.hasUpdater)
+        XCTAssertTrue(model.automaticallyUpdates)
+        model.setAutomaticallyUpdates(false)
+        XCTAssertEqual(recorder.autoUpdate, false)
+        XCTAssertFalse(model.automaticallyUpdates)
     }
 
     /// One screen is no choice: no row.

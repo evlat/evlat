@@ -48,6 +48,20 @@ Swift 5 language mode, macOS 14 minimum (`PhaseAnimator` and
 shell's updater (`Updater.swift`, the only file that imports it); the core
 never sees it.
 
+A release bundle's plist (`bundle-app.sh`) has Sparkle check hourly
+(`SUScheduledCheckInterval`), download and install on quit by default
+(`SUAutomaticallyUpdate`, Settings → General → Updates, Sparkle's own key),
+and ask about a download Evlat was not quit for after a day
+(`SUScheduledImpatientCheckInterval`). Sparkle's window opens again at every
+check, so a scheduled one is Evlat's to show (`UpdateReminder`): a version
+at once, then not again until a day after it was last shown; the menu's
+update line names it meanwhile. While Sparkle holds a window it checks
+nothing more, so the day's end is Evlat's timer, and a newer release is
+seen only after the held one is answered; with a download waiting, only
+after it is installed. The last showing is in Evlat's defaults
+(`update.shown.*`), in memory when isolated. Evlat never relaunches itself
+to install: that would end a chat's turn and lose the hooks' news.
+
 ## Architecture
 
 Two layers, one hard seam, and the agents beside the core. In one sentence:
@@ -776,7 +790,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`) and the language chosen in Settings |
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |

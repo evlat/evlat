@@ -413,6 +413,9 @@
 "settings.general.display.missing" = "{name} (bağlı değil)";
 "settings.general.display.seam" = "Bu kenar başka bir ekrana bitişik. İmleç orada durmadığı için barı açmak zorlaşabilir.";
 "settings.general.start" = "Başlangıç";
+"settings.general.updates" = "Güncellemeler";
+"settings.general.autoUpdate" = "Güncellemeleri otomatik kur";
+"settings.general.autoUpdate.detail" = "Yeni sürümler arka planda indirilir ve Evlat kapanırken kurulur. Evlat açık kalırsa, yeniden başlatıp kurmak için günde bir kez sorar.";
 "settings.general.body" = "Gövde";
 "settings.general.body.detail" = "Bar ekran kenarında nasıl dursun.";
 "settings.general.body.always" = "Hep açık";
@@ -556,6 +559,7 @@
 /* Kurulum penceresi (014/phase-3) */
 "menu.setup" = "Kurulum…";
 "menu.update" = "Güncellemeleri Denetle…";
+"menu.update.pending" = "Güncelleme Var: {version}…";
 "settings.general.setup" = "Kurulum";
 "settings.general.setup.detail" = "İlk açılıştaki adımları yeniden gez.";
 "settings.general.setup.open" = "Kurulumu aç…";

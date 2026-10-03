@@ -403,6 +403,9 @@
 "settings.general.display.missing" = "{name} (не під’єднано)";
 "settings.general.display.seam" = "Цей край межує з іншим екраном. Курсор там не зупиняється, тож панель може бути важко відкрити.";
 "settings.general.start" = "Запуск";
+"settings.general.updates" = "Оновлення";
+"settings.general.autoUpdate" = "Встановлювати оновлення автоматично";
+"settings.general.autoUpdate.detail" = "Нові версії завантажуються у фоні й встановлюються під час виходу з Evlat. Якщо Evlat не закривати, раз на день він запропонує перезапуститися для встановлення.";
 "settings.general.body" = "Тіло";
 "settings.general.body.detail" = "Як панель розташована на краю екрана.";
 "settings.general.body.always" = "Завжди видно";
@@ -545,6 +548,7 @@
 
 "menu.setup" = "Початкове налаштування…";
 "menu.update" = "Перевірити оновлення…";
+"menu.update.pending" = "Доступне оновлення: {version}…";
 "settings.general.setup" = "Початкове налаштування";
 "settings.general.setup.detail" = "Ще раз пройти кроки першого запуску.";
 "settings.general.setup.open" = "Відкрити початкове налаштування…";
