@@ -354,4 +354,44 @@ final class SandboxTests: XCTestCase {
         XCTAssertEqual(sandbox.status.heard, ["evlat-hook": .some(1)])
         XCTAssertEqual(sandbox.status.listener, .listening(port))
     }
+
+    /// End to end: a sandbox's row, heard on the real socket, leaves the bar
+    /// when its agent is switched off in Settings → Agents — this Mac's
+    /// switch, since the agent runs here — and comes back when it is on.
+    func testASandboxsRowHidesWhenItsAgentIsSwitchedOff() throws {
+        let controller = AppController()
+        controller.applyEnabledAgents()
+        controller.startSandboxListener(port: 0)
+        let sandbox = try XCTUnwrap(controller.sandbox)
+        defer { sandbox.stop() }
+        let listening = expectation(for: NSPredicate { _, _ in sandbox.boundPort != nil }, evaluatedWith: nil)
+        wait(for: [listening], timeout: 5)
+        let port = try XCTUnwrap(sandbox.boundPort)
+
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook/claude")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("evlat-hook", forHTTPHeaderField: "X-Evlat-Sandbox")
+        request.setValue("1", forHTTPHeaderField: "X-Evlat-Kit")
+        request.httpBody = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s-2","cwd":"/Users/u/evlat"}"#.utf8)
+        let answered = expectation(description: "answer")
+        URLSession.shared.dataTask(with: request) { _, _, _ in answered.fulfill() }.resume()
+        wait(for: [answered], timeout: 5)
+        let drawn = expectation(for: NSPredicate { _, _ in !sandbox.hooks.currentSignals().isEmpty },
+                                evaluatedWith: nil)
+        wait(for: [drawn], timeout: 5)
+
+        let entity = "remote:\(SandboxListener.identity.id):s-2"
+        let row = try XCTUnwrap(controller.registry.signals().first { $0.entity == entity }, "on: drawn")
+        let agent = try XCTUnwrap(row.source)
+        XCTAssertEqual(row.phase, .working)
+
+        controller.setEnabled(agent, false)
+        XCTAssertFalse(controller.enabledAgents.contains(agent))
+        XCTAssertNil(controller.registry.signals().first { $0.entity == entity }, "off: hidden")
+        XCTAssertFalse(sandbox.hooks.currentSignals().isEmpty, "hidden, not forgotten")
+
+        controller.setEnabled(agent, true)
+        XCTAssertNotNil(controller.registry.signals().first { $0.entity == entity }, "on again: back")
+    }
 }

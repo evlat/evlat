@@ -506,8 +506,86 @@ private struct AgentsSection: View {
                 ForEach(agents) { SetupRowView(row: $0, model: setup) }
             }
         }
+        SandboxGroup(model: model)
         SettingsGroup(title: model.t("settings.sessions.branch"), note: model.t("settings.sessions.branch.note")) {
             BranchRow(model: model)
+        }
+    }
+}
+
+/// "Docker sandboxes": always shown (`sbx` is not looked for). What the
+/// kit is for, the two commands that apply it, what it writes, and whether
+/// the sandboxes' port is heard on. Shown, it writes the kit's folder.
+private struct SandboxGroup: View {
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        let agent = model.sandboxAgent.map { model.t($0.id.agent.display.nameKey) } ?? ""
+        SettingsGroup(title: model.t("settings.sandbox.group"), note: model.t("settings.sandbox.note")) {
+            RowBox {
+                Text(model.t("settings.sandbox.intro", ["agent": agent]))
+                    .font(.system(size: 12)).foregroundStyle(SettingsPalette.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            if let folder = model.sandboxKit {
+                commandRow(.run, folder: folder, name: model.t("settings.sandbox.new"),
+                           detail: model.t("settings.sandbox.new.detail"))
+                commandRow(.add, folder: folder, name: model.t("settings.sandbox.existing"),
+                           detail: model.t("settings.sandbox.existing.detail",
+                                           ["name": SettingsModel.sandboxNamePlaceholder]))
+                RowBox {
+                    RowTitle(name: model.t("settings.sandbox.writes"),
+                             detail: model.t("settings.sandbox.writes.detail",
+                                             ["agent": agent, "path": model.sandboxInstallPath ?? "",
+                                              "port": String(model.sandboxPort),
+                                              "folder": SettingsModel.tilde(folder.path)]))
+                }
+            } else {
+                RowBox {
+                    Text(model.t("settings.sandbox.noKit"))
+                        .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            RowBox {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(model.t("settings.sandbox.status"))
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(SettingsPalette.ink)
+                    Text(model.sandboxStatusLine)
+                        .font(.system(size: 12))
+                        .foregroundStyle(statusInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+        .onAppear { model.showSandboxKit() }
+    }
+
+    private var statusInk: Color {
+        switch model.sandboxState {
+        case .taken: return SettingsPalette.wait
+        case .listening: return SettingsPalette.ok
+        case .off, .starting: return SettingsPalette.muted
+        }
+    }
+
+    @ViewBuilder
+    private func commandRow(_ command: SettingsModel.SandboxCommand, folder: URL,
+                            name: String, detail: String) -> some View {
+        if let text = model.sandboxCommand(command, folder: folder) {
+            RowBox {
+                RowTitle(name: name, detail: detail)
+                ManualBox(text: text) {
+                    Button(model.sandboxCopied == command ? model.t("remote.copied") : model.t("remote.copy")) {
+                        model.copySandbox(command)
+                    }
+                    .buttonStyle(SmallButtonStyle())
+                }
+            }
         }
     }
 }

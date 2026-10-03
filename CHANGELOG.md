@@ -8,6 +8,19 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## Unreleased
+
+- **Claude Code in Docker sandboxes.** Sessions of Claude Code running in a
+  local Docker sandbox (`sbx`) now show on the bar under the sandbox's
+  name: working, waiting for you, finished, with the same sounds and
+  reminders. Settings → Agents → **Docker sandboxes** has the command to
+  copy: make the sandbox with Evlat's kit (`sbx run --kit …`), or add it
+  to one you have (`sbx kit add …`). The kit writes only inside the
+  sandbox. **Go to session** opens the tab of the `sbx run` that started
+  the session, when it can tell which. Docker
+  marks its kit format as experimental; sandboxes in Docker's cloud can't
+  reach your Mac.
+
 ## 0.2.0
 
 - **One card per agent.** Settings → Agents shows Claude Code, Codex and

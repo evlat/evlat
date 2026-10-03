@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 import EvlatCore
 @testable import EvlatApp
 @testable import EvlatAgents
@@ -49,10 +50,16 @@ final class SettingsTests: XCTestCase {
         var codex: String? = nil
         var backend = AgentID.claude
         var versions: [AgentID: String] = [:]
+        /// Agents' "Docker sandboxes": the listener's state, the kit's
+        /// folder (`nil`: none written), its writes and the copies.
+        var sandboxState = SettingsModel.SandboxState.off
+        var kitFolder: URL?
+        var kitWrites = 0
+        var copied: [String] = []
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
-        let host = SettingsModel.Host(
+        var host = SettingsModel.Host(
             edge: { recorder.edge }, setEdge: { recorder.edge = $0 },
             displays: { recorder.displays }, display: { recorder.display },
             setDisplay: { id in recorder.display = id.map { id in (id, recorder.displays.first { $0.id == id }?.name ?? id) } },
@@ -73,6 +80,9 @@ final class SettingsTests: XCTestCase {
             clearMemory: { recorder.cleared += 1; recorder.memory = 0 },
             bodyMode: { recorder.bodyMode }, setBodyMode: { recorder.bodyMode = $0 },
             bodyToggles: { recorder.bodyToggles }, setBodyToggles: { recorder.bodyToggles = $0 })
+        host.sandboxState = { recorder.sandboxState }
+        host.writeSandboxKit = { recorder.kitWrites += 1; return recorder.kitFolder }
+        host.copy = { recorder.copied.append($0) }
         let setup = SetupModel(host: SetupModel.Host(
             home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
             loginPath: { recorder.loginPath },
@@ -421,5 +431,76 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(controller.settingsHost.language(), "ja")
         XCTAssertEqual(L10n.language, "ja")
         XCTAssertNil(defaults.persistentDomain(forName: suiteName)?[LanguageChoice.key])
+    }
+
+    // MARK: - Docker sandboxes
+
+    /// The kit is written when the group is shown and again at each copy,
+    /// never when the window opens; the copy is the command with the
+    /// folder quoted (Application Support has a space).
+    func testTheSandboxGroupWritesTheKitAndCopiesItsCommands() throws {
+        let recorder = Recorder()
+        recorder.kitFolder = URL(fileURLWithPath: "/Users/u/Library/Application Support/Evlat/sandbox-kit")
+        let model = model(recorder)
+        model.reload()
+        XCTAssertEqual(recorder.kitWrites, 0, "opening the window writes no kit")
+        XCTAssertNil(model.sandboxKit)
+
+        model.showSandboxKit()
+        XCTAssertEqual(recorder.kitWrites, 1)
+        let folder = try XCTUnwrap(model.sandboxKit)
+        let agent = try XCTUnwrap(Agents.sandboxAgents.first)
+        XCTAssertEqual(model.sandboxCommand(.run, folder: folder),
+                       "sbx run --kit '/Users/u/Library/Application Support/Evlat/sandbox-kit' \(agent.word)")
+        XCTAssertEqual(model.sandboxCommand(.add, folder: folder),
+                       "sbx kit add SANDBOX '/Users/u/Library/Application Support/Evlat/sandbox-kit'")
+
+        model.copySandbox(.run)
+        XCTAssertEqual(recorder.kitWrites, 2, "a copy writes the kit again")
+        XCTAssertEqual(recorder.copied, [SandboxKitWriter.runCommand(folder: folder, agent: agent.word)])
+        XCTAssertEqual(model.sandboxCopied, .run)
+        model.copySandbox(.add)
+        XCTAssertEqual(recorder.copied.last, SandboxKitWriter.addCommand(folder: folder, sandbox: "SANDBOX"))
+
+        // No kit written: nothing copied.
+        recorder.kitFolder = nil
+        model.copySandbox(.run)
+        XCTAssertNil(model.sandboxKit)
+        XCTAssertEqual(recorder.copied.count, 2)
+    }
+
+    /// The managed settings file named is the kit's own install.
+    func testTheSandboxGroupNamesWhatTheKitWrites() {
+        let model = model(Recorder())
+        XCTAssertEqual(model.sandboxInstallPath, Agents.sandboxKit().installs.first?.path)
+        XCTAssertEqual(model.sandboxPort, SandboxListener.port() ?? SandboxKit.defaultPort)
+    }
+
+    /// One line per state, and the state is followed only when it changes.
+    func testTheSandboxStatusLine() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        model.reload()
+        XCTAssertEqual(model.sandboxStatusLine, L10n.t("settings.sandbox.status.off", in: "en"))
+        recorder.sandboxState = .starting
+        model.follow()
+        XCTAssertEqual(model.sandboxStatusLine, "Not listening yet.")
+        recorder.sandboxState = .taken(48152)
+        model.follow()
+        XCTAssertEqual(model.sandboxStatusLine, "Port 48152 is taken by another program, so sandboxes can't reach Evlat.")
+        XCTAssertEqual(model.sandboxPort, 48152)
+        recorder.sandboxState = .listening(48152, heard: [])
+        model.follow()
+        XCTAssertEqual(model.sandboxStatusLine, "Listening on port 48152. No sandbox heard from yet.")
+        recorder.sandboxState = .listening(48152, heard: ["evlat-hook", "web"])
+        model.follow()
+        XCTAssertEqual(model.sandboxStatusLine,
+                       "Listening on port 48152. Heard since Evlat started: evlat-hook, web.")
+
+        var changes = 0
+        let watch = model.objectWillChange.sink { changes += 1 }
+        model.follow()
+        XCTAssertEqual(changes, 0, "the same state is not published again")
+        watch.cancel()
     }
 }

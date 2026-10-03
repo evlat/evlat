@@ -215,6 +215,20 @@ its `source`, or is dropped. Identity comes from the listener, never from the
 request body; remote entities are namespaced (`remote:<machine>:<session>`,
 `signal:<machine>:<id>`) so they can never merge with local rows.
 
+Docker sandboxes (local `sbx` only; a cloud sandbox cannot reach this Mac)
+are a third kind of `hooks` instance, with no tunnel: the sandbox
+listener (`SandboxListener`, port 48152) is `.tunneled` and the one
+listener that believes `X-Evlat-Sandbox` (the sandbox's name,
+`[A-Za-z0-9._-]{1,64}`) and `X-Evlat-Kit` (the kit's version); every other
+listener deletes them. Its rows are one machine's, `-sandbox` (a leading
+`-` is refused as a target, so no remote machine can have it), each drawn
+under its sandbox's name (`sbx` when none was sent). Its agents run on this
+Mac, so its rows answer to this Mac's switches (`AppController.machineSources`),
+not a machine's set. While it listens a row is not dimmed
+(`HooksProvider.setLink`). It has no usage, no `/signal` and no approval
+card; Settings → Agents → Docker sandboxes says whether it listens and
+which sandboxes it has heard since launch.
+
 A machine shows this Mac's agent cards (Settings → Remote Machines, the same
 `SetupRowView` with another `SetupCardDriver`), written over `ssh`: one
 press is one agent's unit (`RemoteSettings.Change.agent`), its one file in
@@ -440,8 +454,18 @@ is lost with the process.
   `ssh` the walk is the local one. The card shows the button only once
   found, says nothing while searching, and keeps the answer for its life:
   the click walks this Mac again, never asks again. A card that could not
-  ask (no live master) asks on the next snapshot. Approvals and the
-  branch stay with local rows.
+  ask (no live master) asks on the next snapshot. A Docker sandbox's
+  session has no pid here and no server to ask: its terminal is a live
+  `sbx run` client on this Mac with a terminal that names the sandbox
+  (`--name <name>`, or, unnamed, `<agent>-<last part of its folder>`), read
+  like any process (`Sandbox`), and one that started after the session did
+  is another session's. The session's start is when its
+  `SessionStart(startup)` reached this Mac. One candidate is its tab;
+  several are told apart by start through the rule shared with the `ssh`
+  lookup (`StartMatch`: nearest ≤ 5 s, every other > 10 s); no start, or
+  none told apart, brings the app alone if they are all in one, else no
+  button. No candidate: no button, and the card says "No terminal open".
+  Approvals and the branch stay with local rows.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
   the effective phase, the finish latch, the peek, the open bar, the balloon
@@ -564,6 +588,7 @@ but a POST to the LAN address is refused). Default port **48151**.
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
 | `POST /approval` | opt-in hook of terminal sessions (`ApprovalHook`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; `404` through a tunnel |
 | `POST /signal` | external jobs; requires `X-Evlat-Key` |
+| `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), for the kit's command in a Docker sandbox; `.tunneled`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped, `/permission`, `/approval`, `/askpass` and `/signal` are `404`, and anything but a hook is dropped. The only listener that trusts `X-Evlat-Sandbox` and `X-Evlat-Kit`, each checked |
 | `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
 
 `/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
@@ -608,9 +633,29 @@ marked and versioned, generated from the Swift constants, run under
 `sh`/`dash`/`bash` in tests, and the key never appears in any argv. A change to
 the script bumps its version.
 
+The Docker sandbox kit (`SandboxKit`, the catalog's `Agents.sandboxKit`) is
+the fourth installed contract: a mixin `spec.yaml` whose line 1 is
+`# evlat-sandbox-kit` and line 2 `# version N`, made from Swift constants
+and pinned (`SandboxKitTests`, `SandboxKitScriptTests`). It allows
+`localhost:<port>` and, as root at `setup.install`, writes Claude Code's
+`/etc/claude-code/managed-settings.json`, whose hooks run the sandbox twin
+of the hook command (`LocalAPI.HookEndpoint.sandbox`: `host.docker.internal`,
+no `$PPID` or task header, `X-Evlat-Sandbox` and `X-Evlat-Kit` added; silent,
+nothing on stdout). The Mac's command bytes are unchanged. `sbx` copies the
+kit when a sandbox is made (`sbx run --kit`) or a kit added (`sbx kit add`)
+and never reads the folder again, so a sandbox keeps the bytes it was made
+with: **any change to the kit's bytes raises `SandboxKit.version`**, which
+every hook then reports. The folder
+(`~/Library/Application Support/Evlat/sandbox-kit`) is Evlat's own, written
+only when Settings shows the group or a command is copied, never at launch
+(`SandboxKitWriter`), and the same bytes are not written twice. The port is
+fixed (`LocalAPI.defaultPort + 1`), never `EVLAT_PORT`'s: it is written into
+every sandbox.
+
 The website documents these contracts for users: `../evlat-landing/docs-src`
 (the `evlat` command, `/signal`, remote servers) and
-`../evlat-landing/public/works-with.html` (agents, terminals with a tab link).
+`../evlat-landing/public/works-with.html` (agents, terminals with a tab link,
+Docker sandboxes).
 A change a user would notice there (a flag, a default, an exit code, a body
 field, a limit, an agent, an entry in `TabLink.known`) updates that page in
 the same piece of work. Each docs page lists the files it describes in
@@ -626,6 +671,9 @@ so a release with nothing user-visible needs no website change.
 and login items belong to the user. **Agents do not write them.** Writers are tested against a temporary root
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
 So does the login keychain: no test or trial writes an Evlat entry to it.
+The sandbox kit's folder (`~/Library/Application Support/Evlat/sandbox-kit`)
+is Evlat's own, like the signal key; what the kit writes lands inside the
+sandbox, never on this Mac.
 The masters' sockets (`$TMPDIR/evlat`, `0700`) are Evlat's own; a stale one
 is cleared, a live one — another process's master — is left alone.
 
@@ -692,6 +740,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |
+| `EVLAT_SANDBOX_PORT` | the Docker sandbox listener's port; with `EVLAT_PORT` set there is no sandbox listener unless this is given, and the kit is written only under `EVLAT_HOME` |
 | `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` |
 | `EVLAT_CHATS` | temporary chat root |
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
@@ -815,6 +864,36 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   on, and a restart did not change it. The same `~/.codex/hooks.json` fired
   every event from the CLI and from the bundled binary's `exec`. Only Codex
   CLI sessions are tracked.
+- **A Docker sandbox's hook on the main port carries the VM's pid.**
+  Through `host.docker.internal` a sandbox's request reached 48151 as
+  `.local`, and Evlat took `pid=446`, a process in the VM (sbx 0.46.0).
+  Had this Mac had a 446, the row would have lived by a stranger's
+  liveness. Hence the sandbox listener of its own, `.tunneled`.
+- **A sandbox's `~/.claude/settings.json` is `sbx`'s.** It carries
+  `permissions.defaultMode: bypassPermissions` and
+  `skipDangerousModePermissionPrompt`; a kit's `files/home` would replace
+  it (sbx's docs). The managed settings file worked and left it alone, and
+  a Claude sandbox made without the kit has no `/etc/claude-code` at all.
+- **`sbx` carries the terminal's `TERM`, `COLORTERM` and
+  `TERM_PROGRAM(_VERSION)` into the sandbox, not its tab link**
+  (`BATERI_TAB_URL`, or any other variable, measured). Inside, nothing
+  says which client a session belongs to; the `sbx` client on this Mac,
+  not Apple-signed, has its tab in its environment.
+- **Every `sbx run` to a sandbox opens a new Claude session, and Claude
+  outlives its client.** Three clients, three sessions; with the clients
+  killed all three Claudes went on. A row with no tab is ordinary, and no
+  way back to the same session was seen. `SessionStart` reached this Mac
+  1.4–3.5 s after its client started; the first `sbx run`, which made the
+  sandbox, took 14 s.
+- **No `sbx` command takes a kit out** (`sbx kit` has only `add`), and
+  `sbx` never reads the kit's folder again: the folder moved, the sandbox
+  stopped and started, the installed file stayed. `sbx kit add` makes the
+  sandbox again with the kit, and adding it twice is harmless. Removal is
+  making the sandbox again without `--kit`.
+- **A sandbox's hook to a closed Evlat fails at once.** Through the
+  sandbox's proxy: a port in the kit's rule with nothing listening is
+  `500` in ~10 ms, one outside the rule `403` in ~8 ms; no 2 s wait per
+  event, also after Evlat is removed.
 - **`codex app-server` is experimental** (its help says so; measured on
   0.156.1, schema from `codex app-server generate-json-schema`). The chat
   reads it by those shapes: a version that answers differently is said in

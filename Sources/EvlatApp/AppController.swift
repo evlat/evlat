@@ -2593,7 +2593,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             notificationsDenied: { [weak self] done in
                 guard let notifier = self?.notifier else { return done(false) }
                 notifier.isDenied(done)
+            },
+            sandboxState: { [weak self] in self?.sandboxState ?? .off },
+            writeSandboxKit: { [weak self] in self?.writeSandboxKit() },
+            copy: { text in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
             })
+    }
+
+    /// Settings' line for the sandbox listener (`SandboxListener.Status`).
+    var sandboxState: SettingsModel.SandboxState {
+        guard let sandbox else { return .off }
+        switch sandbox.status.listener {
+        case .stopped: return .starting
+        case .unavailable(let port, _): return .taken(port)
+        case .listening(let port): return .listening(port, heard: sandbox.status.heard.keys.sorted())
+        }
     }
 
     /// The window's focus call on open; a test holds it still so the runner

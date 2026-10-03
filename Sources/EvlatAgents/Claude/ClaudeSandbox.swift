@@ -10,6 +10,8 @@ import EvlatCore
 /// `/etc/claude-code` (measured), so this file is nobody else's.
 enum ClaudeSandbox {
     static let managedSettingsPath = "/etc/claude-code/managed-settings.json"
+    /// The agent's word in `sbx run` (`sbx run claude`).
+    static let sbxAgent = "claude"
 
     /// The same events the Mac installs, each with the sandbox's command,
     /// in the shape `HookSettings` writes. Keys sorted, so the bytes are
@@ -34,6 +36,17 @@ enum ClaudeSandbox {
 }
 
 extension Agents {
+    /// An agent the sandbox kit sets up, with its word in `sbx run`: what
+    /// Settings puts in the command it offers to copy.
+    public struct SandboxAgent: Equatable {
+        public let id: AgentID
+        public let word: String
+    }
+
+    /// The agents the kit (`sandboxKit`) writes for, in the order Settings
+    /// offers them.
+    public static let sandboxAgents = [SandboxAgent(id: Claude().id, word: ClaudeSandbox.sbxAgent)]
+
     /// The kit for Docker sandboxes, on the sandbox listener's `port`: what
     /// each agent that runs in one needs written there. Claude Code only so
     /// far; another agent's hooks in a sandbox are not measured.
