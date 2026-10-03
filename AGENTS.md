@@ -40,6 +40,8 @@ scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist an
 scripts/make-appcast.sh writes Sparkle's one-item appcast for a release
 scripts/release-notes.sh prints one version's section of CHANGELOG.md
 scripts/make-icon.swift draws the app icon; no image is checked in
+scripts/demo.sh         a full bar to look at: an isolated Evlat filled with
+                        every kind of row (`demo-seed.py`); `stop` ends it
 Makefile
 ```
 
@@ -748,6 +750,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
+| a full bar to look at | `scripts/demo.sh [left\|right] [--held]` — isolated (port 48999, its own home under `$TMPDIR/evlat-demo`): local sessions in every phase, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; `--held` holds an approval and a question so their cards draw buttons; `scripts/demo.sh stop` ends it all |
 | window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
 | ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |
