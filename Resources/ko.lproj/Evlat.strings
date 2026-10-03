@@ -27,6 +27,7 @@
 "card.go" = "세션으로 이동";
 "card.closed" = "{app} 종료됨";
 "card.notFound" = "터미널을 찾을 수 없음";
+"card.noTerminal" = "열린 터미널 없음";
 
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "세션 1개";

@@ -43,6 +43,7 @@
 "card.closed" = "{app} is closed";
 /* The button, dimmed, when no app was found for the session: screen, tmux, ssh. */
 "card.notFound" = "Terminal not found";
+"card.noTerminal" = "No terminal open";
 
 /* The line under the open list: how many sessions, and how many of them are
    working. With none working it is the first part alone. */

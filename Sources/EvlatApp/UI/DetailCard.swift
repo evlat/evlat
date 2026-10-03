@@ -60,6 +60,8 @@ struct DetailCard: View {
     static let goKey = "card.go"
     static let closedKey = "card.closed"
     static let notFoundKey = "card.notFound"
+    /// A sandbox's session with no `sbx` client in a terminal (`Sandbox`).
+    static let noTerminalKey = "card.noTerminal"
     /// Evlat's own chat: its header's kind and its button.
     static let taskKey = "card.task"
     static let returnKey = "card.return"
@@ -96,7 +98,7 @@ struct DetailCard: View {
         Agents.all[id: source]?.display.nameKey ?? source.rawValue
     }
     static var keys: [String] {
-        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, taskKey, returnKey,
+        [toolsOneKey, toolsKey, goKey, closedKey, notFoundKey, noTerminalKey, taskKey, returnKey,
          outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey,
          otherKey, writtenKey, nextKey, sendKey]
             + Agents.all.map(\.display.nameKey)
@@ -427,11 +429,13 @@ struct DetailCard: View {
 
     /// The footer's last word: a chat's folder, a session's terminal, or
     /// nothing for an outside job.
-    static func footerPlace(_ detail: SessionDetail) -> String? {
+    static func footerPlace(_ detail: SessionDetail, in lang: String = L10n.language) -> String? {
         switch detail.traits.detail {
         case .folder: return detail.folder.map(folderName)
         case .note: return nil
-        case .none: return terminal(detail.host)
+        case .none:
+            if detail.noTerminalOpen { return L10n.t(noTerminalKey, in: lang) }
+            return terminal(detail.host)
         }
     }
 
@@ -464,6 +468,11 @@ struct DetailCard: View {
         switch detail.traits.button {
         case .goToSession:
             if detail.hasLocalHost { return true }
+            // A sandbox's: only once an app is found on this Mac.
+            if detail.hasSandboxHost {
+                if case .app = detail.host { return true }
+                return false
+            }
             guard detail.hasRemoteHost, !detail.searching, case .app = detail.host else { return false }
             return true
         case .backToChat: return true

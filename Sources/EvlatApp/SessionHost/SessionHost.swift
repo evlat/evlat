@@ -72,6 +72,9 @@ enum SessionHost: Equatable {
         /// server is found by the server's end (`Ssh`). `nil` when they
         /// cannot be read.
         var tcpSockets: (Int32) -> [TCPSocket]? = { _ in nil }
+        /// A process's working directory: an unnamed sandbox is named after
+        /// its client's (`Sandbox`). `nil` when it cannot be read.
+        var currentDirectory: (Int32) -> String? = { _ in nil }
     }
 
     /// One established TCP connection of a process: its own end and the
@@ -238,7 +241,8 @@ enum SessionHost: Equatable {
                             executablePath: executablePath, bundle: bundle, running: runningApp,
                             environment: environment, arguments: arguments, processes: allPIDs,
                             unixSockets: unixSockets, hasTerminal: hasTerminal,
-                            startedAt: startedAt, tmux: TmuxQuery.run, tcpSockets: tcpSockets)
+                            startedAt: startedAt, tmux: TmuxQuery.run, tcpSockets: tcpSockets,
+                            currentDirectory: currentDirectory)
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }
 

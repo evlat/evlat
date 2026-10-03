@@ -27,6 +27,7 @@
 "card.go" = "Ir a la sesión";
 "card.closed" = "{app} está cerrada";
 "card.notFound" = "Terminal no encontrada";
+"card.noTerminal" = "Ninguna terminal abierta";
 
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 sesión";

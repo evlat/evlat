@@ -28,6 +28,7 @@
 "card.go" = "Перейти к сессии";
 "card.closed" = "{app} закрыт";
 "card.notFound" = "Терминал не найден";
+"card.noTerminal" = "Нет открытого терминала";
 
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 сессия";

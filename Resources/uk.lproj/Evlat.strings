@@ -27,6 +27,7 @@
 "card.go" = "Перейти до сесії";
 "card.closed" = "{app} закрито";
 "card.notFound" = "Термінал не знайдено";
+"card.noTerminal" = "Немає відкритого термінала";
 
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 сесія";

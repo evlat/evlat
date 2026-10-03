@@ -27,6 +27,7 @@
 "card.go" = "前往工作階段";
 "card.closed" = "{app} 已關閉";
 "card.notFound" = "找不到終端機";
+"card.noTerminal" = "沒有開啟的終端機";
 
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 個工作階段";

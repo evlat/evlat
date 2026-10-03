@@ -38,6 +38,13 @@ public struct SessionDetail: Equatable {
     var hasRemoteHost = false
     /// The server has not answered yet. Drawn as no button, without words.
     var searching = false
+    /// A Docker sandbox's session (`SandboxListener`): its terminal is the
+    /// `sbx` client it was started from, looked up on this Mac (`Sandbox`),
+    /// never asked of a server. Its button is there only for an app found.
+    var hasSandboxHost = false
+    /// That sandbox has no client in a terminal: the footer says so, and
+    /// there is no button.
+    var noTerminalOpen = false
     /// The git branch of the session's folder, on a line under the header. Unlike the
     /// row, which draws one only between same-named sessions, the card has
     /// room and says it always. Resolved with `host`, and never for a remote
@@ -188,6 +195,9 @@ public final class DetailModel: ObservableObject {
     /// The server's answer walked on this Mac (`SessionHost.resolve(remote:)`)
     /// for a machine id.
     var resolveRemote: (RemoteHost.Reply, String) -> SessionHost = { _, _ in .notFound }
+    /// A sandbox session's terminal, from its sandbox's name and the
+    /// session's start (`Sandbox.resolve`). Injected like the host.
+    var resolveSandbox: (String?, Date?) -> Sandbox.Found = { Sandbox.resolve(name: $0, start: $1) }
     /// The agents a remote row's records are looked up in: the catalog.
     var agents: [any Agent] = Agents.all
 
@@ -195,6 +205,10 @@ public final class DetailModel: ObservableObject {
     /// arrives every poll and on every event; the process walk runs only when
     /// the card comes up for a session (or its pid moves), not at that rate.
     private var hostKey: (entity: String, pid: Int32?)?
+    /// The same for a sandbox's session: its name and start. Its start
+    /// arrives on a later event than its name, and a row heard before it
+    /// is looked up again then.
+    private var sandboxKey: (entity: String, name: String?, start: Date?)?
 
     /// Which remote session `remoteHost` is for, and the server's answer —
     /// the remote fact, asked once and kept for the card's life: the click
@@ -227,9 +241,27 @@ public final class DetailModel: ObservableObject {
                                  kind: row.kind, folder: words.folder,
                                  sender: row.sender, note: words.note, progress: row.progress)
         next.approval = row.hasLocalHost ? approval : nil
-        let query = row.hasLocalHost ? nil : remoteQuery(row: row, signal: signal)
+        // A sandbox's row before the remote question: its agent keeps
+        // session records, but they are in the VM, and there is no server
+        // to ask — its client is on this Mac.
+        let isSandbox = row.traits.button == .goToSession && signal?.machine?.id == SandboxListener.identity.id
+        let query = row.hasLocalHost || isSandbox ? nil : remoteQuery(row: row, signal: signal)
         if query == nil { forgetRemote() }
-        if let query {
+        if !isSandbox { sandboxKey = nil }
+        if isSandbox {
+            hostKey = nil
+            next.hasSandboxHost = true
+            let name = signal?.activity?.sandboxName
+            let start = signal?.activity?.sessionStartedAt
+            if let key = sandboxKey, key.entity == row.entity, key.name == name, key.start == start,
+               let current = detail, current.entity == row.entity {
+                next.host = current.host
+                next.noTerminalOpen = current.noTerminalOpen
+            } else {
+                Self.apply(resolveSandbox(name, start), to: &next)
+                sandboxKey = (row.entity, name, start)
+            }
+        } else if let query {
             // Another computer's session: a remote pid never reaches this
             // side (`LocalAPI`), so its server is asked where it runs — once
             // per card, not per snapshot.
@@ -262,6 +294,7 @@ public final class DetailModel: ObservableObject {
     /// session — the app may have quit or come back meanwhile.
     func cardClosed() {
         hostKey = nil
+        sandboxKey = nil
         forgetRemote()
     }
 
@@ -303,6 +336,17 @@ public final class DetailModel: ObservableObject {
         if detail != current { detail = current }
     }
 
+    private static func apply(_ found: Sandbox.Found, to detail: inout SessionDetail) {
+        switch found {
+        case .host(let host):
+            detail.host = host
+            detail.noTerminalOpen = false
+        case .noTerminal:
+            detail.host = .notFound
+            detail.noTerminalOpen = true
+        }
+    }
+
     private func forgetRemote() {
         guard remoteKey != nil else { return }
         remoteGeneration += 1
@@ -322,6 +366,14 @@ public final class DetailModel: ObservableObject {
         let host: SessionHost
         if current.hasLocalHost {
             host = resolveHost(current.activity?.pid)
+        } else if current.hasSandboxHost {
+            var found = current
+            Self.apply(resolveSandbox(current.activity?.sandboxName, current.activity?.sessionStartedAt), to: &found)
+            host = found.host
+            if current.noTerminalOpen != found.noTerminalOpen {
+                current.noTerminalOpen = found.noTerminalOpen
+                detail = current
+            }
         } else if current.hasRemoteHost, let reply = remoteReply, let machine = remoteKey?.machine {
             host = resolveRemote(reply, machine)
             remoteHost = host

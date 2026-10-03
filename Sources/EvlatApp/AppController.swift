@@ -101,6 +101,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         MainActor.assumeIsolated { self.now() }
     })
     private var hookListener: HookListener?
+    /// Docker sandboxes' listener (`SandboxListener`); `nil` in a process
+    /// that has none (`SandboxListener.port`), and in every test.
+    private(set) var sandbox: SandboxListener?
     /// The key file this process wrote, removed on quit.
     private let signalKeyWritten = SignalKey.Written()
     /// The chats and their `claude -p` turns; `nil` until launch.
@@ -1254,6 +1257,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         registry.register(signals)
         startHookListener()
         startRemoteTunnels()
+        startSandboxListener()
         installStatusItem()
         // Here and nowhere else: `installPanel` runs in every test, and a
         // test must never take the user's shortcut.
@@ -2390,10 +2394,56 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         for machine in configuration.machines {
             tunnels.add(machine, key: remoteSignalKeys[machine.id] ?? SignalKey.generate())
         }
-        // Each machine's rows answer to its own switches, not this Mac's.
-        registry.machineSources = { [weak tunnels] id in tunnels?.enabledAgents(of: id) }
         remote = tunnels
+        wireMachineSources()
         remoteSSHPath = sshPath
+    }
+
+    /// Each machine's rows answer to its own switches, not this Mac's — but
+    /// a Docker sandbox's agents run on this Mac and answer to its switches.
+    /// Wired here whether or not any tunnel was started.
+    func wireMachineSources() {
+        registry.machineSources = { [weak self] id in
+            MainActor.assumeIsolated {
+                Self.machineSources(id, local: { self?.enabledAgents },
+                                    remote: { self?.remote?.enabledAgents(of: $0) })
+            }
+        }
+    }
+
+    /// The set a machine's rows are asked of (`Registry.machineSources`).
+    nonisolated static func machineSources(_ id: String, local: () -> Set<AgentID>?,
+                                           remote: (String) -> Set<AgentID>?) -> Set<AgentID>? {
+        id == SandboxListener.identity.id ? local() : remote(id)
+    }
+
+    // MARK: - Docker sandboxes
+
+    /// Binds the sandboxes' port when this process has one
+    /// (`SandboxListener.port`) and registers its rows. `port` is the
+    /// test's (`0`); the launch reads the environment.
+    func startSandboxListener(port: UInt16? = SandboxListener.port()) {
+        guard sandbox == nil, let port else { return }
+        let listener = SandboxListener(port: port, platform: Self.darwinPlatform,
+                                       onChange: { [weak self] in self?.scheduleRefresh() })
+        registry.register(listener.hooks)
+        listener.start()
+        sandbox = listener
+        wireMachineSources()
+    }
+
+    /// Writes the sandbox kit's folder and returns it; `nil` when this
+    /// process has no sandbox port or may not write (`SandboxKitWriter`).
+    /// Never called at launch: Settings calls it when it shows the kit.
+    func writeSandboxKit(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard let port = SandboxListener.port(environment: environment),
+              let folder = SandboxKitWriter.location(home: home, environment: environment) else { return nil }
+        do {
+            return try SandboxKitWriter.write(Agents.sandboxKit(port: port), to: folder)
+        } catch {
+            NSLog("Evlat: sandbox kit not written: %@", "\(error)")
+            return nil
+        }
     }
 
     /// Asks a remote session's server where its connection is, over the

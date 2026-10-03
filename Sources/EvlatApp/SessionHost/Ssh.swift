@@ -66,38 +66,22 @@ enum Ssh {
         }
     }
 
-    /// What the order above makes of the candidates.
-    enum Choice: Equatable {
-        case one(Int32)
-        /// Several, none told apart: their pids, for "is it one app".
-        case ambiguous([Int32])
-        case none
-    }
+    /// What the order above makes of the candidates (`StartMatch`).
+    typealias Choice = StartMatch.Choice
+
+    /// `ssh`'s thresholds: a lone `ssh` far from the connection's start is
+    /// another connection.
+    static let rule = StartMatch.Rule(nearest: nearest, apart: apart, aloneWithin: apart)
 
     static func choose(_ candidates: [Candidate], for connection: RemoteHost.Connection,
                        startedAt: (Int32) -> Date?) -> Choice {
-        if candidates.isEmpty { return .none }
         let exact = candidates.filter { $0.localPorts.contains(connection.clientPort) }
         if exact.count == 1 { return .one(exact[0].pid) }
-        let all = candidates.map(\.pid)
-        let start = connection.localStart
-        if candidates.count == 1 {
-            // Alone, unless its start says it is another connection: a
-            // session started from another computer, or an `ssh` through
-            // the same jump host to another server.
-            if let start, let own = startedAt(all[0]), abs(own.timeIntervalSince(start)) > apart {
-                return .none
-            }
-            return .one(all[0])
-        }
-        guard let start else { return .ambiguous(all) }
-        let distances = candidates.compactMap { candidate in
-            startedAt(candidate.pid).map { (pid: candidate.pid, distance: abs($0.timeIntervalSince(start))) }
-        }.sorted { $0.distance < $1.distance }
-        // A candidate whose start cannot be read could be the one: no pick.
-        guard distances.count == candidates.count, let best = distances.first, best.distance <= nearest,
-              distances.dropFirst().allSatisfy({ $0.distance > apart }) else { return .ambiguous(all) }
-        return .one(best.pid)
+        // Alone, unless its start says it is another connection: a session
+        // started from another computer, or an `ssh` through the same jump
+        // host to another server. Several, told apart by start.
+        return StartMatch.choose(candidates.map(\.pid), start: connection.localStart, rule: rule,
+                                 startedAt: startedAt)
     }
 
     /// The user's `ssh` processes riding `master`'s connection: connected to
@@ -151,15 +135,16 @@ extension SessionHost {
     }
 
     /// The one app every pid's walk reaches, with no pane, and with a tab
-    /// only when every walk gives that same tab; else nothing.
-    private static func sameApp(_ pids: [Int32], forwarded: [String], _ probe: Probe) -> SessionHost {
+    /// only when every walk gives that same tab and `keepsTab`; else nothing.
+    static func sameApp(_ pids: [Int32], forwarded: [String] = [], keepsTab: Bool = true,
+                        _ probe: Probe) -> SessionHost {
         let apps = pids.map { resolve(pid: $0, forwarded: forwarded, probe) }.map { host -> App? in
             if case .app(let app) = host { return App(bundleID: app.bundleID, name: app.name, pid: app.pid, tab: app.tab) }
             return nil
         }
         guard var first = apps.first ?? nil,
               apps.allSatisfy({ $0?.bundleID == first.bundleID }) else { return .notFound }
-        if first.tab == nil || !apps.allSatisfy({ $0?.tab == first.tab }) { first.tab = nil }
+        if !keepsTab || first.tab == nil || !apps.allSatisfy({ $0?.tab == first.tab }) { first.tab = nil }
         return .app(first)
     }
 

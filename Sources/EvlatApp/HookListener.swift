@@ -109,10 +109,14 @@ public final class HookListener {
     /// accepts (`SignalKey`); the default has none. A tunnel's listener
     /// without one has no `/signal` (`404`); with its machine's key it
     /// answers as the local one does (`LocalAPI.handle`).
+    ///
+    /// `trustsSandboxHeaders` makes it a Docker sandbox's listener, the one
+    /// that believes `X-Evlat-Sandbox` and `X-Evlat-Kit` (`SandboxListener`).
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
                 transcriptRoots: [URL] = [],
                 agents: [any Agent] = Agents.all,
+                trustsSandboxHeaders: Bool = false,
                 signalKey: @escaping (UInt16) -> String? = { _ in nil },
                 onStatus: ((Status) -> Void)? = nil,
                 onAbandoned: ((String) -> Void)? = nil,
@@ -123,7 +127,7 @@ public final class HookListener {
         self.transcriptRoots = transcriptRoots
         self.agents = agents
         self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, transcriptRoots: transcriptRoots,
-                                          routes: RouteTable(agents))
+                                          routes: RouteTable(agents), trustsSandboxHeaders: trustsSandboxHeaders)
         self.onStatus = onStatus
         self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
@@ -200,7 +204,8 @@ public final class HookListener {
                     self.keyMade = true
                     self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port),
                                                       transcriptRoots: self.transcriptRoots,
-                                                      routes: self.identity.routes)
+                                                      routes: self.identity.routes,
+                                                      trustsSandboxHeaders: self.identity.trustsSandboxHeaders)
                 }
                 self.setStatus(.listening(port))
             case .failed(let error):

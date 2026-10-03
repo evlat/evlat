@@ -147,6 +147,19 @@ extension SessionHost {
         return fds.prefix(Int(filled) / stride)
     }
 
+    /// The process's working directory (`PROC_PIDVNODEPATHINFO`), readable
+    /// without a permission for the user's own processes.
+    static func currentDirectory(_ pid: Int32) -> String? {
+        guard pid > 0 else { return nil }
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        let path = withUnsafeBytes(of: &info.pvi_cdir.vip_path) { bytes in
+            String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        return path.hasPrefix("/") ? path : nil
+    }
+
     /// Whether the process has a controlling terminal (`e_tdev` is not
     /// `NODEV`); `nil` when it cannot be read.
     static func hasTerminal(_ pid: Int32) -> Bool? {

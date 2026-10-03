@@ -27,6 +27,7 @@
 "card.go" = "セッションへ移動";
 "card.closed" = "{app}は終了しています";
 "card.notFound" = "ターミナルが見つかりません";
+"card.noTerminal" = "開いているターミナルなし";
 
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1セッション";
