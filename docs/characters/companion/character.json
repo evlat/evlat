@@ -1,0 +1,18 @@
+{
+  "evlat_character": 1,
+  "name": "companion",
+  "display_name": "Companion",
+  "version": "1.0.0",
+  "author": "Gabe Perez (@gabeperez)",
+  "license": "Fan art, personal non-commercial use",
+  "inspired_by": "The Weighted Companion Cube from Portal (Valve). Not affiliated with or endorsed by Valve.",
+  "body": "body.png",
+  "face": {
+    "image": "heart.png",
+    "cx": 0.5,
+    "cy": 0.5,
+    "size": 0.28,
+    "tint": "status"
+  },
+  "sound_pack": "glados"
+}

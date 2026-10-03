@@ -27,6 +27,17 @@ final class AgentCatalogTests: XCTestCase {
                        "`/approval` holds one agent's requests (`RouteTable.approval`)")
     }
 
+    /// The Custom look is drawn by Codex's `exec`, the picture attached and
+    /// the prompt on stdin (`-`), its sandbox its own folder.
+    func testCodexDrawsTheCustomLook() throws {
+        XCTAssertEqual(Agents.imageMaker?.id, .codex)
+        let maker = try XCTUnwrap(Agents.imageMaker?.imageMaker)
+        XCTAssertEqual(maker.executable, "codex")
+        XCTAssertEqual(maker.arguments("/tmp/p.png"),
+                       ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "-i", "/tmp/p.png", "-"])
+        XCTAssertEqual(Agents.all.filter { $0.imageMaker != nil }.count, 1)
+    }
+
     /// Each agent's name is in both string tables.
     func testEveryAgentHasAName() throws {
         let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
