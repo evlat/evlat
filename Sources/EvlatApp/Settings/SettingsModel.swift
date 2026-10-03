@@ -91,14 +91,8 @@ final class SettingsModel: ObservableObject {
         var setNudgeNotify: (Bool, @escaping (Bool) -> Void) -> Void = { _, done in done(false) }
         /// Whether Evlat's notifications are off in System Settings.
         var notificationsDenied: (@escaping (Bool) -> Void) -> Void = { $0(false) }
-        /// Agents' "Docker sandboxes": the sandbox listener's state, and
-        /// the kit's writer — the folder, or `nil` when none is written
-        /// (`AppController.writeSandboxKit`).
+        /// The sandbox listener's state (`AppController.sandboxState`).
         var sandboxState: () -> SandboxState = { .off }
-        var writeSandboxKit: () -> URL? = { nil }
-        /// Puts a command on the pasteboard. A test's host keeps it, so no
-        /// test touches the user's pasteboard.
-        var copy: (String) -> Void = { _ in }
     }
 
     /// The sandbox listener as the status line tells it.
@@ -110,11 +104,6 @@ final class SettingsModel: ObservableObject {
         case taken(UInt16)
         /// Listening; the sandboxes heard since launch, by name, sorted.
         case listening(UInt16, heard: [String])
-    }
-
-    /// The two commands the group offers to copy.
-    enum SandboxCommand: String, CaseIterable {
-        case run, add
     }
 
     /// Where the chat backend's program is, once looked for.
@@ -141,11 +130,6 @@ final class SettingsModel: ObservableObject {
     /// The sandbox listener's state; written only when it changes, since a
     /// hook can change it at event rate (`follow`).
     @Published private(set) var sandboxState: SandboxState = .off
-    /// The kit's folder, once the group has been shown and written it.
-    @Published private(set) var sandboxKit: URL?
-    /// The command whose button says "Copied", for a moment.
-    @Published private(set) var sandboxCopied: SandboxCommand?
-    private var sandboxCopyToken = 0
 
     let setup: SetupModel
     let remote: RemoteMachinesModel
@@ -628,55 +612,6 @@ final class SettingsModel: ObservableObject {
         if state != sandboxState { sandboxState = state }
     }
 
-    /// The agent the commands start: the catalogue's first.
-    var sandboxAgent: Agents.SandboxAgent? { Agents.sandboxAgents.first }
-
-    /// The kit as this process would write it: its port and the file it
-    /// writes in the sandbox.
-    var sandboxPort: UInt16 {
-        switch sandboxState {
-        case .taken(let port), .listening(let port, _): return port
-        case .off, .starting: return SandboxListener.port() ?? SandboxKit.defaultPort
-        }
-    }
-
-    var sandboxInstallPath: String? { Agents.sandboxKit(port: sandboxPort).installs.first?.path }
-
-    /// What stands for the sandbox's name in `sbx kit add`: a bare word the
-    /// shell passes as it is, never `<name>`, which is a redirect.
-    static let sandboxNamePlaceholder = "SANDBOX"
-
-    /// The group was shown: the kit's folder is written now (never at
-    /// launch, nor when the window merely opens on another section).
-    func showSandboxKit() {
-        sandboxKit = host.writeSandboxKit()
-    }
-
-    func sandboxCommand(_ command: SandboxCommand, folder: URL) -> String? {
-        switch command {
-        case .run:
-            return sandboxAgent.map { SandboxKitWriter.runCommand(folder: folder, agent: $0.word) }
-        case .add:
-            return SandboxKitWriter.addCommand(folder: folder, sandbox: Self.sandboxNamePlaceholder)
-        }
-    }
-
-    /// Writes the kit again — the folder may have been removed since it
-    /// was shown — and copies the command naming it; nothing when no kit
-    /// could be written.
-    func copySandbox(_ command: SandboxCommand) {
-        sandboxKit = host.writeSandboxKit()
-        guard let folder = sandboxKit, let text = sandboxCommand(command, folder: folder) else { return }
-        host.copy(text)
-        sandboxCopied = command
-        sandboxCopyToken += 1
-        let token = sandboxCopyToken
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self, self.sandboxCopyToken == token else { return }
-            self.sandboxCopied = nil
-        }
-    }
-
     /// The status line's text.
     var sandboxStatusLine: String {
         switch sandboxState {
@@ -730,11 +665,7 @@ final class SettingsModel: ObservableObject {
         "packs.use", "packs.inUse", "packs.remove", "packs.remove.help", "packs.count", "packs.installed", "packs.unplayable", "packs.unplayable.help",
         "packs.note", "packs.done", "packs.error",
         "settings.agents.group", "settings.agents.note", "settings.usage.bar",
-        "settings.sandbox.group", "settings.sandbox.intro", "settings.sandbox.note",
-        "settings.sandbox.new", "settings.sandbox.new.detail",
-        "settings.sandbox.existing", "settings.sandbox.existing.detail",
-        "settings.sandbox.writes", "settings.sandbox.writes.detail", "settings.sandbox.noKit",
-        "settings.sandbox.status", "settings.sandbox.status.off", "settings.sandbox.status.starting",
+        "settings.sandbox.group", "settings.sandbox.status", "settings.sandbox.status.off", "settings.sandbox.status.starting",
         "settings.sandbox.status.taken", "settings.sandbox.status.quiet", "settings.sandbox.status.heard",
         "remote.copy", "remote.copied",
         "settings.usage.hideStale", "settings.usage.hideStale.detail",

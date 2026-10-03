@@ -6,7 +6,7 @@ import EvlatCore
 
 /// A Docker sandbox's session on this Mac: its `sbx` client found by name
 /// and start (`Sandbox`, `StartMatch`), its card (`DetailModel`), its
-/// listener (`SandboxListener`) and its kit's folder (`SandboxKitWriter`).
+/// and its listener (`SandboxListener`).
 /// The chain is the one measured on sbx 0.46.0:
 /// `sbx run --name evlat-hook … claude → -zsh → login → Bateri`.
 @MainActor
@@ -298,48 +298,15 @@ final class SandboxTests: XCTestCase {
     }
 
     func testIsolation() {
-        XCTAssertEqual(SandboxListener.port(environment: [:]), SandboxKit.defaultPort)
+        XCTAssertEqual(SandboxListener.port(environment: [:]), SandboxInstall.defaultPort)
         XCTAssertNil(SandboxListener.port(environment: ["EVLAT_PORT": "48999"]), "isolated: no listener")
         XCTAssertEqual(SandboxListener.port(environment: ["EVLAT_PORT": "48999", "EVLAT_SANDBOX_PORT": "48998"]),
                        48998)
         XCTAssertNil(SandboxListener.port(environment: ["EVLAT_SANDBOX_PORT": "0"]))
         XCTAssertNil(SandboxListener.port(environment: ["EVLAT_SANDBOX_PORT": "x"]))
 
-        let home = URL(fileURLWithPath: "/tmp/h", isDirectory: true)
-        XCTAssertEqual(SandboxKitWriter.location(home: home, environment: [:])?.path,
-                       "/tmp/h/Library/Application Support/Evlat/sandbox-kit")
-        XCTAssertNil(SandboxKitWriter.location(home: home, environment: ["EVLAT_PORT": "48999"]))
-        XCTAssertNotNil(SandboxKitWriter.location(home: home, environment: ["EVLAT_PORT": "48999",
-                                                                            "EVLAT_HOME": "/tmp/h"]))
-        XCTAssertNil(SandboxKitWriter.location(home: nil, environment: [:]))
 
-        let controller = AppController()
-        XCTAssertNil(controller.writeSandboxKit(environment: [:]), "no home: nothing written")
-        XCTAssertNil(controller.sandbox, "nothing listens until launched")
-    }
-
-    func testTheKitIsWrittenOnceUnderATemporaryRoot() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let controller = AppController(defaults: nil, home: root, loginItem: nil)
-        let environment = ["EVLAT_PORT": "48999", "EVLAT_SANDBOX_PORT": "48998", "EVLAT_HOME": root.path]
-        let folder = try XCTUnwrap(controller.writeSandboxKit(environment: environment))
-        XCTAssertEqual(folder.path, root.appendingPathComponent("Library/Application Support/Evlat/sandbox-kit").path)
-        let spec = folder.appendingPathComponent("spec.yaml")
-        XCTAssertEqual(try String(contentsOf: spec, encoding: .utf8), Agents.sandboxKit(port: 48998).spec)
-        let before = try FileManager.default.attributesOfItem(atPath: spec.path)[.modificationDate] as? Date
-        let inode = try FileManager.default.attributesOfItem(atPath: spec.path)[.systemFileNumber] as? Int
-        XCTAssertEqual(controller.writeSandboxKit(environment: environment), folder)
-        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: spec.path)[.systemFileNumber] as? Int, inode,
-                       "the same bytes are not written again")
-        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: spec.path)[.modificationDate] as? Date, before)
-        XCTAssertNil(controller.writeSandboxKit(environment: ["EVLAT_PORT": "48999", "EVLAT_HOME": root.path]),
-                     "isolated without a sandbox port: no kit")
-
-        XCTAssertEqual(SandboxKitWriter.runCommand(folder: folder, agent: "claude"),
-                       "sbx run --kit '\(folder.path)' claude")
-        XCTAssertEqual(SandboxKitWriter.addCommand(folder: URL(fileURLWithPath: "/a/it's"), sandbox: "s"),
-                       #"sbx kit add s '/a/it'\''s'"#)
+        XCTAssertNil(AppController().sandbox, "nothing listens until launched")
     }
 
     /// The real socket, on a free port: a hook with the sandbox's header is
@@ -358,7 +325,6 @@ final class SandboxTests: XCTestCase {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("evlat-hook", forHTTPHeaderField: "X-Evlat-Sandbox")
-        request.setValue("1", forHTTPHeaderField: "X-Evlat-Kit")
         request.setValue("446", forHTTPHeaderField: "X-Evlat-Pid")
         request.httpBody = Data(#"{"hook_event_name":"PermissionRequest","session_id":"s-1","cwd":"/Users/u/evlat","tool_name":"Bash"}"#.utf8)
         let answered = expectation(description: "answer")
@@ -375,7 +341,7 @@ final class SandboxTests: XCTestCase {
         XCTAssertNil(row.machine?.dim, "listening: not dimmed")
         XCTAssertNil(row.activity?.pid, "the VM's pid is not this Mac's")
         XCTAssertEqual(row.phase, .waiting)
-        XCTAssertEqual(sandbox.status.heard, ["evlat-hook": .some(1)])
+        XCTAssertEqual(sandbox.status.heard, ["evlat-hook"])
         XCTAssertEqual(sandbox.status.listener, .listening(port))
     }
 
@@ -396,7 +362,6 @@ final class SandboxTests: XCTestCase {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("evlat-hook", forHTTPHeaderField: "X-Evlat-Sandbox")
-        request.setValue("1", forHTTPHeaderField: "X-Evlat-Kit")
         request.httpBody = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s-2","cwd":"/Users/u/evlat"}"#.utf8)
         let answered = expectation(description: "answer")
         URLSession.shared.dataTask(with: request) { _, _, _ in answered.fulfill() }.resume()

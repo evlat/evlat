@@ -99,6 +99,13 @@ public final class HooksProvider: Provider {
         link.setLink(connected: connected, at: now)
     }
 
+    /// The sandbox `name` stopped or was deleted: its sessions go now. A
+    /// sandbox's rows have no pid to outlive, and a stopped VM sends no
+    /// `SessionEnd`. A session no sandbox was named for is not touched.
+    public func forget(sandbox name: String) {
+        sessions = sessions.filter { $0.value.sandboxName != name }
+    }
+
     /// What an event does to a session's phase.
     ///
     /// Kept as a value rather than folded into `handle` so the table can be

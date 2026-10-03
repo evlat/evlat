@@ -3,11 +3,11 @@ import EvlatCore
 import EvlatAgents
 
 /// Docker sandboxes' own listener: the hooks of agents in local `sbx`
-/// sandboxes, sent by the kit's command (`SandboxKit`) to
+/// sandboxes, sent by the command Evlat writes into each (`SandboxInstall`) to
 /// `host.docker.internal`, which the sandbox's proxy turns into this Mac's
 /// loopback. A remote machine's sibling with no tunnel: `.tunneled`, so the
 /// VM's pid and task are thrown away and nothing is held for an answer, and
-/// the one listener that believes the sandbox's two headers.
+/// the one listener that believes the sandbox's header.
 ///
 /// Its rows are one machine's (`identity`): namespaced apart from this Mac's
 /// and every remote machine's, each drawn with its own sandbox's name. The
@@ -22,13 +22,11 @@ final class SandboxListener {
     /// when a hook named no sandbox.
     nonisolated static let identity = Signal.Machine.Identity(id: "-sandbox", name: "sbx")
 
-    /// What Settings shows: whether it listens, and which sandboxes it heard
-    /// with which kit.
+    /// What Settings shows: whether it listens, and which sandboxes it heard.
     struct Status: Equatable {
         var listener: HookListener.Status = .stopped
-        /// Sandbox name → the kit version its last hook carried (`nil`:
-        /// none said).
-        var heard: [String: Int?] = [:]
+        /// The sandboxes' names, as their hooks said them.
+        var heard: Set<String> = []
     }
 
     let port: UInt16
@@ -79,7 +77,7 @@ final class SandboxListener {
     /// and `.tunneled` answers the held routes with `404`.
     private func deliver(_ delivery: LocalAPI.Delivery) {
         guard case .hook(let event) = delivery else { return }
-        if let name = event.sandboxName { status.heard[name] = .some(event.kitVersion) }
+        if let name = event.sandboxName { status.heard.insert(name) }
         hooks.handle(event)
         onChange()
     }
@@ -88,9 +86,9 @@ final class SandboxListener {
 
     /// The port this process listens on for sandboxes, or `nil` for none.
     /// `EVLAT_SANDBOX_PORT` when given (a number that is no port: none);
-    /// otherwise none in an isolated process (`EVLAT_PORT`) — the kit's
-    /// port is fixed, and a second Evlat must not take the user's
-    /// sandboxes — else the kit's (`SandboxKit.defaultPort`).
+    /// otherwise none in an isolated process (`EVLAT_PORT`) — the port is
+    /// fixed, and a second Evlat must not take the user's sandboxes — else
+    /// the fixed one (`SandboxInstall.defaultPort`).
     nonisolated static func port(environment: [String: String] = ProcessInfo.processInfo.environment) -> UInt16? {
         let value = { (name: String) -> String? in
             let raw = environment[name]?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -100,59 +98,6 @@ final class SandboxListener {
             guard let port = UInt16(raw), port > 0 else { return nil }
             return port
         }
-        return value("EVLAT_PORT") == nil ? SandboxKit.defaultPort : nil
-    }
-}
-
-/// Writes the kit's folder (`SandboxKit.files`) where the user can point
-/// `sbx` at it. Never at launch: only when Settings shows it or a command
-/// naming it is copied. The same bytes twice are no write.
-///
-/// The folder is Evlat's own, under Application Support, and the kit is
-/// made again from Swift constants whenever it is asked for: `sbx` reads it
-/// once, when a sandbox is made or a kit added, and never after.
-enum SandboxKitWriter {
-    /// `<home>/Library/Application Support/Evlat/sandbox-kit`, or `nil`: an
-    /// isolated process (`EVLAT_PORT`) writes nothing unless it was given a
-    /// home of its own (`EVLAT_HOME`) — the `/signal` key's rule.
-    static func location(home: URL?,
-                         environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        let set = { (name: String) in !(environment[name]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) }
-        if set("EVLAT_PORT") && !set("EVLAT_HOME") { return nil }
-        return home?.appendingPathComponent("Library/Application Support/Evlat", isDirectory: true)
-            .appendingPathComponent("sandbox-kit", isDirectory: true)
-    }
-
-    /// Writes each of the kit's files into `folder` whole, leaving one that
-    /// already holds the same bytes alone. Returns the folder.
-    @discardableResult
-    static func write(_ kit: SandboxKit, to folder: URL) throws -> URL {
-        let files = FileManager.default
-        try files.createDirectory(at: folder, withIntermediateDirectories: true)
-        for file in kit.files {
-            let url = folder.appendingPathComponent(file.path)
-            let data = Data(file.content.utf8)
-            if (try? Data(contentsOf: url)) == data { continue }
-            try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
-        }
-        return folder
-    }
-
-    /// The command that makes a sandbox with the kit, for `agent`'s word in
-    /// `sbx`. The path is quoted: Application Support has a space.
-    static func runCommand(folder: URL, agent: String) -> String {
-        "sbx run --kit \(quoted(folder.path)) \(agent)"
-    }
-
-    /// The command that adds the kit to the sandbox `sandbox`, which `sbx`
-    /// then makes again.
-    static func addCommand(folder: URL, sandbox: String) -> String {
-        "sbx kit add \(sandbox) \(quoted(folder.path))"
-    }
-
-    /// A single-quoted shell word: each `'` closes, is escaped and reopens.
-    static func quoted(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+        return value("EVLAT_PORT") == nil ? SandboxInstall.defaultPort : nil
     }
 }

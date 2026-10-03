@@ -154,20 +154,15 @@ final class HookEventTests: XCTestCase {
 
     /// A sandbox's name is drawn and matched against `sbx` clients' argvs,
     /// so only what `sbx` itself accepts in one is kept; anything else is no
-    /// name. The kit's version is a positive number or nothing.
-    func testASandboxNameAndKitAreReadOnlyWhenPlausible() {
-        let named = HookEvent(json: [HookEvent.sandboxKey: "claude-evlat_1.2", HookEvent.kitKey: "3"])
+    /// name.
+    func testASandboxNameIsReadOnlyWhenPlausible() {
+        let named = HookEvent(json: [HookEvent.sandboxKey: "claude-evlat_1.2"])
         XCTAssertEqual(named.sandboxName, "claude-evlat_1.2")
-        XCTAssertEqual(named.kitVersion, 3)
         for bad in ["", "a b", "a/b", "ünlü", "$(id)", String(repeating: "a", count: 65)] {
             XCTAssertNil(HookEvent(json: [HookEvent.sandboxKey: bad]).sandboxName, bad)
         }
         XCTAssertEqual(HookEvent(json: [HookEvent.sandboxKey: String(repeating: "a", count: 64)]).sandboxName?.count, 64)
-        for bad in ["0", "-1", "x", "1.5", ""] {
-            XCTAssertNil(HookEvent(json: [HookEvent.kitKey: bad]).kitVersion, bad)
-        }
         XCTAssertNil(HookEvent(json: [:]).sandboxName)
-        XCTAssertNil(HookEvent(json: [:]).kitVersion)
     }
 
     /// `SessionStart`'s `source`: `startup`, `resume`, `clear` or `compact`.

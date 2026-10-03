@@ -811,9 +811,9 @@ final class HooksProviderTests: XCTestCase {
                       machine: sandboxMachine, isQuestion: Self.isQuestion)
     }
 
-    private func sandboxEvent(_ name: String, sandbox: String? = "claude-evlat",
+    private func sandboxEvent(_ name: String, session: String = "s-1", sandbox: String? = "claude-evlat",
                               startSource: String? = nil, cwd: String? = "/tmp/project") -> HookEvent {
-        var json: [String: Any] = ["hook_event_name": name, "session_id": "s-1"]
+        var json: [String: Any] = ["hook_event_name": name, "session_id": session]
         if let cwd { json["cwd"] = cwd }
         if let sandbox { json[HookEvent.sandboxKey] = sandbox }
         if let startSource { json["source"] = startSource }
@@ -881,7 +881,7 @@ final class HooksProviderTests: XCTestCase {
         hooks.setLink(connected: true)
         func post(_ body: String) {
             let request = HTTPRequest(method: "POST", target: "/hook", body: Data(body.utf8), pid: "446",
-                                      host: "127.0.0.1:48152", sandboxName: "claude-evlat", kitVersion: "1")
+                                      host: "127.0.0.1:48152", sandboxName: "claude-evlat")
             guard case .hook(let event)? = LocalAPI.handle(request, listener: listener, agents: [agent]).delivery
             else { return XCTFail("a hook is delivered") }
             hooks.handle(event)
@@ -897,6 +897,21 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertEqual(row?.activity?.sandboxName, "claude-evlat")
         XCTAssertEqual(row?.activity?.sessionStartedAt, started)
         XCTAssertNil(row?.activity?.pid)
+    }
+
+    /// A sandbox stopped or deleted: its rows go at once, and only its own —
+    /// another sandbox's stay, and so does a row no sandbox was named for.
+    func testForgettingASandboxDropsOnlyItsRows() {
+        let hooks = sandboxProvider()
+        hooks.setLink(connected: true)
+        hooks.handle(sandboxEvent("UserPromptSubmit", session: "a1", sandbox: "a"))
+        hooks.handle(sandboxEvent("UserPromptSubmit", session: "a2", sandbox: "a"))
+        hooks.handle(sandboxEvent("UserPromptSubmit", session: "b1", sandbox: "b"))
+        hooks.handle(sandboxEvent("UserPromptSubmit", session: "n1", sandbox: nil))
+        hooks.forget(sandbox: "a")
+        XCTAssertEqual(hooks.currentSignals().map(\.entity), ["remote:sandbox:b1", "remote:sandbox:n1"])
+        hooks.forget(sandbox: "unknown")
+        XCTAssertEqual(hooks.currentSignals().count, 2)
     }
 }
 

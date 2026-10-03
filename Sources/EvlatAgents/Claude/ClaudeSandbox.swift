@@ -1,17 +1,17 @@
 import Foundation
 import EvlatCore
 
-/// Claude Code inside a Docker sandbox: its hooks go in the managed
-/// settings file, written by the kit (`SandboxKit`) as root.
+/// Claude Code inside a Docker sandbox: its hooks go in a managed settings
+/// file of Evlat's own, written as root (`SandboxInstall`).
 ///
-/// Not `~/.claude/settings.json`: `sbx` writes its own there
-/// (`permissions.defaultMode: bypassPermissions`), and a kit's file would
-/// replace it. A Claude sandbox made without the kit has no
-/// `/etc/claude-code` (measured), so this file is nobody else's.
+/// Not `~/.claude/settings.json`, which `sbx` writes itself
+/// (`permissions.defaultMode: bypassPermissions`), and not
+/// `managed-settings.json`, which is not Evlat's either: Claude Code also
+/// reads every `*.json` in `managed-settings.d` (2.1.280, measured with the
+/// folder alone), so Evlat writes and removes one file there and touches
+/// nothing else.
 enum ClaudeSandbox {
-    static let managedSettingsPath = "/etc/claude-code/managed-settings.json"
-    /// The agent's word in `sbx run` (`sbx run claude`).
-    static let sbxAgent = "claude"
+    static let managedSettingsPath = "/etc/claude-code/managed-settings.d/evlat.json"
 
     /// The same events the Mac installs, each with the sandbox's command,
     /// in the shape `HookSettings` writes. Keys sorted, so the bytes are
@@ -29,28 +29,19 @@ enum ClaudeSandbox {
                                                options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         return String(decoding: data, as: UTF8.self)
     }
-
-    static func install(port: UInt16) -> SandboxKit.Install {
-        SandboxKit.Install(path: managedSettingsPath, content: managedSettings(port: port))
-    }
 }
 
 extension Agents {
-    /// An agent the sandbox kit sets up, with its word in `sbx run`: what
-    /// Settings puts in the command it offers to copy.
-    public struct SandboxAgent: Equatable {
-        public let id: AgentID
-        public let word: String
-    }
+    /// The agent whose sandboxes Evlat sets up (`sbx ls --json`'s `agent`
+    /// is its id's word). Claude Code only so far; another agent's hooks in
+    /// a sandbox are not measured.
+    public static let sandboxAgent: AgentID = Claude().id
 
-    /// The agents the kit (`sandboxKit`) writes for, in the order Settings
-    /// offers them.
-    public static let sandboxAgents = [SandboxAgent(id: Claude().id, word: ClaudeSandbox.sbxAgent)]
-
-    /// The kit for Docker sandboxes, on the sandbox listener's `port`: what
-    /// each agent that runs in one needs written there. Claude Code only so
-    /// far; another agent's hooks in a sandbox are not measured.
-    public static func sandboxKit(port: UInt16 = SandboxKit.defaultPort) -> SandboxKit {
-        SandboxKit(port: port, installs: [ClaudeSandbox.install(port: port)])
+    /// What Evlat writes into a running sandbox of `sandboxAgent`'s, on the
+    /// sandbox listener's `port`: the one file and the rule
+    /// (`SandboxInstall.install(sandbox:)`).
+    public static func sandboxInstall(port: UInt16 = SandboxInstall.defaultPort) -> SandboxInstall {
+        SandboxInstall(port: port, path: ClaudeSandbox.managedSettingsPath,
+                       content: ClaudeSandbox.managedSettings(port: port))
     }
 }

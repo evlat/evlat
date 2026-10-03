@@ -12,8 +12,8 @@ import Foundation
 /// `X-Evlat-Permission` is the token a chat's own permission hook carries
 /// (`ChatRequest.tokenHeader`), and `X-Evlat-Key` is an outside program's key
 /// for `/signal`, `X-Evlat-Askpass` the token an `ssh` askpass helper
-/// carries (`Askpass`), and `X-Evlat-Sandbox` and `X-Evlat-Kit` what a Docker
-/// sandbox's hook command says about itself (`SandboxKit`).
+/// carries (`Askpass`), and `X-Evlat-Sandbox` the sandbox a Docker sandbox's
+/// hook command was sent from (`SandboxInstall`).
 public struct HTTPRequest: Equatable {
     public let method: String
     /// The request line's target: path **and** query, exactly as written.
@@ -49,15 +49,12 @@ public struct HTTPRequest: Equatable {
     /// says it. Text off the wire; only a sandbox's listener believes it
     /// (`LocalAPI.Listener.trustsSandboxHeaders`) and `HookEvent` validates it.
     public let sandboxName: String?
-    /// `X-Evlat-Kit`: the version of the kit that installed that command
-    /// (`SandboxKit.version`). Text, like the pid.
-    public let kitVersion: String?
 
     public init(method: String, target: String, body: Data = Data(),
                 taskID: String? = nil, pid: String? = nil,
                 origin: String? = nil, host: String? = nil, permissionToken: String? = nil,
                 signalKey: String? = nil, event: String? = nil, askpassToken: String? = nil,
-                sandboxName: String? = nil, kitVersion: String? = nil) {
+                sandboxName: String? = nil) {
         self.method = method
         self.target = target
         self.body = body
@@ -70,7 +67,6 @@ public struct HTTPRequest: Equatable {
         self.event = event
         self.askpassToken = askpassToken
         self.sandboxName = sandboxName
-        self.kitVersion = kitVersion
     }
 
     /// `nil` means "not yet": either the header block has not arrived or the
@@ -107,7 +103,6 @@ public struct HTTPRequest: Equatable {
         var event: String?
         var askpassToken: String?
         var sandboxName: String?
-        var kitVersion: String?
         for line in lines.dropFirst() {
             // Empty pieces are kept: a valueless `Origin:` line is a browser's
             // mark too, and dropping it let the defence be walked past.
@@ -130,7 +125,6 @@ public struct HTTPRequest: Equatable {
             case "x-evlat-event": event = value.isEmpty ? nil : value
             case "x-evlat-askpass": askpassToken = value.isEmpty ? nil : value
             case "x-evlat-sandbox": sandboxName = value.isEmpty ? nil : value
-            case "x-evlat-kit": kitVersion = value.isEmpty ? nil : value
             default: continue
             }
         }
@@ -143,6 +137,6 @@ public struct HTTPRequest: Equatable {
                            body: data.subdata(in: bodyStart..<(bodyStart + contentLength)),
                            taskID: taskID, pid: pid, origin: origin, host: host,
                            permissionToken: permissionToken, signalKey: signalKey, event: event,
-                           askpassToken: askpassToken, sandboxName: sandboxName, kitVersion: kitVersion)
+                           askpassToken: askpassToken, sandboxName: sandboxName)
     }
 }

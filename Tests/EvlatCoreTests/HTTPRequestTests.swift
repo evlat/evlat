@@ -147,17 +147,15 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertEqual(request.body, raw("{}"))
     }
 
-    /// A sandbox's two headers (`SandboxKit`), read as text like the pid:
-    /// what they may say is `HookEvent`'s rule, and whether they count is
-    /// the listener's. Empty counts as absent.
-    func testReadsTheSandboxHeaders() throws {
+    /// A sandbox's header (`SandboxInstall`), read as text like the pid:
+    /// what it may say is `HookEvent`'s rule, and whether it counts is the
+    /// listener's. Empty counts as absent.
+    func testReadsTheSandboxHeader() throws {
         let request = try XCTUnwrap(HTTPRequest.parse(raw(
-            "POST /hook HTTP/1.1\r\nX-Evlat-Sandbox: claude-evlat\r\nx-evlat-kit: 1\r\n\r\n")))
+            "POST /hook HTTP/1.1\r\nx-evlat-sandbox: claude-evlat\r\n\r\n")))
         XCTAssertEqual(request.sandboxName, "claude-evlat")
-        XCTAssertEqual(request.kitVersion, "1")
         let empty = try XCTUnwrap(HTTPRequest.parse(raw(
-            "POST /hook HTTP/1.1\r\nX-Evlat-Sandbox: \r\nX-Evlat-Kit:\r\n\r\n")))
+            "POST /hook HTTP/1.1\r\nX-Evlat-Sandbox: \r\n\r\n")))
         XCTAssertNil(empty.sandboxName, "empty counts as absent")
-        XCTAssertNil(empty.kitVersion)
     }
 }

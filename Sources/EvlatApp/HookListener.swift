@@ -111,7 +111,7 @@ public final class HookListener {
     /// answers as the local one does (`LocalAPI.handle`).
     ///
     /// `trustsSandboxHeaders` makes it a Docker sandbox's listener, the one
-    /// that believes `X-Evlat-Sandbox` and `X-Evlat-Kit` (`SandboxListener`).
+    /// that believes `X-Evlat-Sandbox` (`SandboxListener`).
     public init(port: UInt16,
                 origin: LocalAPI.Origin = .local,
                 transcriptRoots: [URL] = [],

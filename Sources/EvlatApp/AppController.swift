@@ -2432,20 +2432,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         wireMachineSources()
     }
 
-    /// Writes the sandbox kit's folder and returns it; `nil` when this
-    /// process has no sandbox port or may not write (`SandboxKitWriter`).
-    /// Never called at launch: Settings calls it when it shows the kit.
-    func writeSandboxKit(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        guard let port = SandboxListener.port(environment: environment),
-              let folder = SandboxKitWriter.location(home: home, environment: environment) else { return nil }
-        do {
-            return try SandboxKitWriter.write(Agents.sandboxKit(port: port), to: folder)
-        } catch {
-            NSLog("Evlat: sandbox kit not written: %@", "\(error)")
-            return nil
-        }
-    }
-
     /// Asks a remote session's server where its connection is, over the
     /// machine's tunnel master and only while it is up: `false`, and no
     /// call, otherwise (`DetailModel.findRemote`).
@@ -2594,12 +2580,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 guard let notifier = self?.notifier else { return done(false) }
                 notifier.isDenied(done)
             },
-            sandboxState: { [weak self] in self?.sandboxState ?? .off },
-            writeSandboxKit: { [weak self] in self?.writeSandboxKit() },
-            copy: { text in
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            })
+            sandboxState: { [weak self] in self?.sandboxState ?? .off })
     }
 
     /// Settings' line for the sandbox listener (`SandboxListener.Status`).
@@ -2608,7 +2589,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         switch sandbox.status.listener {
         case .stopped: return .starting
         case .unavailable(let port, _): return .taken(port)
-        case .listening(let port): return .listening(port, heard: sandbox.status.heard.keys.sorted())
+        case .listening(let port): return .listening(port, heard: sandbox.status.heard.sorted())
         }
     }
 
