@@ -237,7 +237,7 @@ public final class HooksProvider: Provider {
     /// `mayApply` guards the phase, and a sibling subagent's tool is still a
     /// tool this turn ran. What it cannot touch is the block's own tool, which
     /// is written with the phase.
-    private static func record(_ event: HookEvent, in session: inout Session) {
+    private static func record(_ event: HookEvent, in session: inout Session, at now: Date) {
         switch event.name {
         case "PreToolUse":
             // Subagents' tools included: they are part of the parent's turn.
@@ -250,6 +250,15 @@ public final class HooksProvider: Provider {
             session.lastReply = nil
         case "Stop" where !event.stopHookActive:
             session.lastReply = event.lastReply
+        // The session's beginning, as this Mac heard it: what tells which
+        // of a sandbox's terminals it was started in: its client started
+        // just before. `resume` and `compact` go on in the same terminal and
+        // keep it. `clear` may open a new session id, but then the terminal
+        // started long before, so its moment would match no client; such a
+        // session, like one first heard after its start, has none rather
+        // than a guessed one (the card then brings the app alone).
+        case "SessionStart" where event.startSource == "startup":
+            session.sessionStartedAt = now
         default:
             break
         }
@@ -299,7 +308,8 @@ public final class HooksProvider: Provider {
                                   // A row opened mid-turn missed the turn's
                                   // start; `UserPromptSubmit` below clears it.
                                   countIsPartial: true)
-            Self.record(event, in: &session)
+            session.sandboxName = event.sandboxName
+            Self.record(event, in: &session, at: platform.now())
             sessions[entity] = session
             return
         }
@@ -308,6 +318,9 @@ public final class HooksProvider: Provider {
         // events and not others, and a row that blanked its own detail every
         // other event would flicker in the list.
         if let cwd = event.cwd { session.cwd = cwd }
+        // Remembered the same way: only a sandbox's listener stamps it, and
+        // a session does not move between sandboxes.
+        if let name = event.sandboxName { session.sandboxName = name }
         // Any event is proof of life, one that says nothing about the phase
         // included; `since` stays the phase's stamp.
         session.mark.hear(at: platform.now())
@@ -319,7 +332,7 @@ public final class HooksProvider: Provider {
             session.pid = pid
             session.startedAt = platform.processStartedAt(pid)
         }
-        Self.record(event, in: &session)
+        Self.record(event, in: &session, at: platform.now())
         // The phase is what the guard refuses, not the event: the whereabouts
         // above are kept either way, because a row that sat out a prompt with a
         // stale `cwd` would be wrong about which project is blocked.
@@ -369,8 +382,12 @@ public final class HooksProvider: Provider {
                 // rate and must not look like a fresher state.
                 updatedAt: session.since,
                 activity: session.activity,
+                // A sandbox's row is drawn with its own sandbox's name; the
+                // id, and so the namespace and the agents it answers to, stay
+                // the listener's.
                 machine: machine.map {
-                    Signal.Machine(name: $0.name, dim: dim(session, phase: phase, now: now), id: $0.id)
+                    Signal.Machine(name: session.sandboxName ?? $0.name,
+                                   dim: dim(session, phase: phase, now: now), id: $0.id)
                 }
             )
         }
@@ -452,6 +469,10 @@ public final class HooksProvider: Provider {
         var lastReply: String?
         var toolCount = 0
         var countIsPartial: Bool
+        /// The sandbox the session runs in, by the name its listener was told.
+        var sandboxName: String?
+        /// When its `SessionStart` at `startup` arrived (`record`).
+        var sessionStartedAt: Date?
 
         init(phase: Phase, since: Date, word: String, source: AgentID, cwd: String?,
              pid: Int32?, startedAt: Date?, blockedBy: String?,
@@ -474,7 +495,8 @@ public final class HooksProvider: Provider {
         var activity: Signal.Activity {
             Signal.Activity(pid: pid, lastTool: lastTool, blockingTool: blockingTool,
                             waitKind: waitKind, lastReply: lastReply,
-                            toolCount: toolCount, countIsPartial: countIsPartial)
+                            toolCount: toolCount, countIsPartial: countIsPartial,
+                            sandboxName: sandboxName, sessionStartedAt: sessionStartedAt)
         }
 
         /// The same fallback the file record uses, so the two rows do not

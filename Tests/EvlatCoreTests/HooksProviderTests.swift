@@ -797,6 +797,107 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertEqual(snapshot.ordered.count, 1, "one session, one row")
         XCTAssertEqual(snapshot.aggregate, .waiting)
     }
+
+    // MARK: - A sandbox's rows
+
+    /// The sandbox listener's identity: one id, and `sbx` for a name when a
+    /// row's own sandbox did not say its name.
+    private let sandboxMachine = Signal.Machine.Identity(id: "sandbox", name: "sbx")
+
+    private func sandboxProvider() -> HooksProvider {
+        HooksProvider(platform: Platform(isAlive: { _ in XCTFail("no local process is asked about"); return true },
+                                         processStartedAt: { _ in XCTFail("no start time is read"); return nil },
+                                         now: { [clock] in clock.now }),
+                      machine: sandboxMachine, isQuestion: Self.isQuestion)
+    }
+
+    private func sandboxEvent(_ name: String, sandbox: String? = "claude-evlat",
+                              startSource: String? = nil, cwd: String? = "/tmp/project") -> HookEvent {
+        var json: [String: Any] = ["hook_event_name": name, "session_id": "s-1"]
+        if let cwd { json["cwd"] = cwd }
+        if let sandbox { json[HookEvent.sandboxKey] = sandbox }
+        if let startSource { json["source"] = startSource }
+        return HookEvent(json: json, source: .test)
+    }
+
+    /// The row is the machine's (`remote:sandbox:<session>`), but it is drawn
+    /// with its own sandbox's name; the card gets the name and when the
+    /// session started, to find its terminal.
+    func testASandboxRowIsDrawnWithItsSandboxsName() {
+        let hooks = sandboxProvider()
+        hooks.setLink(connected: true)
+        hooks.handle(sandboxEvent("SessionStart", startSource: "startup"))
+        let started = clock.now
+        clock.now += 30
+        hooks.handle(sandboxEvent("Stop", sandbox: nil))
+        let row = hooks.currentSignals().first
+        XCTAssertEqual(row?.entity, "remote:sandbox:s-1")
+        XCTAssertEqual(row?.label, "project", "the row's name is still its folder's")
+        XCTAssertEqual(row?.phase, .review)
+        XCTAssertEqual(row?.machine?.name, "claude-evlat", "remembered like the folder")
+        XCTAssertEqual(row?.machine?.id, "sandbox", "the identity stays the listener's")
+        XCTAssertEqual(row?.activity?.sandboxName, "claude-evlat")
+        XCTAssertEqual(row?.activity?.sessionStartedAt, started)
+        XCTAssertNil(row?.activity?.pid)
+    }
+
+    /// Without the header the row is drawn with the listener's own name.
+    func testASandboxRowWithoutANameIsDrawnWithTheListenersName() {
+        let hooks = sandboxProvider()
+        hooks.handle(sandboxEvent("UserPromptSubmit", sandbox: nil))
+        let row = hooks.currentSignals().first
+        XCTAssertEqual(row?.machine?.name, "sbx")
+        XCTAssertNil(row?.activity?.sandboxName)
+    }
+
+    /// Only a fresh session starts: `resume`, `clear` and `compact` are the
+    /// same session going on, and its terminal is the one it started in.
+    /// A session first heard mid-way has no start at all.
+    func testASessionStartsOnlyAtStartup() {
+        let hooks = sandboxProvider()
+        hooks.handle(sandboxEvent("UserPromptSubmit"))
+        XCTAssertNil(hooks.currentSignals().first?.activity?.sessionStartedAt, "heard mid-way")
+        for source in ["resume", "clear", "compact"] {
+            clock.now += 10
+            hooks.handle(sandboxEvent("SessionStart", startSource: source))
+            XCTAssertNil(hooks.currentSignals().first?.activity?.sessionStartedAt, source)
+        }
+        clock.now += 10
+        hooks.handle(sandboxEvent("SessionStart", startSource: "startup"))
+        let started = clock.now
+        for source in ["resume", "clear", "compact"] {
+            clock.now += 10
+            hooks.handle(sandboxEvent("SessionStart", startSource: source))
+            XCTAssertEqual(hooks.currentSignals().first?.activity?.sessionStartedAt, started, source)
+        }
+    }
+
+    /// The whole way in, without a socket: a request on the sandbox's
+    /// listener becomes a row on the sandbox's provider.
+    func testASandboxListenersEventsBecomeASandboxRow() {
+        let agent = TestAgent(paths: [RouteTable.installedPrefix])
+        let listener = LocalAPI.Listener(origin: .tunneled, routes: RouteTable([agent]), trustsSandboxHeaders: true)
+        let hooks = sandboxProvider()
+        hooks.setLink(connected: true)
+        func post(_ body: String) {
+            let request = HTTPRequest(method: "POST", target: "/hook", body: Data(body.utf8), pid: "446",
+                                      host: "127.0.0.1:48152", sandboxName: "claude-evlat", kitVersion: "1")
+            guard case .hook(let event)? = LocalAPI.handle(request, listener: listener, agents: [agent]).delivery
+            else { return XCTFail("a hook is delivered") }
+            hooks.handle(event)
+        }
+        post(#"{"hook_event_name":"SessionStart","source":"startup","session_id":"s-1","cwd":"/tmp/project"}"#)
+        let started = clock.now
+        clock.now += 5
+        post(#"{"hook_event_name":"Stop","session_id":"s-1"}"#)
+        let row = hooks.currentSignals().first
+        XCTAssertEqual(row?.entity, "remote:sandbox:s-1")
+        XCTAssertEqual(row?.phase, .review)
+        XCTAssertEqual(row?.machine?.name, "claude-evlat")
+        XCTAssertEqual(row?.activity?.sandboxName, "claude-evlat")
+        XCTAssertEqual(row?.activity?.sessionStartedAt, started)
+        XCTAssertNil(row?.activity?.pid)
+    }
 }
 
 /// Says exactly what the test hands it; it carries no source-specific

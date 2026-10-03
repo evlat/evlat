@@ -204,6 +204,65 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(handle(request).event?.pid, 7747, "and local is the default")
     }
 
+    // MARK: - A sandbox's listener
+
+    private static let sandbox = LocalAPI.Listener(origin: .tunneled, routes: routes, trustsSandboxHeaders: true)
+
+    private func sandboxHook(_ body: String, name: String? = "claude-evlat", kit: String? = "1",
+                             listener: LocalAPI.Listener = sandbox) -> LocalAPI.Outcome {
+        handle(HTTPRequest(method: "POST", target: "/hook", body: Data(body.utf8), taskID: "t", pid: "446",
+                           host: "127.0.0.1:48152", sandboxName: name, kitVersion: kit),
+               listener: listener)
+    }
+
+    /// Only a sandbox's listener believes the two headers, and it stamps them
+    /// into the body the way the pid is stamped: a body's own claim is
+    /// deleted first. It is still a tunnel: the VM's pid and task mean
+    /// nothing here.
+    func testASandboxListenerStampsItsTwoHeadersAndNoPid() {
+        let forged = #"{"hook_event_name":"Stop","session_id":"s-1","evlat_sandbox":"forged","evlat_kit":"9"}"#
+        let outcome = sandboxHook(forged)
+        XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"))
+        XCTAssertEqual(outcome.event?.sandboxName, "claude-evlat", "the header wins over the body")
+        XCTAssertEqual(outcome.event?.kitVersion, 1)
+        XCTAssertNil(outcome.event?.pid, "the VM's pid is no process on this Mac")
+        XCTAssertNil(outcome.event?.taskID)
+
+        let bare = sandboxHook(forged, name: nil, kit: nil)
+        XCTAssertNil(bare.event?.sandboxName, "no header, and the body's claim is gone too")
+        XCTAssertNil(bare.event?.kitVersion)
+
+        let invalid = sandboxHook(forged, name: "a b", kit: "x")
+        XCTAssertNotNil(invalid.event, "a bad name costs the name, not the event")
+        XCTAssertNil(invalid.event?.sandboxName)
+        XCTAssertNil(invalid.event?.kitVersion)
+    }
+
+    /// Any other listener — this Mac's own, a machine's tunnel — ignores the
+    /// headers and deletes the body's keys: no local process can put a
+    /// sandbox's name on a row.
+    func testEveryOtherListenerIgnoresTheSandboxHeaders() {
+        let forged = #"{"hook_event_name":"Stop","session_id":"s-1","evlat_sandbox":"forged","evlat_kit":"9"}"#
+        for listener in [LocalAPI.Listener(origin: .local, routes: Self.routes),
+                         LocalAPI.Listener(origin: .tunneled, routes: Self.routes)] {
+            let outcome = sandboxHook(forged, listener: listener)
+            XCTAssertNotNil(outcome.event)
+            XCTAssertNil(outcome.event?.sandboxName, "\(listener.origin)")
+            XCTAssertNil(outcome.event?.kitVersion, "\(listener.origin)")
+        }
+    }
+
+    /// A sandbox's listener is a tunnel for every other route: nothing that
+    /// grants or asks for anything, and no `/signal` without a key.
+    func testASandboxListenerHasNoSensitiveRoute() {
+        for path in [ChatRequest.path, ApprovalHook.path, Askpass.path, SignalReport.path] {
+            let request = HTTPRequest(method: "POST", target: path, body: Data("{}".utf8),
+                                      host: "127.0.0.1:48152", permissionToken: "p", signalKey: "k",
+                                      askpassToken: "a")
+            XCTAssertEqual(handle(request, listener: Self.sandbox).response?.status, .notFound, path)
+        }
+    }
+
     /// The tunnel changes whose identity is trusted, not who may speak: the
     /// browser defence and the table are the same on both origins.
     func testATunneledRequestIsDefendedLikeALocalOne() {

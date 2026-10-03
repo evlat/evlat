@@ -57,6 +57,18 @@ public struct HookEvent: Equatable {
     /// Antigravity sends no reply, and this Mac's server reads its one from
     /// the transcript's tail (`AntigravityTranscript`).
     public let lastReply: String?
+    /// The Docker sandbox the event was sent from, from `X-Evlat-Sandbox`:
+    /// stamped only by a sandbox's listener, and kept only if it reads as a
+    /// sandbox name (`isSandboxName`). What the row is drawn with and what
+    /// finds its terminal; never what the row is keyed on — the listener
+    /// decides that.
+    public let sandboxName: String?
+    /// The version of the kit whose command sent it, from `X-Evlat-Kit`: a
+    /// positive number, or `nil` for none (`SandboxKit.version`).
+    public let kitVersion: Int?
+    /// `source` on `SessionStart`: `startup`, `resume`, `clear` or `compact`.
+    /// Only `startup` is a session beginning.
+    public let startSource: String?
 
     /// Where a tool's subject is looked for, in order. One list rather than a
     /// table per tool: the keys already say what they hold, and a tool this
@@ -76,6 +88,26 @@ public struct HookEvent: Equatable {
     /// The key under which the server writes the `X-Evlat-Pid` header.
     public static let pidKey = "evlat_pid"
 
+    /// The keys under which a sandbox's listener writes `X-Evlat-Sandbox` and
+    /// `X-Evlat-Kit` (`LocalAPI.Listener.trustsSandboxHeaders`).
+    public static let sandboxKey = "evlat_sandbox"
+    public static let kitKey = "evlat_kit"
+
+    /// The longest sandbox name kept.
+    public static let sandboxNameLimit = 64
+
+    /// `[A-Za-z0-9._-]{1,64}`. The name is drawn on the bar and compared with
+    /// `sbx` clients' arguments; anything outside this set is no name `sbx`
+    /// gives, and is dropped rather than shown.
+    public static func isSandboxName(_ text: String) -> Bool {
+        (1...sandboxNameLimit).contains(text.utf8.count) && text.utf8.allSatisfy { byte in
+            (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte)
+                || (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte)
+                || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+                || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: "-")
+        }
+    }
+
     /// `json` is in the canonical vocabulary already: the agent's
     /// translation runs before this (`LocalAPI.handle`).
     public init(json: [String: Any], source: AgentID) {
@@ -90,6 +122,9 @@ public struct HookEvent: Equatable {
         toolName = Self.text(json["tool_name"])
         toolSubject = Self.subject(of: json["tool_input"] as? [String: Any])
         lastReply = Self.replyPreview(json["last_assistant_message"] as? String)
+        sandboxName = Self.text(json[Self.sandboxKey]).flatMap { Self.isSandboxName($0) ? $0 : nil }
+        kitVersion = Self.text(json[Self.kitKey]).flatMap { Int($0) }.flatMap { $0 > 0 ? $0 : nil }
+        startSource = Self.text(json["source"])
         // The pid arrives as text, because the header it comes from is text.
         // Anything that is not a plausible process is ignored: a session's
         // whereabouts are resolved by walking up from this pid, and `1`

@@ -200,13 +200,20 @@ public enum LocalAPI {
         /// The agents' routes (`RouteTable`); empty, and no agent route
         /// answers.
         public let routes: RouteTable
+        /// A Docker sandbox's listener (`SandboxKit`): the one listener that
+        /// believes `X-Evlat-Sandbox` and `X-Evlat-Kit`. Its port is reached
+        /// only from a sandbox, through the sandbox's own proxy, and only
+        /// because the kit's network rule allows it. Its origin is still
+        /// `.tunneled`: the VM's pid and task speak about another computer.
+        public let trustsSandboxHeaders: Bool
 
         public init(origin: Origin = .local, signalKey: String? = nil, transcriptRoots: [URL] = [],
-                    routes: RouteTable = RouteTable()) {
+                    routes: RouteTable = RouteTable(), trustsSandboxHeaders: Bool = false) {
             self.origin = origin
             self.signalKey = signalKey
             self.transcriptRoots = transcriptRoots
             self.routes = routes
+            self.trustsSandboxHeaders = trustsSandboxHeaders
         }
     }
 
@@ -327,6 +334,15 @@ public enum LocalAPI {
             else { json.removeValue(forKey: HookEvent.taskKey) }
             if trusted, let pid = request.pid { json[HookEvent.pidKey] = pid }
             else { json.removeValue(forKey: HookEvent.pidKey) }
+            // The sandbox's two headers, by the same rule: written from the
+            // headers by a sandbox's listener only, deleted from every body.
+            // Elsewhere any local process could put a sandbox's name on a row
+            // and have its card look for that sandbox's terminal.
+            let sandbox = listener.trustsSandboxHeaders
+            if sandbox, let name = request.sandboxName { json[HookEvent.sandboxKey] = name }
+            else { json.removeValue(forKey: HookEvent.sandboxKey) }
+            if sandbox, let kit = request.kitVersion { json[HookEvent.kitKey] = kit }
+            else { json.removeValue(forKey: HookEvent.kitKey) }
             // A body that names no event has it in a header
             // (`HookChannel.eventInHeader`). A body that names its own keeps it.
             if json["hook_event_name"] == nil, let event = request.event { json["hook_event_name"] = event }
@@ -428,14 +444,43 @@ public enum LocalAPI {
     /// A body that does not name its event (`HookChannel.eventInHeader`)
     /// gets a command per event that says it in `X-Evlat-Event`; every
     /// other agent's bytes carry no such header.
-    public static func installedHookCommand(for agent: some Agent, event: String? = nil) -> String {
-        installedHookCommand(for: agent.hooks, event: event)
+    ///
+    /// `endpoint` is where the command runs. `.local`, the default, is the
+    /// bytes above and nothing else: the installed contract. `.sandbox` is
+    /// its twin inside a Docker sandbox (`SandboxKit`), installed by the kit
+    /// and pinned beside it (`SandboxKitTests`).
+    public static func installedHookCommand(for agent: some Agent, event: String? = nil,
+                                            endpoint: HookEndpoint = .local) -> String {
+        installedHookCommand(for: agent.hooks, event: event, endpoint: endpoint)
     }
 
-    public static func installedHookCommand(for hooks: HookChannel, event: String? = nil) -> String {
+    public static func installedHookCommand(for hooks: HookChannel, event: String? = nil,
+                                            endpoint: HookEndpoint = .local) -> String {
         let named = hooks.eventInHeader ? event.map { " -H 'X-Evlat-Event: \($0)'" } ?? "" : ""
-        return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
-            + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
-            + " --data-binary @- http://127.0.0.1:\(defaultPort)\(hooks.paths[0]) >/dev/null 2>&1 || true"
+        switch endpoint {
+        case .local:
+            return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
+                + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
+                + " --data-binary @- http://127.0.0.1:\(defaultPort)\(hooks.paths[0]) >/dev/null 2>&1 || true"
+        case .sandbox(let port):
+            // No `$PPID` and no task: they would name the VM's processes,
+            // and the listener ignores them anyway. `${SANDBOX_NAME:-}` is
+            // the sandbox's own variable; empty, `curl` drops the header.
+            // No `--noproxy`: the way out of the VM is its proxy, which
+            // turns `host.docker.internal` into this Mac's loopback.
+            return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
+                + " -H \"X-Evlat-Sandbox: ${SANDBOX_NAME:-}\" -H 'X-Evlat-Kit: \(SandboxKit.version)'"
+                + " --data-binary @- http://\(SandboxKit.host):\(port)\(hooks.paths[0]) >/dev/null 2>&1 || true"
+        }
+    }
+
+    /// Where an installed hook command runs, and so how it reaches Evlat.
+    public enum HookEndpoint: Equatable {
+        /// This Mac, or a remote machine through its tunnel: `127.0.0.1` on
+        /// `defaultPort`, with the agent's pid and Evlat's task.
+        case local
+        /// A Docker sandbox: the Mac through the VM's proxy, on the sandbox
+        /// listener's port, with the sandbox's name and the kit's version.
+        case sandbox(port: UInt16)
     }
 }

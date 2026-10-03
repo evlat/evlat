@@ -264,11 +264,22 @@ public struct Signal: Equatable {
         /// The count began mid-turn, so it is a lower bound (`Fidelity`'s
         /// honesty: the card marks it rather than presenting it as the total).
         public var countIsPartial: Bool
+        /// The Docker sandbox the session runs in, by its own name: with no
+        /// pid on this Mac, what finds its terminal is the `sbx` client
+        /// that names it. `nil` for every other row.
+        public var sandboxName: String?
+        /// When the session began, on this Mac's clock: its `SessionStart`
+        /// at `startup` arrived then. Which of a sandbox's clients is the
+        /// session's is told by start; `nil` when Evlat did not hear it.
+        public var sessionStartedAt: Date?
 
         public init(pid: Int32? = nil, lastTool: Tool? = nil, blockingTool: Tool? = nil,
                     waitKind: WaitKind? = nil, lastReply: String? = nil,
-                    toolCount: Int? = nil, countIsPartial: Bool = false) {
+                    toolCount: Int? = nil, countIsPartial: Bool = false,
+                    sandboxName: String? = nil, sessionStartedAt: Date? = nil) {
             self.pid = pid
+            self.sandboxName = sandboxName
+            self.sessionStartedAt = sessionStartedAt
             self.lastTool = lastTool
             self.blockingTool = blockingTool
             self.waitKind = waitKind
