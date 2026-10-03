@@ -114,7 +114,7 @@ private struct SandboxListRow: View {
                         .buttonStyle(SmallButtonStyle())
                 }
             }
-            if case .failed(let reason) = row.tag {
+            if let reason = failure {
                 Text(reason)
                     .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.wait)
                     .fixedSize(horizontal: false, vertical: true)
@@ -123,11 +123,19 @@ private struct SandboxListRow: View {
         }
     }
 
+    /// What `sbx` said when setting up or taking out failed.
+    private var failure: String? {
+        switch row.tag {
+        case .failed(let reason), .removalFailed(let reason): return reason
+        default: return nil
+        }
+    }
+
     @ViewBuilder private var tag: some View {
         let text = model.sandboxTag(row.tag)
         switch row.tag {
         case .ready: NameTag(text: text)
-        case .failed, .agentOff: NameTag(text: text, caution: true)
+        case .failed, .removalFailed, .agentOff: NameTag(text: text, caution: true)
         default:
             Text(text)
                 .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)

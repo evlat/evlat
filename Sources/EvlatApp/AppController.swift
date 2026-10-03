@@ -2535,6 +2535,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let hooks = sandbox.hooks
         let begin = { [weak self] (sbx: String) in
             guard let self, self.sandboxWatcher == nil, self.sandbox === sandbox else { return }
+            // The switch went off and on: the old removal must not undo
+            // what this watcher sets up.
+            self.retiredSandboxWatcher?.abandon()
             if self.sandboxRunner?.sbxPath != sbx { self.sandboxRunner = SandboxRunner(sbxPath: sbx) }
             guard let runner = self.sandboxRunner else { return }
             let watcher = SandboxWatcher(runner: runner, socketPath: source.socket,

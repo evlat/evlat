@@ -320,6 +320,7 @@
 "settings.sandboxes.status.starting" = "Démarrage…";
 "settings.sandboxes.status.connecting" = "Connexion à sbx…";
 "settings.sandboxes.status.disconnected" = "sbx ne tourne pas. Evlat continue d’essayer ; les sessions déjà sur la barre restent.";
+"settings.sandboxes.status.refused" = "sbx a répondu sous une forme qu’Evlat ne sait pas lire : il n’entend donc pas les sandboxes démarrer. Evlat continue d’essayer.";
 "settings.sandboxes.status.listFailed" = "sbx n’a pas listé ses sandboxes. Evlat redemandera au démarrage de la prochaine.";
 "settings.sandboxes.status.watching" = "Surveillance active. Les sandboxes atteignent Evlat sur le port {port}.";
 "settings.sandboxes.status.version" = "Ce sbx est en version {version} ; Evlat a été testé avec {measured}.";
@@ -332,8 +333,9 @@
 "settings.sandboxes.waiting" = "Préparée à son démarrage";
 "settings.sandboxes.removing" = "Retrait du fichier d’Evlat…";
 "settings.sandboxes.removed" = "Fichier d’Evlat retiré";
-"settings.sandboxes.stoppedOff" = "Arrêtée. Si Evlat l’a préparée, son fichier reste et ne fait rien.";
+"settings.sandboxes.stoppedOff" = "Arrêtée. Si Evlat l’a préparée, son fichier et sa règle restent et ne font rien.";
 "settings.sandboxes.failed" = "Préparation impossible";
+"settings.sandboxes.removalFailed" = "Impossible de retirer le fichier d’Evlat";
 "settings.sandboxes.retry" = "Réessayer";
 "settings.sandboxes.otherAgent" = "Exécute {agent} ; seul {watched} est surveillé pour l’instant";
 "settings.sandboxes.agentOff" = "{agent} est désactivé dans Agents";
@@ -341,7 +343,7 @@
 "settings.sandboxes.what.file" = "Dans chaque sandbox {agent}, en root, Evlat écrit un seul fichier à lui : {path}.";
 "settings.sandboxes.what.rule" = "Il permet à cette sandbox d’atteindre le port {port} de ce Mac, et rien d’autre.";
 "settings.sandboxes.what.mac" = "Rien n’est modifié sur ce Mac.";
-"settings.sandboxes.what.off" = "Une fois désactivé, les deux sont retirés des sandboxes en cours. Une sandbox arrêtée garde le fichier : tant qu’Evlat n’écoute pas, ses hooks échouent aussitôt et {agent} continue.";
+"settings.sandboxes.what.off" = "Une fois désactivé, les deux sont retirés des sandboxes en cours. Une sandbox arrêtée garde les deux : tant qu’Evlat n’écoute pas, ses hooks échouent aussitôt et {agent} continue.";
 "settings.sandboxes.what.cloud" = "Les sandboxes dans le cloud de Docker n’atteignent pas ce Mac.";
 "settings.sandboxes.discover" = "Vous utilisez des sandboxes Docker ? Surveillez-les dans Sandboxes ›";
 "setup.flow.sandboxes" = "Sandboxes Docker";

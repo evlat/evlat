@@ -14,10 +14,15 @@ import EvlatCore
 final class SandboxDaemonLink {
     enum State: Equatable {
         case connecting
-        /// The request is sent on an open socket.
+        /// The daemon answered the request with the stream measured
+        /// (`SandboxDaemon.Stream.opened`); an open socket alone is not it.
         case connected
-        /// Ended or refused; the next try is scheduled.
+        /// Ended, or no socket; the next try is scheduled.
         case disconnected
+        /// The daemon answered, but not with the stream measured (another
+        /// status, type or framing): `sbx` runs, Evlat cannot read it. The
+        /// next try is scheduled as for `disconnected`.
+        case refused
     }
 
     let socketPath: String
@@ -87,9 +92,7 @@ final class SandboxDaemonLink {
             guard let self, current == self.generation else { return }
             switch state {
             case .ready:
-                self.connectedAt = self.now()
                 connection.send(content: SandboxDaemon.request, completion: .contentProcessed { _ in })
-                self.report(.connected)
                 self.receive(on: connection, generation: current)
             // A missing socket waits for a path that never comes: a
             // failure like any other.
@@ -107,6 +110,13 @@ final class SandboxDaemonLink {
             guard let self, current == self.generation else { return }
             if let data, !data.isEmpty {
                 let events = self.stream.feed(data)
+                // Connected once the head says it is the stream: a daemon
+                // that answers otherwise must not set the sandboxes up again
+                // on every try.
+                if self.stream.opened, self.connectedAt == nil {
+                    self.connectedAt = self.now()
+                    self.report(.connected)
+                }
                 if !events.isEmpty {
                     let onEvent = self.onEvent
                     DispatchQueue.main.async { events.forEach(onEvent) }
@@ -114,7 +124,7 @@ final class SandboxDaemonLink {
             }
             if let failure = self.stream.failure {
                 NSLog("Evlat: sandbox daemon stream refused: %@", String(describing: failure))
-                return self.end(current)
+                return self.end(current, refused: true)
             }
             guard !complete, error == nil, !self.stream.ended else { return self.end(current) }
             self.receive(on: connection, generation: current)
@@ -122,13 +132,13 @@ final class SandboxDaemonLink {
     }
 
     /// The connection `current` is over: the next one after the delay.
-    private func end(_ current: Int) {
+    private func end(_ current: Int, refused: Bool = false) {
         guard current == generation else { return }
         generation += 1
         connection?.cancel()
         connection = nil
         failures = SandboxDaemon.failures(after: failures, connectedAt: connectedAt, now: now())
-        report(.disconnected)
+        report(refused ? .refused : .disconnected)
         guard !stopped else { return }
         // Only if nothing else started one meanwhile (a stop and a start).
         let scheduled = generation

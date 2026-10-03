@@ -319,6 +319,7 @@
 "settings.sandboxes.status.starting" = "開始しています…";
 "settings.sandboxes.status.connecting" = "sbxに接続しています…";
 "settings.sandboxes.status.disconnected" = "sbxが動いていません。Evlatは試し続けます。すでにバーにあるセッションはそのまま残ります。";
+"settings.sandboxes.status.refused" = "sbxがEvlatの読めない形式で応答したため、サンドボックスの開始を受け取れません。Evlatは試し続けます。";
 "settings.sandboxes.status.listFailed" = "sbxがサンドボックスの一覧を返しませんでした。次にどれかが起動したときに、Evlatがもう一度問い合わせます。";
 "settings.sandboxes.status.watching" = "監視中。サンドボックスはポート{port}でEvlatに届きます。";
 "settings.sandboxes.status.version" = "このsbxは{version}です。Evlatは{measured}でテストされています。";
@@ -331,8 +332,9 @@
 "settings.sandboxes.waiting" = "起動時に設定";
 "settings.sandboxes.removing" = "Evlatのファイルを取り除いています…";
 "settings.sandboxes.removed" = "Evlatのファイルを取り除きました";
-"settings.sandboxes.stoppedOff" = "停止中。Evlatが設定していた場合、そのファイルは残りますが何もしません。";
+"settings.sandboxes.stoppedOff" = "停止中。Evlatが設定していた場合、そのファイルとルールは残りますが何もしません。";
 "settings.sandboxes.failed" = "設定できませんでした";
+"settings.sandboxes.removalFailed" = "Evlatのファイルを取り除けませんでした";
 "settings.sandboxes.retry" = "再試行";
 "settings.sandboxes.otherAgent" = "{agent}を実行中。いまは{watched}だけを監視しています";
 "settings.sandboxes.agentOff" = "{agent}はエージェントでオフになっています";
@@ -340,7 +342,7 @@
 "settings.sandboxes.what.file" = "Evlatは各{agent}サンドボックスの中に、rootとして自分用のファイルを1つだけ書き込みます：{path}。";
 "settings.sandboxes.what.rule" = "そのサンドボックスには、このMacのポート{port}への接続だけを許可します。それ以外は許可しません。";
 "settings.sandboxes.what.mac" = "このMacでは何も変更しません。";
-"settings.sandboxes.what.off" = "オフにすると、実行中のサンドボックスから両方とも取り除かれます。停止中のサンドボックスにはファイルが残ります。Evlatが待ち受けていない間、フックはすぐに失敗し、{agent}はそのまま動き続けます。";
+"settings.sandboxes.what.off" = "オフにすると、実行中のサンドボックスから両方とも取り除かれます。停止中のサンドボックスには両方とも残ります。Evlatが待ち受けていない間、フックはすぐに失敗し、{agent}はそのまま動き続けます。";
 "settings.sandboxes.what.cloud" = "DockerのクラウドにあるサンドボックスはこのMacに届きません。";
 "settings.sandboxes.discover" = "Dockerサンドボックスをお使いですか？監視するには：サンドボックス ›";
 "setup.flow.sandboxes" = "Dockerサンドボックス";

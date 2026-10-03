@@ -319,6 +319,7 @@
 "settings.sandboxes.status.starting" = "正在啟動…";
 "settings.sandboxes.status.connecting" = "正在連線到 sbx…";
 "settings.sandboxes.status.disconnected" = "sbx 沒有在執行。Evlat 會繼續嘗試；已在長條上的工作階段會保留。";
+"settings.sandboxes.status.refused" = "sbx 的回應格式 Evlat 無法讀取，因此聽不到沙盒啟動。Evlat 會繼續嘗試。";
 "settings.sandboxes.status.listFailed" = "sbx 沒有列出它的沙盒。有沙盒啟動時，Evlat 會再問一次。";
 "settings.sandboxes.status.watching" = "正在監看。沙盒透過 {port} 埠連到 Evlat。";
 "settings.sandboxes.status.version" = "這個 sbx 是 {version}；Evlat 以 {measured} 測試過。";
@@ -331,8 +332,9 @@
 "settings.sandboxes.waiting" = "啟動時設定";
 "settings.sandboxes.removing" = "正在移除 Evlat 的檔案…";
 "settings.sandboxes.removed" = "已移除 Evlat 的檔案";
-"settings.sandboxes.stoppedOff" = "已停止。如果是 Evlat 設定的，它的檔案會留著，但不起作用。";
+"settings.sandboxes.stoppedOff" = "已停止。如果是 Evlat 設定的，它的檔案和規則會留著，但不起作用。";
 "settings.sandboxes.failed" = "無法設定";
+"settings.sandboxes.removalFailed" = "無法移除 Evlat 的檔案";
 "settings.sandboxes.retry" = "再試一次";
 "settings.sandboxes.otherAgent" = "執行的是 {agent}；目前只監看 {watched}";
 "settings.sandboxes.agentOff" = "{agent} 已在「Agent」中關閉";
@@ -340,7 +342,7 @@
 "settings.sandboxes.what.file" = "在每個 {agent} 沙盒裡，Evlat 以 root 身分寫入一個它自己的檔案：{path}。";
 "settings.sandboxes.what.rule" = "它只允許該沙盒連到這台 Mac 的 {port} 埠，其他一律不行。";
 "settings.sandboxes.what.mac" = "這台 Mac 上不會有任何更動。";
-"settings.sandboxes.what.off" = "關閉後，兩者都會從執行中的沙盒移除。已停止的沙盒會保留這個檔案：Evlat 沒在監聽時，其中的 hook 會立即失敗，{agent} 照常工作。";
+"settings.sandboxes.what.off" = "關閉後，兩者都會從執行中的沙盒移除。已停止的沙盒會保留兩者：Evlat 沒在監聽時，其中的 hook 會立即失敗，{agent} 照常工作。";
 "settings.sandboxes.what.cloud" = "Docker 雲端的沙盒無法連到這台 Mac。";
 "settings.sandboxes.discover" = "在用 Docker 沙盒？到這裡監看它們：沙盒 ›";
 "setup.flow.sandboxes" = "Docker 沙盒";

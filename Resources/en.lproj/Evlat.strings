@@ -383,6 +383,7 @@
 "settings.sandboxes.status.starting" = "Starting…";
 "settings.sandboxes.status.connecting" = "Connecting to sbx…";
 "settings.sandboxes.status.disconnected" = "sbx isn't running. Evlat keeps trying; sessions already on the bar stay.";
+"settings.sandboxes.status.refused" = "sbx answered in a way Evlat can't read, so it can't hear sandboxes start. Evlat keeps trying.";
 "settings.sandboxes.status.listFailed" = "sbx didn't list its sandboxes. Evlat asks again when one starts.";
 "settings.sandboxes.status.watching" = "Watching. Sandboxes reach Evlat on port {port}.";
 "settings.sandboxes.status.version" = "This sbx is {version}; Evlat was tested with {measured}.";
@@ -395,8 +396,9 @@
 "settings.sandboxes.waiting" = "Set up when it starts";
 "settings.sandboxes.removing" = "Taking Evlat's file out…";
 "settings.sandboxes.removed" = "Evlat's file taken out";
-"settings.sandboxes.stoppedOff" = "Stopped. If Evlat set it up, its file stays and does nothing.";
+"settings.sandboxes.stoppedOff" = "Stopped. If Evlat set it up, its file and rule stay and do nothing.";
 "settings.sandboxes.failed" = "Couldn't set up";
+"settings.sandboxes.removalFailed" = "Couldn't take Evlat's file out";
 "settings.sandboxes.retry" = "Try Again";
 "settings.sandboxes.otherAgent" = "Runs {agent}; only {watched} is watched for now";
 "settings.sandboxes.agentOff" = "{agent} is off in Agents";
@@ -404,7 +406,7 @@
 "settings.sandboxes.what.file" = "Inside each {agent} sandbox, as root, Evlat writes one file of its own: {path}.";
 "settings.sandboxes.what.rule" = "It lets that sandbox reach port {port} on this Mac, and nothing else.";
 "settings.sandboxes.what.mac" = "Nothing on this Mac is changed.";
-"settings.sandboxes.what.off" = "Turned off, both come out of the running sandboxes. A stopped sandbox keeps the file: while Evlat isn't listening, its hooks fail at once and {agent} carries on.";
+"settings.sandboxes.what.off" = "Turned off, both come out of the running sandboxes. A stopped sandbox keeps them: while Evlat isn't listening, its hooks fail at once and {agent} carries on.";
 "settings.sandboxes.what.cloud" = "Sandboxes in Docker's cloud can't reach this Mac.";
 "settings.sandboxes.discover" = "Using Docker sandboxes? Watch them in Sandboxes ›";
 "setup.flow.sandboxes" = "Docker sandboxes";

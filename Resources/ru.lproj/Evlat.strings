@@ -320,6 +320,7 @@
 "settings.sandboxes.status.starting" = "Запуск…";
 "settings.sandboxes.status.connecting" = "Подключение к sbx…";
 "settings.sandboxes.status.disconnected" = "sbx не запущен. Evlat продолжает попытки; сессии, которые уже на полосе, остаются.";
+"settings.sandboxes.status.refused" = "sbx ответил в виде, который Evlat не умеет читать, поэтому он не слышит запуск песочниц. Evlat продолжает попытки.";
 "settings.sandboxes.status.listFailed" = "sbx не выдал список песочниц. Evlat спросит снова, когда запустится следующая.";
 "settings.sandboxes.status.watching" = "Наблюдение идёт. Песочницы достают до Evlat через порт {port}.";
 "settings.sandboxes.status.version" = "Версия этого sbx — {version}; Evlat проверяли с {measured}.";
@@ -332,8 +333,9 @@
 "settings.sandboxes.waiting" = "Настроится при запуске";
 "settings.sandboxes.removing" = "Убираем файл Evlat…";
 "settings.sandboxes.removed" = "Файл Evlat убран";
-"settings.sandboxes.stoppedOff" = "Остановлена. Если её настраивал Evlat, его файл остаётся и ничего не делает.";
+"settings.sandboxes.stoppedOff" = "Остановлена. Если её настраивал Evlat, его файл и правило остаются и ничего не делают.";
 "settings.sandboxes.failed" = "Не удалось настроить";
+"settings.sandboxes.removalFailed" = "Не удалось убрать файл Evlat";
 "settings.sandboxes.retry" = "Повторить";
 "settings.sandboxes.otherAgent" = "Запускает {agent}; пока отслеживается только {watched}";
 "settings.sandboxes.agentOff" = "{agent} выключен в разделе «Агенты»";
@@ -341,7 +343,7 @@
 "settings.sandboxes.what.file" = "В каждой песочнице {agent} Evlat от root записывает один свой файл: {path}.";
 "settings.sandboxes.what.rule" = "Ещё Evlat разрешает этой песочнице обращаться к порту {port} на этом Mac — и больше ни к чему.";
 "settings.sandboxes.what.mac" = "На этом Mac ничего не меняется.";
-"settings.sandboxes.what.off" = "При выключении и то и другое убирается из запущенных песочниц. Остановленная песочница сохраняет файл: пока Evlat не слушает, её хуки сразу завершаются с ошибкой, а {agent} продолжает работу.";
+"settings.sandboxes.what.off" = "При выключении и то и другое убирается из запущенных песочниц. Остановленная песочница сохраняет и то и другое: пока Evlat не слушает, её хуки сразу завершаются с ошибкой, а {agent} продолжает работу.";
 "settings.sandboxes.what.cloud" = "Песочницы в облаке Docker не достают до этого Mac.";
 "settings.sandboxes.discover" = "Пользуетесь песочницами Docker? Следить за ними — в разделе Песочницы ›";
 "setup.flow.sandboxes" = "Песочницы Docker";

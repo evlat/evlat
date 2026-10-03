@@ -319,6 +319,7 @@
 "settings.sandboxes.status.starting" = "Запуск…";
 "settings.sandboxes.status.connecting" = "Підключення до sbx…";
 "settings.sandboxes.status.disconnected" = "sbx не запущено. Evlat і далі пробує; сесії, що вже є на панелі, лишаються.";
+"settings.sandboxes.status.refused" = "sbx відповів у вигляді, який Evlat не вміє читати, тож він не чує запуску пісочниць. Evlat і далі пробує.";
 "settings.sandboxes.status.listFailed" = "sbx не видав список пісочниць. Evlat спитає знову, коли запуститься наступна.";
 "settings.sandboxes.status.watching" = "Спостереження триває. Пісочниці дістають до Evlat через порт {port}.";
 "settings.sandboxes.status.version" = "Версія цього sbx — {version}; Evlat перевіряли з {measured}.";
@@ -331,8 +332,9 @@
 "settings.sandboxes.waiting" = "Налаштується під час запуску";
 "settings.sandboxes.removing" = "Прибираємо файл Evlat…";
 "settings.sandboxes.removed" = "Файл Evlat прибрано";
-"settings.sandboxes.stoppedOff" = "Зупинена. Якщо її налаштовував Evlat, його файл лишається й нічого не робить.";
+"settings.sandboxes.stoppedOff" = "Зупинена. Якщо її налаштовував Evlat, його файл і правило лишаються й нічого не роблять.";
 "settings.sandboxes.failed" = "Не вдалося налаштувати";
+"settings.sandboxes.removalFailed" = "Не вдалося прибрати файл Evlat";
 "settings.sandboxes.retry" = "Спробувати ще раз";
 "settings.sandboxes.otherAgent" = "Запускає {agent}; поки що відстежується лише {watched}";
 "settings.sandboxes.agentOff" = "{agent} вимкнено в розділі «Агенти»";
@@ -340,7 +342,7 @@
 "settings.sandboxes.what.file" = "У кожній пісочниці {agent} Evlat від імені root записує один власний файл: {path}.";
 "settings.sandboxes.what.rule" = "Ще Evlat дозволяє цій пісочниці звертатися до порту {port} на цьому Mac — і більше ні до чого.";
 "settings.sandboxes.what.mac" = "На цьому Mac нічого не змінюється.";
-"settings.sandboxes.what.off" = "Після вимкнення і те, і те прибирається із запущених пісочниць. Зупинена пісочниця зберігає файл: поки Evlat не слухає, її хуки одразу завершуються з помилкою, а {agent} працює далі.";
+"settings.sandboxes.what.off" = "Після вимкнення і те, і те прибирається із запущених пісочниць. Зупинена пісочниця зберігає і те, і те: поки Evlat не слухає, її хуки одразу завершуються з помилкою, а {agent} працює далі.";
 "settings.sandboxes.what.cloud" = "Пісочниці в хмарі Docker не дістають до цього Mac.";
 "settings.sandboxes.discover" = "Користуєтеся пісочницями Docker? Стежити за ними — у розділі Пісочниці ›";
 "setup.flow.sandboxes" = "Пісочниці Docker";

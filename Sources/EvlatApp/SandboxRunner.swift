@@ -19,6 +19,9 @@ final class SandboxRunner {
     /// stood in for it (it could not start, it ran past the deadline).
     struct Failure: Error, Equatable {
         let reason: String
+        /// The sandbox was not running when its job's turn came: nothing
+        /// was run for it.
+        var notRunning = false
     }
 
     let sbxPath: String
@@ -38,11 +41,24 @@ final class SandboxRunner {
     /// Runs `commands` in order for `sandbox`, stopping at the first that
     /// fails. `false`, and `completion` is never called, while the sandbox
     /// has a job running.
+    ///
+    /// The list is read again when the job's turn comes, and nothing runs
+    /// unless `sandbox` is running then (`Failure.notRunning`): the job may
+    /// have waited behind others' on the serial queue, and `sbx exec`
+    /// starts a sandbox that stopped meanwhile.
     @discardableResult
     func run(_ commands: [SandboxInstall.Command], sandbox: String,
              completion: @escaping (Result<Void, Failure>) -> Void) -> Bool {
         let path = sbxPath, deadline = self.deadline
         return start(sandbox, completion: completion) {
+            let listed = Self.run(path, SandboxInstall.list, deadline: deadline)
+            if let failure = listed.failure { return .failure(failure) }
+            guard let sandboxes = SandboxInstall.sandboxes(fromList: listed.output) else {
+                return .failure(Failure(reason: "sbx ls --json answered another shape"))
+            }
+            guard sandboxes.contains(where: { $0.name == sandbox && $0.isRunning }) else {
+                return .failure(Failure(reason: "not running", notRunning: true))
+            }
             for command in commands {
                 let answer = Self.run(path, command, deadline: deadline)
                 if let failure = answer.failure { return .failure(failure) }

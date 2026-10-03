@@ -319,6 +319,7 @@
 "settings.sandboxes.status.starting" = "시작하는 중…";
 "settings.sandboxes.status.connecting" = "sbx에 연결하는 중…";
 "settings.sandboxes.status.disconnected" = "sbx가 실행 중이 아닙니다. Evlat은 계속 시도하며, 이미 바에 있는 세션은 그대로 남습니다.";
+"settings.sandboxes.status.refused" = "sbx가 Evlat이 읽을 수 없는 형식으로 응답해서 샌드박스가 시작되는 것을 들을 수 없습니다. Evlat은 계속 시도합니다.";
 "settings.sandboxes.status.listFailed" = "sbx가 샌드박스 목록을 주지 않았습니다. 샌드박스가 시작되면 Evlat이 다시 묻습니다.";
 "settings.sandboxes.status.watching" = "감시 중. 샌드박스는 {port} 포트로 Evlat에 닿습니다.";
 "settings.sandboxes.status.version" = "이 sbx는 {version}입니다. Evlat은 {measured}에서 테스트했습니다.";
@@ -331,8 +332,9 @@
 "settings.sandboxes.waiting" = "시작되면 설정";
 "settings.sandboxes.removing" = "Evlat의 파일을 빼는 중…";
 "settings.sandboxes.removed" = "Evlat의 파일을 뺌";
-"settings.sandboxes.stoppedOff" = "중지됨. Evlat이 설정했다면 파일은 남지만 아무 일도 하지 않습니다.";
+"settings.sandboxes.stoppedOff" = "중지됨. Evlat이 설정했다면 파일과 규칙은 남지만 아무 일도 하지 않습니다.";
 "settings.sandboxes.failed" = "설정하지 못함";
+"settings.sandboxes.removalFailed" = "Evlat의 파일을 빼지 못함";
 "settings.sandboxes.retry" = "다시 시도";
 "settings.sandboxes.otherAgent" = "{agent} 실행 중. 지금은 {watched}만 감시합니다";
 "settings.sandboxes.agentOff" = "에이전트에서 {agent}이(가) 꺼져 있음";
@@ -340,7 +342,7 @@
 "settings.sandboxes.what.file" = "Evlat은 각 {agent} 샌드박스 안에 root 권한으로 자기 파일 하나만 씁니다: {path}.";
 "settings.sandboxes.what.rule" = "그 샌드박스가 이 Mac의 {port} 포트에만 닿을 수 있게 하며, 그 밖에는 허용하지 않습니다.";
 "settings.sandboxes.what.mac" = "이 Mac에서는 아무것도 바뀌지 않습니다.";
-"settings.sandboxes.what.off" = "끄면 실행 중인 샌드박스에서 둘 다 빠집니다. 중지된 샌드박스에는 파일이 남습니다. Evlat이 듣고 있지 않는 동안 훅은 바로 실패하고 {agent}은(는) 계속 작업합니다.";
+"settings.sandboxes.what.off" = "끄면 실행 중인 샌드박스에서 둘 다 빠집니다. 중지된 샌드박스에는 둘 다 남습니다. Evlat이 듣고 있지 않는 동안 훅은 바로 실패하고 {agent}은(는) 계속 작업합니다.";
 "settings.sandboxes.what.cloud" = "Docker 클라우드의 샌드박스는 이 Mac에 닿지 않습니다.";
 "settings.sandboxes.discover" = "Docker 샌드박스를 쓰나요? 감시하려면 샌드박스 ›";
 "setup.flow.sandboxes" = "Docker 샌드박스";

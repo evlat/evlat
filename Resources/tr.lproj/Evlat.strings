@@ -328,6 +328,7 @@
 "settings.sandboxes.status.starting" = "Başlıyor…";
 "settings.sandboxes.status.connecting" = "sbx'e bağlanıyor…";
 "settings.sandboxes.status.disconnected" = "sbx çalışmıyor. Evlat denemeyi sürdürüyor; barda zaten olan oturumlar yerinde kalır.";
+"settings.sandboxes.status.refused" = "sbx, Evlat'ın okuyamadığı bir biçimde yanıt verdi; bu yüzden sandbox'ların başladığını duyamıyor. Evlat denemeyi sürdürüyor.";
 "settings.sandboxes.status.listFailed" = "sbx sandbox'larını listelemedi. Evlat yeni bir sandbox açıldığında yeniden sorar.";
 "settings.sandboxes.status.watching" = "İzleniyor. Sandbox'lar Evlat'a {port} portundan ulaşıyor.";
 "settings.sandboxes.status.version" = "Bu sbx {version} sürümünde; Evlat {measured} ile denendi.";
@@ -340,8 +341,9 @@
 "settings.sandboxes.waiting" = "Açılınca hazırlanacak";
 "settings.sandboxes.removing" = "Evlat'ın dosyası çıkarılıyor…";
 "settings.sandboxes.removed" = "Evlat'ın dosyası çıkarıldı";
-"settings.sandboxes.stoppedOff" = "Durdu. Evlat hazırladıysa dosyası içinde kalır ve hiçbir şey yapmaz.";
+"settings.sandboxes.stoppedOff" = "Durdu. Evlat hazırladıysa dosyası ve kuralı içinde kalır ve hiçbir şey yapmaz.";
 "settings.sandboxes.failed" = "Hazırlanamadı";
+"settings.sandboxes.removalFailed" = "Evlat'ın dosyası çıkarılamadı";
 "settings.sandboxes.retry" = "Tekrar dene";
 "settings.sandboxes.otherAgent" = "{agent} çalıştırıyor; şimdilik yalnız {watched} izleniyor";
 "settings.sandboxes.agentOff" = "{agent}, Ajanlar'da kapalı";
@@ -349,7 +351,7 @@
 "settings.sandboxes.what.file" = "Evlat her {agent} sandbox'ının içine, root olarak, kendine ait tek bir dosya yazar: {path}.";
 "settings.sandboxes.what.rule" = "O sandbox'ın bu Mac'te yalnızca {port} portuna ulaşmasına izin verir, başka hiçbir şeye değil.";
 "settings.sandboxes.what.mac" = "Bu Mac'te hiçbir şey değişmez.";
-"settings.sandboxes.what.off" = "Kapatınca ikisi de çalışan sandbox'lardan çıkarılır. Durmuş bir sandbox dosyayı tutar: Evlat dinlemezken hook'ları hemen düşer ve {agent} çalışmayı sürdürür.";
+"settings.sandboxes.what.off" = "Kapatınca ikisi de çalışan sandbox'lardan çıkarılır. Durmuş bir sandbox ikisini de tutar: Evlat dinlemezken hook'ları hemen düşer ve {agent} çalışmayı sürdürür.";
 "settings.sandboxes.what.cloud" = "Docker'ın bulutundaki sandbox'lar bu Mac'e ulaşamaz.";
 "settings.sandboxes.discover" = "Docker sandbox'ları mı kullanıyorsun? İzlemek için: Sandbox'lar ›";
 "setup.flow.sandboxes" = "Docker sandbox'ları";

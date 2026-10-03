@@ -98,6 +98,9 @@ public enum SandboxDaemon {
         public private(set) var failure: Failure?
         /// The last chunk (`0`) arrived: the daemon ended the stream.
         public private(set) var ended = false
+        /// The head was a `200` with the NDJSON type: the stream is the one
+        /// measured, and the connection counts as made only from here.
+        public private(set) var opened = false
         /// Lifecycle events whose action was not a known word.
         public private(set) var unknownActions = 0
         /// Lines that said `sandbox.lifecycle` but were not an event: no
@@ -214,6 +217,7 @@ public enum SandboxDaemon {
                 failure = .contentType(type)
                 return nil
             }
+            opened = true
             return chunked ? .size : .identity
         }
 

@@ -194,6 +194,16 @@ final class SandboxWatcherTests: XCTestCase {
         XCTAssertNil(text("log"), "nothing is listed with no daemon")
     }
 
+    /// A daemon that answers with something else is not a connection: no
+    /// sandbox is listed or set up on it, and the line says so.
+    func testARefusedStreamSetsNothingUp() throws {
+        daemon.head = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n"
+        try sandboxes("web \(claude) running")
+        try start()
+        waitUntil("refused") { self.watcher?.status.daemon == .refused && self.daemon.connections >= 2 }
+        XCTAssertNil(text("log"), "nothing is run for a refused stream")
+    }
+
     // MARK: - Names, other lines, failures
 
     func testAnInvalidNameMakesNoCommandAndOtherLinesAreIgnored() throws {
@@ -257,6 +267,37 @@ final class SandboxWatcherTests: XCTestCase {
         XCTAssertFalse(runner.isBusy("web"))
     }
 
+    /// A job's sandbox that stopped while the job waited is not `exec`ed:
+    /// that would start it.
+    func testAJobForASandboxThatStoppedRunsNothing() throws {
+        let runner = SandboxRunner(sbxPath: try fakeSbx())
+        try sandboxes("web \(claude) stopped")
+        var answer: Result<Void, SandboxRunner.Failure>?
+        XCTAssertTrue(runner.run(try XCTUnwrap(plan.install(sandbox: "web")), sandbox: "web") { answer = $0 })
+        waitUntil("done") { answer != nil }
+        guard case .failure(let failure)? = answer else { return XCTFail("a stopped sandbox is not set up") }
+        XCTAssertTrue(failure.notRunning)
+        XCTAssertEqual(runs().map { $0.first }, ["ls"], "only the list ran")
+        XCTAssertNil(text("started"))
+    }
+
+    /// Switched on again before the removal read its list: the old
+    /// watcher's removal is let go and the new install stays.
+    func testAnAbandonedRemovalTakesNothingOut() throws {
+        try sandboxes("web \(claude) running")
+        let watcher = try start()
+        waitUntil("web ready") { self.setup("web") == .ready }
+        let lists = runs().filter { $0.first == "ls" }.count
+        watcher.stop(removing: true)
+        watcher.abandon()
+        self.watcher = nil
+        waitUntil("listed") { self.runs().filter { $0.first == "ls" }.count > lists }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertNotNil(installed("web"))
+        XCTAssertEqual(rules(), ["web localhost:48997"])
+        XCTAssertFalse(runs().contains { $0.starts(with: ["policy", "rm"]) })
+    }
+
     func testAMissingSbxFailsWithAReason() {
         let answer = SandboxRunner.run("/nonexistent/sbx", SandboxInstall.list, deadline: 5)
         XCTAssertNotNil(answer.failure)
@@ -318,17 +359,24 @@ final class SandboxWatcherTests: XCTestCase {
         waitUntil("said removed") { controller.sandboxesView.watcher?.sandboxes["web"]?.setup == .removed }
         XCTAssertFalse(controller.sandboxesView.on)
 
-        // Off and on at once: the new install waits for the removal and
-        // follows it, never left behind it.
+        // Off and on at once: the old removal is let go or followed by the
+        // new install, never left to undo it.
         controller.setSandboxesEnabled(true)
         waitUntil("set up again") { self.controller(controller, has: "web", .ready) }
         controller.setSandboxesEnabled(false)
         controller.setSandboxesEnabled(true)
         waitUntil("set up after the removal", timeout: 15) {
-            self.controller(controller, has: "web", .ready) && self.installed("web") != nil && !self.rules().isEmpty
+            guard let port = controller.sandbox?.boundPort else { return false }
+            return self.controller(controller, has: "web", .ready) && self.installed("web") != nil
+                && self.rules().contains("web localhost:\(port)")
         }
+        // A test's port is a new one each time (`0`): a let-go removal
+        // leaves the earlier port's rule, which the fixed port never does.
+        let last = try XCTUnwrap(controller.sandbox?.boundPort)
         controller.setSandboxesEnabled(false)
-        waitUntil("removed at the end") { self.installed("web") == nil && self.rules().isEmpty }
+        waitUntil("removed at the end") {
+            self.installed("web") == nil && !self.rules().contains("web localhost:\(last)")
+        }
     }
 
     private func controller(_ controller: AppController, has name: String, _ setup: SandboxWatcher.Setup) -> Bool {
@@ -355,6 +403,8 @@ final class SandboxWatcherTests: XCTestCase {
 /// client at a time, the newest.
 final class FakeSandboxd {
     let path: String
+    /// What it answers the request with; a test sets another to be refused.
+    var head = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nTransfer-Encoding: chunked\r\n\r\n"
     private let queue = DispatchQueue(label: "fake-sandboxd")
     private var listener: Int32 = -1
     private var source: DispatchSourceRead?
@@ -397,7 +447,7 @@ final class FakeSandboxd {
         var request = [UInt8]()
         var byte: UInt8 = 0
         while !request.suffix(4).elementsEqual([13, 10, 13, 10]), read(fd, &byte, 1) == 1 { request.append(byte) }
-        write(fd, "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nTransfer-Encoding: chunked\r\n\r\n")
+        write(fd, head)
         lock.withLock {
             if client >= 0 { Darwin.close(client) }
             client = fd

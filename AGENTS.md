@@ -443,7 +443,11 @@ is lost with the process.
   and `sbx policy rm network --sandbox <name> --resource … --force`.
   Argument vectors, no shell on this Mac, one job per sandbox at a time on
   a serial queue, 30 s each at most; a name from the daemon goes into an
-  argv only once checked (`SandboxInstall.isSandboxName`).
+  argv only once checked (`SandboxInstall.isSandboxName`). A job reads
+  `sbx ls --json` again when its turn comes and runs nothing for a sandbox
+  not running then: `sbx exec` starts a stopped one. The daemon's stream
+  counts as connected only once its head is the `200` NDJSON measured; a
+  refused one sets nothing up and is said in Settings.
   A remote session whose agent keeps session records
   (`Agent.sessionRecords`; Claude Code's) is asked of its server once per
   card, off the main queue (`RemoteHostLookup`): a read-only `sh` script

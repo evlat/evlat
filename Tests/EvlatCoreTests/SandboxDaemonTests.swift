@@ -102,10 +102,12 @@ final class SandboxDaemonTests: XCTestCase {
         var refused = SandboxDaemon.Stream()
         XCTAssertEqual(refused.feed(Data("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".utf8)), [])
         XCTAssertEqual(refused.failure, .status(404))
+        XCTAssertFalse(refused.opened, "a refused head is no connection")
 
         var html = SandboxDaemon.Stream()
         _ = html.feed(Data("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n".utf8))
         XCTAssertEqual(html.failure, .contentType("text/html"))
+        XCTAssertFalse(html.opened)
 
         var garbage = SandboxDaemon.Stream()
         _ = garbage.feed(Data("hello\r\n\r\n".utf8))
@@ -122,6 +124,16 @@ final class SandboxDaemonTests: XCTestCase {
         XCTAssertEqual(badSize.failure, .framing)
         XCTAssertEqual(badSize.feed(Data(Self.chunk(Self.line("sandbox.lifecycle", "started")).utf8)), [],
                        "a failed stream reads nothing more")
+    }
+
+    /// Opened only once the whole head is read and is the stream.
+    func testTheStreamIsOpenedByItsHeadOnly() {
+        var stream = SandboxDaemon.Stream()
+        let head = Data(Self.head.utf8)
+        _ = stream.feed(head.prefix(20))
+        XCTAssertFalse(stream.opened, "half a head")
+        _ = stream.feed(head.dropFirst(20))
+        XCTAssertTrue(stream.opened)
     }
 
     /// Without chunking the body is the lines as they come.

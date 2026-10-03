@@ -693,15 +693,19 @@ final class SettingsModel: ObservableObject {
         case .off, .connecting:
             if !watcher.socketTooLong { return (t("settings.sandboxes.status.connecting"), .muted) }
         case .disconnected: return (t("settings.sandboxes.status.disconnected"), .trouble)
+        case .refused: return (t("settings.sandboxes.status.refused") + versionNote(watcher), .trouble)
         case .connected: break
         }
         if watcher.listFailed { return (t("settings.sandboxes.status.listFailed"), .trouble) }
-        var line = t("settings.sandboxes.status.watching", ["port": String(state.port)])
-        if let version = watcher.version, version != SandboxInstall.measuredVersion {
-            line += " " + t("settings.sandboxes.status.version",
-                            ["version": version, "measured": SandboxInstall.measuredVersion])
-        }
+        let line = t("settings.sandboxes.status.watching", ["port": String(state.port)]) + versionNote(watcher)
         return (line, .good)
+    }
+
+    /// " This sbx is …", when it is not the version measured; else nothing.
+    private func versionNote(_ watcher: SandboxWatcher.Status) -> String {
+        guard let version = watcher.version, version != SandboxInstall.measuredVersion else { return "" }
+        return " " + t("settings.sandboxes.status.version",
+                       ["version": version, "measured": SandboxInstall.measuredVersion])
     }
 
     /// One sandbox of the list.
@@ -709,6 +713,7 @@ final class SettingsModel: ObservableObject {
         enum Tag: Equatable {
             case ready, installing, waiting, removing, removed, stoppedOff
             case failed(String)
+            case removalFailed(String)
             case otherAgent(String)
             case agentOff
         }
@@ -740,6 +745,7 @@ final class SettingsModel: ObservableObject {
             case .stopped: tag = sandboxes.on ? .waiting : .stoppedOff
             case .removing: tag = .removing
             case .removed: tag = .removed
+            case .removalFailed(let reason): tag = .removalFailed(reason)
             }
             return SandboxRow(name: name, agent: agent, folder: entry.folder.map { Self.tilde($0) }, tag: tag)
         }
@@ -754,6 +760,7 @@ final class SettingsModel: ObservableObject {
         case .removed: return t("settings.sandboxes.removed")
         case .stoppedOff: return t("settings.sandboxes.stoppedOff")
         case .failed: return t("settings.sandboxes.failed")
+        case .removalFailed: return t("settings.sandboxes.removalFailed")
         case .otherAgent(let agent):
             return t("settings.sandboxes.otherAgent", ["agent": agent, "watched": agentName])
         case .agentOff: return t("settings.sandboxes.agentOff", ["agent": agentName])
@@ -786,13 +793,13 @@ final class SettingsModel: ObservableObject {
         "settings.sandboxes.watch.detail",
         "settings.sandboxes.status.isolated", "settings.sandboxes.status.missing", "settings.sandboxes.status.socket",
         "settings.sandboxes.status.taken", "settings.sandboxes.status.starting", "settings.sandboxes.status.connecting",
-        "settings.sandboxes.status.disconnected", "settings.sandboxes.status.listFailed",
+        "settings.sandboxes.status.disconnected", "settings.sandboxes.status.refused", "settings.sandboxes.status.listFailed",
         "settings.sandboxes.status.watching", "settings.sandboxes.status.version",
         "settings.sandboxes.list", "settings.sandboxes.empty", "settings.sandboxes.offList",
         "settings.sandboxes.noFolder",
         "settings.sandboxes.ready", "settings.sandboxes.installing", "settings.sandboxes.waiting",
         "settings.sandboxes.removing", "settings.sandboxes.removed", "settings.sandboxes.stoppedOff",
-        "settings.sandboxes.failed", "settings.sandboxes.retry", "settings.sandboxes.otherAgent",
+        "settings.sandboxes.failed", "settings.sandboxes.removalFailed", "settings.sandboxes.retry", "settings.sandboxes.otherAgent",
         "settings.sandboxes.agentOff",
         "settings.sandboxes.what", "settings.sandboxes.what.file", "settings.sandboxes.what.rule",
         "settings.sandboxes.what.mac", "settings.sandboxes.what.off", "settings.sandboxes.what.cloud",

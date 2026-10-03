@@ -34,6 +34,9 @@ final class SandboxWatcher {
         case off, connecting, connected
         /// Lost; tried again on the core's schedule. Rows stay.
         case disconnected
+        /// `sbx` answered, but not with the stream measured; tried again
+        /// like `disconnected`.
+        case refused
     }
 
     /// One sandbox's setup, as Settings will say it.
@@ -53,6 +56,9 @@ final class SandboxWatcher {
         case removing
         /// Evlat's parts are out.
         case removed
+        /// The switch went off and taking them out failed: the first line
+        /// `sbx` wrote. They may still be in the sandbox.
+        case removalFailed(String)
     }
 
     struct Entry: Equatable {
@@ -95,6 +101,12 @@ final class SandboxWatcher {
     private var stopped = false
     private var removing = false
     private var removalTries = 0
+    /// Running sandboxes whose removal waits for their job (an install)
+    /// to end, asked again after `retryDelay`.
+    private var removalWaiting: [String: SandboxInstall.Sandbox] = [:]
+    /// A newer watcher took over (`abandon`): no removal is started or
+    /// asked again from here.
+    private var abandoned = false
     /// Sandboxes whose install was refused, asked again after `retryDelay`.
     private var refused: Set<String> = []
     static let retryDelay: TimeInterval = 1
@@ -151,20 +163,58 @@ final class SandboxWatcher {
         if removing { list() }
     }
 
+    /// The switch went on again and a newer watcher sets the sandboxes
+    /// up: this one's removal, waiting or to be read again, is let go —
+    /// it would undo the newer one's install. A job already running ends,
+    /// and the shared runner holds its sandbox against the newer install
+    /// until it does.
+    func abandon() {
+        abandoned = true
+        removing = false
+        removalWaiting = [:]
+    }
+
     private func remove(_ sandboxes: [SandboxInstall.Sandbox]) {
+        guard !abandoned else { return }
         for sandbox in sandboxes where sandbox.isRunning && sandbox.agent == agent {
             let name = sandbox.name
-            guard let commands = plan.uninstall(sandbox: name),
-                  runner.run(commands, sandbox: name, completion: { [self] result in
-                      if case .failure(let failure) = result {
-                          NSLog("Evlat: sandbox %@ not cleaned: %@", name, failure.reason)
-                      }
-                      status.sandboxes[name]?.setup = .removed
-                      onChange()
-                  }) else { continue }
+            guard let commands = plan.uninstall(sandbox: name) else { continue }
+            let began = runner.run(commands, sandbox: name) { [self] result in
+                switch result {
+                case .success:
+                    status.sandboxes[name]?.setup = .removed
+                case .failure(let failure) where failure.notRunning:
+                    // Stopped before its turn: never `exec`ed, it keeps its parts.
+                    status.sandboxes[name]?.setup = .stopped
+                case .failure(let failure):
+                    NSLog("Evlat: sandbox %@ not cleaned: %@", name, failure.reason)
+                    status.sandboxes[name]?.setup = .removalFailed(failure.reason)
+                }
+                onChange()
+            }
+            if !began {
+                // Its install is still running: the removal follows it, or
+                // the file and the rule would stay in a running sandbox.
+                waitForRemoval(sandbox)
+            }
             status.sandboxes[name]?.setup = .removing
         }
         onChange()
+    }
+
+    private func waitForRemoval(_ sandbox: SandboxInstall.Sandbox) {
+        let first = removalWaiting.isEmpty
+        removalWaiting[sandbox.name] = sandbox
+        guard first else { return }
+        // Strong: the runner's jobs and this wait keep a retired watcher
+        // alive until its removal is done. No process runs while it waits.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryDelay) { [self] in
+            // Those still busy come back here through `remove`.
+            let waiting = Array(removalWaiting.values)
+            removalWaiting = [:]
+            guard !abandoned else { return }
+            remove(waiting)
+        }
     }
 
     /// The user's "Try Again" on a sandbox that could not be set up.
@@ -200,6 +250,7 @@ final class SandboxWatcher {
             askVersion()
             list()
         case .disconnected: status.daemon = .disconnected
+        case .refused: status.daemon = .refused
         }
         onChange()
     }
@@ -328,6 +379,11 @@ final class SandboxWatcher {
             guard let self, !self.stopped, self.status.sandboxes[name]?.setup == .installing else { return }
             switch result {
             case .success: self.status.sandboxes[name]?.setup = .ready
+            case .failure(let failure) where failure.notRunning:
+                // Stopped before its turn: nothing was run, set up when it starts.
+                self.forget(name)
+                self.status.sandboxes[name]?.running = false
+                self.status.sandboxes[name]?.setup = .stopped
             case .failure(let failure): self.status.sandboxes[name]?.setup = .failed(failure.reason)
             }
             self.onChange()
