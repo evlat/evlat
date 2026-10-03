@@ -460,11 +460,14 @@ is lost with the process.
   (`--name <name>`, or, unnamed, `<agent>-<last part of its folder>`), read
   like any process (`Sandbox`), and one that started after the session did
   is another session's. The session's start is when its
-  `SessionStart(startup)` reached this Mac. One candidate is its tab;
-  several are told apart by start through the rule shared with the `ssh`
-  lookup (`StartMatch`: nearest ≤ 5 s, every other > 10 s); no start, or
-  none told apart, brings the app alone if they are all in one, else no
-  button. No candidate: no button, and the card says "No terminal open".
+  `SessionStart(startup)` reached this Mac. With that start heard, one
+  candidate is its tab, and several are told apart by start through the
+  rule shared with the `ssh` lookup (`StartMatch`: nearest ≤ 5 s, every
+  other > 10 s); no start, or none told apart, brings the app alone if they
+  are all in one, never a tab, else no button. No candidate: no button,
+  and the card says "No terminal open" — unless an `sbx run` client names
+  no sandbox that can be read (an option not read whole, a folder no hook
+  name could match), which says nothing.
   Approvals and the branch stay with local rows.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,

@@ -1,4 +1,5 @@
 import Foundation
+import EvlatCore
 
 /// A Docker sandbox's session's terminal on this Mac: the `sbx run` client
 /// the user started it from. The sandbox runs under `sbx`'s daemon, parented
@@ -12,10 +13,10 @@ import Foundation
 /// them apart — the same rules as a remote `ssh` (`StartMatch`), with this
 /// side's thresholds:
 ///  - a client that started **after** the session began is another one's;
-///  - one left: its tab; several: the nearest within `nearest`, every other
-///    past `apart` (the session's `SessionStart` arrived 1.4–3.5 s after its
-///    client started, measured; creating a sandbox took 14 s, but then it
-///    was the only client);
+///  - with the session's start heard, one left: its tab; several: the
+///    nearest within `nearest`, every other past `apart` (the session's
+///    `SessionStart` arrived 1.4–3.5 s after its client started, measured;
+///    creating a sandbox took 14 s, but then it was the only client);
 ///  - no start heard, or none told apart: the app alone when every
 ///    candidate is in one, with no tab; else nothing;
 ///  - no candidate: no terminal is open for it (`Found.noTerminal`).
@@ -35,7 +36,9 @@ enum Sandbox {
     static func resolve(name: String?, start: Date?, _ probe: SessionHost.Probe) -> Found {
         guard let name else { return .host(.notFound) }
         let pids = candidates(named: name, startedBy: start, probe)
-        if pids.isEmpty { return .noTerminal }
+        // A client whose sandbox could not be read may be this one's: then
+        // "no terminal" would be a guess, and the card says nothing.
+        if pids.isEmpty { return unreadClient(startedBy: start, probe) ? .host(.notFound) : .noTerminal }
         // Without the session's start one client could be another
         // session's: the app, never a tab.
         guard let start else { return .host(SessionHost.sameApp(pids, keepsTab: false, probe)) }
@@ -62,6 +65,21 @@ enum Sandbox {
             if let start, let own = probe.startedAt(pid), own > start { return false }
             return true
         }.sorted()
+    }
+
+    /// Whether a live `sbx run` client with a terminal, not started after
+    /// `start`, names no sandbox that can be read (`clientName` is `nil`).
+    static func unreadClient(startedBy start: Date?, _ probe: SessionHost.Probe) -> Bool {
+        probe.processes().contains { pid in
+            guard let path = probe.executablePath(pid), (path as NSString).lastPathComponent == "sbx",
+                  probe.hasTerminal(pid) != false else { return false }
+            let arguments = probe.arguments(pid)
+            guard arguments.dropFirst().contains("run"),
+                  clientName(arguments: arguments, directory: { probe.currentDirectory(pid) }) == nil
+            else { return false }
+            if let start, let own = probe.startedAt(pid), own > start { return false }
+            return true
+        }
     }
 
     /// The sandbox an `sbx run` client attaches to: `--name`'s, or with
@@ -120,7 +138,10 @@ enum Sandbox {
               !agent.contains("/"), !agent.contains(":"), !agent.hasPrefix("."),
               let folder = directory().map({ ($0 as NSString).lastPathComponent }),
               !folder.isEmpty, folder != "/" else { return nil }
-        return "\(agent)-\(folder)"
+        // A folder name a hook could never carry (a space, a letter past
+        // ASCII) is one `sbx` may have rewritten: not read whole.
+        let derived = "\(agent)-\(folder)"
+        return HookEvent.isSandboxName(derived) ? derived : nil
     }
 
     /// `sbx run --help`'s options (sbx 0.46.0): those that take a value,

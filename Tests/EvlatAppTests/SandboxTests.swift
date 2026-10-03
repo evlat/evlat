@@ -121,6 +121,8 @@ final class SandboxTests: XCTestCase {
         XCTAssertNil(name(["sbx", "daemon", "start"]))
         XCTAssertNil(name(["sbx", "exec", "evlat-hook", "env"]))
         XCTAssertNil(Sandbox.clientName(arguments: ["sbx", "run", "shell"], directory: { nil }))
+        XCTAssertNil(Sandbox.clientName(arguments: ["sbx", "run", "claude"], directory: { "/Users/u/My Project" }),
+                     "a folder no hook name could match")
     }
 
     /// Only `sbx` clients of that sandbox with a terminal, started no later
@@ -188,6 +190,13 @@ final class SandboxTests: XCTestCase {
                        "the only client started after the session")
         XCTAssertEqual(resolve(table(client(1001, shell: 1000)), name: nil), .host(.notFound),
                        "a row that names no sandbox says nothing")
+        var unread = table(client(1001, shell: 1000, arguments: ["sbx", "run", "claude"]))
+        unread[1001]?.cwd = "/Users/u/My Project"
+        XCTAssertEqual(resolve(unread), .host(.notFound), "a client whose sandbox cannot be read may be it")
+        XCTAssertEqual(resolve(table(client(1001, shell: 1000, arguments: ["sbx", "run", "--unknown", "claude"]))),
+                       .host(.notFound), "an option not read whole: no claim either way")
+        XCTAssertEqual(resolve(table(client(1001, shell: 1000, arguments: ["sbx", "run", "--name", "other"]))),
+                       .noTerminal, "another sandbox's client is no doubt")
     }
 
     // MARK: - The card
