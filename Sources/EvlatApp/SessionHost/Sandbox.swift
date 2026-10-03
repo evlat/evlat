@@ -13,17 +13,22 @@ import EvlatCore
 /// them apart — the same rules as a remote `ssh` (`StartMatch`), with this
 /// side's thresholds:
 ///  - a client that started **after** the session began is another one's;
-///  - with the session's start heard, one left: its tab; several: the
+///  - with the session's start heard, one left: its tab if it started
+///    within `aloneWithin` of the session, else the app alone; several: the
 ///    nearest within `nearest`, every other past `apart` (the session's
 ///    `SessionStart` arrived 1.4–3.5 s after its client started, measured;
 ///    creating a sandbox took 14 s, but then it was the only client);
-///  - no start heard, or none told apart: the app alone when every
-///    candidate is in one, with no tab; else nothing;
+///  - no start heard, a lone one too far, or none told apart: the app alone
+///    when every candidate is in one, with no tab; else nothing;
 ///  - no candidate: no terminal is open for it (`Found.noTerminal`).
 /// Nothing is run: the clients are read like any other process
 /// (`SessionHost.Probe`).
 enum Sandbox {
-    static let rule = StartMatch.Rule(nearest: 5, apart: 10, aloneWithin: nil)
+    /// A lone client far from the session's start may be an earlier
+    /// session's, this one's own client gone: the slowest client-to-session
+    /// start measured was 14 s (creating a sandbox), with room to spare.
+    static let aloneWithin: TimeInterval = 30
+    static let rule = StartMatch.Rule(nearest: 5, apart: 10, aloneWithin: aloneWithin)
 
     enum Found: Equatable {
         /// What the candidates gave, `.notFound` included (several in two
@@ -45,7 +50,9 @@ enum Sandbox {
         switch StartMatch.choose(pids, start: start, rule: rule, startedAt: probe.startedAt) {
         case .one(let pid): return .host(SessionHost.resolve(pid: pid, probe))
         case .ambiguous(let pids): return .host(SessionHost.sameApp(pids, keepsTab: false, probe))
-        case .none: return .noTerminal
+        // The candidates are not empty: a lone one too far from the start,
+        // which may be the session's or not — the app, never a tab.
+        case .none: return .host(SessionHost.sameApp(pids, keepsTab: false, probe))
         }
     }
 

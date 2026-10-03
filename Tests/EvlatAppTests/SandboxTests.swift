@@ -85,8 +85,15 @@ final class SandboxTests: XCTestCase {
         let rule = Sandbox.rule
         let start = Date(timeIntervalSince1970: 100)
         XCTAssertEqual(StartMatch.choose([], start: start, rule: rule, startedAt: at([:])), .none)
-        XCTAssertEqual(StartMatch.choose([1], start: start, rule: rule, startedAt: at([1: -3_600])), .one(1),
-                       "alone is it here: no distance guard")
+        XCTAssertEqual(StartMatch.choose([1], start: start, rule: rule, startedAt: at([1: -14])), .one(1),
+                       "alone at 14 s, as creating a sandbox measured")
+        XCTAssertEqual(StartMatch.choose([1], start: start, rule: rule, startedAt: at([1: -30])), .one(1),
+                       "alone at 30 s: just inside")
+        XCTAssertEqual(StartMatch.choose([1], start: start, rule: rule, startedAt: at([1: -40])), .none,
+                       "alone past 30 s: not chosen")
+        XCTAssertEqual(StartMatch.choose([1], start: start, rule: rule, startedAt: at([:])), .one(1),
+                       "alone with a start that cannot be read")
+        XCTAssertEqual(Sandbox.rule, StartMatch.Rule(nearest: 5, apart: 10, aloneWithin: 30), "the sandbox's own")
         XCTAssertEqual(StartMatch.choose([1, 2], start: start, rule: rule, startedAt: at([1: -5, 2: -10.5])),
                        .one(1), "5 s and 10.5 s: just inside both")
         XCTAssertEqual(StartMatch.choose([1, 2], start: start, rule: rule, startedAt: at([1: -5.5, 2: -60])),
@@ -159,6 +166,14 @@ final class SandboxTests: XCTestCase {
 
     func testOneClientIsItsTab() {
         XCTAssertEqual(tab(resolve(table(client(1001, shell: 1000)))), "bateri://tab/\(Self.tabID(1001))")
+        XCTAssertEqual(tab(resolve(table(client(1001, offset: 14, shell: 1000)))), "bateri://tab/\(Self.tabID(1001))",
+                       "14 s before the session, as creating a sandbox measured")
+    }
+
+    /// A lone client 40 s before the session may be an earlier session's:
+    /// the app, never its tab, and never no button.
+    func testAFarLoneClientBringsTheAppOnly() {
+        XCTAssertEqual(resolve(table(client(1001, offset: 40, shell: 1000))), .host(.app(bateri)))
     }
 
     /// Three clients ~27 s apart, as measured: the one just before the

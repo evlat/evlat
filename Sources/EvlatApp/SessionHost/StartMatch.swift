@@ -19,9 +19,9 @@ enum StartMatch {
         let nearest: TimeInterval
         /// The nearest any other candidate's start may be.
         let apart: TimeInterval
-        /// A lone candidate whose start is past `apart` is someone else's:
-        /// `ssh`'s rule, where a lone `ssh` may be another connection. `nil`
-        /// takes a lone candidate as it is.
+        /// A lone candidate whose start is farther than this is not chosen
+        /// (`.none`): for `ssh` another connection, for a sandbox's client
+        /// maybe another session's. `nil` takes a lone candidate as it is.
         let aloneWithin: TimeInterval?
     }
 

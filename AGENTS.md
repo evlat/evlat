@@ -461,10 +461,12 @@ is lost with the process.
   like any process (`Sandbox`), and one that started after the session did
   is another session's. The session's start is when its
   `SessionStart(startup)` reached this Mac. With that start heard, one
-  candidate is its tab, and several are told apart by start through the
-  rule shared with the `ssh` lookup (`StartMatch`: nearest ≤ 5 s, every
-  other > 10 s); no start, or none told apart, brings the app alone if they
-  are all in one, never a tab, else no button. No candidate: no button,
+  candidate is its tab if it started within 30 s of the session
+  (`Sandbox.aloneWithin`; creating a sandbox measured 14 s), and several
+  are told apart by start through the rule shared with the `ssh` lookup
+  (`StartMatch`: nearest ≤ 5 s, every other > 10 s); no start, a lone one
+  farther, or none told apart, brings the app alone if they are all in
+  one, never a tab, else no button. No candidate: no button,
   and the card says "No terminal open" — unless an `sbx run` client names
   no sandbox that can be read (an option not read whole, a folder no hook
   name could match), which says nothing.
