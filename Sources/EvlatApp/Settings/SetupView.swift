@@ -448,6 +448,19 @@ private struct OptionalStep: View {
                 if let command = setup.row(.commandLink) {
                     SetupRowView(row: command, model: setup, showsButton: false, queued: queued(.commandLink))
                 }
+                if model.offersSandboxes || model.sandboxesQueued {
+                    RowBox {
+                        HStack(spacing: 10) {
+                            RowTitle(name: model.t("setup.flow.sandboxes"),
+                                     detail: model.t("setup.flow.sandboxes.detail"))
+                            Toggle("", isOn: $model.sandboxesQueued)
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                                .labelsHidden()
+                                .accessibilityLabel(model.t("setup.flow.sandboxes"))
+                        }
+                    }
+                }
                 RowBox {
                     HStack(spacing: 10) {
                         RowTitle(name: model.t("setup.flow.remote"), detail: model.t("setup.flow.remote.detail"))

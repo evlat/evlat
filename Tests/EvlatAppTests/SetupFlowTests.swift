@@ -56,7 +56,8 @@ final class SetupFlowTests: XCTestCase {
 
     /// The controller's own writers, each call noted first.
     private func flow(_ controller: AppController, claude: String? = "/usr/local/bin/claude",
-                      step: SetupFlowModel.Step = .hello) -> SetupFlowModel {
+                      step: SetupFlowModel.Step = .hello,
+                      sandboxes: SettingsModel.Sandboxes? = nil) -> SetupFlowModel {
         var setup = controller.setupHost
         let agent = setup.setAgent
         let link = setup.setCommandLink, loginItem = setup.setLoginItem
@@ -68,6 +69,10 @@ final class SetupFlowTests: XCTestCase {
         settings.setEdge = { [unowned self] in writes.append("edge \($0.isLeft ? "left" : "right")"); setEdge($0) }
         settings.setDefaultMode = { [unowned self] in writes.append("mode \($0.id)"); setMode($0) }
         settings.locateBackend = { _, done in done(claude) }
+        if var sandboxes {
+            settings.sandboxes = { sandboxes }
+            settings.setSandboxes = { [unowned self] on in writes.append("sandboxes \(on)"); sandboxes.on = on }
+        }
         let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: setup, lang: "en"),
                                   recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
                                   close: { [unowned self] in writes.append("close") }, lang: "en")
@@ -270,6 +275,41 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertTrue(flow.summary.contains { $0.mark == .skipped && $0.text.contains("Claude Code") })
         flow.primary()
         XCTAssertEqual(writes.last, "close")
+    }
+
+    /// With `sbx` here the optional step offers its switch, off; "Finish"
+    /// lists it above the button and turns it on. Without `sbx`, or with
+    /// the switch already on, no row and nothing written.
+    func testTheSandboxesRowIsOfferedOnlyWithSbx() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertFalse(flow(controller, step: .optional).offersSandboxes, "a test's controller has no sbx")
+
+        var found = SettingsModel.Sandboxes()
+        found.availability = .found
+        let flow = flow(controller, step: .optional, sandboxes: found)
+        XCTAssertTrue(flow.offersSandboxes)
+        XCTAssertFalse(flow.sandboxesQueued, "off unless turned on")
+        let before = flow.finishConsent
+        flow.sandboxesQueued = true
+        XCTAssertEqual(flow.finishConsent, before + [
+            "Each running Claude Code sandbox · one file of Evlat's, and a rule for port 48152",
+        ])
+        flow.primary()
+        XCTAssertTrue(writes.contains("sandboxes true"))
+        XCTAssertEqual(flow.step, .done)
+
+        var on = found
+        on.on = true
+        XCTAssertFalse(self.flow(controller, step: .optional, sandboxes: on).offersSandboxes)
+        var missing = found
+        missing.availability = .missing
+        let without = self.flow(controller, step: .optional, sandboxes: missing)
+        without.sandboxesQueued = true
+        XCTAssertFalse(without.finishConsent.contains { $0.contains("sandbox") })
+        writes = []
+        without.primary()
+        XCTAssertFalse(writes.contains { $0.hasPrefix("sandboxes") })
     }
 
     // MARK: - Launch

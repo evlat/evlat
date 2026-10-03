@@ -140,7 +140,7 @@ final class SandboxInstallPlanTests: XCTestCase {
             """.utf8)
         let sandboxes = try XCTUnwrap(SandboxInstall.sandboxes(fromList: data))
         XCTAssertEqual(sandboxes, [
-            SandboxInstall.Sandbox(name: "evlat-p4", agent: "claude", status: "running"),
+            SandboxInstall.Sandbox(name: "evlat-p4", agent: "claude", status: "running", workspace: "/private/tmp/w"),
             SandboxInstall.Sandbox(name: "sh", agent: "shell", status: "stopped"),
             SandboxInstall.Sandbox(name: "bare", agent: nil, status: nil),
         ])
@@ -148,5 +148,18 @@ final class SandboxInstallPlanTests: XCTestCase {
         XCTAssertEqual(SandboxInstall.sandboxes(fromList: Data(#"{"sandboxes": []}"#.utf8)), [])
         XCTAssertNil(SandboxInstall.sandboxes(fromList: Data("[]".utf8)))
         XCTAssertNil(SandboxInstall.sandboxes(fromList: Data("no".utf8)))
+    }
+
+    /// `sbx version`'s line as 0.46.0 printed it; anything else is no version.
+    func testTheVersionIsReadFromSbxsLine() {
+        XCTAssertEqual(SandboxInstall.version.arguments, ["version"])
+        XCTAssertNil(SandboxInstall.version.input)
+        let line = "sbx version: v0.46.0 991967dc90ce0d9a440cd1df1bdf3e395c5a2693\n"
+        XCTAssertEqual(SandboxInstall.version(fromOutput: Data(line.utf8)), "0.46.0")
+        XCTAssertEqual(SandboxInstall.version(fromOutput: Data("sbx version: v1.2.10\n".utf8)), "1.2.10")
+        XCTAssertNil(SandboxInstall.version(fromOutput: Data("sbx version: vnext\n".utf8)))
+        XCTAssertNil(SandboxInstall.version(fromOutput: Data("v1.2 v1..3 v1.2.x".utf8)))
+        XCTAssertNil(SandboxInstall.version(fromOutput: Data()))
+        XCTAssertEqual(SandboxInstall.measuredVersion, "0.46.0")
     }
 }

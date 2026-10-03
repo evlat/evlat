@@ -13,13 +13,14 @@ Markdown; keep it to a few bullets.
 - **Claude Code in Docker sandboxes.** Sessions of Claude Code running in a
   local Docker sandbox (`sbx`) now show on the bar under the sandbox's
   name: working, waiting for you, finished, with the same sounds and
-  reminders. Settings → Agents → **Docker sandboxes** has the command to
-  copy: make the sandbox with Evlat's kit (`sbx run --kit …`), or add it
-  to one you have (`sbx kit add …`). The kit writes only inside the
-  sandbox. **Go to session** opens the tab of the `sbx run` that started
-  the session, when it can tell which. Docker
-  marks its kit format as experimental; sandboxes in Docker's cloud can't
-  reach your Mac.
+  reminders. Turn on Settings → **Sandboxes** → **Watch sandboxes** (it's
+  off until you do) and keep using `sbx` as usual: Evlat sets up each
+  sandbox as it starts, and the ones already running at once. A session
+  already running shows from its next message. Inside a sandbox Evlat
+  writes one file of its own and allows one port; turning the switch off
+  takes both out of the running sandboxes. **Go to session** opens the tab
+  of the `sbx run` that started the session, when it can tell which.
+  Sandboxes in Docker's cloud can't reach your Mac.
 
 ## 0.2.0
 

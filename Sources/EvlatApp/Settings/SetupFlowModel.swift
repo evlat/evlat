@@ -46,6 +46,9 @@ final class SetupFlowModel: ObservableObject {
     /// "Install" was pressed on this visit: the hint about open sessions.
     @Published private(set) var installed = false
     @Published private(set) var backend: SettingsModel.Location = .looking
+    /// The optional step's "Watch Docker sandboxes": off unless turned on,
+    /// applied by "Finish" (`AppController.setSandboxesEnabled`).
+    @Published var sandboxesQueued = false
 
     let setup: SetupModel
     let recorder: HotKeyRecorder
@@ -80,6 +83,7 @@ final class SetupFlowModel: ObservableObject {
     func start(at step: Step = .hello) {
         recorder.cancel()
         installed = false
+        sandboxesQueued = false
         setup.reload()
         if let open = setup.manualOpen { setup.toggleManual(open) }
         // Everything there is to write, but "Open at login": that one is
@@ -89,6 +93,7 @@ final class SetupFlowModel: ObservableObject {
         look()
         self.step = step
         if step == .edge || step == .done { blinks += 1 }
+        settings.lookForSbx { [weak self] in self?.objectWillChange.send() }
         settings.locateBackend(settings.chatBackend().id) { [weak self] path in
             self?.backend = path.map(SettingsModel.Location.found) ?? .missing
             // The login `PATH` for the command link's note (`SettingsModel.reload`).
@@ -122,6 +127,7 @@ final class SetupFlowModel: ObservableObject {
             installed = true
         case .optional:
             setup.applyQueue(only: Self.optionalItems)
+            if sandboxesQueued, offersSandboxes { settings.setSandboxes(true) }
             move(to: .done)
         case .done:
             close()
@@ -211,7 +217,23 @@ final class SetupFlowModel: ObservableObject {
     /// Above "Install": what it writes, one line per file.
     var installConsent: [String] { setup.queueConsent(only: Self.sessionItems) }
     /// Above "Finish".
-    var finishConsent: [String] { setup.queueConsent(only: Self.optionalItems) }
+    var finishConsent: [String] {
+        var lines = setup.queueConsent(only: Self.optionalItems)
+        if sandboxesQueued, offersSandboxes {
+            lines.append(t("setup.flow.sandboxes.consent", ["agent": t(Agents.sandboxAgent.agent.display.nameKey),
+                                                            "port": String(settings.sandboxes().port)]))
+        }
+        return lines
+    }
+
+    // MARK: - Sandboxes
+
+    /// The optional step's sandbox row: `sbx` is on this Mac and the
+    /// switch is not on already.
+    var offersSandboxes: Bool {
+        let sandboxes = settings.sandboxes()
+        return sandboxes.availability == .found && !sandboxes.on
+    }
 
     // MARK: - Chat
 
@@ -272,6 +294,9 @@ final class SetupFlowModel: ObservableObject {
         if setup.row(.loginItem)?.status == .installed {
             lines.append(SummaryLine(mark: .done, text: t("setup.flow.summary.login")))
         }
+        if settings.sandboxes().on {
+            lines.append(SummaryLine(mark: .done, text: t("setup.flow.summary.sandboxes")))
+        }
         if setup.row(.commandLink)?.status == .installed {
             lines.append(SummaryLine(mark: .done, text: t("setup.flow.summary.command")))
         } else if setup.manualOpen == .commandLink {
@@ -313,6 +338,8 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.sessions.body", "setup.flow.sessions.none", "setup.flow.sessions.hint",
         "setup.flow.chat.body", "setup.flow.chat.hotkey.detail",
         "setup.flow.remote", "setup.flow.remote.detail", "setup.flow.remote.later",
+        "setup.flow.sandboxes", "setup.flow.sandboxes.detail", "setup.flow.sandboxes.consent",
+        "setup.flow.summary.sandboxes",
         "setup.flow.done.note",
         "setup.flow.summary.left", "setup.flow.summary.right",
         "setup.flow.summary.agent",

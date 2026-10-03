@@ -50,8 +50,9 @@ final class SettingsTests: XCTestCase {
         var codex: String? = nil
         var backend = AgentID.claude
         var versions: [AgentID: String] = [:]
-        /// Agents' "Docker sandboxes": the listener's state.
-        var sandboxState = SettingsModel.SandboxState.off
+        /// Sandboxes: what the section draws from, and the presses.
+        var sandboxes = SettingsModel.Sandboxes()
+        var retried: [String] = []
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
@@ -76,7 +77,9 @@ final class SettingsTests: XCTestCase {
             clearMemory: { recorder.cleared += 1; recorder.memory = 0 },
             bodyMode: { recorder.bodyMode }, setBodyMode: { recorder.bodyMode = $0 },
             bodyToggles: { recorder.bodyToggles }, setBodyToggles: { recorder.bodyToggles = $0 })
-        host.sandboxState = { recorder.sandboxState }
+        host.sandboxes = { recorder.sandboxes }
+        host.setSandboxes = { recorder.sandboxes.on = $0 }
+        host.retrySandbox = { recorder.retried.append($0) }
         let setup = SetupModel(host: SetupModel.Host(
             home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
             loginPath: { recorder.loginPath },
@@ -429,30 +432,131 @@ final class SettingsTests: XCTestCase {
 
     // MARK: - Docker sandboxes
 
-    /// One line per state, and the state is followed only when it changes.
-    func testTheSandboxStatusLine() {
+    private func watching(_ change: (inout SandboxWatcher.Status) -> Void = { _ in }) -> SettingsModel.Sandboxes {
+        var state = SettingsModel.Sandboxes()
+        state.availability = .found
+        state.on = true
+        state.port = 48152
+        state.listener = .listening
+        var status = SandboxWatcher.Status()
+        status.daemon = .connected
+        status.version = SandboxInstall.measuredVersion
+        change(&status)
+        state.watcher = status
+        return state
+    }
+
+    /// One line, the first that holds: the copy cannot watch, no `sbx`, the
+    /// socket, the port, the listener, the daemon, the list, then watching
+    /// (with the version only when it is not the one measured). Followed
+    /// only when it changes.
+    func testTheSandboxStatusLineSaysTheFirstThatHolds() {
         let recorder = Recorder()
         let model = model(recorder)
+        let line = { model.sandboxStatus?.text }
         model.reload()
-        XCTAssertEqual(model.sandboxStatusLine, L10n.t("settings.sandbox.status.off", in: "en"))
-        recorder.sandboxState = .starting
+        XCTAssertEqual(line(), L10n.t("settings.sandboxes.status.isolated", in: "en"))
+        XCTAssertFalse(model.canSwitchSandboxes)
+
+        recorder.sandboxes.availability = .missing
         model.follow()
-        XCTAssertEqual(model.sandboxStatusLine, "Not listening yet.")
-        recorder.sandboxState = .taken(48152)
+        XCTAssertEqual(line(), "Evlat can't find sbx on this Mac.")
+        XCTAssertFalse(model.canSwitchSandboxes)
+
+        recorder.sandboxes.availability = .found
         model.follow()
-        XCTAssertEqual(model.sandboxStatusLine, "Port 48152 is taken by another program, so sandboxes can't reach Evlat.")
-        recorder.sandboxState = .listening(48152, heard: [])
+        XCTAssertNil(model.sandboxStatus, "off, with sbx here: no line")
+        XCTAssertTrue(model.canSwitchSandboxes)
+        XCTAssertTrue(model.offersSandboxes)
+
+        recorder.sandboxes = watching { $0.socketTooLong = true; $0.daemon = .off }
+        recorder.sandboxes.socketLength = 120
+        recorder.sandboxes.listener = .taken(48152)
         model.follow()
-        XCTAssertEqual(model.sandboxStatusLine, "Listening on port 48152. No sandbox heard from yet.")
-        recorder.sandboxState = .listening(48152, heard: ["evlat-hook", "web"])
+        XCTAssertEqual(line(), "The sbx daemon's socket path is 120 bytes, longer than macOS allows (103), "
+                       + "so Evlat can't hear sandboxes start. Sandboxes that were running when watching began are set up.")
+        XCTAssertEqual(model.sandboxStatus?.tone, .trouble)
+        XCTAssertFalse(model.offersSandboxes)
+
+        recorder.sandboxes = watching { $0.daemon = .disconnected }
+        recorder.sandboxes.listener = .taken(48152)
         model.follow()
-        XCTAssertEqual(model.sandboxStatusLine,
-                       "Listening on port 48152. Heard since Evlat started: evlat-hook, web.")
+        XCTAssertEqual(line(), "Port 48152 is taken by another program, so sandboxes can't reach Evlat.")
+
+        recorder.sandboxes.listener = .starting
+        model.follow()
+        XCTAssertEqual(line(), "Starting…")
+
+        recorder.sandboxes = watching { $0.daemon = .connecting }
+        model.follow()
+        XCTAssertEqual(line(), "Connecting to sbx…")
+
+        recorder.sandboxes = watching { $0.daemon = .disconnected; $0.listFailed = true }
+        model.follow()
+        XCTAssertEqual(line(), "sbx isn't running. Evlat keeps trying; sessions already on the bar stay.")
+
+        recorder.sandboxes = watching { $0.listFailed = true }
+        model.follow()
+        XCTAssertEqual(line(), "sbx didn't list its sandboxes. Evlat asks again when one starts.")
+
+        recorder.sandboxes = watching()
+        model.follow()
+        XCTAssertEqual(line(), "Watching. Sandboxes reach Evlat on port 48152.")
+        XCTAssertEqual(model.sandboxStatus?.tone, .good)
+
+        recorder.sandboxes = watching { $0.version = "0.47.1" }
+        model.follow()
+        XCTAssertEqual(line(), "Watching. Sandboxes reach Evlat on port 48152. "
+                       + "This sbx is 0.47.1; Evlat was tested with 0.46.0.")
 
         var changes = 0
         let watch = model.objectWillChange.sink { changes += 1 }
         model.follow()
         XCTAssertEqual(changes, 0, "the same state is not published again")
         watch.cancel()
+    }
+
+    /// Each sandbox with one tag; the switch off keeps what the last list
+    /// said, a stopped one saying the file stays.
+    func testTheSandboxListTagsEachSandbox() {
+        let recorder = Recorder()
+        recorder.sandboxes = watching {
+            $0.sandboxes = [
+                "web": .init(agent: "claude", running: true, setup: .ready, folder: NSHomeDirectory() + "/web"),
+                "api": .init(agent: "claude", running: true, setup: .failed("exec failed")),
+                "old": .init(agent: "claude", running: false, setup: .stopped),
+                "box": .init(agent: "shell", running: true, setup: .otherAgent),
+                "new": .init(agent: "claude", running: true, setup: .installing),
+            ]
+        }
+        let model = model(recorder)
+        model.reload()
+        XCTAssertEqual(model.sandboxRows.map(\.name), ["api", "box", "new", "old", "web"])
+        XCTAssertEqual(model.sandboxRows.map(\.tag),
+                       [.failed("exec failed"), .otherAgent("shell"), .installing, .waiting, .ready])
+        XCTAssertEqual(model.sandboxRows.last?.folder, "~/web")
+        XCTAssertEqual(model.sandboxTag(.otherAgent("shell")), "Runs shell; only Claude Code is watched for now")
+        XCTAssertEqual(model.sandboxTag(.waiting), "Set up when it starts")
+        model.retrySandbox("api")
+        XCTAssertEqual(recorder.retried, ["api"])
+
+        recorder.sandboxes.agentOn = false
+        model.follow()
+        XCTAssertEqual(model.sandboxRows.first { $0.name == "web" }?.tag, .agentOff)
+        XCTAssertEqual(model.sandboxRows.first { $0.name == "box" }?.tag, .otherAgent("shell"))
+        XCTAssertEqual(model.sandboxTag(.agentOff), "Claude Code is off in Agents")
+
+        recorder.sandboxes.agentOn = true
+        recorder.sandboxes.on = false
+        model.follow()
+        XCTAssertEqual(model.sandboxRows.first { $0.name == "old" }?.tag, .stoppedOff)
+        XCTAssertEqual(model.sandboxesEmptyLine, "Turn on Watch sandboxes to see the ones on this Mac.")
+
+        model.setSandboxes(true)
+        XCTAssertTrue(recorder.sandboxes.on)
+        XCTAssertEqual(model.sandboxesEmptyLine,
+                       "No sandboxes on this Mac yet. Start one with sbx and it appears here.")
+        XCTAssertTrue(model.sandboxWhat[0].contains("/etc/claude-code/managed-settings.d/evlat.json"))
+        XCTAssertTrue(model.sandboxWhat[1].contains("48152"))
     }
 }

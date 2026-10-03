@@ -91,19 +91,49 @@ final class SettingsModel: ObservableObject {
         var setNudgeNotify: (Bool, @escaping (Bool) -> Void) -> Void = { _, done in done(false) }
         /// Whether Evlat's notifications are off in System Settings.
         var notificationsDenied: (@escaping (Bool) -> Void) -> Void = { $0(false) }
-        /// The sandbox listener's state (`AppController.sandboxState`).
-        var sandboxState: () -> SandboxState = { .off }
+        /// Sandboxes: what there is to say (`AppController.sandboxesView`),
+        /// the switch, a sandbox's "Try Again", and the look for `sbx`
+        /// (called back on the main queue once it is known).
+        var sandboxes: () -> Sandboxes = { Sandboxes() }
+        var setSandboxes: (Bool) -> Void = { _ in }
+        var retrySandbox: (String) -> Void = { _ in }
+        var lookForSbx: (@escaping () -> Void) -> Void = { $0() }
     }
 
-    /// The sandbox listener as the status line tells it.
-    enum SandboxState: Equatable {
-        /// This process has no sandbox listener (`SandboxListener.port`).
-        case off
-        case starting
-        /// Another program holds the port.
-        case taken(UInt16)
-        /// Listening; the sandboxes heard since launch, by name, sorted.
-        case listening(UInt16, heard: [String])
+    /// Everything the Sandboxes section draws from, read whole at each
+    /// refresh and published only when it changed.
+    struct Sandboxes: Equatable {
+        enum Availability: Equatable {
+            /// This copy watches no sandboxes: it runs on a port of its own
+            /// (`EVLAT_PORT`) and was not handed `sbx` and its socket.
+            case isolated
+            /// `sbx` not looked for yet.
+            case looking
+            case missing
+            case found
+        }
+
+        enum Listener: Equatable {
+            /// Not bound: the switch is off, or this copy has no port.
+            case none
+            case starting
+            /// Another program holds the port.
+            case taken(UInt16)
+            case listening
+        }
+
+        var availability = Availability.isolated
+        /// The switch.
+        var on = false
+        /// The sandboxes' port, said in the box and the status line.
+        var port: UInt16 = SandboxInstall.defaultPort
+        var listener = Listener.none
+        /// The watcher's, or the retired one's after the switch went off.
+        var watcher: SandboxWatcher.Status?
+        /// The daemon's socket path, in bytes.
+        var socketLength = 0
+        /// The sandboxes' agent is switched on in Agents.
+        var agentOn = true
     }
 
     /// Where the chat backend's program is, once looked for.
@@ -127,9 +157,9 @@ final class SettingsModel: ObservableObject {
     /// Evlat's notifications are off in System Settings: the reminder's
     /// notification row says so and links there.
     @Published private(set) var notificationsDenied = false
-    /// The sandbox listener's state; written only when it changes, since a
-    /// hook can change it at event rate (`follow`).
-    @Published private(set) var sandboxState: SandboxState = .off
+    /// The sandboxes' state; written only when it changes, since a hook
+    /// can change it at event rate (`follow`).
+    @Published private(set) var sandboxes = Sandboxes()
 
     let setup: SetupModel
     let remote: RemoteMachinesModel
@@ -147,7 +177,7 @@ final class SettingsModel: ObservableObject {
         self.recorder = recorder
         self.lang = lang
         memoryCount = host.memoryCount()
-        sandboxState = host.sandboxState()
+        sandboxes = host.sandboxes()
     }
 
     func t(_ key: String, _ values: [String: String] = [:]) -> String { L10n.t(key, values, in: lang) }
@@ -168,6 +198,7 @@ final class SettingsModel: ObservableObject {
         memoryCount = host.memoryCount()
         confirmingClear = false
         followSandbox()
+        host.lookForSbx { [weak self] in self?.followSandbox() }
         host.notificationsDenied { [weak self] in self?.notificationsDenied = $0 }
         for backend in host.chatBackends() {
             let id = backend.id
@@ -608,22 +639,165 @@ final class SettingsModel: ObservableObject {
     // MARK: - Docker sandboxes
 
     private func followSandbox() {
-        let state = host.sandboxState()
-        if state != sandboxState { sandboxState = state }
+        let state = host.sandboxes()
+        if state != sandboxes { sandboxes = state }
     }
 
-    /// The status line's text.
-    var sandboxStatusLine: String {
-        switch sandboxState {
-        case .off: return t("settings.sandbox.status.off")
-        case .starting: return t("settings.sandbox.status.starting")
-        case .taken(let port): return t("settings.sandbox.status.taken", ["port": String(port)])
-        case .listening(let port, let heard) where heard.isEmpty:
-            return t("settings.sandbox.status.quiet", ["port": String(port)])
-        case .listening(let port, let heard):
-            return t("settings.sandbox.status.heard", ["port": String(port), "names": heard.joined(separator: ", ")])
+    /// The switch can be pressed: `sbx` is here, or the switch is on and
+    /// must be turned off whatever became of it.
+    var canSwitchSandboxes: Bool {
+        sandboxes.on ? sandboxes.availability != .isolated : sandboxes.availability == .found
+    }
+
+    func setSandboxes(_ on: Bool) {
+        guard on != sandboxes.on else { return }
+        host.setSandboxes(on)
+        followSandbox()
+    }
+
+    func retrySandbox(_ name: String) { host.retrySandbox(name) }
+
+    /// The Claude Code card's line to the Sandboxes section: `sbx` is here
+    /// and not watched yet.
+    var offersSandboxes: Bool { sandboxes.availability == .found && !sandboxes.on }
+
+    /// How the status line is drawn.
+    enum Tone: Equatable { case muted, good, trouble }
+
+    /// The one status line under the switch, or `nil` for none (the switch
+    /// off with `sbx` here). The first that holds, in this order: the copy
+    /// cannot watch, no `sbx`, the socket's path, the port, then the
+    /// listener, the daemon and the list, then watching.
+    var sandboxStatus: (text: String, tone: Tone)? {
+        let state = sandboxes
+        switch state.availability {
+        case .isolated: return (t("settings.sandboxes.status.isolated"), .muted)
+        case .missing: return (t("settings.sandboxes.status.missing"), .muted)
+        case .looking, .found: break
+        }
+        guard state.on else { return nil }
+        let watcher = state.watcher
+        if watcher?.socketTooLong == true {
+            return (t("settings.sandboxes.status.socket", ["length": String(state.socketLength),
+                                                            "limit": String(SandboxWatcher.socketPathLimit)]), .trouble)
+        }
+        switch state.listener {
+        case .taken(let port): return (t("settings.sandboxes.status.taken", ["port": String(port)]), .trouble)
+        case .none, .starting: return (t("settings.sandboxes.status.starting"), .muted)
+        case .listening: break
+        }
+        guard let watcher, state.availability == .found else {
+            return (t("settings.sandboxes.status.starting"), .muted)
+        }
+        switch watcher.daemon {
+        case .off, .connecting:
+            if !watcher.socketTooLong { return (t("settings.sandboxes.status.connecting"), .muted) }
+        case .disconnected: return (t("settings.sandboxes.status.disconnected"), .trouble)
+        case .connected: break
+        }
+        if watcher.listFailed { return (t("settings.sandboxes.status.listFailed"), .trouble) }
+        var line = t("settings.sandboxes.status.watching", ["port": String(state.port)])
+        if let version = watcher.version, version != SandboxInstall.measuredVersion {
+            line += " " + t("settings.sandboxes.status.version",
+                            ["version": version, "measured": SandboxInstall.measuredVersion])
+        }
+        return (line, .good)
+    }
+
+    /// One sandbox of the list.
+    struct SandboxRow: Equatable, Identifiable {
+        enum Tag: Equatable {
+            case ready, installing, waiting, removing, removed, stoppedOff
+            case failed(String)
+            case otherAgent(String)
+            case agentOff
+        }
+
+        let name: String
+        /// `sbx`'s word for its agent (`claude`, `shell`).
+        let agent: String
+        /// `~/…`, or `nil` for a sandbox made with no folder.
+        let folder: String?
+        let tag: Tag
+        var id: String { name }
+    }
+
+    /// The sandboxes the watcher last listed, by name; the retired one's
+    /// after the switch went off.
+    var sandboxRows: [SandboxRow] {
+        guard let watcher = sandboxes.watcher else { return [] }
+        let sandboxAgent = Agents.sandboxAgent.rawValue
+        return watcher.sandboxes.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map { name in
+            let entry = watcher.sandboxes[name]!
+            let agent = entry.agent ?? "?"
+            let tag: SandboxRow.Tag
+            switch entry.setup {
+            case .otherAgent: tag = .otherAgent(agent)
+            case _ where entry.agent == sandboxAgent && !sandboxes.agentOn && sandboxes.on: tag = .agentOff
+            case .ready: tag = .ready
+            case .installing: tag = .installing
+            case .failed(let reason): tag = .failed(reason)
+            case .stopped: tag = sandboxes.on ? .waiting : .stoppedOff
+            case .removing: tag = .removing
+            case .removed: tag = .removed
+            }
+            return SandboxRow(name: name, agent: agent, folder: entry.folder.map { Self.tilde($0) }, tag: tag)
         }
     }
+
+    func sandboxTag(_ tag: SandboxRow.Tag) -> String {
+        switch tag {
+        case .ready: return t("settings.sandboxes.ready")
+        case .installing: return t("settings.sandboxes.installing")
+        case .waiting: return t("settings.sandboxes.waiting")
+        case .removing: return t("settings.sandboxes.removing")
+        case .removed: return t("settings.sandboxes.removed")
+        case .stoppedOff: return t("settings.sandboxes.stoppedOff")
+        case .failed: return t("settings.sandboxes.failed")
+        case .otherAgent(let agent):
+            return t("settings.sandboxes.otherAgent", ["agent": agent, "watched": agentName])
+        case .agentOff: return t("settings.sandboxes.agentOff", ["agent": agentName])
+        }
+    }
+
+    /// The watched agent's name, as its card says it.
+    var agentName: String { t(Agents.sandboxAgent.agent.display.nameKey) }
+
+    /// The list's line when it has no row: none on this Mac, or the switch
+    /// is off and nothing was listed.
+    var sandboxesEmptyLine: String {
+        t(sandboxes.on ? "settings.sandboxes.empty" : "settings.sandboxes.offList")
+    }
+
+    /// "What it does while on", one sentence each.
+    var sandboxWhat: [String] {
+        let install = Agents.sandboxInstall(port: sandboxes.port)
+        return [
+            t("settings.sandboxes.what.file", ["agent": agentName, "path": install.path]),
+            t("settings.sandboxes.what.rule", ["port": String(sandboxes.port)]),
+            t("settings.sandboxes.what.mac"),
+            t("settings.sandboxes.what.off", ["agent": agentName]),
+            t("settings.sandboxes.what.cloud"),
+        ]
+    }
+
+    static let sandboxKeys = [
+        "settings.sandboxes.intro", "settings.sandboxes.watching", "settings.sandboxes.watch",
+        "settings.sandboxes.watch.detail",
+        "settings.sandboxes.status.isolated", "settings.sandboxes.status.missing", "settings.sandboxes.status.socket",
+        "settings.sandboxes.status.taken", "settings.sandboxes.status.starting", "settings.sandboxes.status.connecting",
+        "settings.sandboxes.status.disconnected", "settings.sandboxes.status.listFailed",
+        "settings.sandboxes.status.watching", "settings.sandboxes.status.version",
+        "settings.sandboxes.list", "settings.sandboxes.empty", "settings.sandboxes.offList",
+        "settings.sandboxes.noFolder",
+        "settings.sandboxes.ready", "settings.sandboxes.installing", "settings.sandboxes.waiting",
+        "settings.sandboxes.removing", "settings.sandboxes.removed", "settings.sandboxes.stoppedOff",
+        "settings.sandboxes.failed", "settings.sandboxes.retry", "settings.sandboxes.otherAgent",
+        "settings.sandboxes.agentOff",
+        "settings.sandboxes.what", "settings.sandboxes.what.file", "settings.sandboxes.what.rule",
+        "settings.sandboxes.what.mac", "settings.sandboxes.what.off", "settings.sandboxes.what.cloud",
+        "settings.sandboxes.discover",
+    ]
 
     // MARK: - Catalogue
 
@@ -665,9 +839,6 @@ final class SettingsModel: ObservableObject {
         "packs.use", "packs.inUse", "packs.remove", "packs.remove.help", "packs.count", "packs.installed", "packs.unplayable", "packs.unplayable.help",
         "packs.note", "packs.done", "packs.error",
         "settings.agents.group", "settings.agents.note", "settings.usage.bar",
-        "settings.sandbox.group", "settings.sandbox.status", "settings.sandbox.status.off", "settings.sandbox.status.starting",
-        "settings.sandbox.status.taken", "settings.sandbox.status.quiet", "settings.sandbox.status.heard",
-        "remote.copy", "remote.copied",
         "settings.usage.hideStale", "settings.usage.hideStale.detail",
         "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",
         "settings.chat.hotkey.change", "settings.chat.hotkey.cancel", "settings.chat.hotkey.recording",
@@ -693,7 +864,8 @@ final class SettingsModel: ObservableObject {
         "settings.remote.path.status", "settings.remote.path.note", "settings.remote.path.stillOff",
         "settings.remote.path.add", "settings.remote.what.path", "settings.remote.what.path.remove",
         "settings.remote.path.manual", "settings.remote.path.manual.remove",
-    ] + Agents.chatBackends.compactMap(\.noteKey)
+    ] + sandboxKeys
+        + Agents.chatBackends.compactMap(\.noteKey)
         + EvlatSound.allCases.map(\.nameKey)
         + SoundMoment.allCases.map(\.nameKey)
 }

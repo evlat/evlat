@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import EvlatCore
+import EvlatAgents
 
 /// The settings window: the
 /// six sections on the left, a dot on the ones that want attention; the
@@ -61,6 +62,7 @@ struct SettingsView: View {
         case .chat: ChatSection(model: model, recorder: model.recorder, setup: setup)
         case .commandLine: CommandSection(model: model, setup: setup)
         case .remote: RemoteSection(model: model.remote, settings: model)
+        case .sandboxes: SandboxSection(model: model)
         }
     }
 }
@@ -503,45 +505,21 @@ private struct AgentsSection: View {
         let agents = setup.rows.filter { $0.item.agent != nil }
         if !agents.isEmpty {
             SettingsGroup(title: model.t("settings.agents.group"), note: model.t("settings.agents.note")) {
-                ForEach(agents) { SetupRowView(row: $0, model: setup) }
+                ForEach(agents) { row in
+                    SetupRowView(row: row, model: setup, link: sandboxLink(row))
+                }
             }
         }
-        SandboxGroup(model: model)
         SettingsGroup(title: model.t("settings.sessions.branch"), note: model.t("settings.sessions.branch.note")) {
             BranchRow(model: model)
         }
     }
-}
 
-/// "Docker sandboxes": always shown (`sbx` is not looked for). Whether the
-/// sandboxes' port is heard on, and which sandboxes were heard.
-private struct SandboxGroup: View {
-    @ObservedObject var model: SettingsModel
-
-    var body: some View {
-        SettingsGroup(title: model.t("settings.sandbox.group")) {
-            RowBox {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(model.t("settings.sandbox.status"))
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(SettingsPalette.ink)
-                    Text(model.sandboxStatusLine)
-                        .font(.system(size: 12))
-                        .foregroundStyle(statusInk)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .multilineTextAlignment(.trailing)
-                }
-            }
-        }
-    }
-
-    private var statusInk: Color {
-        switch model.sandboxState {
-        case .taken: return SettingsPalette.wait
-        case .listening: return SettingsPalette.ok
-        case .off, .starting: return SettingsPalette.muted
-        }
+    /// The sandboxes' agent's card, while `sbx` is here and not watched:
+    /// one line to Sandboxes.
+    private func sandboxLink(_ row: SetupRow) -> (text: String, action: () -> Void)? {
+        guard row.item.agent == Agents.sandboxAgent, row.enabled, model.offersSandboxes else { return nil }
+        return (model.t("settings.sandboxes.discover"), { model.section = .sandboxes })
     }
 }
 

@@ -34,6 +34,7 @@ final class SandboxWatcherTests: XCTestCase {
         watcher = nil
         daemon.close()
         unsetenv("FAKE_SBX_FAIL")
+        unsetenv("FAKE_SBX_VERSION")
         unsetenv("FAKE_SBX_ROOT")
         try? FileManager.default.removeItem(at: root)
     }
@@ -83,9 +84,9 @@ final class SandboxWatcherTests: XCTestCase {
     }
 
     @discardableResult
-    private func start(runner: SandboxRunner? = nil) throws -> SandboxWatcher {
+    private func start(runner: SandboxRunner? = nil, socketPath: String? = nil) throws -> SandboxWatcher {
         let made = SandboxWatcher(runner: try runner ?? SandboxRunner(sbxPath: fakeSbx()),
-                                  socketPath: daemon.path, plan: plan, delay: { _ in 0.05 },
+                                  socketPath: socketPath ?? daemon.path, plan: plan, delay: { _ in 0.05 },
                                   forget: { [weak self] in self?.forgotten.append($0) }, onChange: {})
         watcher = made
         made.start()
@@ -112,6 +113,29 @@ final class SandboxWatcherTests: XCTestCase {
         XCTAssertTrue(forgotten.contains("old"), "a stopped sandbox's rows go")
         let allows = runs().filter { $0.starts(with: ["policy", "allow"]) }
         XCTAssertTrue(allows.allSatisfy { $0.contains("--sandbox") }, "never the global policy")
+        XCTAssertEqual(watcher?.status.sandboxes["web"]?.folder, "/work/web", "the list's folder")
+        XCTAssertEqual(watcher?.status.version, "0.46.0")
+        XCTAssertEqual(runs().filter { $0 == ["version"] }.count, 1, "the version is asked once")
+    }
+
+    /// Settings says a version other than the one measured: it is read.
+    func testTheVersionIsReadOnConnect() throws {
+        setenv("FAKE_SBX_VERSION", "0.47.2", 1)
+        try start()
+        waitUntil("version") { self.watcher?.status.version == "0.47.2" }
+    }
+
+    /// A socket path a unix address cannot hold opens no stream — it would
+    /// fail on every try and read as "sbx isn't running" — and says so;
+    /// what runs now is still set up.
+    func testASocketPathTooLongIsSaidAndWhatRunsIsSetUp() throws {
+        try sandboxes("web \(claude) running")
+        let long = "/" + String(repeating: "s", count: SandboxWatcher.socketPathLimit)
+        try start(socketPath: long)
+        XCTAssertEqual(watcher?.status.socketTooLong, true)
+        waitUntil("web ready") { self.setup("web") == .ready }
+        XCTAssertEqual(watcher?.status.daemon, .off)
+        XCTAssertEqual(daemon.connections, 0)
     }
 
     func testAStartedSandboxIsSetUp() throws {
@@ -282,10 +306,17 @@ final class SandboxWatcherTests: XCTestCase {
         XCTAssertEqual(installed("web"), Agents.sandboxInstall(port: port).content, "the bound port's hooks")
         XCTAssertEqual(rules(), ["web localhost:\(port)"])
 
+        XCTAssertEqual(controller.sbxFound, true)
+        XCTAssertEqual(controller.sandboxesView.availability, .found)
+        XCTAssertEqual(controller.sandboxesView.listener, .listening)
+
         controller.setSandboxesEnabled(false)
         XCTAssertNil(controller.sandbox)
         XCTAssertNil(controller.sandboxWatcher)
         waitUntil("removed") { self.installed("web") == nil && self.rules().isEmpty }
+        // Settings still says what came out: the retired watcher's.
+        waitUntil("said removed") { controller.sandboxesView.watcher?.sandboxes["web"]?.setup == .removed }
+        XCTAssertFalse(controller.sandboxesView.on)
 
         // Off and on at once: the new install waits for the removal and
         // follows it, never left behind it.

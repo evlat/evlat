@@ -95,6 +95,27 @@ public struct SandboxInstall: Equatable {
     /// Lists the sandboxes on this Mac, as JSON (`sandboxes(fromList:)`).
     public static let list = Command(arguments: ["ls", "--json"])
 
+    /// Asks `sbx` its version (`version(fromOutput:)`). Read-only, like the
+    /// list: Settings says when it is not the one measured.
+    public static let version = Command(arguments: ["version"])
+    /// The `sbx` this plan, the list and the daemon's stream were measured
+    /// with.
+    public static let measuredVersion = "0.46.0"
+
+    /// `sbx version`'s `sbx version: v0.46.0 <commit>` (0.46.0), as
+    /// `0.46.0`; `nil` for any other shape.
+    public static func version(fromOutput data: Data) -> String? {
+        let text = String(decoding: data, as: UTF8.self)
+        for word in text.split(whereSeparator: { $0.isWhitespace }) where word.hasPrefix("v") {
+            let number = word.dropFirst()
+            let parts = number.split(separator: ".", omittingEmptySubsequences: false)
+            if parts.count == 3, parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }) {
+                return String(number)
+            }
+        }
+        return nil
+    }
+
     /// A name a command may be made for: ASCII letters, digits, `.`, `_`
     /// and `-`, at most `nameLimit`, and not starting with `-` or a dot, so
     /// that `sbx` can never take it for a flag. Stricter than the hook
@@ -119,11 +140,15 @@ public struct SandboxInstall: Equatable {
         public let agent: String?
         /// `running`, `stopped`, …: `sbx`'s own word.
         public let status: String?
+        /// The folder it was made in, the first of `workspaces`; `nil` for
+        /// one made with none (the list then leaves the field out).
+        public let workspace: String?
 
-        public init(name: String, agent: String?, status: String?) {
+        public init(name: String, agent: String?, status: String?, workspace: String? = nil) {
             self.name = name
             self.agent = agent
             self.status = status
+            self.workspace = workspace
         }
 
         /// Whether it runs now. Only a running sandbox is set up: `sbx exec`
@@ -139,7 +164,9 @@ public struct SandboxInstall: Equatable {
               let entries = object["sandboxes"] as? [Any] else { return nil }
         return entries.compactMap { entry in
             guard let fields = entry as? [String: Any], let name = fields["name"] as? String else { return nil }
-            return Sandbox(name: name, agent: fields["agent"] as? String, status: fields["status"] as? String)
+            let workspace = (fields["workspaces"] as? [Any])?.first as? String
+            return Sandbox(name: name, agent: fields["agent"] as? String, status: fields["status"] as? String,
+                           workspace: workspace.flatMap { $0.isEmpty ? nil : $0 })
         }
     }
 }

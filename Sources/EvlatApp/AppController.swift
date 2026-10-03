@@ -2465,8 +2465,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// No environment: `EVLAT_SBX` is read by `SandboxWatcher.source`.
     private lazy var sbxLocator = AgentLocator(name: "sbx", environment: [:], loginPath: loginPath.value,
                                                missed: loginPath.forget)
-    /// `sbx` was looked for and not found.
-    private(set) var sbxMissing = false
+    /// Whether `sbx` is on this Mac: `nil` until looked for
+    /// (`lookForSbx`). Asked with the switch off too — Settings, the Claude
+    /// Code card and the setup offer the switch only where `sbx` is.
+    private(set) var sbxFound: Bool?
+    /// The watcher the switch turned off: kept until it goes on again, so
+    /// Settings can say what came out of which sandbox. It hears nothing.
+    private(set) var retiredSandboxWatcher: SandboxWatcher?
     /// Where `sbx` and the daemon are (`SandboxWatcher.source`); the
     /// launch's by default, a test's by hand.
     lazy var sandboxSource: SandboxWatcher.Source? = SandboxWatcher.source(home: home)
@@ -2486,6 +2491,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             return
         }
         sandboxWatcher?.stop(removing: removing)
+        if let sandboxWatcher { retiredSandboxWatcher = sandboxWatcher }
         sandboxWatcher = nil
         sandboxWatcherAsked = false
         if let sandbox {
@@ -2536,17 +2542,63 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                          forget: { [weak hooks] in hooks?.forget(sandbox: $0) },
                                          onChange: { [weak self] in self?.scheduleRefresh() })
             self.sandboxWatcher = watcher
+            self.retiredSandboxWatcher = nil
             watcher.start()
         }
+        lookForSbx { $0.map(begin) }
+    }
+
+    /// Where `sbx` is, or `nil` for none: `EVLAT_SBX`'s path when given,
+    /// else the login `PATH`'s (`sbxLocator`, shared with the chat's
+    /// lookups). Nothing is run but the login shell, and only once found.
+    /// No source (an isolated process not handed one, every test that
+    /// hands none): none.
+    func lookForSbx(_ completion: @escaping (String?) -> Void) {
+        guard let source = sandboxSource else { return completion(nil) }
         if let sbx = source.sbx {
-            sbxMissing = !FileManager.default.isExecutableFile(atPath: sbx)
-            if !sbxMissing { begin(sbx) }
-            return
+            let path = FileManager.default.isExecutableFile(atPath: sbx) ? sbx : nil
+            sbxFound = path != nil
+            return completion(path)
         }
         sbxLocator.locate { [weak self] location in
-            self?.sbxMissing = location.executable == nil
-            location.executable.map(begin)
+            let changed = self?.sbxFound != (location.executable != nil)
+            self?.sbxFound = location.executable != nil
+            if changed { self?.scheduleRefresh() }
+            completion(location.executable)
         }
+    }
+
+    /// Settings' and the setup's view of the sandboxes
+    /// (`SettingsModel.Sandboxes`).
+    var sandboxesView: SettingsModel.Sandboxes {
+        var view = SettingsModel.Sandboxes()
+        if sandboxSource == nil || sandboxPort() == nil {
+            view.availability = .isolated
+        } else {
+            switch sbxFound {
+            case nil: view.availability = .looking
+            case true?: view.availability = .found
+            case false?: view.availability = .missing
+            }
+        }
+        view.on = sandboxesEnabled
+        view.port = sandbox?.port ?? sandboxPort() ?? SandboxInstall.defaultPort
+        if let sandbox {
+            switch sandbox.status.listener {
+            case .stopped: view.listener = .starting
+            case .unavailable(let port, _): view.listener = .taken(port)
+            case .listening: view.listener = .listening
+            }
+        }
+        view.watcher = (sandboxWatcher ?? retiredSandboxWatcher)?.status
+        view.socketLength = sandboxSource?.socket.utf8.count ?? 0
+        view.agentOn = enabledAgents.contains(Agents.sandboxAgent)
+        return view
+    }
+
+    /// The user's "Try Again" on a sandbox that could not be set up.
+    func retrySandbox(_ name: String) {
+        sandboxWatcher?.retry(name)
     }
 
     /// Asks a remote session's server where its connection is, over the
@@ -2697,17 +2749,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 guard let notifier = self?.notifier else { return done(false) }
                 notifier.isDenied(done)
             },
-            sandboxState: { [weak self] in self?.sandboxState ?? .off })
-    }
-
-    /// Settings' line for the sandbox listener (`SandboxListener.Status`).
-    var sandboxState: SettingsModel.SandboxState {
-        guard let sandbox else { return .off }
-        switch sandbox.status.listener {
-        case .stopped: return .starting
-        case .unavailable(let port, _): return .taken(port)
-        case .listening(let port): return .listening(port, heard: sandbox.status.heard.sorted())
-        }
+            sandboxes: { [weak self] in self?.sandboxesView ?? SettingsModel.Sandboxes() },
+            setSandboxes: { [weak self] in self?.setSandboxesEnabled($0) },
+            retrySandbox: { [weak self] in self?.retrySandbox($0) },
+            lookForSbx: { [weak self] done in
+                guard let self else { return done() }
+                self.lookForSbx { _ in done() }
+            })
     }
 
     /// The window's focus call on open; a test holds it still so the runner

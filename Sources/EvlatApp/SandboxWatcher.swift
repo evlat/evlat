@@ -59,12 +59,20 @@ final class SandboxWatcher {
         var agent: String?
         var running: Bool
         var setup: Setup
+        /// The folder it was made in, as the list said it.
+        var folder: String? = nil
     }
 
     struct Status: Equatable {
         var daemon: Daemon = .off
+        /// The daemon's socket path does not fit a unix socket's address
+        /// (`socketPathLimit`): no stream is opened, and the sandboxes
+        /// running now are set up once.
+        var socketTooLong = false
         /// The last `sbx ls --json` failed or could not be read.
         var listFailed = false
+        /// `sbx version`'s, once read; `nil` until then or when it said none.
+        var version: String?
         /// The sandboxes on this Mac, by name, as the last list said them.
         var sandboxes: [String: Entry] = [:]
     }
@@ -110,8 +118,24 @@ final class SandboxWatcher {
             onEvent: { [weak self] event in MainActor.assumeIsolated { self?.heard(event) } })
     }
 
+    /// A unix socket's address holds 104 bytes, the last a NUL
+    /// (`sockaddr_un.sun_path`). The real one measured 97.
+    static let socketPathLimit = 103
+
     func start() {
-        link?.start()
+        guard let link else { return }
+        if link.socketPath.utf8.count > Self.socketPathLimit {
+            // `NWConnection` would fail on every try, and the line would say
+            // `sbx` is not running. Said as it is; what runs now is set up.
+            self.link = nil
+            status.socketTooLong = true
+            everything = true
+            askVersion()
+            list()
+            onChange()
+            return
+        }
+        link.start()
     }
 
     /// Stops hearing the daemon. `removing`: the switch went off, and
@@ -150,6 +174,20 @@ final class SandboxWatcher {
         list()
     }
 
+    /// `sbx version`, once a watcher, before its first list: Settings says
+    /// a version other than the one measured.
+    private var versionAsked = false
+
+    private func askVersion() {
+        guard !versionAsked else { return }
+        versionAsked = true
+        runner.version { [weak self] version in
+            guard let self, !self.stopped, version != self.status.version else { return }
+            self.status.version = version
+            self.onChange()
+        }
+    }
+
     // MARK: - The daemon
 
     private func daemonChanged(_ state: SandboxDaemonLink.State) {
@@ -159,6 +197,7 @@ final class SandboxWatcher {
         case .connected:
             status.daemon = .connected
             everything = true
+            askVersion()
             list()
         case .disconnected: status.daemon = .disconnected
         }
@@ -250,7 +289,8 @@ final class SandboxWatcher {
             let previous = status.sandboxes[name]?.setup
             let wanted = everything || started.contains(name)
             started.remove(name)
-            var entry = Entry(agent: sandbox.agent, running: sandbox.isRunning, setup: previous ?? .stopped)
+            var entry = Entry(agent: sandbox.agent, running: sandbox.isRunning, setup: previous ?? .stopped,
+                              folder: sandbox.workspace)
             if sandbox.agent != agent {
                 entry.setup = .otherAgent
             } else if !sandbox.isRunning {

@@ -11,6 +11,7 @@
 #                   files/<name>   what `exec … sh -c` was fed on stdin
 #                   started        one line per sandbox an `exec` started
 #   FAKE_SBX_FAIL   a sandbox name whose `exec` fails: one stderr line, exit 1
+#   FAKE_SBX_VERSION  what `version` says (0.46.0 when unset)
 #
 # `exec` starts a stopped sandbox, as the real one does (measured on 0.46.0),
 # so a test can tell it was never asked to.
@@ -30,12 +31,15 @@ set_status() {
 }
 
 case "$1 $2" in
+  "version ")
+    echo "sbx version: v${FAKE_SBX_VERSION:-0.46.0} 0000000"
+    ;;
   "ls --json")
     printf '{"sandboxes":['
     sep=''
     while read -r name agent status; do
       [ -n "$name" ] || continue
-      printf '%s{"name":"%s","id":"id-%s","agent":"%s","status":"%s"}' "$sep" "$name" "$name" "$agent" "$status"
+      printf '%s{"name":"%s","id":"id-%s","agent":"%s","status":"%s","workspaces":["/work/%s"]}' "$sep" "$name" "$name" "$agent" "$status" "$name"
       sep=','
     done < "$root/sandboxes"
     printf ']}\n'

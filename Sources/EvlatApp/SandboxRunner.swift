@@ -63,6 +63,17 @@ final class SandboxRunner {
         }
     }
 
+    /// `sbx`'s version (`SandboxInstall.version`), or `nil` when it did not
+    /// say one. Read-only, like the list.
+    func version(completion: @escaping (String?) -> Void) {
+        let path = sbxPath, deadline = self.deadline
+        queue.async {
+            let answer = Self.run(path, SandboxInstall.version, deadline: deadline)
+            let version = answer.failure == nil ? SandboxInstall.version(fromOutput: answer.output) : nil
+            DispatchQueue.main.async { completion(version) }
+        }
+    }
+
     private func start<T>(_ key: String, completion: @escaping (T) -> Void, work: @escaping () -> T) -> Bool {
         guard busy.insert(key).inserted else { return false }
         queue.async {

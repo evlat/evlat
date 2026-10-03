@@ -161,7 +161,7 @@ enum SetupAttention: Equatable {
     /// Where the settings window shows it: its sections, in the side
     /// list's order. The raw value is `EVLAT_SETTINGS`'.
     enum Section: String, CaseIterable, Equatable {
-        case general, mascot, agents, usage, chat, commandLine = "command", remote
+        case general, mascot, agents, usage, chat, commandLine = "command", remote, sandboxes
     }
 
     var section: Section {
@@ -761,23 +761,28 @@ struct SetupRowView: View {
     /// The setup's switch: whether its one press writes this row. Drawn
     /// while there is something to write and the row is not set up by hand.
     var queued: Binding<Bool>?
+    /// A line under the card that leads elsewhere (the Claude Code card's
+    /// to Sandboxes): its words and where the click goes.
+    var link: (text: String, action: () -> Void)?
     @State private var copied = false
     /// An agent's "What it writes" is open.
     @State private var details = false
 
     init(row: SetupRow, card: SetupCardDriver, showsButton: Bool = true, monospaced: Bool = true,
-         queued: Binding<Bool>? = nil) {
+         queued: Binding<Bool>? = nil, link: (text: String, action: () -> Void)? = nil) {
         self.row = row
         self.card = card
         self.showsButton = showsButton
         self.monospaced = monospaced
         self.queued = queued
+        self.link = link
     }
 
     /// This Mac's card.
     init(row: SetupRow, model: SetupModel, showsButton: Bool = true, monospaced: Bool = true,
-         queued: Binding<Bool>? = nil) {
-        self.init(row: row, card: model.card, showsButton: showsButton, monospaced: monospaced, queued: queued)
+         queued: Binding<Bool>? = nil, link: (text: String, action: () -> Void)? = nil) {
+        self.init(row: row, card: model.card, showsButton: showsButton, monospaced: monospaced, queued: queued,
+                  link: link)
     }
 
     private var lang: String { card.lang }
@@ -880,6 +885,9 @@ struct SetupRowView: View {
             }
         }
         manualPart
+        if let link {
+            Button(link.text, action: link.action).buttonStyle(LinkButtonStyle())
+        }
     }
 
     /// Settings' agent card says whether the chat bubble can talk to the
