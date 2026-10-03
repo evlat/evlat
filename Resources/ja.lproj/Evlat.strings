@@ -341,7 +341,7 @@
 "settings.sandboxes.what" = "オンのときに行うこと";
 "settings.sandboxes.what.file" = "Evlatは各{agent}サンドボックスの中に、rootとして自分用のファイルを1つだけ書き込みます：{path}。";
 "settings.sandboxes.what.rule" = "そのサンドボックスには、このMacのポート{port}への接続だけを許可します。それ以外は許可しません。";
-"settings.sandboxes.what.mac" = "このMacでは何も変更しません。";
+"settings.sandboxes.what.mac" = "このMacにあるあなたのファイルには一切手を触れません。各サンドボックスのルールはsbxがこのMacに保存し、サンドボックスを削除するとルールも削除されます。";
 "settings.sandboxes.what.off" = "オフにすると、実行中のサンドボックスから両方とも取り除かれます。停止中のサンドボックスには両方とも残ります。Evlatが待ち受けていない間、フックはすぐに失敗し、{agent}はそのまま動き続けます。";
 "settings.sandboxes.what.cloud" = "DockerのクラウドにあるサンドボックスはこのMacに届きません。";
 "settings.sandboxes.discover" = "Dockerサンドボックスをお使いですか？監視するには：サンドボックス ›";

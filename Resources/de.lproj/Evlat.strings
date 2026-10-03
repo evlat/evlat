@@ -341,7 +341,7 @@
 "settings.sandboxes.what" = "Was es tut, solange es an ist";
 "settings.sandboxes.what.file" = "In jeder {agent}-Sandbox schreibt Evlat als root eine eigene Datei: {path}.";
 "settings.sandboxes.what.rule" = "Dazu erlaubt Evlat dieser Sandbox, Port {port} auf diesem Mac zu erreichen, und sonst nichts.";
-"settings.sandboxes.what.mac" = "Auf diesem Mac wird nichts geändert.";
+"settings.sandboxes.what.mac" = "Keine deiner Dateien auf diesem Mac wird angefasst. Die Regel jeder Sandbox bewahrt sbx auf diesem Mac auf und löscht sie mit der Sandbox.";
 "settings.sandboxes.what.off" = "Beim Ausschalten verschwindet beides aus den laufenden Sandboxes. Eine gestoppte Sandbox behält beides: Solange Evlat nicht lauscht, schlagen ihre Hooks sofort fehl und {agent} arbeitet weiter.";
 "settings.sandboxes.what.cloud" = "Sandboxes in Dockers Cloud erreichen diesen Mac nicht.";
 "settings.sandboxes.discover" = "Nutzt du Docker-Sandboxes? Beobachte sie unter Sandboxes ›";

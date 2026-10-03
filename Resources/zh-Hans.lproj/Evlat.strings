@@ -341,7 +341,7 @@
 "settings.sandboxes.what" = "开启时会做什么";
 "settings.sandboxes.what.file" = "在每个 {agent} 沙盒里，Evlat 以 root 身份写入一个它自己的文件：{path}。";
 "settings.sandboxes.what.rule" = "它只允许该沙盒访问这台 Mac 上的 {port} 端口，别的都不行。";
-"settings.sandboxes.what.mac" = "这台 Mac 上不会有任何改动。";
+"settings.sandboxes.what.mac" = "不会动这台 Mac 上你的任何文件。每个沙盒的规则由 sbx 保存在这台 Mac 上，删除沙盒时一并删除。";
 "settings.sandboxes.what.off" = "关闭后，两者都会从正在运行的沙盒中移除。已停止的沙盒会保留两者：Evlat 未监听时，其中的 hook 会立即失败，{agent} 照常工作。";
 "settings.sandboxes.what.cloud" = "Docker 云端的沙盒无法连到这台 Mac。";
 "settings.sandboxes.discover" = "在用 Docker 沙盒？去这里监视它们：沙盒 ›";

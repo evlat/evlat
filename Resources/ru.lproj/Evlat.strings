@@ -342,7 +342,7 @@
 "settings.sandboxes.what" = "Что происходит, пока включено";
 "settings.sandboxes.what.file" = "В каждой песочнице {agent} Evlat от root записывает один свой файл: {path}.";
 "settings.sandboxes.what.rule" = "Ещё Evlat разрешает этой песочнице обращаться к порту {port} на этом Mac — и больше ни к чему.";
-"settings.sandboxes.what.mac" = "На этом Mac ничего не меняется.";
+"settings.sandboxes.what.mac" = "Ни один ваш файл на этом Mac не затрагивается. Правило каждой песочницы хранит sbx на этом Mac и удаляет его вместе с песочницей.";
 "settings.sandboxes.what.off" = "При выключении и то и другое убирается из запущенных песочниц. Остановленная песочница сохраняет и то и другое: пока Evlat не слушает, её хуки сразу завершаются с ошибкой, а {agent} продолжает работу.";
 "settings.sandboxes.what.cloud" = "Песочницы в облаке Docker не достают до этого Mac.";
 "settings.sandboxes.discover" = "Пользуетесь песочницами Docker? Следить за ними — в разделе Песочницы ›";

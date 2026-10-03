@@ -350,7 +350,7 @@
 "settings.sandboxes.what" = "Açıkken ne yapar";
 "settings.sandboxes.what.file" = "Evlat her {agent} sandbox'ının içine, root olarak, kendine ait tek bir dosya yazar: {path}.";
 "settings.sandboxes.what.rule" = "O sandbox'ın bu Mac'te yalnızca {port} portuna ulaşmasına izin verir, başka hiçbir şeye değil.";
-"settings.sandboxes.what.mac" = "Bu Mac'te hiçbir şey değişmez.";
+"settings.sandboxes.what.mac" = "Bu Mac'teki dosyalarınızın hiçbirine dokunulmaz. Her sandbox'ın kuralını bu Mac'te sbx tutar ve sandbox silinince kuralı da siler.";
 "settings.sandboxes.what.off" = "Kapatınca ikisi de çalışan sandbox'lardan çıkarılır. Durmuş bir sandbox ikisini de tutar: Evlat dinlemezken hook'ları hemen düşer ve {agent} çalışmayı sürdürür.";
 "settings.sandboxes.what.cloud" = "Docker'ın bulutundaki sandbox'lar bu Mac'e ulaşamaz.";
 "settings.sandboxes.discover" = "Docker sandbox'ları mı kullanıyorsun? İzlemek için: Sandbox'lar ›";

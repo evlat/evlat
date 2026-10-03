@@ -704,7 +704,10 @@ and login items belong to the user. **Agents do not write them.** Writers are te
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
 So does the login keychain: no test or trial writes an Evlat entry to it.
 Inside a Docker sandbox Evlat writes only its own file and that sandbox's
-rule, and only while "Watch sandboxes" is on (above); nothing on this Mac.
+rule, and only while "Watch sandboxes" is on (above); no file of the user's
+on this Mac. The rule is kept on this Mac by the `sbx` daemon, not by Evlat:
+`sbx policy rm` takes it out when the switch goes off for a running
+sandbox, and it goes with the sandbox when the sandbox is deleted.
 The masters' sockets (`$TMPDIR/evlat`, `0700`) are Evlat's own; a stale one
 is cleared, a live one — another process's master — is left alone.
 

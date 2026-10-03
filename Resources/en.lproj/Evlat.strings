@@ -405,7 +405,7 @@
 "settings.sandboxes.what" = "What it does while on";
 "settings.sandboxes.what.file" = "Inside each {agent} sandbox, as root, Evlat writes one file of its own: {path}.";
 "settings.sandboxes.what.rule" = "It lets that sandbox reach port {port} on this Mac, and nothing else.";
-"settings.sandboxes.what.mac" = "Nothing on this Mac is changed.";
+"settings.sandboxes.what.mac" = "No file of yours on this Mac is touched. sbx keeps each sandbox's rule on this Mac, and deletes it with the sandbox.";
 "settings.sandboxes.what.off" = "Turned off, both come out of the running sandboxes. A stopped sandbox keeps them: while Evlat isn't listening, its hooks fail at once and {agent} carries on.";
 "settings.sandboxes.what.cloud" = "Sandboxes in Docker's cloud can't reach this Mac.";
 "settings.sandboxes.discover" = "Using Docker sandboxes? Watch them in Sandboxes ›";
