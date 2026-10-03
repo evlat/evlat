@@ -788,6 +788,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let nudgeNotifyKey = "nudge.notify"
     nonisolated static let nudgeScopeKey = "nudge.scope"
     nonisolated static let hideStaleUsageKey = "usage.hideStale"
+    nonisolated static let characterKey = "mascot.character"
+    nonisolated static let cubeTintKey = "mascot.cubeTint"
+    nonisolated static let packKey = "mascot.pack"
+    /// The voice before a look's suggested one replaced it, and which look
+    /// did — so leaving it puts the user's back.
+    nonisolated static let voiceBeforeKey = "sound.voice.before"
+    nonisolated static let voiceSuggestedByKey = "sound.voice.suggestedBy"
     /// What the setting offers; 0 is off.
     nonisolated static let nudgeChoices = [0, 1, 2, 5, 10, 20]
 
@@ -1277,6 +1284,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
         useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
+        mascot.character = MascotCharacter.stored(defaults?.string(forKey: Self.characterKey))
+        mascot.portrait = home.flatMap(Portrait.load(home:))
+        mascot.packs = home.map(CharacterPacks.load(home:)) ?? []
+        mascot.packName = defaults?.string(forKey: Self.packKey)
+        mascot.cubeTint = defaults?.bool(forKey: Self.cubeTintKey) ?? false
+        characterMaker.onChange = { [weak self] in self?.settings?.objectWillChange.send() }
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
         branchDisplay = Self.storedBranchDisplay(defaults)
         detail.resolveBranch = { [weak self] folder in
@@ -2741,6 +2754,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             soundVolume: { Double(SoundPlayer.volume) },
             setSoundVolume: { [weak self] in self?.setSoundVolume($0) },
             packBrowser: { [weak self] in self?.packBrowser },
+            character: { [weak self] in self?.mascot.character ?? .cube },
+            setCharacter: { [weak self] in self?.setCharacter($0) },
+            characterChoices: { [weak self] in self?.characterChoices ?? [] },
+            characterChoice: { [weak self] in self?.characterChoice ?? "cube" },
+            setCharacterChoice: { [weak self] in self?.setCharacterChoice($0) },
+            importCharacter: { [weak self] in self?.importCharacter() },
+            exportCharacter: { [weak self] in self?.exportCharacter() },
+            openCharacterPacks: { [weak self] in self?.openCharacterPacks() },
+            characterPackError: { [weak self] in self?.characterPackError },
+            cubeTint: { [weak self] in self?.mascot.cubeTint ?? false },
+            setCubeTint: { [weak self] in self?.setCubeTint($0) },
+            hasPortrait: { [weak self] in self?.mascot.portrait != nil },
+            characterMaking: { [weak self] in self?.characterMaker.state ?? .idle },
+            createCharacter: { [weak self] in self?.createCharacter() },
+            importCharacterIcon: { [weak self] in self?.importCharacterIcon() },
+            hasCharacterPrompt: { [weak self] in CharacterMaker.prompt(home: self?.home) != nil },
+            pasteCharacterPrompt: { [weak self] in self?.pasteCharacterPrompt() },
+            openCharacterPromptSource: { [weak self] in self?.openCharacterPromptSource() },
             hidesStaleUsage: { [weak self] in self?.hidesStaleUsage ?? false },
             setHidesStaleUsage: { [weak self] in self?.setHidesStaleUsage($0) },
             nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
@@ -3112,6 +3143,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             mascot.phase = snapshot.aggregate
         }
         if mascot.hasLive != snapshot.hasLive { mascot.hasLive = snapshot.hasLive }
+        let tones = CubeTint.counts(snapshot)
+        if mascot.tones != tones { mascot.tones = tones }
 
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.
@@ -3544,6 +3577,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             lastSnapshot?.ordered.first { $0.entity == entity }
         }.flatMap(Finish.init)
         guard detail.go() else { return }
+        // A blink for the click: the mascot saw it.
+        mascot.poke()
         hover.closeNow()
         // The intent may already have believed the bar closed.
         if barState.isOpen { closeBar() }
@@ -3803,6 +3838,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let sound = sound(for: moment) else { return }
         lastSound = now
         playSound(sound)
+        mascot.callOut(Self.calloutTone(for: moment))
+    }
+
+    /// How a line shows on a character that answers it (the fairy's call,
+    /// a pack's face): a finish, a failure, or a call for the user.
+    nonisolated static func calloutTone(for moment: SoundMoment) -> MascotCallout.Tone {
+        switch moment {
+        case .done: return .done
+        case .failed: return .oops
+        case .approval, .answer: return .attention
+        }
     }
 
     /// The characters sheet's model, made on first use. Only with a home,
@@ -3825,6 +3871,149 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let pack = installedPacks.first(where: { $0.name == name }) else { return }
         try? FileManager.default.trashItem(at: pack.directory, resultingItemURL: nil)
         if soundVoice == .pack(name) { setVoice(.evlat) }
+    }
+
+    // MARK: Characters
+
+    /// Makes the user's own character (Settings → Mascot → Character).
+    let characterMaker = CharacterMaker()
+
+    /// Picks a picture and has the catalogue's image maker turn it into the
+    /// character; on success the mascot becomes it.
+    func createCharacter() {
+        guard let home, let agent = Agents.imageMaker, let maker = agent.imageMaker,
+              let picture = Self.pickImage(title: "settings.mascot.custom.create") else { return }
+        let locator = chatLocators[agent.id] ?? AgentLocator(name: maker.executable)
+        let name = L10n.t(agent.display.nameKey)
+        locator.locate { [weak self] location in
+            self?.characterMaker.generate(from: picture, home: home, maker: maker, name: name,
+                                          executable: location.executable, path: location.path) { portrait in
+                self?.adopt(portrait)
+            }
+        }
+    }
+
+    /// An icon made elsewhere, by the same prompt.
+    func importCharacterIcon() {
+        guard let home, let icon = Self.pickImage(title: "settings.mascot.custom.import") else { return }
+        characterMaker.importIcon(icon, home: home) { [weak self] in self?.adopt($0) }
+    }
+
+    /// Keeps the prompt on the clipboard as the user's own.
+    func pasteCharacterPrompt() {
+        guard let home, let text = NSPasteboard.general.string(forType: .string) else { return }
+        CharacterMaker.savePrompt(text, home: home)
+        settings?.objectWillChange.send()
+    }
+
+    func openCharacterPromptSource() {
+        NSWorkspace.shared.open(CharacterMaker.promptSource)
+    }
+
+    private func adopt(_ portrait: Portrait?) {
+        guard let portrait else { return }
+        mascot.portrait = portrait
+        setCharacter(.portrait)
+        settings?.objectWillChange.send()
+    }
+
+    private static func pickImage(title key: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.message = L10n.t(key)
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    func setCubeTint(_ on: Bool) {
+        defaults?.set(on, forKey: Self.cubeTintKey)
+        mascot.cubeTint = on
+    }
+
+    /// The picker's choices, in order: the cube and the fairy, every
+    /// installed pack, the Custom look last.
+    var characterChoices: [(id: String, title: String)] {
+        var choices: [(String, String)] = [("cube", L10n.t("character.cube")), ("fairy", L10n.t("character.fairy"))]
+        choices += mascot.packs.map { ("pack:" + $0.pack.name, $0.pack.displayName) }
+        if mascot.portrait != nil { choices.append(("portrait", L10n.t("character.portrait"))) }
+        return choices
+    }
+
+    var characterChoice: String {
+        mascot.character == .pack ? "pack:" + (mascot.packName ?? "") : mascot.character.rawValue
+    }
+
+    /// A choice from the picker. A pack that suggests a voice the user has
+    /// installed switches to it; leaving that look puts the user's own back.
+    func setCharacterChoice(_ id: String) {
+        let previous = characterChoice
+        if id.hasPrefix("pack:") {
+            let name = String(id.dropFirst(5))
+            defaults?.set(name, forKey: Self.packKey)
+            mascot.packName = name
+            setCharacter(.pack)
+        } else {
+            setCharacter(MascotCharacter.stored(id))
+        }
+        guard previous != id else { return }
+        if defaults?.string(forKey: Self.voiceSuggestedByKey) == previous {
+            defaults?.removeObject(forKey: Self.voiceSuggestedByKey)
+            setVoice(SoundVoice(stored: defaults?.string(forKey: Self.voiceBeforeKey)))
+        }
+        if let suggested = mascot.activePack?.pack.soundPack, mascot.character == .pack,
+           soundVoice != .pack(suggested), installedPacks.contains(where: { $0.name == suggested }) {
+            defaults?.set(soundVoice.stored, forKey: Self.voiceBeforeKey)
+            defaults?.set(id, forKey: Self.voiceSuggestedByKey)
+            setVoice(.pack(suggested))
+        }
+    }
+
+    /// Import Character…: a pack folder or `.zip`; on success it is drawn.
+    func importCharacter() {
+        guard let home else { return }
+        let panel = NSOpenPanel()
+        panel.message = L10n.t("settings.mascot.packs.import")
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.folder, .zip]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        switch CharacterPacks.importPack(from: url, home: home) {
+        case .success(let pack):
+            characterPackError = nil
+            mascot.packs = CharacterPacks.load(home: home)
+            setCharacterChoice("pack:" + pack.name)
+        case .failure:
+            characterPackError = L10n.t("settings.mascot.packs.error")
+        }
+        settings?.objectWillChange.send()
+    }
+
+    /// Export Custom…: the Custom look as a `.zip` to share.
+    func exportCharacter() {
+        guard let portrait = mascot.portrait else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = "custom-character.zip"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let name = url.deletingPathExtension().lastPathComponent
+        characterPackError = CharacterPacks.export(portrait, displayName: name, author: "", to: url)
+            ? nil : L10n.t("settings.mascot.packs.error.export")
+        settings?.objectWillChange.send()
+    }
+
+    func openCharacterPacks() {
+        guard let home else { return }
+        let folder = CharacterPacks.folder(home: home)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
+    }
+
+    private(set) var characterPackError: String?
+
+    /// Settings → Mascot → Character: stored, then drawn at once.
+    func setCharacter(_ character: MascotCharacter) {
+        defaults?.set(character.rawValue, forKey: Self.characterKey)
+        mascot.character = character
     }
 
     /// Stored, then drawn: the block reads it on the refresh it schedules.
