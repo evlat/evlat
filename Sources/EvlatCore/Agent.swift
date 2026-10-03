@@ -43,6 +43,9 @@ public protocol Agent {
     var approvals: (any ApprovalChannel)? { get }
     /// The agent as the chat bubble's backend; `nil` when it cannot be one.
     var chat: (any ChatBackend)? { get }
+    /// The agent as the maker of the Custom character's picture; `nil` when
+    /// it draws none.
+    var imageMaker: ImageMaker? { get }
     var display: AgentDisplay { get }
     /// Its per-session record files, by which a server's shell finds a
     /// session's process (`RemoteHost`); `nil` when it keeps none, and then
@@ -55,6 +58,7 @@ public protocol Agent {
 
 extension Agent {
     public var chat: (any ChatBackend)? { nil }
+    public var imageMaker: ImageMaker? { nil }
 
     public var sessionRecords: SessionRecords? { nil }
 
@@ -240,6 +244,21 @@ public struct SessionRecords: Equatable {
 }
 
 /// What the shell draws for an agent, as plain data.
+/// How an agent draws a picture from a picture: its program, and its
+/// arguments for one attached image. The prompt goes on stdin; the run is
+/// an Evlat errand (`TurnLaunch.taskVariable`) in a folder of its own, where
+/// the picture is expected back as `icon.png`.
+public struct ImageMaker {
+    /// Looked up like a chat backend's (`AgentLocator`).
+    public let executable: String
+    public let arguments: (_ picture: String) -> [String]
+
+    public init(executable: String, arguments: @escaping (_ picture: String) -> [String]) {
+        self.executable = executable
+        self.arguments = arguments
+    }
+}
+
 public struct AgentDisplay {
     /// The catalogue key of its name (`source.{id}`).
     public let nameKey: String

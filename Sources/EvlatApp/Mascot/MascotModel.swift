@@ -26,6 +26,28 @@ public final class MascotModel: ObservableObject {
     /// behind the edge (`BodyPresence.mascotShown`). Written by the controller
     /// only, and only when it changes.
     @Published public var isShown = true
+    /// Who is drawn (Settings → Mascot → Appearance). Read by `MascotView`
+    /// and handed down to `MascotBody`; the pose is the same whoever it is.
+    @Published var character: MascotCharacter = .cube
+    /// The last thing the mascot said out loud, for a character that answers
+    /// it on screen (`FairyBody`).
+    @Published var callout = MascotCallout()
+    /// The user's own character, once made (`Portrait`).
+    @Published var portrait: Portrait?
+
+    /// Clicks the mascot answers with a blink (`MascotBody`): bumped when the
+    /// user acts on the bar, such as `[Go to session]`.
+    @Published var pokes = 0
+    /// Settings' status colours for the cube, and the sessions per phase
+    /// they are made of.
+    @Published var cubeTint = false
+    @Published var tones: [Phase: Int] = [:]
+
+    func poke() { pokes &+= 1 }
+
+    func callOut(_ tone: MascotCallout.Tone) {
+        callout = MascotCallout(count: callout.count &+ 1, tone: tone)
+    }
 
     public init() {}
 

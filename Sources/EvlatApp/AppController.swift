@@ -788,6 +788,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let nudgeNotifyKey = "nudge.notify"
     nonisolated static let nudgeScopeKey = "nudge.scope"
     nonisolated static let hideStaleUsageKey = "usage.hideStale"
+    nonisolated static let characterKey = "mascot.character"
+    nonisolated static let cubeTintKey = "mascot.cubeTint"
     /// What the setting offers; 0 is off.
     nonisolated static let nudgeChoices = [0, 1, 2, 5, 10, 20]
 
@@ -1277,6 +1279,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
         useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
+        mascot.character = MascotCharacter.stored(defaults?.string(forKey: Self.characterKey))
+        mascot.portrait = home.flatMap(Portrait.load(home:))
+        mascot.cubeTint = defaults?.bool(forKey: Self.cubeTintKey) ?? false
+        characterMaker.onChange = { [weak self] in self?.settings?.objectWillChange.send() }
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
         branchDisplay = Self.storedBranchDisplay(defaults)
         detail.resolveBranch = { [weak self] folder in
@@ -2741,6 +2747,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             soundVolume: { Double(SoundPlayer.volume) },
             setSoundVolume: { [weak self] in self?.setSoundVolume($0) },
             packBrowser: { [weak self] in self?.packBrowser },
+            character: { [weak self] in self?.mascot.character ?? .cube },
+            setCharacter: { [weak self] in self?.setCharacter($0) },
+            cubeTint: { [weak self] in self?.mascot.cubeTint ?? false },
+            setCubeTint: { [weak self] in self?.setCubeTint($0) },
+            hasPortrait: { [weak self] in self?.mascot.portrait != nil },
+            characterMaking: { [weak self] in self?.characterMaker.state ?? .idle },
+            createCharacter: { [weak self] in self?.createCharacter() },
+            importCharacterIcon: { [weak self] in self?.importCharacterIcon() },
+            hasCharacterPrompt: { [weak self] in CharacterMaker.prompt(home: self?.home) != nil },
+            pasteCharacterPrompt: { [weak self] in self?.pasteCharacterPrompt() },
+            openCharacterPromptSource: { [weak self] in self?.openCharacterPromptSource() },
             hidesStaleUsage: { [weak self] in self?.hidesStaleUsage ?? false },
             setHidesStaleUsage: { [weak self] in self?.setHidesStaleUsage($0) },
             nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
@@ -3112,6 +3129,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             mascot.phase = snapshot.aggregate
         }
         if mascot.hasLive != snapshot.hasLive { mascot.hasLive = snapshot.hasLive }
+        let tones = CubeTint.counts(snapshot)
+        if mascot.tones != tones { mascot.tones = tones }
 
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.
@@ -3544,6 +3563,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             lastSnapshot?.ordered.first { $0.entity == entity }
         }.flatMap(Finish.init)
         guard detail.go() else { return }
+        // A blink for the click: the mascot saw it.
+        mascot.poke()
         hover.closeNow()
         // The intent may already have believed the bar closed.
         if barState.isOpen { closeBar() }
@@ -3803,6 +3824,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let sound = sound(for: moment) else { return }
         lastSound = now
         playSound(sound)
+        mascot.callOut(Self.calloutTone(for: moment))
+    }
+
+    /// How a line shows on a character that answers it (the fairy's call,
+    /// a pack's face): a finish, a failure, or a call for the user.
+    nonisolated static func calloutTone(for moment: SoundMoment) -> MascotCallout.Tone {
+        switch moment {
+        case .done: return .done
+        case .failed: return .oops
+        case .approval, .answer: return .attention
+        }
     }
 
     /// The characters sheet's model, made on first use. Only with a home,
@@ -3825,6 +3857,69 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let pack = installedPacks.first(where: { $0.name == name }) else { return }
         try? FileManager.default.trashItem(at: pack.directory, resultingItemURL: nil)
         if soundVoice == .pack(name) { setVoice(.evlat) }
+    }
+
+    // MARK: Characters
+
+    /// Makes the user's own character (Settings → Mascot → Character).
+    let characterMaker = CharacterMaker()
+
+    /// Picks a picture and has the catalogue's image maker turn it into the
+    /// character; on success the mascot becomes it.
+    func createCharacter() {
+        guard let home, let agent = Agents.imageMaker, let maker = agent.imageMaker,
+              let picture = Self.pickImage(title: "settings.mascot.custom.create") else { return }
+        let locator = chatLocators[agent.id] ?? AgentLocator(name: maker.executable)
+        let name = L10n.t(agent.display.nameKey)
+        locator.locate { [weak self] location in
+            self?.characterMaker.generate(from: picture, home: home, maker: maker, name: name,
+                                          executable: location.executable, path: location.path) { portrait in
+                self?.adopt(portrait)
+            }
+        }
+    }
+
+    /// An icon made elsewhere, by the same prompt.
+    func importCharacterIcon() {
+        guard let home, let icon = Self.pickImage(title: "settings.mascot.custom.import") else { return }
+        characterMaker.importIcon(icon, home: home) { [weak self] in self?.adopt($0) }
+    }
+
+    /// Keeps the prompt on the clipboard as the user's own.
+    func pasteCharacterPrompt() {
+        guard let home, let text = NSPasteboard.general.string(forType: .string) else { return }
+        CharacterMaker.savePrompt(text, home: home)
+        settings?.objectWillChange.send()
+    }
+
+    func openCharacterPromptSource() {
+        NSWorkspace.shared.open(CharacterMaker.promptSource)
+    }
+
+    private func adopt(_ portrait: Portrait?) {
+        guard let portrait else { return }
+        mascot.portrait = portrait
+        setCharacter(.portrait)
+        settings?.objectWillChange.send()
+    }
+
+    private static func pickImage(title key: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.message = L10n.t(key)
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    func setCubeTint(_ on: Bool) {
+        defaults?.set(on, forKey: Self.cubeTintKey)
+        mascot.cubeTint = on
+    }
+
+    /// Settings → Mascot → Character: stored, then drawn at once.
+    func setCharacter(_ character: MascotCharacter) {
+        defaults?.set(character.rawValue, forKey: Self.characterKey)
+        mascot.character = character
     }
 
     /// Stored, then drawn: the block reads it on the refresh it schedules.
