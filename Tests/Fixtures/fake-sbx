@@ -1,0 +1,81 @@
+#!/bin/sh
+# A fake `sbx` for the sandbox watcher's tests: it keeps its sandboxes, rules
+# and files in a temporary root and never reaches a VM. Tests hand its path
+# to the watcher the way `EVLAT_SBX` does; the real `sbx` is never run from a
+# test.
+#
+#   FAKE_SBX_ROOT   the root (required):
+#                   sandboxes      one `<name> <agent> <status>` line each
+#                   log            every run's arguments, one `--- run` block
+#                   rules          one `<sandbox> <resource>` line per rule
+#                   files/<name>   what `exec … sh -c` was fed on stdin
+#                   started        one line per sandbox an `exec` started
+#   FAKE_SBX_FAIL   a sandbox name whose `exec` fails: one stderr line, exit 1
+#
+# `exec` starts a stopped sandbox, as the real one does (measured on 0.46.0),
+# so a test can tell it was never asked to.
+
+# `--evlat-warm`: exit before anything else (FreshExecutable).
+[ "$1" = --evlat-warm ] && exit 0
+
+root="${FAKE_SBX_ROOT:?}"
+{ echo '--- run'; for a in "$@"; do printf '%s\n' "$a"; done; } >> "$root/log"
+touch "$root/sandboxes" "$root/rules"
+
+status_of() { awk -v n="$1" '$1 == n { print $3 }' "$root/sandboxes"; }
+
+set_status() {
+  awk -v n="$1" -v s="$2" '$1 == n { $3 = s } { print }' "$root/sandboxes" > "$root/sandboxes.new"
+  mv "$root/sandboxes.new" "$root/sandboxes"
+}
+
+case "$1 $2" in
+  "ls --json")
+    printf '{"sandboxes":['
+    sep=''
+    while read -r name agent status; do
+      [ -n "$name" ] || continue
+      printf '%s{"name":"%s","id":"id-%s","agent":"%s","status":"%s"}' "$sep" "$name" "$name" "$agent" "$status"
+      sep=','
+    done < "$root/sandboxes"
+    printf ']}\n'
+    ;;
+  "policy allow")
+    # policy allow network --sandbox <name> <resource>
+    [ "$3 $4" = "network --sandbox" ] || { echo "fake-sbx: no --sandbox" >&2; exit 2; }
+    grep -qx "$5 $6" "$root/rules" || printf '%s %s\n' "$5" "$6" >> "$root/rules"
+    ;;
+  "policy rm")
+    # policy rm network --sandbox <name> --resource <resource> --force
+    grep -vx "$5 $7" "$root/rules" > "$root/rules.new"
+    mv "$root/rules.new" "$root/rules"
+    ;;
+  exec*)
+    shift
+    [ "$1" = -i ] && shift
+    [ "$1" = -u ] && shift 2
+    name="$1"
+    shift
+    status=$(status_of "$name")
+    [ -n "$status" ] || { echo "sandbox \"$name\" not found" >&2; exit 1; }
+    if [ "$status" != running ]; then
+      set_status "$name" running
+      echo "$name" >> "$root/started"
+    fi
+    if [ "$name" = "${FAKE_SBX_FAIL-}" ]; then
+      echo "exec failed: the VM is not answering" >&2
+      echo "a second line nobody reads" >&2
+      exit 1
+    fi
+    mkdir -p "$root/files"
+    if [ "$1" = sh ]; then
+      cat > "$root/files/$name"
+    elif [ "$1" = rm ]; then
+      rm -f "$root/files/$name"
+    fi
+    ;;
+  *)
+    echo "fake-sbx: unknown command $*" >&2
+    exit 2
+    ;;
+esac

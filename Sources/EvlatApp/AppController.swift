@@ -52,12 +52,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Finds each chat backend's program, by its id; the login `PATH` they
     /// read is also the command link row's. Nothing runs until a chat or a
     /// row asks.
-    let chatLocators: [AgentID: AgentLocator] = {
-        let loginPath = AgentLocator.SharedLoginPath()
-        return Dictionary(uniqueKeysWithValues: Agents.chatBackends.map {
+    lazy var chatLocators: [AgentID: AgentLocator] = { [loginPath] in
+        Dictionary(uniqueKeysWithValues: Agents.chatBackends.map {
             ($0.id, AgentLocator(name: $0.executable, loginPath: loginPath.value, missed: loginPath.forget))
         })
     }()
+    /// The login shell's `PATH`, read once for the chat backends and `sbx`.
+    private let loginPath = AgentLocator.SharedLoginPath()
     public let mascot = MascotModel()
     /// The indicators under the mascot. Fed from the same snapshot as the
     /// mascot in `refresh()`, observed by its own column.
@@ -1257,7 +1258,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         registry.register(signals)
         startHookListener()
         startRemoteTunnels()
-        startSandboxListener()
+        sandboxesUnstored = Self.forcedSandboxes()
+        applySandboxes()
         installStatusItem()
         // Here and nowhere else: `installPanel` runs in every test, and a
         // test must never take the user's shortcut.
@@ -2419,17 +2421,132 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     // MARK: - Docker sandboxes
 
+    /// The sandboxes' switch (`sandboxes.enabled`): off when nothing is
+    /// stored. Kept in memory where the agents' switches are
+    /// (`agentsDefaults`), so an isolated process never turns the user's on.
+    nonisolated static let sandboxesKey = "sandboxes.enabled"
+    private var sandboxesUnstored: Bool?
+
+    /// `EVLAT_SANDBOXES=on|off` forces the switch at launch, for a look
+    /// or a trial; the stored value is never written while it is forced.
+    nonisolated static func forcedSandboxes(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool? {
+        switch environment["EVLAT_SANDBOXES"]?.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "on": return true
+        case "off": return false
+        default: return nil
+        }
+    }
+
+    var sandboxesEnabled: Bool {
+        if let sandboxesUnstored { return sandboxesUnstored }
+        return agentsDefaults?.bool(forKey: Self.sandboxesKey) ?? false
+    }
+
+    /// The user's switch. Turned off, Evlat's parts come out of the running
+    /// sandboxes (`SandboxWatcher.stop(removing:)`); quitting leaves them.
+    func setSandboxesEnabled(_ on: Bool) {
+        guard on != sandboxesEnabled else { return }
+        if sandboxesUnstored == nil, let agentsDefaults {
+            agentsDefaults.set(on, forKey: Self.sandboxesKey)
+        } else {
+            sandboxesUnstored = on
+        }
+        applySandboxes(removing: !on)
+    }
+
+    /// `sbx`, shared by every watcher of this process: one sandbox's jobs
+    /// never overlap across a quick off and on.
+    private var sandboxRunner: SandboxRunner?
+    /// Sets the sandboxes up while the listener is bound (`SandboxWatcher`).
+    private(set) var sandboxWatcher: SandboxWatcher?
+    /// Finds `sbx` on the login `PATH` when `EVLAT_SBX` does not name it.
+    /// No environment: `EVLAT_SBX` is read by `SandboxWatcher.source`.
+    private lazy var sbxLocator = AgentLocator(name: "sbx", environment: [:], loginPath: loginPath.value,
+                                               missed: loginPath.forget)
+    /// `sbx` was looked for and not found.
+    private(set) var sbxMissing = false
+    /// Where `sbx` and the daemon are (`SandboxWatcher.source`); the
+    /// launch's by default, a test's by hand.
+    lazy var sandboxSource: SandboxWatcher.Source? = SandboxWatcher.source(home: home)
+    /// The sandboxes' port (`SandboxListener.port`); a test's is `0`.
+    var sandboxPort: () -> UInt16? = { SandboxListener.port() }
+    /// The test's reconnect schedule.
+    var sandboxDelay: (Int) -> TimeInterval = SandboxDaemon.delay(afterFailures:)
+
+    /// Brings the sandboxes in line with the switch. On: the listener binds
+    /// (`sandboxPort`), and once it listens
+    /// the watcher starts — only the process that holds the port sets
+    /// sandboxes up. Off: the watcher stops, removing Evlat's parts when
+    /// `removing` (the user's change), and the listener and its rows go.
+    func applySandboxes(removing: Bool = false) {
+        if sandboxesEnabled {
+            startSandboxListener(port: sandboxPort())
+            return
+        }
+        sandboxWatcher?.stop(removing: removing)
+        sandboxWatcher = nil
+        sandboxWatcherAsked = false
+        if let sandbox {
+            sandbox.stop()
+            registry.unregister(sandbox.hooks)
+            self.sandbox = nil
+        }
+        scheduleRefresh()
+    }
+
     /// Binds the sandboxes' port when this process has one
-    /// (`SandboxListener.port`) and registers its rows. `port` is the
-    /// test's (`0`); the launch reads the environment.
-    func startSandboxListener(port: UInt16? = SandboxListener.port()) {
+    /// (`SandboxListener.port`) and registers its rows.
+    func startSandboxListener(port: UInt16?) {
         guard sandbox == nil, let port else { return }
         let listener = SandboxListener(port: port, platform: Self.darwinPlatform,
-                                       onChange: { [weak self] in self?.scheduleRefresh() })
+                                       onChange: { [weak self] in self?.sandboxListenerChanged() })
         registry.register(listener.hooks)
         listener.start()
         sandbox = listener
         wireMachineSources()
+    }
+
+    /// The watcher was asked for under the current listener: once, so a
+    /// hook arriving while `sbx` is missing never starts another login
+    /// shell to look for it. Turning the switch off and on asks again.
+    private var sandboxWatcherAsked = false
+
+    private func sandboxListenerChanged() {
+        if !sandboxWatcherAsked, let sandbox, case .listening(let port) = sandbox.status.listener {
+            sandboxWatcherAsked = true
+            startSandboxWatcher(port: port)
+        }
+        scheduleRefresh()
+    }
+
+    /// The watcher for the bound `port`: the hooks it writes name that
+    /// port. Not without a source (an isolated process not handed one,
+    /// every test that hands none) or without `sbx`.
+    private func startSandboxWatcher(port: UInt16) {
+        guard let source = sandboxSource, let sandbox else { return }
+        let hooks = sandbox.hooks
+        let begin = { [weak self] (sbx: String) in
+            guard let self, self.sandboxWatcher == nil, self.sandbox === sandbox else { return }
+            if self.sandboxRunner?.sbxPath != sbx { self.sandboxRunner = SandboxRunner(sbxPath: sbx) }
+            guard let runner = self.sandboxRunner else { return }
+            let watcher = SandboxWatcher(runner: runner, socketPath: source.socket,
+                                         plan: Agents.sandboxInstall(port: port), delay: self.sandboxDelay,
+                                         forget: { [weak hooks] in hooks?.forget(sandbox: $0) },
+                                         onChange: { [weak self] in self?.scheduleRefresh() })
+            self.sandboxWatcher = watcher
+            watcher.start()
+        }
+        if let sbx = source.sbx {
+            sbxMissing = !FileManager.default.isExecutableFile(atPath: sbx)
+            if !sbxMissing { begin(sbx) }
+            return
+        }
+        sbxLocator.locate { [weak self] location in
+            self?.sbxMissing = location.executable == nil
+            location.executable.map(begin)
+        }
     }
 
     /// Asks a remote session's server where its connection is, over the
