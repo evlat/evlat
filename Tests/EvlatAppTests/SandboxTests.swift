@@ -214,16 +214,125 @@ final class SandboxTests: XCTestCase {
                        .noTerminal, "another sandbox's client is no doubt")
     }
 
+    // MARK: - A sandbox's sessions together
+
+    /// Clients started `at` seconds after `t` (`Self.start`), each in its
+    /// own Bateri tab.
+    func clients(_ at: [Int32: TimeInterval]) -> [Int32: Proc] {
+        at.reduce(into: base) { t, entry in
+            t.merge(client(entry.key, offset: -entry.value, shell: entry.key - 1)) { a, _ in a }
+        }
+    }
+
+    /// Every session of the sandbox by its start (seconds after `t`), as
+    /// each one's card resolves it: the earlier ones' starts beside its own.
+    func resolveAll(_ table: [Int32: Proc], sessions: [TimeInterval]) -> [String?] {
+        sessions.map { own in
+            let earlier = sessions.filter { $0 < own }.map { Date(timeIntervalSince1970: Self.start + $0) }
+            return tab(Sandbox.resolve(name: "evlat-hook", start: Date(timeIntervalSince1970: Self.start + own),
+                                       earlier: earlier, probe(table)))
+        }
+    }
+
+    func tabOf(_ pid: Int32) -> String { "bateri://tab/\(Self.tabID(pid))" }
+
+    /// The user's case: two tabs 3 s apart on one sandbox. Alone, the
+    /// second session's candidates are 4.5 s and 1.5 s away, none told
+    /// apart; the first tab is the first session's.
+    func testTwoTabsThreeSecondsApartEachGetTheirOwn() {
+        let t = clients([1001: 0, 1101: 3])
+        XCTAssertEqual(resolveAll(t, sessions: [1.5, 4.5]), [tabOf(1001), tabOf(1101)])
+        XCTAssertNil(tab(resolve(t, start: Self.start + 4.5)), "without the first session: ambiguous, as before")
+    }
+
+    func testThreeTabsThreeSecondsApart() {
+        let t = clients([1001: 0, 1101: 3, 1201: 6])
+        XCTAssertEqual(resolveAll(t, sessions: [1.5, 4.5, 7.5]), [tabOf(1001), tabOf(1101), tabOf(1201)])
+    }
+
+    /// The first session's tab was closed: its card has no tab, and the
+    /// later tab stays the later session's.
+    func testAClosedTabsSessionTakesNoOtherTab() {
+        let t = clients([1101: 3])
+        XCTAssertEqual(resolveAll(t, sessions: [1.5, 4.5]), [nil, tabOf(1101)])
+        XCTAssertEqual(Sandbox.resolve(name: "evlat-hook", start: Date(timeIntervalSince1970: Self.start + 1.5),
+                                       probe(t)), .noTerminal)
+        // The other way: the earlier session's tab is the one left, so the
+        // later one, whose own tab closed, gets the app with no tab.
+        let left = clients([1001: 0])
+        XCTAssertEqual(resolveAll(left, sessions: [1.5, 4.5]), [tabOf(1001), nil])
+        XCTAssertEqual(Sandbox.resolve(name: "evlat-hook", start: Date(timeIntervalSince1970: Self.start + 4.5),
+                                       earlier: [Date(timeIntervalSince1970: Self.start + 1.5)], probe(left)),
+                       .host(.app(bateri)))
+    }
+
+    /// Two tabs in the same second: neither session tells them apart, and
+    /// neither claims one.
+    func testTwoTabsInOneSecondBringTheAppAlone() {
+        let t = clients([1001: 0, 1101: 0.5])
+        XCTAssertEqual(resolveAll(t, sessions: [2, 2.5]), [nil, nil])
+        XCTAssertEqual(Sandbox.resolve(name: "evlat-hook", start: Date(timeIntervalSince1970: Self.start + 2.5),
+                                       earlier: [Date(timeIntervalSince1970: Self.start + 2)], probe(t)),
+                       .host(.app(bateri)))
+    }
+
+    /// A session with no start heard claims nothing: it is no earlier start,
+    /// and its own card brings the app alone.
+    func testASessionWithNoStartClaimsNothing() {
+        let t = clients([1001: 0, 1101: 3])
+        XCTAssertEqual(resolve(t, start: nil), .host(.app(bateri)))
+        let unknown = sandboxSignal(start: nil, session: "a")
+        let second = sandboxSignal(start: Date(timeIntervalSince1970: Self.start + 4.5), session: "b")
+        XCTAssertEqual(Sandbox.earlierStarts(of: second, in: [unknown, second]), [])
+        XCTAssertEqual(Sandbox.earlierStarts(of: unknown, in: [unknown, second]), [])
+    }
+
+    /// Only the same sandbox's sessions, and only those before: by start,
+    /// then by entity, so every card orders them alike.
+    func testTheEarlierStarts() {
+        let at = { Date(timeIntervalSince1970: Self.start + $0) }
+        let first = sandboxSignal(start: at(1.5), session: "a")
+        let second = sandboxSignal(start: at(4.5), session: "b")
+        let tie = sandboxSignal(start: at(4.5), session: "c")
+        let other = sandboxSignal(start: at(0), session: "d", sandbox: "other")
+        let all = [tie, second, first, other]
+        XCTAssertEqual(Sandbox.earlierStarts(of: first, in: all), [])
+        XCTAssertEqual(Sandbox.earlierStarts(of: second, in: all), [at(1.5)])
+        XCTAssertEqual(Sandbox.earlierStarts(of: tie, in: all), [at(1.5), at(4.5)])
+    }
+
+    /// The card's lookup follows its sandbox's other sessions: looked up
+    /// again when one before it comes or goes, not when a later one does.
+    func testASandboxCardFollowsItsSandboxsSessions() {
+        let model = DetailModel()
+        var lookups: [[Date]] = []
+        model.resolveSandbox = { _, _, earlier in lookups.append(earlier); return .host(.app(self.bateri)) }
+        let at = { Date(timeIntervalSince1970: Self.start + $0) }
+        let first = sandboxSignal(start: at(1.5), session: "a")
+        let second = sandboxSignal(start: at(4.5), session: "b")
+        let later = sandboxSignal(start: at(9), session: "c")
+        model.update(row: SessionRow(second), signal: second, signals: [second])
+        model.update(row: SessionRow(second), signal: second, signals: [first, second])
+        model.update(row: SessionRow(second), signal: second, signals: [first, second])
+        model.update(row: SessionRow(second), signal: second, signals: [first, second, later])
+        model.update(row: SessionRow(second), signal: second, signals: [second, later])
+        XCTAssertEqual(lookups, [[], [at(1.5)], []])
+        model.activate = { _ in true }
+        XCTAssertTrue(model.go())
+        XCTAssertEqual(lookups.last, [], "the click uses the last snapshot's")
+    }
+
     // MARK: - The card
 
     private let sandboxSession = "6c1f0e4e-0000-4000-8000-000000000001"
 
-    private func sandboxSignal(start: Date? = Date(timeIntervalSince1970: SandboxTests.start)) -> Signal {
-        Signal(provider: "hooks", entity: "remote:\(SandboxListener.identity.id):\(sandboxSession)",
+    private func sandboxSignal(start: Date? = Date(timeIntervalSince1970: SandboxTests.start),
+                               session: String? = nil, sandbox: String = "evlat-hook") -> Signal {
+        Signal(provider: "hooks", entity: "remote:\(SandboxListener.identity.id):\(session ?? sandboxSession)",
                phase: .waiting, label: "evlat", detail: "/Users/u/evlat", source: AgentID("claude"),
                fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0),
-               activity: Signal.Activity(sandboxName: "evlat-hook", sessionStartedAt: start),
-               machine: Signal.Machine(name: "evlat-hook", id: SandboxListener.identity.id))
+               activity: Signal.Activity(sandboxName: sandbox, sessionStartedAt: start),
+               machine: Signal.Machine(name: sandbox, id: SandboxListener.identity.id))
     }
 
     /// Looked up on this Mac, once per card and again when its start
@@ -233,7 +342,7 @@ final class SandboxTests: XCTestCase {
         var asked = 0
         var lookups: [(String?, Date?)] = []
         model.findRemote = { _, _ in asked += 1; return true }
-        model.resolveSandbox = { name, start in
+        model.resolveSandbox = { name, start, _ in
             lookups.append((name, start))
             return .host(.app(self.bateri))
         }
@@ -260,7 +369,7 @@ final class SandboxTests: XCTestCase {
 
     func testASandboxCardWithNoClientSaysSoAndHasNoButton() throws {
         let model = DetailModel()
-        model.resolveSandbox = { _, _ in .noTerminal }
+        model.resolveSandbox = { _, _, _ in .noTerminal }
         let signal = sandboxSignal()
         model.update(row: SessionRow(signal), signal: signal)
         var detail = try XCTUnwrap(model.detail)
@@ -269,7 +378,7 @@ final class SandboxTests: XCTestCase {
         XCTAssertEqual(DetailCard.footerPlace(detail, in: "en"), "No terminal open")
         XCTAssertFalse(model.go())
 
-        model.resolveSandbox = { _, _ in .host(.notFound) }
+        model.resolveSandbox = { _, _, _ in .host(.notFound) }
         model.cardClosed()
         model.update(row: SessionRow(signal), signal: signal)
         detail = try XCTUnwrap(model.detail)

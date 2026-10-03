@@ -3186,7 +3186,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if barState.selectedSlot != slot { barState.selectedSlot = slot }
         detail.update(row: sessionRows.rows[slot],
                       signal: signals.first { $0.entity == selected },
-                      approval: approvalCard(for: selected))
+                      approval: approvalCard(for: selected),
+                      signals: signals)
     }
 
     /// The session's row index, if its row is wholly in sight.

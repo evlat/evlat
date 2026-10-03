@@ -495,9 +495,15 @@ is lost with the process.
   candidate is its tab if it started within 30 s of the session
   (`Sandbox.aloneWithin`; creating a sandbox measured 14 s), and several
   are told apart by start through the rule shared with the `ssh` lookup
-  (`StartMatch`: nearest ≤ 5 s, every other > 10 s); no start, a lone one
-  farther, or none told apart, brings the app alone if they are all in
-  one, never a tab, else no button. No candidate: no button,
+  (`StartMatch`: nearest ≤ 5 s, every other > 10 s). One client is one
+  session's, so a sandbox's sessions with a start heard are matched
+  together, in order of start: a client an earlier session took is not a
+  later one's candidate (two tabs 3 s apart left the second session two
+  clients 4.5 s and 1.5 s away, none told apart; `Sandbox.claimed`). A
+  session with no start heard claims nothing. No start, a lone one
+  farther, none told apart, or every client an earlier session's, brings
+  the app alone if they are all in one, never a tab, else no button. No
+  candidate: no button,
   and the card says "No terminal open" — unless an `sbx run` client names
   no sandbox that can be read (an option not read whole, a folder no hook
   name could match), which says nothing.

@@ -21,6 +21,14 @@ import EvlatCore
 ///  - no start heard, a lone one too far, or none told apart: the app alone
 ///    when every candidate is in one, with no tab; else nothing;
 ///  - no candidate: no terminal is open for it (`Found.noTerminal`).
+///
+/// One client is one session's (each `sbx run` starts exactly one agent), so
+/// a sandbox's sessions are matched together: those whose start was heard,
+/// in order of start, each by the rule above over the clients no earlier
+/// one took (`claimed`). Two tabs 3 s apart left the second session with
+/// two candidates 5 s and 2 s away, none told apart; the first one's client
+/// is the first session's. A session with no start heard claims nothing,
+/// and a later session never moves an earlier one's.
 /// Nothing is run: the clients are read like any other process
 /// (`SessionHost.Probe`).
 enum Sandbox {
@@ -38,7 +46,9 @@ enum Sandbox {
         case noTerminal
     }
 
-    static func resolve(name: String?, start: Date?, _ probe: SessionHost.Probe) -> Found {
+    /// `earlier`: the starts of the same sandbox's other sessions that come
+    /// before this one (`earlierStarts`), whose clients are theirs first.
+    static func resolve(name: String?, start: Date?, earlier: [Date] = [], _ probe: SessionHost.Probe) -> Found {
         guard let name else { return .host(.notFound) }
         let pids = candidates(named: name, startedBy: start, probe)
         // A client whose sandbox could not be read may be this one's: then
@@ -47,17 +57,57 @@ enum Sandbox {
         // Without the session's start one client could be another
         // session's: the app, never a tab.
         guard let start else { return .host(SessionHost.sameApp(pids, keepsTab: false, probe)) }
-        switch StartMatch.choose(pids, start: start, rule: rule, startedAt: probe.startedAt) {
+        let starts = Dictionary(uniqueKeysWithValues: pids.map { ($0, probe.startedAt($0)) })
+        let startedAt = { (pid: Int32) in starts[pid] ?? nil }
+        let taken = claimed(pids, by: earlier.filter { $0 <= start }, startedAt: startedAt)
+        let free = pids.filter { !taken.contains($0) }
+        // Every client is an earlier session's: this one's is gone. Not
+        // "no terminal", which would claim more than was told apart.
+        if free.isEmpty { return .host(SessionHost.sameApp(pids, keepsTab: false, probe)) }
+        switch StartMatch.choose(free, start: start, rule: rule, startedAt: startedAt) {
         case .one(let pid): return .host(SessionHost.resolve(pid: pid, probe))
         case .ambiguous(let pids): return .host(SessionHost.sameApp(pids, keepsTab: false, probe))
         // The candidates are not empty: a lone one too far from the start,
         // which may be the session's or not — the app, never a tab.
-        case .none: return .host(SessionHost.sameApp(pids, keepsTab: false, probe))
+        case .none: return .host(SessionHost.sameApp(free, keepsTab: false, probe))
         }
     }
 
-    static func resolve(name: String?, start: Date?) -> Found {
-        resolve(name: name, start: start, SessionHost.live)
+    static func resolve(name: String?, start: Date?, earlier: [Date] = []) -> Found {
+        resolve(name: name, start: start, earlier: earlier, SessionHost.live)
+    }
+
+    /// The clients the earlier sessions take, in order of start: each by the
+    /// rule over its own candidates (none started after it) that no session
+    /// before it took. Only a client told apart is taken.
+    static func claimed(_ pids: [Int32], by earlier: [Date], startedAt: (Int32) -> Date?) -> Set<Int32> {
+        var taken: Set<Int32> = []
+        for start in earlier.sorted() {
+            let own = pids.filter { pid in
+                !taken.contains(pid) && (startedAt(pid).map { $0 <= start } ?? true)
+            }
+            if case .one(let pid) = StartMatch.choose(own, start: start, rule: rule, startedAt: startedAt) {
+                taken.insert(pid)
+            }
+        }
+        return taken
+    }
+
+    /// The starts of the sessions of `signal`'s sandbox that come before it
+    /// in `signals`: heard, and earlier by start, then by entity, so every
+    /// card of the sandbox orders them alike. Empty for a row with no
+    /// sandbox or no start, which claims nothing either.
+    static func earlierStarts(of signal: Signal, in signals: [Signal]) -> [Date] {
+        guard let name = signal.activity?.sandboxName, let start = signal.activity?.sessionStartedAt
+        else { return [] }
+        return signals.compactMap { other -> Date? in
+            guard other.entity != signal.entity, other.kind == .session,
+                  other.machine?.id == SandboxListener.identity.id,
+                  other.activity?.sandboxName == name,
+                  let own = other.activity?.sessionStartedAt,
+                  own < start || (own == start && other.entity < signal.entity) else { return nil }
+            return own
+        }.sorted()
     }
 
     /// The live `sbx run` clients of the sandbox `name` that have a terminal

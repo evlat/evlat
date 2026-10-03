@@ -195,9 +195,12 @@ public final class DetailModel: ObservableObject {
     /// The server's answer walked on this Mac (`SessionHost.resolve(remote:)`)
     /// for a machine id.
     var resolveRemote: (RemoteHost.Reply, String) -> SessionHost = { _, _ in .notFound }
-    /// A sandbox session's terminal, from its sandbox's name and the
-    /// session's start (`Sandbox.resolve`). Injected like the host.
-    var resolveSandbox: (String?, Date?) -> Sandbox.Found = { Sandbox.resolve(name: $0, start: $1) }
+    /// A sandbox session's terminal, from its sandbox's name, the session's
+    /// start and the starts of that sandbox's sessions before it, whose
+    /// clients are theirs (`Sandbox.resolve`). Injected like the host.
+    var resolveSandbox: (String?, Date?, [Date]) -> Sandbox.Found = {
+        Sandbox.resolve(name: $0, start: $1, earlier: $2)
+    }
     /// The agents a remote row's records are looked up in: the catalog.
     var agents: [any Agent] = Agents.all
 
@@ -205,10 +208,11 @@ public final class DetailModel: ObservableObject {
     /// arrives every poll and on every event; the process walk runs only when
     /// the card comes up for a session (or its pid moves), not at that rate.
     private var hostKey: (entity: String, pid: Int32?)?
-    /// The same for a sandbox's session: its name and start. Its start
-    /// arrives on a later event than its name, and a row heard before it
-    /// is looked up again then.
-    private var sandboxKey: (entity: String, name: String?, start: Date?)?
+    /// The same for a sandbox's session: its name, its start and the
+    /// earlier sessions' starts. Its start arrives on a later event than its
+    /// name, and a row heard before it is looked up again then; so is one
+    /// whose sandbox gains or loses an earlier session.
+    private var sandboxKey: (entity: String, name: String?, start: Date?, earlier: [Date])?
 
     /// Which remote session `remoteHost` is for, and the server's answer —
     /// the remote fact, asked once and kept for the card's life: the click
@@ -227,7 +231,10 @@ public final class DetailModel: ObservableObject {
     /// Fed from the same snapshot as the rows, after them. `row` is the
     /// selected session's drawn row; the caller closes the card when there is
     /// none. Whole-value compare is the deadband: the stamp is not in here.
-    func update(row: SessionRow, signal: Signal?, approval: SessionDetail.ApprovalCard? = nil) {
+    /// `signals` is the snapshot's: a sandbox's session is matched with the
+    /// other sessions of its sandbox (`Sandbox.earlierStarts`).
+    func update(row: SessionRow, signal: Signal?, approval: SessionDetail.ApprovalCard? = nil,
+                signals: [Signal] = []) {
         let pid = signal?.activity?.pid
         let words: (folder: String?, note: String?)
         switch row.traits.detail {
@@ -253,13 +260,14 @@ public final class DetailModel: ObservableObject {
             next.hasSandboxHost = true
             let name = signal?.activity?.sandboxName
             let start = signal?.activity?.sessionStartedAt
+            let earlier = signal.map { Sandbox.earlierStarts(of: $0, in: signals) } ?? []
             if let key = sandboxKey, key.entity == row.entity, key.name == name, key.start == start,
-               let current = detail, current.entity == row.entity {
+               key.earlier == earlier, let current = detail, current.entity == row.entity {
                 next.host = current.host
                 next.noTerminalOpen = current.noTerminalOpen
             } else {
-                Self.apply(resolveSandbox(name, start), to: &next)
-                sandboxKey = (row.entity, name, start)
+                Self.apply(resolveSandbox(name, start, earlier), to: &next)
+                sandboxKey = (row.entity, name, start, earlier)
             }
         } else if let query {
             // Another computer's session: a remote pid never reaches this
@@ -368,7 +376,8 @@ public final class DetailModel: ObservableObject {
             host = resolveHost(current.activity?.pid)
         } else if current.hasSandboxHost {
             var found = current
-            Self.apply(resolveSandbox(current.activity?.sandboxName, current.activity?.sessionStartedAt), to: &found)
+            Self.apply(resolveSandbox(current.activity?.sandboxName, current.activity?.sessionStartedAt,
+                                      sandboxKey?.earlier ?? []), to: &found)
             host = found.host
             if current.noTerminalOpen != found.noTerminalOpen {
                 current.noTerminalOpen = found.noTerminalOpen
