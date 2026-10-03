@@ -245,6 +245,11 @@
 "card.question.written" = "Autre : {text}";
 "card.question.next" = "Suivant";
 "card.question.send" = "Envoyer";
+"card.open" = "Ouvrir dans {app}";
+"card.question.pickOne" = "Choisissez-en une";
+"card.question.pickAny" = "Choisissez-en autant que vous voulez";
+"card.question.otherHint" = "Écrire votre propre réponse";
+"card.question.writtenHint" = "Votre réponse · cliquez pour la modifier";
 "answer.placeholder" = "Votre réponse";
 "answer.hint" = "Retour pour répondre · Échap pour annuler";
 

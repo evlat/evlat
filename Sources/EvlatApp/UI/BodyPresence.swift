@@ -69,7 +69,7 @@ struct BodyPresence: Equatable {
     }
 
     /// A rectangle measured from the docked edge (`width`) and from the
-    /// window's top (`length`). One area serves hover and drop alike, so the
+    /// head (`length`), the window's top less its headroom. One area serves hover and drop alike, so the
     /// two can never disagree about where the body is.
     struct Area: Equatable {
         var width: CGFloat
@@ -93,9 +93,9 @@ struct BodyPresence: Equatable {
     static let sliverLength: CGFloat = 72
     static let sliverTop: CGFloat =
         AppController.mascotTopInset + AppController.mascotSize / 2 - sliverLength / 2
-    /// How far under the sliver the trigger reaches. Above it the window
-    /// ends: the window's top is the body's head, so the trigger is
-    /// asymmetric — from the top to 60 pt under the sliver.
+    /// How far under the sliver the trigger reaches. Above it the bar ends
+    /// at its head — the window's headroom over it takes no hover — so the
+    /// trigger is asymmetric: from the head to 60 pt under the sliver.
     static let triggerReach: CGFloat = 60
     static let triggerLength: CGFloat = sliverTop + sliverLength + triggerReach
     /// How far the peek comes out of the edge: about half the mascot.

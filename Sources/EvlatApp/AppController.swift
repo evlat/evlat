@@ -315,8 +315,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated public static let mascotSize: CGFloat = 34
 
     /// The shape's inner corner radius and the inverse curve at its ends.
-    /// The flare takes `barFlare` off each end of the body: the window's top
-    /// is not the body's top.
+    /// The flare takes `barFlare` off each end of the body: the head is not
+    /// the body's top.
     public static let barCorner: CGFloat = 18
     nonisolated public static let barFlare: CGFloat = 20
     /// Room between the body's end and what it holds, the same at both ends.
@@ -352,7 +352,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// edge, a shorter one hangs from the same head, so the mascot never moves.
     public static let anchorLength = barLength(slots: SessionRowsModel.slotCount)
 
-    /// The top of a slot's ring, from the window's top. The card opens level
+    /// The top of a slot's ring, from the head (the window's top less
+    /// `headroom`, as every measure here is). The card opens level
     /// with its row, held inside the window (`BarBody.cardTop`).
     public static func slotTop(_ index: Int) -> CGFloat {
         mascotTopInset + mascotSize + indicatorTopGap + CGFloat(index) * rowPitch
@@ -391,7 +392,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// block's length is its line count.
     public static let usageLineHeight: CGFloat = 14
 
-    /// The block's hairline, from the window's top. With no session there is
+    /// The block's hairline, from the head. With no session there is
     /// no list and no summary: the block starts where the first ring would.
     public static func usageTop(rows: Int) -> CGFloat {
         let above = rows > 0 ? summaryTop(rows: rows) + summaryHeight : mascotTopInset + mascotSize
@@ -486,8 +487,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The detail card beside the open list (`DetailCard` draws it). Fixed here
-    /// because the window is sized for it once and never again.
-    public static let detailCardWidth: CGFloat = 260
+    /// because the window is sized for it once and never again. The chat
+    /// balloon's width (`ChatPanel.balloonWidth`): at 260 a remote card's
+    /// header cut `ml-training-pipeline…` to "ml-tra…" beside its machine
+    /// and "Claude Code", and a 41-character command lost its middle.
+    public static let detailCardWidth: CGFloat = 320
     /// Between the open body's inner edge and the card: the card stands
     /// apart (the user's decision). The gap is still "on the bar" for
     /// hover (`cardHoverRect`), so crossing it closes nothing.
@@ -505,26 +509,37 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if edge.isLeft { rect.origin.x -= detailCardGap }
         return rect
     }
-    /// The tallest the card gets: header, status title, the tool and its
-    /// subject or a few lines of the last reply, the footer and the button —
-    /// about 180 pt at the card's type sizes. A held permission
-    /// (`ApprovalHook`) adds its command box and two buttons: about 285 pt.
-    /// A question (`AskQuestion`) with four options, their description and
-    /// `[Go to session]` is the tallest. The card caps its text lines and
-    /// the box scrolls to stay inside it. At 326 the card hung from the
-    /// fourth slot ends where the longest open body does: the window did
-    /// not grow for it (`PanelConfigTests`).
-    public static let detailCardMaxHeight: CGFloat = 326
+    /// The tallest the card gets. A held question is: who it is, its
+    /// status, the questions' tabs, the question, its options with their
+    /// descriptions and "Other…", the buttons and the way back. Measured
+    /// (`QuestionCardTests`): three options with two lines of description
+    /// each come to 602 pt and stay whole; four long ones to 618 pt, their
+    /// list scrolling past `DetailCard.optionsMaxHeight`. A held permission
+    /// with a long command is 368 pt. The cap keeps 8 pt spare over the
+    /// tallest; the window grew for it below the longest open body,
+    /// transparent and click-through (the user's choice over a scrolling
+    /// question or a tighter card).
+    public static let detailCardMaxHeight: CGFloat = 630
+
+    /// Transparent room above the head, inside the window: a card too tall
+    /// to hang from its row rises into it, so it stays whole on the screen
+    /// (`BarBody.cardTop`). On a 900 pt screen with the Dock under it the
+    /// head is 485 pt above the Dock; the tallest card with its shadow above
+    /// and below needs 666, so 181 more; this is that with a few points
+    /// spare. The head stays where it was: the window's top is this far
+    /// above it, still under the menu bar.
+    public static let headroom: CGFloat = 190
 
     /// The window, built once and never resized: as wide as the widest open
     /// list with the card beside it (and the gap between) and the card's
-    /// shadow, and as long as the
-    /// full bar or the tallest card hanging from the fourth slot (and its
-    /// shadow), whichever reaches further. The whole open list fits in it
-    /// (`openLength`); a card further down is held at this floor
-    /// (`BarBody.cardTop`) rather than growing the window toward the Dock. The head is still laid out from
-    /// `anchorLength`, so everything past the full bar hangs below it,
-    /// transparent: clicks fall through, hover is only the drawn part.
+    /// shadow; as long as the headroom and, under the head, the full bar or
+    /// the longest open body (and its shadow), whichever reaches further —
+    /// and never shorter than the tallest card with its shadow above and
+    /// below. A card goes level with its row and moves up only as far as it
+    /// must to stay inside the window and the screen (`BarBody.cardTop`).
+    /// The head is laid out from `anchorLength`, so everything past the full
+    /// bar hangs below it, transparent: clicks fall through, hover is only
+    /// the drawn part.
     ///
     /// Resizing at interaction time is what could not be made smooth — a
     /// window growing leftward showed its old content one frame at the old
@@ -532,14 +547,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     ///
     /// The usage block grew it once, downward: the longest open body
     /// is now seven and a half rows, the summary and a full block
-    /// (`UsageBlockModel.maxLines`), with the shadow's room under it. What is
-    /// added is transparent and hangs below the head, like the rest. It
-    /// grew by three lines more, for one remote machine's group.
+    /// (`UsageBlockModel.maxLines`), with the shadow's room under it. It
+    /// grew by three lines more, for one remote machine's group. The card
+    /// grew it upward (`headroom`): a held question is taller than the room
+    /// under the head on a small screen.
     public static let envelopeSize = CGSize(
         width: expandedBarWidth + detailCardGap + detailCardWidth + shadowGutter,
-        height: max(anchorLength,
-                    slotTop(SessionRowsModel.slotCount - 1) + detailCardMaxHeight + shadowGutter,
-                    longestOpenLength + shadowGutter))
+        height: headroom + max(anchorLength,
+                               longestOpenLength + shadowGutter,
+                               detailCardMaxHeight + 2 * shadowGutter - headroom))
 
     /// The longest the open body gets: the visible list full, and the block.
     static var longestOpenLength: CGFloat {
@@ -874,7 +890,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// the anchor does not drift when the layout moves.
     static func gazeAnchor(frame: NSRect, edge: BarPanel.Edge) -> CGPoint {
         CGPoint(x: edge.x(atInset: barWidth / 2, in: frame),
-                y: frame.maxY - mascotTopInset - mascotSize / 2)
+                y: frame.maxY - headroom - mascotTopInset - mascotSize / 2)
     }
 
     /// How long `--capture` listens when no number follows it.
@@ -1385,7 +1401,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         barState.edge = edge
         let panel = BarPanel(edge: edge,
                              size: Self.envelopeSize,
-                             anchorLength: Self.anchorLength,
+                             anchorLength: Self.anchorLength, headroom: Self.headroom,
                              trackingInset: Self.shadowGutter,
                              content: BarBody(mascot: mascot, rows: sessionRows,
                                               state: barState, scroll: listScroll, detail: detail,
@@ -1720,7 +1736,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func isOverDrawnBar(_ point: CGPoint) -> Bool {
         guard let panel, let bounds = panel.contentView?.bounds else { return false }
         let x = panel.edge.inset(of: point.x, in: bounds)
-        let y = point.y - bounds.minY
+        let y = point.y - bounds.minY - Self.headroom
         let area = presence.area
         return x >= 0 && x <= area.width && y >= 0 && y <= area.length
     }
@@ -3248,7 +3264,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// Which of the card's live buttons is under `point` (the content view's
-    /// coordinates, as a click's). A faint approval button is none.
+    /// coordinates, as a click's). An approval button not armed yet is none.
     private func cardButton(at point: CGPoint) -> DetailModel.Button? {
         guard barState.selected != nil else { return nil }
         if let approval = detail.detail?.approval, let button = approvalButton(at: point), approval.takes(button) {
@@ -3280,7 +3296,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func scroll(at point: CGPoint, deltaY: CGFloat, precise: Bool) -> Bool {
         guard barState.isOpen, let panel, let bounds = panel.contentView?.bounds,
               Self.isOverList(fromEdge: panel.edge.inset(of: point.x, in: bounds),
-                              fromTop: point.y - bounds.minY,
+                              fromTop: point.y - bounds.minY - Self.headroom,
                               width: barState.openWidth, rows: sessionRows.rows.count) else {
             return false
         }
@@ -3309,7 +3325,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func row(atScreen point: CGPoint) -> String? {
         guard let panel, barState.isOpen,
               let slot = Self.slot(fromEdge: panel.edge.inset(of: point.x, in: panel.frame),
-                                   fromTop: panel.frame.maxY - point.y,
+                                   fromTop: panel.frame.maxY - point.y - Self.headroom,
                                    width: barState.openWidth, rows: sessionRows.rows.count,
                                    offset: listScroll.offset),
               sessionRows.rows.indices.contains(slot) else { return nil }
@@ -3323,7 +3339,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func click(at point: CGPoint) -> Bool {
         if barState.selected != nil, let approval = detail.detail?.approval,
            let button = approvalButton(at: point) {
-            // Faint buttons take the click and do nothing with it; a press
+            // A button not armed yet takes the click and does nothing with it; a press
             // on a request no longer held sends nothing (`ApprovalStore`).
             if approval.takes(button), approval.key == shownApproval {
                 let id = approval.id
@@ -3341,7 +3357,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // trigger lie on its place, and a click there would open the balloon.
         guard presence.takesMascotClick, let panel, let bounds = panel.contentView?.bounds,
               Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
-                                fromTop: point.y - bounds.minY) else { return false }
+                                fromTop: point.y - bounds.minY - Self.headroom) else { return false }
         toggleChat()
         return true
     }
@@ -3465,8 +3481,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         answering = id
         exitHeld = false
         answerModel.open(question: question.text, text: draft.written ?? "")
-        let onScreen = bar.convertToScreen(view.convert(card, to: nil))
-        line.present(atTopLeft: NSPoint(x: onScreen.minX, y: onScreen.maxY))
+        // On the "Other…" row itself, its size: the answer is written where
+        // it was asked for. Without the row's rectangle, at the card's top.
+        if let row = approvalRects[.other] {
+            line.present(over: bar.convertToScreen(view.convert(row, to: nil)))
+        } else {
+            let onScreen = bar.convertToScreen(view.convert(card, to: nil))
+            line.setContentSize(NSSize(width: AnswerPanel.width, height: AnswerPanel.height))
+            line.present(atTopLeft: NSPoint(x: onScreen.minX, y: onScreen.maxY))
+        }
     }
 
     private func makeAnswerPanel() -> AnswerPanel {
@@ -3577,6 +3600,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         peekPhase = nil
         peekGeneration &+= 1
         sessionRows.setOpen(true)
+        if let panel, let visible = panel.screen?.visibleFrame {
+            let room = BarBody.cardRoom(frame: panel.frame, visible: visible)
+            if barState.cardRoom != room { barState.cardRoom = room }
+        }
         barState.isOpen = true
         applyPresence()
     }
@@ -4224,14 +4251,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func menu(at point: CGPoint) -> NSMenu? {
         guard let panel, let bounds = panel.contentView?.bounds,
               Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
-                                fromTop: point.y - bounds.minY) else { return nil }
+                                fromTop: point.y - bounds.minY - Self.headroom) else { return nil }
         return makeMenu(diagnostics: false)
     }
 
     /// Room around the mascot a right click still counts on.
     static let mascotHitSlack: CGFloat = 4
 
-    /// Whether a point, measured from the docked edge and the window's top,
+    /// Whether a point, measured from the docked edge and the head,
     /// is on the mascot: the closed bar's width, and the mascot's height
     /// with a little room.
     static func isOverMascot(fromEdge x: CGFloat, fromTop y: CGFloat) -> Bool {
@@ -4364,6 +4391,10 @@ final class BarState: ObservableObject {
     var drawnLength: CGFloat { isOpen ? openLength : length }
     /// The session whose card is up, by entity; `nil`: no card.
     @Published var selected: String?
+    /// Where in the window a card may be: the part on the screen, from the
+    /// window's top (`BarBody.cardRoom`). Written as the bar opens; `nil`
+    /// before it has a screen.
+    @Published var cardRoom: ClosedRange<CGFloat>?
     /// The row under the cursor on the open list, marked before its card
     /// comes up. Written only when it changes.
     @Published var hovered: String?
@@ -4468,13 +4499,34 @@ struct BarBody: View {
     /// row's name.
     static let cardLead: CGFloat = 16
 
-    /// Level with the row, but never so low that the tallest card would leave
-    /// the window: the top is held at a **constant** floor, not at the card's
-    /// measured height — that moves with every tool event and the top would
-    /// jump. The held card still spans the lower rows. A scrolled list takes
-    /// its row up by `offset`, and the card with it, point for point.
-    static func cardTop(slot: Int, offset: CGFloat = 0) -> CGFloat {
-        min(max(0, AppController.slotTop(slot) - offset - cardLead), cardTopLimit)
+    /// Level with the row, in the window's coordinates (the head is
+    /// `AppController.headroom` down). From the lower rows on the top is held
+    /// at a **constant** floor, not at the card's measured height — that moves
+    /// with every tool event and the top would jump; the held card still
+    /// spans the lower rows. A scrolled list takes its row up by `offset`,
+    /// and the card with it, point for point.
+    ///
+    /// Then, only if the card measured `height` would leave `room` — the
+    /// part of the window on the screen, between the menu bar and the Dock —
+    /// it rises as far as it must, into the headroom if it has to, its
+    /// shadow kept inside: a held question is taller than the room under
+    /// the head on a small screen. A card that fits never moves for it.
+    static func cardTop(slot: Int, offset: CGFloat = 0, height: CGFloat = 0,
+                        room: ClosedRange<CGFloat>? = nil) -> CGFloat {
+        let level = AppController.headroom
+            + min(max(0, AppController.slotTop(slot) - offset - cardLead), cardTopLimit)
+        guard let room else { return level }
+        let lowest = room.upperBound - height - AppController.shadowGutter
+        return max(room.lowerBound + AppController.shadowGutter, min(level, lowest))
+    }
+
+    /// The part of a window at `frame` that is on `visible` (the screen less
+    /// the menu bar and the Dock), measured from the window's top: where a
+    /// card may be.
+    static func cardRoom(frame: NSRect, visible: NSRect) -> ClosedRange<CGFloat> {
+        let top = max(0, frame.maxY - visible.maxY)
+        let bottom = max(top, min(frame.height, frame.maxY - visible.minY))
+        return top...bottom
     }
 
     /// The fourth slot's ring, the card's floor. The window grew
@@ -4483,6 +4535,10 @@ struct BarBody: View {
     static var cardTopLimit: CGFloat {
         AppController.slotTop(SessionRowsModel.slotCount - 1)
     }
+
+    /// The card's measured height, for the one case it decides: a card that
+    /// would leave the screen rises (`cardTop`).
+    @State private var cardHeight: CGFloat = 0
 
     private var isLeft: Bool { state.edge.isLeft }
     /// The docked side's top corner: where the body, the mascot and the
@@ -4493,6 +4549,16 @@ struct BarBody: View {
     private var isFull: Bool { level == .full }
 
     var body: some View {
+        ZStack(alignment: head) {
+            headLayer
+                // The window's top is the headroom's; the bar hangs below it.
+                .padding(.top, AppController.headroom)
+            card
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: head)
+    }
+
+    private var headLayer: some View {
         ZStack(alignment: head) {
             trigger
             // Top-aligned in the envelope: the far end moves, the head stays.
@@ -4510,7 +4576,6 @@ struct BarBody: View {
                 .padding(.top, shapeTop)
                 .animation(BarMotion.body, value: level)
             dot
-            card
             // The mascot is the head of the bar; the rings line up beneath,
             // their visible area starting half a gap above the first ring.
             // In the tree at every level — the `failed` shudder has to see
@@ -4553,10 +4618,11 @@ struct BarBody: View {
                 .animation(BarMotion.cardContent, value: state.selected)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     onCardFrame(rect)
+                    if abs(rect.height - cardHeight) > 0.5 { cardHeight = rect.height }
                 }
                 .onDisappear { onCardFrame(nil) }
                 .transition(BarMotion.cardTransition(edge: state.edge))
-                .modifier(CardPlacing(scroll: scroll, slot: slot))
+                .modifier(CardPlacing(scroll: scroll, slot: slot, height: cardHeight, room: state.cardRoom))
                 .padding(isLeft ? .leading : .trailing, state.openWidth + AppController.detailCardGap)
                 .animation(BarMotion.length, value: slot)
         }
@@ -4585,9 +4651,11 @@ struct BarBody: View {
     private struct CardPlacing: ViewModifier {
         @ObservedObject var scroll: ListScroll
         let slot: Int
+        let height: CGFloat
+        let room: ClosedRange<CGFloat>?
 
         func body(content: Content) -> some View {
-            content.padding(.top, BarBody.cardTop(slot: slot, offset: scroll.offset))
+            content.padding(.top, BarBody.cardTop(slot: slot, offset: scroll.offset, height: height, room: room))
         }
     }
 

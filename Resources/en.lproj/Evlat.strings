@@ -305,6 +305,11 @@
 "card.question.written" = "Other: {text}";
 "card.question.next" = "Next";
 "card.question.send" = "Send";
+"card.open" = "Open in {app}";
+"card.question.pickOne" = "Pick one";
+"card.question.pickAny" = "Pick any";
+"card.question.otherHint" = "Write your own answer";
+"card.question.writtenHint" = "Your own answer · press to change";
 "answer.placeholder" = "Your answer";
 "answer.hint" = "Return to answer · Esc to cancel";
 

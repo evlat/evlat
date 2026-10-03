@@ -412,6 +412,13 @@ is lost with the process.
 
 - The bar is an `NSPanel` with `.nonactivatingPanel`: **clicking the bar must
   never take focus from the front app.**
+- **The window reaches above the bar's head** by `AppController.headroom`
+  (190 pt), transparent: a card opens level with its row and, only when its
+  measured height would leave the screen's visible part, rises as far as it
+  must — a held question is up to 618 pt, more than the room under the head
+  on a 900 pt screen with the Dock below. Every measure that names the top
+  (`slotTop`, `listTop`, `isOverMascot`, `BodyPresence.Area`) is from the
+  head, and every point read from the window takes the headroom off first.
 - **The bar sits on the main screen** (the menu bar's, `NSScreen.screens`'
   first — never `NSScreen.main`, which follows focus) unless the user pins
   another (Settings → General → Screen, the menu's *Screen ▸*; both shown
@@ -529,7 +536,7 @@ is lost with the process.
   drop area; `AppController.applyPresence()` is the only writer of what
   follows from it (panel area, drawn level, `isShown`, gaze, tray icon). The
   level is not a `Phase`. At rest in the hiding modes (`none`, `sliver`) the
-  hover area is a 5 pt band from the window's top to 60 pt below where the
+  hover area is a 5 pt band from the head to 60 pt below where the
   sliver sits, painted almost clear (black, alpha
   0.01) because fully transparent pixels receive no drags; `HoverIntent`
   opens the bar from it unchanged. Hidden × waiting turns the menu-bar icon

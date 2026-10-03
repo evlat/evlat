@@ -56,7 +56,7 @@ final class ChatPanelTests: XCTestCase {
     private func click(_ panel: BarPanel, fromEdge x: CGFloat, fromTop y: CGFloat,
                        flags: NSEvent.ModifierFlags = []) throws {
         let view = try XCTUnwrap(panel.contentView)
-        let local = CGPoint(x: panel.edge.x(atInset: x, in: view.bounds), y: view.bounds.minY + y)
+        let local = CGPoint(x: panel.edge.x(atInset: x, in: view.bounds), y: view.bounds.minY + AppController.headroom + y)
         panel.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(
             with: .leftMouseDown, location: view.convert(local, to: nil), modifierFlags: flags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
@@ -521,7 +521,7 @@ final class ChatPanelTests: XCTestCase {
     private func onBar(_ controller: AppController, fromEdge x: CGFloat, fromTop y: CGFloat) throws -> CGPoint {
         let panel = try XCTUnwrap(controller.panel)
         let bounds = try XCTUnwrap(panel.contentView?.bounds)
-        return CGPoint(x: panel.edge.x(atInset: x, in: bounds), y: bounds.minY + y)
+        return CGPoint(x: panel.edge.x(atInset: x, in: bounds), y: bounds.minY + AppController.headroom + y)
     }
 
     /// Over the drawn bar the mascot catches the file; off it, or when the

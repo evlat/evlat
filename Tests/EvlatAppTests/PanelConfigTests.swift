@@ -167,7 +167,7 @@ final class PanelConfigTests: XCTestCase {
 
     /// The window is built once, big enough for the widest open list with the
     /// card beside it and the card's shadow, and long enough for the tallest
-    /// card hanging from the lowest slot — so no interaction has to resize it.
+    /// card with its shadow — so no interaction has to resize it.
     func testTheEnvelopeHoldsTheWidestListAndTheTallestCard() {
         let envelope = AppController.envelopeSize
         XCTAssertEqual(envelope.width,
@@ -177,9 +177,8 @@ final class PanelConfigTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(envelope.height, AppController.anchorLength,
                                     "a full bar still fits")
         XCTAssertGreaterThanOrEqual(envelope.height,
-                                    AppController.slotTop(SessionRowsModel.slotCount - 1)
-                                        + AppController.detailCardMaxHeight,
-                                    "the tallest card from the lowest slot fits")
+                                    AppController.detailCardMaxHeight + 2 * AppController.shadowGutter,
+                                    "the tallest card fits, its shadow too")
         XCTAssertEqual(AppController.slotTop(0),
                        AppController.mascotTopInset + AppController.mascotSize
                            + AppController.indicatorTopGap, accuracy: 0.5)
@@ -198,14 +197,14 @@ final class PanelConfigTests: XCTestCase {
                        3 * AppController.usageLineHeight, accuracy: 0.5)
     }
 
+    /// Under the head, the longest open body and its shadow and no more; over
+    /// it, the headroom a tall card rises into.
     func testTheEnvelopeGrewOnceForTheLongestOpenBody() {
         XCTAssertEqual(AppController.envelopeSize.height,
-                       AppController.openLength(rows: 1000, usageLines: UsageBlockModel.maxLines)
+                       AppController.headroom
+                           + AppController.openLength(rows: 1000, usageLines: UsageBlockModel.maxLines)
                            + AppController.shadowGutter,
                        accuracy: 0.5)
-        XCTAssertGreaterThanOrEqual(AppController.envelopeSize.height,
-                                    AppController.slotTop(SessionRowsModel.slotCount - 1)
-                                        + AppController.detailCardMaxHeight + AppController.shadowGutter)
         XCTAssertLessThanOrEqual(AppController.openLength(rows: 1000),
                                  AppController.envelopeSize.height)
     }
@@ -564,7 +563,8 @@ final class PanelConfigTests: XCTestCase {
 
     private func origin(_ edge: BarPanel.Edge, visible: NSRect) -> NSPoint {
         BarPanel.origin(edge: edge, visibleFrame: visible, frame: Self.screenFrame,
-                        size: Self.size, anchorLength: AppController.anchorLength)
+                        size: Self.size, anchorLength: AppController.anchorLength,
+                        headroom: AppController.headroom)
     }
 
     /// Either bar sits against the usable part of its edge, and its head is
@@ -575,7 +575,8 @@ final class PanelConfigTests: XCTestCase {
         let left = origin(.left, visible: Self.dockBottom)
         XCTAssertEqual(left.x, Self.dockBottom.minX, accuracy: 0.5)
         for point in [right, left] {
-            XCTAssertEqual(point.y + Self.size.height,
+            // The head, under the headroom.
+            XCTAssertEqual(point.y + Self.size.height - AppController.headroom,
                            Self.screenFrame.midY + AppController.anchorLength / 2, accuracy: 0.5)
         }
     }
@@ -609,7 +610,8 @@ final class PanelConfigTests: XCTestCase {
                        (frame: secondary, visibleFrame: secondary)]
         for edge in [BarPanel.Edge.right, .left] {
             let point = try XCTUnwrap(BarPanel.origin(edge: edge, screens: screens, size: Self.size,
-                                                      anchorLength: AppController.anchorLength))
+                                                      anchorLength: AppController.anchorLength,
+                                                      headroom: AppController.headroom))
             XCTAssertEqual(point, origin(edge, visible: Self.dockBottom), "\(edge)")
             XCTAssertTrue(Self.screenFrame.contains(NSRect(origin: point, size: Self.size)), "\(edge)")
         }
@@ -655,7 +657,7 @@ final class PanelConfigTests: XCTestCase {
         let right = AppController.gazeAnchor(frame: frame, edge: .right)
         XCTAssertEqual(right.x, frame.maxX - AppController.barWidth / 2, accuracy: 0.5)
         for anchor in [left, right] {
-            XCTAssertEqual(anchor.y, frame.maxY - AppController.mascotTopInset - AppController.mascotSize / 2,
+            XCTAssertEqual(anchor.y, frame.maxY - AppController.headroom - AppController.mascotTopInset - AppController.mascotSize / 2,
                            accuracy: 0.5)
         }
     }
@@ -716,14 +718,14 @@ final class PanelConfigTests: XCTestCase {
         XCTAssertEqual(controller.barState.edge, .left)
         controller.openBar()
         let frame = panel.frame
-        let y = frame.maxY - AppController.slotTop(1) - AppController.indicatorSize / 2
+        let y = frame.maxY - AppController.headroom - AppController.slotTop(1) - AppController.indicatorSize / 2
         controller.pointerMoved(CGPoint(x: frame.minX + AppController.barWidth / 2, y: y))
         XCTAssertEqual(controller.barState.hovered, "e1", "the ring near the left edge")
         controller.pointerMoved(CGPoint(x: frame.maxX - AppController.barWidth / 2, y: y))
         XCTAssertNil(controller.barState.hovered, "the far side of the window is no row")
 
         let bounds = try XCTUnwrap(panel.contentView).bounds
-        let listY = AppController.slotTop(1) + 5
+        let listY = AppController.headroom + AppController.slotTop(1) + 5
         XCTAssertTrue(controller.scroll(at: CGPoint(x: bounds.minX + 10, y: listY), deltaY: 0, precise: true))
         XCTAssertFalse(controller.scroll(at: CGPoint(x: bounds.minX + controller.barState.openWidth + 4,
                                                      y: listY), deltaY: 0, precise: true),

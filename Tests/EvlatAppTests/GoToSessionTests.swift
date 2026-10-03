@@ -353,7 +353,9 @@ final class GoToSessionTests: XCTestCase {
 
     func testTheButtonsThreeStates() {
         XCTAssertEqual(DetailCard.button(for: .app(term), in: "tr"),
-                       .init(title: "Oturuma git", enabled: true))
+                       .init(title: "Metalterm ile aç", enabled: true), "named by where it goes")
+        XCTAssertEqual(DetailCard.button(for: .app(term), in: "en"),
+                       .init(title: "Open in Metalterm", enabled: true))
         XCTAssertEqual(DetailCard.button(for: .closed(name: "Orca"), in: "tr"),
                        .init(title: "Orca kapalı", enabled: false))
         XCTAssertEqual(DetailCard.button(for: .notFound, in: "tr"),

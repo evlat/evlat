@@ -245,6 +245,11 @@
 "card.question.written" = "Другое: {text}";
 "card.question.next" = "Далее";
 "card.question.send" = "Отправить";
+"card.open" = "Открыть в {app}";
+"card.question.pickOne" = "Выберите один вариант";
+"card.question.pickAny" = "Выберите любые";
+"card.question.otherHint" = "Напишите свой ответ";
+"card.question.writtenHint" = "Ваш ответ · нажмите, чтобы изменить";
 "answer.placeholder" = "Ваш ответ";
 "answer.hint" = "Return — ответить · Esc — отмена";
 

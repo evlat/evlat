@@ -7,7 +7,9 @@ import EvlatCore
 /// `ssh`'s question (`PromptView`): a password, a host key's yes or no.
 ///
 /// The bar never takes the keyboard (`BarPanel.canBecomeKey` is `false`),
-/// so the line is a window of its own, laid over the card: the balloon's
+/// so the line is a window of its own, laid exactly on the card's "Other…"
+/// row and drawn as that row, so the answer is written where it was asked
+/// for (`present(over:)`): the balloon's
 /// pattern (`ChatPanel`) — `.nonactivatingPanel` with `canBecomeKey`, so it
 /// gets the keys and Evlat stays in the background. Return answers, Esc or
 /// a click elsewhere lets it go, the answer unwritten. Built once and
@@ -93,6 +95,15 @@ final class AnswerPanel: NSPanel {
 
     /// Its top-left on the card's, in screen coordinates; shown with the
     /// keyboard and no activation.
+    /// Laid on `rect` (screen coordinates), its size: the "Other…" row
+    /// the line stands in for.
+    func present(over rect: NSRect) {
+        setFrame(rect, display: false)
+        contentView?.frame = NSRect(origin: .zero, size: rect.size)
+        orderFrontRegardless()
+        makeKey()
+    }
+
     func present(atTopLeft point: NSPoint) {
         setFrameOrigin(NSPoint(x: point.x, y: point.y - frame.height))
         orderFrontRegardless()
@@ -131,36 +142,40 @@ struct AnswerView: View {
     static let hintKey = "answer.hint"
     static var keys: [String] { [placeholderKey, hintKey] }
 
+    /// The card's "Other…" row being written in: its pencil in amber, the
+    /// field where its words were, the keys under it — on the row's own
+    /// ground, opaque, so nothing of the row beneath shows through.
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Claude's question: data.
-            Text(verbatim: model.question)
-                .font(DetailCard.replyFont.weight(.medium))
-                .foregroundStyle(BarPalette.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            TextField("", text: $model.text, prompt: Text(verbatim: L10n.t(Self.placeholderKey)))
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(BarPalette.textPrimary)
-                .focused($focused)
-                .onSubmit { model.onSubmit(model.text) }
-                .padding(.horizontal, 8)
-                .frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(SessionIndicator.amber.opacity(focused ? 0.7 : 0.3), lineWidth: 1))
-            Text(verbatim: L10n.t(Self.hintKey))
-                .font(DetailCard.labelFont)
-                .foregroundStyle(BarPalette.textSecondary)
-                .lineLimit(1)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "pencil")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(SessionIndicator.amber)
+                .frame(width: 14, height: 14)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("", text: $model.text, prompt: Text(verbatim: L10n.t(Self.placeholderKey)))
+                    .textFieldStyle(.plain)
+                    .font(DetailCard.replyFont.weight(.medium))
+                    .foregroundStyle(BarPalette.textPrimary)
+                    .focused($focused)
+                    .onSubmit { model.onSubmit(model.text) }
+                Text(verbatim: L10n.t(Self.hintKey))
+                    .font(DetailCard.labelFont)
+                    .foregroundStyle(DetailCard.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(12)
-        .frame(width: AnswerPanel.width, height: AnswerPanel.height, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: DetailCard.corner, style: .continuous)
-            .fill(BarPalette.body)
-            .overlay(RoundedRectangle(cornerRadius: DetailCard.corner, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(ZStack {
+            shape.fill(DetailCard.ground)
+            shape.fill(SessionIndicator.amber.opacity(DetailCard.askOpacity))
+            shape.fill(Color.white.opacity(0.10))
+        })
+        .overlay(shape.strokeBorder(SessionIndicator.amber.opacity(focused ? 0.7 : 0.4), lineWidth: 1))
         .onAppear {
             focused = true
             DispatchQueue.main.async { focused = true }

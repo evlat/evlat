@@ -244,6 +244,11 @@
 "card.question.written" = "其他：{text}";
 "card.question.next" = "下一个";
 "card.question.send" = "发送";
+"card.open" = "在 {app} 中打开";
+"card.question.pickOne" = "选择一项";
+"card.question.pickAny" = "可多选";
+"card.question.otherHint" = "自己写答案";
+"card.question.writtenHint" = "你的答案 · 点按以更改";
 "answer.placeholder" = "你的回答";
 "answer.hint" = "按 Return 回答 · 按 Esc 取消";
 

@@ -46,29 +46,43 @@ struct SessionColumn: View {
     /// How far a name travels as it comes in: from under its ring's side.
     static let nameTravel: CGFloat = 10
     /// The widest a name is drawn; a longer one is cut with "…". It also caps
-    /// how far the body opens.
-    static let nameMaxWidth: CGFloat = 140
+    /// how far the body opens. 140 cut most real session names in their
+    /// first words ("Refactor the sandbox w…"); each point here is the
+    /// screen's edge, so it grew only by what a working or idle row's status
+    /// line and an address need: with `192.168.1.217` (67 pt) at their widest
+    /// forms en 152 / 133, tr 151 / 140, de 170 / 165, ru 171 / 167 pt —
+    /// Russian 1 pt over, and only at a hundred days. A waiting one does not
+    /// fit (en 204, de 222, ru 226 pt): its status is cut before its tag —
+    /// the amber ring says the rest.
+    static let nameMaxWidth: CGFloat = 170
     /// The narrowest the open body gets, so a column of short names still
     /// reads as a panel rather than a ragged tab.
     static let minOpenWidth: CGFloat = 110
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// The small raised number after a repeated name.
     static let numberFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
-    /// A remote row's machine, after its name: the usage block's group
-    /// heading type — small capitals by hand, spaced — so a machine reads the
-    /// same wherever it is named (`UsageBlock.heading`). Text, not an icon.
+    /// A row's tag — a remote row's machine, an outside job's sender — after
+    /// its status line: the usage block's group heading type — small
+    /// capitals by hand, spaced — so a machine reads the same wherever it is
+    /// named (`UsageBlock.heading`). Text, not an icon. Beside the name it
+    /// took the name's room in the same box: `ml-training…  192.1….1.217`.
     static var machineFont: NSFont { UsageBlock.headerFont }
     static var machineKerning: CGFloat { UsageBlock.headerKerning }
-    /// Between a name (or its number) and its machine.
+    /// Between the status line and its tag, and a name and its branch.
     static let machineGap: CGFloat = 5
+    /// The widest a tag is drawn on the status line; a longer one is cut at
+    /// its end. An address's widest, `255.255.255.255`, is under it whole;
+    /// `gpu-01.eu-central.internal.example.com` uncapped left the status
+    /// "w…" and ran past the box on the right edge. The card names it whole.
+    static let tagMaxWidth: CGFloat = 90
     /// The branch after a repeated name (`SessionRow.branch`): a size under
     /// the name, in the status line's grey. Measured in this face: at 10 pt
     /// a waiting row of `shop-api ⑂ feat/checkout-v2` came to 146 pt and
-    /// was cut by the 140 pt box; at 9 pt it is 139 and fits.
+    /// was cut by the then 140 pt box; at 9 pt it is 139.
     static let branchFont = NSFont.systemFont(ofSize: 9, weight: .regular)
     /// The widest a branch is drawn; a longer one is cut in the middle,
     /// where `feature/PROJ-1234-…` names differ least. The whole name is on
-    /// the card. It leaves the name at least 34 pt of the 140 pt box.
+    /// the card. It leaves the name at least 64 pt of the 170 pt box.
     static let branchMaxWidth: CGFloat = 90
     /// The branch mark's box and its gap to the name.
     static let branchIconWidth: CGFloat = 8
@@ -118,18 +132,19 @@ struct SessionColumn: View {
         namesWidth(labels.map { SessionRow(entity: $0, label: $0, phase: .idle) })
     }
 
-    /// The same, for rows: a repeated name is measured with its number, and
-    /// the status line under it at its widest (`statusWidth`).
+    /// The same, for rows: a repeated name is measured with its number and
+    /// its branch, and the status line under it at its widest
+    /// (`statusWidth`) with the row's tag after it.
     static func namesWidth(_ rows: [SessionRow], in lang: String = L10n.language) -> CGFloat {
         let widest = rows.map { row -> CGFloat in
-            let status = statusWidth(phase: row.phase, waitKind: row.waitKind,
+            var status = statusWidth(phase: row.phase, waitKind: row.waitKind,
                                      dim: row.dim?.reason, progress: row.progress != nil, in: lang)
+            if let tag = row.tag { status += machineGap + min(machineWidth(tag), tagMaxWidth) }
             var name = (row.label as NSString).size(withAttributes: [.font: nameFont]).width
             if row.duplicate > 0 {
                 name += numberGap
                     + ("\(row.duplicate)" as NSString).size(withAttributes: [.font: numberFont]).width
             }
-            if let tag = row.tag { name += machineGap + machineWidth(tag) }
             if let branch = row.branch { name += machineGap + branchWidth(branch) }
             return max(name, status)
         }.max() ?? 0
@@ -327,8 +342,9 @@ struct SessionColumn: View {
     /// grey too, and its status line says why instead of its phase — never
     /// amber: an old block asks nothing of the user yet.
     ///
-    /// A remote row names its machine after its own name, in the usage
-    /// block's heading type.
+    /// A row's tag — its machine, or an outside job's sender — follows its
+    /// status line, in the usage block's heading type: the name keeps the
+    /// first line to itself.
     ///
     /// A repeated name in the same tool carries a small raised number after
     /// it — only then, so a unique name stays bare.
@@ -337,23 +353,42 @@ struct SessionColumn: View {
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow) -> some View {
         VStack(alignment: docked, spacing: 1) {
-            name(row.label, duplicate: row.duplicate, machine: row.tag, branch: row.branch,
+            name(row.label, duplicate: row.duplicate, branch: row.branch,
                  color: row.phase == .idle || row.passive || !row.isLive
                  ? BarPalette.textSecondary : BarPalette.textPrimary)
             if showsNames {
                 // Once a minute, and only while open. The date comes from the
                 // timeline, not `Date()`, so the text is a function of it.
                 TimelineView(.everyMinute) { context in
-                    Text(verbatim: StatusLine.text(phase: row.phase, waitKind: row.waitKind,
-                                                   enteredAt: row.enteredAt, dim: row.dim,
-                                                   progress: row.progress, now: context.date))
-                        .font(Font(Self.statusFont))
-                        // Waiting is the one that asks for the user: amber,
-                        // the ring's colour. The rest is grey.
-                        .foregroundStyle(row.phase == .waiting && row.isLive
-                                         ? SessionIndicator.amber : BarPalette.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(alignment: .firstTextBaseline, spacing: Self.machineGap) {
+                        Text(verbatim: StatusLine.text(phase: row.phase, waitKind: row.waitKind,
+                                                       enteredAt: row.enteredAt, dim: row.dim,
+                                                       progress: row.progress, now: context.date))
+                            .font(Font(Self.statusFont))
+                            // Waiting is the one that asks for the user: amber,
+                            // the ring's colour. The rest is grey.
+                            .foregroundStyle(row.phase == .waiting && row.isLive
+                                             ? SessionIndicator.amber : BarPalette.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if let tag = row.tag {
+                            // Laid out first: the status gives way before it,
+                            // since the machine is what tells two `api`s
+                            // apart and the status is on the ring too. A tag
+                            // past `tagMaxWidth` is cut, at its end: a host's
+                            // own name is its first label, and an address cut
+                            // in the middle names nothing.
+                            Text(verbatim: UsageBlock.heading(tag))
+                                .font(Font(Self.machineFont))
+                                .kerning(Self.machineKerning)
+                                .foregroundStyle(UsageBlock.headerColor)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: min(Self.machineWidth(tag), Self.tagMaxWidth))
+                                .layoutPriority(1)
+                        }
+                    }
+                    .frame(width: Self.nameMaxWidth, alignment: isLeft ? .leading : .trailing)
                 }
                 .transition(.opacity)
             }
@@ -370,7 +405,7 @@ struct SessionColumn: View {
             .allowsHitTesting(false)
     }
 
-    private func name(_ label: String, duplicate: Int, machine: String?, branch: String?,
+    private func name(_ label: String, duplicate: Int, branch: String?,
                       color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
             // The name is data, not text of ours: it is what the user called
@@ -388,24 +423,9 @@ struct SessionColumn: View {
                     .baselineOffset(4)
                     .fixedSize()
             }
-            if let machine {
-                // Laid out first: a long name gives way before it, since the
-                // machine is what tells two `api`s apart. Only a host name
-                // wider than the whole box is cut, in the middle, where a
-                // long host's distinct parts are least likely to be.
-                Text(verbatim: UsageBlock.heading(machine))
-                    .font(Font(Self.machineFont))
-                    .kerning(Self.machineKerning)
-                    .foregroundStyle(UsageBlock.headerColor)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .layoutPriority(1)
-                    .padding(.leading, Self.machineGap - Self.numberGap)
-            }
             if let branch {
-                // The same priority as the machine, for the same reason: the
-                // branch is what tells two `shop-api`s apart, so the name
-                // gives way first. Its frame is its own width up to the cap,
+                // Laid out first: the branch is what tells two `shop-api`s
+                // apart, so the name gives way first. Its frame is its own width up to the cap,
                 // so a short branch takes no more room than it needs.
                 HStack(alignment: .firstTextBaseline, spacing: Self.branchIconGap) {
                     Image(systemName: "arrow.triangle.branch")

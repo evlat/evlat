@@ -128,6 +128,14 @@ public struct SessionDetail: Equatable {
         let written: String?
         let canCommit: Bool
         let canGoBack: Bool
+        /// Every question's tab, and whether it has an answer: the card's
+        /// row of them, the one up lit.
+        let steps: [Step]
+
+        struct Step: Equatable {
+            let header: String?
+            let answered: Bool
+        }
 
         init?(_ draft: AgentQuestion.Draft) {
             guard let question = draft.current else { return nil }
@@ -138,6 +146,9 @@ public struct SessionDetail: Equatable {
             written = draft.written
             canCommit = draft.canCommit
             canGoBack = draft.canGoBack
+            steps = zip(draft.questions, draft.choices).map { question, choice in
+                Step(header: question.header, answered: !choice.picked.isEmpty || choice.written != nil)
+            }
         }
 
         var isLast: Bool { index == count - 1 }

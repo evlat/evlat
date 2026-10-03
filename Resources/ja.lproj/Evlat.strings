@@ -244,6 +244,11 @@
 "card.question.written" = "その他：{text}";
 "card.question.next" = "次へ";
 "card.question.send" = "送信";
+"card.open" = "{app}で開く";
+"card.question.pickOne" = "1つ選択";
+"card.question.pickAny" = "複数選択可";
+"card.question.otherHint" = "自分で回答を入力";
+"card.question.writtenHint" = "自分の回答 · クリックで変更";
 "answer.placeholder" = "回答";
 "answer.hint" = "Returnで回答 · Escでキャンセル";
 

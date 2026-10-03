@@ -244,6 +244,11 @@
 "card.question.written" = "Інше: {text}";
 "card.question.next" = "Далі";
 "card.question.send" = "Надіслати";
+"card.open" = "Відкрити в {app}";
+"card.question.pickOne" = "Виберіть один варіант";
+"card.question.pickAny" = "Виберіть будь-які";
+"card.question.otherHint" = "Напишіть свою відповідь";
+"card.question.writtenHint" = "Ваша відповідь · натисніть, щоб змінити";
 "answer.placeholder" = "Ваша відповідь";
 "answer.hint" = "Return — відповісти · Esc — скасувати";
 

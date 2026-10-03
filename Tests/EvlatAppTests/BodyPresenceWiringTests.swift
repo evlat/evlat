@@ -143,7 +143,8 @@ final class BodyPresenceWiringTests: XCTestCase {
         let rig = rig(.smart, edge: .left)
         defer { rig.panel.close() }
         XCTAssertEqual(try rig.bodyRect(),
-                       NSRect(x: 0, y: 0, width: BodyPresence.sliverWidth, height: BodyPresence.triggerLength))
+                       NSRect(x: 0, y: AppController.headroom, width: BodyPresence.sliverWidth,
+                              height: BodyPresence.triggerLength))
     }
 
     func testTheSliverTakesNoMascotClick() throws {
@@ -151,7 +152,7 @@ final class BodyPresenceWiringTests: XCTestCase {
         defer { rig.panel.close() }
         let bounds = try XCTUnwrap(rig.panel.contentView).bounds
         let point = CGPoint(x: bounds.maxX - 2,
-                            y: bounds.minY + AppController.mascotTopInset + AppController.mascotSize / 2)
+                            y: bounds.minY + AppController.headroom + AppController.mascotTopInset + AppController.mascotSize / 2)
         XCTAssertEqual(rig.panel.onClick?(point), false)
         XCTAssertFalse(rig.controller.isChatOpen, "an unseen mascot opens no balloon")
     }

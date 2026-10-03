@@ -83,7 +83,7 @@ final class ApprovalStore {
     @discardableResult
     func write(_ id: String, _ text: String) -> Bool { edit(id) { $0.write(text) } }
 
-    /// A multi-select question's Next or Send.
+    /// Next or Send: a multi-select question as picked, or one come back to as answered.
     @discardableResult
     func commit(_ id: String) -> Bool { edit(id) { $0.commit() } }
 

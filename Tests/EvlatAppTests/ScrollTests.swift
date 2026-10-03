@@ -133,9 +133,10 @@ final class ScrollTests: XCTestCase {
     func testTheCardTopFollowsTheOffset() {
         let lead = BarBody.cardLead
         XCTAssertEqual(BarBody.cardTop(slot: 8, offset: 180),
-                       AppController.slotTop(8) - 180 - lead, accuracy: 0.01)
+                       AppController.headroom + AppController.slotTop(8) - 180 - lead, accuracy: 0.01)
         XCTAssertEqual(BarBody.cardTop(slot: 19, offset: AppController.maxScrollOffset(rows: 20)),
-                       BarBody.cardTopLimit, accuracy: 0.01, "the lowest row's card is held")
+                       AppController.headroom + BarBody.cardTopLimit, accuracy: 0.01,
+                       "the lowest row's card is held")
         XCTAssertEqual(BarBody.cardTop(slot: 3, offset: 0), BarBody.cardTop(slot: 3), accuracy: 0.01)
     }
 
@@ -162,7 +163,7 @@ final class ScrollTests: XCTestCase {
         defer { controller.panel?.close() }
         let frame = try XCTUnwrap(controller.panel?.frame)
         let cursor = CGPoint(x: frame.maxX - AppController.barWidth / 2,
-                             y: frame.maxY - AppController.slotTop(3) - AppController.indicatorSize / 2)
+                             y: frame.maxY - AppController.headroom - AppController.slotTop(3) - AppController.indicatorSize / 2)
         controller.mouseLocation = { cursor }
         controller.pointerMoved(cursor)
         XCTAssertEqual(controller.barState.hovered, "e03")
@@ -225,13 +226,13 @@ final class ScrollTests: XCTestCase {
         defer { controller.panel?.close() }
         let bounds = try XCTUnwrap(controller.panel?.contentView?.bounds)
         let x = bounds.maxX - AppController.barWidth / 2
-        let list = CGPoint(x: x, y: AppController.slotTop(2) + 5)
+        let list = CGPoint(x: x, y: AppController.headroom + AppController.slotTop(2) + 5)
         XCTAssertTrue(controller.scroll(at: list, deltaY: -12, precise: true))
         XCTAssertEqual(controller.listScroll.offset, 12, accuracy: 0.01)
 
-        XCTAssertFalse(controller.scroll(at: CGPoint(x: x, y: AppController.mascotTopInset + 5),
+        XCTAssertFalse(controller.scroll(at: CGPoint(x: x, y: AppController.headroom + AppController.mascotTopInset + 5),
                                          deltaY: -12, precise: true), "the mascot")
-        XCTAssertFalse(controller.scroll(at: CGPoint(x: x, y: AppController.summaryTop(rows: 20) + 4),
+        XCTAssertFalse(controller.scroll(at: CGPoint(x: x, y: AppController.headroom + AppController.summaryTop(rows: 20) + 4),
                                          deltaY: -12, precise: true), "the summary line")
         XCTAssertFalse(controller.scroll(at: CGPoint(x: bounds.maxX - controller.barState.openWidth - 4,
                                                      y: list.y),

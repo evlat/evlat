@@ -244,6 +244,11 @@
 "card.question.written" = "기타: {text}";
 "card.question.next" = "다음";
 "card.question.send" = "보내기";
+"card.open" = "{app}에서 열기";
+"card.question.pickOne" = "하나 선택";
+"card.question.pickAny" = "여러 개 선택 가능";
+"card.question.otherHint" = "직접 답변 입력";
+"card.question.writtenHint" = "직접 입력한 답변 · 눌러서 변경";
 "answer.placeholder" = "답변";
 "answer.hint" = "Return으로 답변 · Esc로 취소";
 

@@ -613,12 +613,35 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertLessThanOrEqual(SessionColumn.branchWidth(long.branch!),
                                  SessionColumn.branchIconWidth + SessionColumn.branchIconGap
                                     + SessionColumn.branchMaxWidth)
-        XCTAssertEqual(SessionColumn.openWidth(rows: [long], in: "en"), AppController.expandedBarWidth,
+        XCTAssertEqual(SessionColumn.openWidth(rows: [long], in: "en"),
+                       SessionColumn.openWidth(namesWidth: ceil(("shop-api" as NSString)
+                        .size(withAttributes: [.font: SessionColumn.nameFont]).width)
+                        + SessionColumn.machineGap + SessionColumn.branchWidth(long.branch!)),
                        "a long branch opens the body to its cap and no further")
-        XCTAssertEqual(AppController.expandedBarWidth, 199, "the widest body is what it was")
+        XCTAssertEqual(AppController.expandedBarWidth, 229, "the widest body: 170 pt of names")
     }
 
-    /// The commenter's waiting row fits the 140 pt box whole at 9 pt.
+    /// A row's tag is measured on its status line, not beside its name: a
+    /// long name and a machine no longer share one box.
+    func testTheTagIsMeasuredOnTheStatusLine() {
+        let bare = SessionRow(entity: "a", label: "api", phase: .idle, source: .claude)
+        let remote = SessionRow(entity: "a", label: "api", phase: .idle, source: .claude,
+                                machine: "192.168.1.217")
+        XCTAssertEqual(SessionColumn.namesWidth([remote], in: "en"),
+                       SessionColumn.statusWidth(phase: .idle, waitKind: nil, in: "en")
+                        + SessionColumn.machineGap + SessionColumn.machineWidth("192.168.1.217"))
+        XCTAssertGreaterThan(SessionColumn.namesWidth([remote], in: "en"),
+                             SessionColumn.namesWidth([bare], in: "en"))
+        XCTAssertLessThanOrEqual(SessionColumn.machineWidth("255.255.255.255"), SessionColumn.tagMaxWidth,
+                                 "an address is never cut")
+        let host = SessionRow(entity: "a", label: "api", phase: .idle, source: .claude,
+                              machine: "gpu-01.eu-central.internal.example.com")
+        XCTAssertEqual(SessionColumn.namesWidth([host], in: "en"),
+                       SessionColumn.statusWidth(phase: .idle, waitKind: nil, in: "en")
+                        + SessionColumn.machineGap + SessionColumn.tagMaxWidth, "a long host is held to its cap")
+    }
+
+    /// The commenter's waiting row fits the box whole at 9 pt.
     func testTheWorktreeWaitingRowFitsUncut() {
         let waiting = SessionRow(entity: "a", label: "shop-api", phase: .waiting, source: .claude,
                                  branch: "feat/checkout-v2", waitKind: .approval)

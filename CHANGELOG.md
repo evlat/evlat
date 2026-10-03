@@ -27,6 +27,14 @@ Markdown; keep it to a few bullets.
   off in Settings → General → **Install updates automatically**. If you
   choose **Remind Me Later**, Evlat won't ask again for a day; the menu
   shows **Update Available** until then.
+- **A new card.** Session names get more room on the open bar, and a
+  remote machine or a job's sender sits under the name, so neither cuts the
+  other short. The card beside it is wider and laid out anew: who and where
+  on top, then the status with its time, then what the session is doing or
+  asking, and **Open in Bateri** (or your terminal) as its one button.
+  Questions show every option's description, let you write your own answer
+  right in the **Other…** row, and have **Next** to keep an answer you came
+  back to. A tall card moves up so it always fits on the screen.
 
 ## 0.2.0
 

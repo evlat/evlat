@@ -209,29 +209,52 @@ final class SlotGeometryTests: XCTestCase {
         XCTAssertFalse(AppController.isRowVisible(-1, rows: 3))
     }
 
-    /// The card opens level with its row, but never so low that its tallest
-    /// form would leave the window: from the lower rows on, its top is held
-    /// at a constant — not the measured height, which moves with each tool
-    /// event and would make the top jump. The held card still spans the row.
-    func testTheCardIsHeldInsideTheEnvelope() {
-        let limit = BarBody.cardTopLimit
+    /// The card opens level with its row — in the window, the headroom
+    /// down — and from the lower rows on its top is held at a constant, not
+    /// the measured height, which moves with each tool event and would make
+    /// the top jump. The held card still spans the row.
+    func testTheCardIsHeldLevelWithItsRow() {
+        let head = AppController.headroom
         for slot in 0..<SessionRowsModel.slotCount {
             XCTAssertEqual(BarBody.cardTop(slot: slot),
-                           max(0, AppController.slotTop(slot) - BarBody.cardLead), accuracy: 0.5,
+                           head + max(0, AppController.slotTop(slot) - BarBody.cardLead), accuracy: 0.5,
                            "the first four rows are where they were")
         }
-        for slot in 0..<20 {
-            let top = BarBody.cardTop(slot: slot)
-            XCTAssertLessThanOrEqual(top + AppController.detailCardMaxHeight + AppController.shadowGutter,
-                                     AppController.envelopeSize.height + 0.5, "slot \(slot)")
-        }
-        // The window grew for the usage block; the floor did not.
-        XCTAssertEqual(limit, AppController.slotTop(SessionRowsModel.slotCount - 1), accuracy: 0.5)
-        XCTAssertEqual(BarBody.cardTop(slot: 6), limit, accuracy: 0.5, "held")
+        XCTAssertEqual(BarBody.cardTopLimit, AppController.slotTop(SessionRowsModel.slotCount - 1), accuracy: 0.5)
+        XCTAssertEqual(BarBody.cardTop(slot: 6), head + BarBody.cardTopLimit, accuracy: 0.5, "held")
         for slot in 0...6 {
-            XCTAssertLessThanOrEqual(BarBody.cardTop(slot: slot), AppController.slotTop(slot),
+            XCTAssertLessThanOrEqual(BarBody.cardTop(slot: slot), head + AppController.slotTop(slot),
                                      "the card starts no lower than its row")
         }
+    }
+
+    /// A card that fits where its row puts it never moves for its height; one
+    /// that would leave the screen rises as far as it must, into the
+    /// headroom, its shadow inside — and no further than the top it may have.
+    func testATallCardRisesToStayOnTheScreen() {
+        let window = AppController.envelopeSize.height
+        let room: ClosedRange<CGFloat> = 0...window
+        let gutter = AppController.shadowGutter
+        XCTAssertEqual(BarBody.cardTop(slot: 3, height: 200, room: room), BarBody.cardTop(slot: 3),
+                       accuracy: 0.5, "a card that fits stays level with its row")
+        let tall = AppController.detailCardMaxHeight
+        for slot in 0...6 {
+            let top = BarBody.cardTop(slot: slot, height: tall, room: room)
+            XCTAssertLessThanOrEqual(top + tall + gutter, window + 0.5, "slot \(slot): inside the window")
+            XCTAssertGreaterThanOrEqual(top, gutter - 0.5, "slot \(slot): its shadow inside too")
+        }
+        // A 900 pt screen with the Dock under the bar, the window where the
+        // bar puts it: its foot is past the Dock, and the card stops there.
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let visible = NSRect(x: 0, y: 80, width: 1440, height: 795)
+        let origin = BarPanel.origin(edge: .right, visibleFrame: visible, frame: screen,
+                                     size: AppController.envelopeSize, anchorLength: AppController.anchorLength,
+                                     headroom: AppController.headroom)
+        let frame = NSRect(origin: origin, size: AppController.envelopeSize)
+        let onScreen = BarBody.cardRoom(frame: frame, visible: visible)
+        XCTAssertEqual(onScreen.upperBound, frame.maxY - visible.minY, accuracy: 0.5)
+        let top = BarBody.cardTop(slot: 6, height: tall, room: onScreen)
+        XCTAssertLessThanOrEqual(top + tall + gutter, onScreen.upperBound + 0.5, "clear of the Dock")
     }
 }
 
@@ -488,7 +511,7 @@ final class SelectionTests: XCTestCase {
         }
         // The second ring's centre, in the flipped view.
         try click(NSPoint(x: bounds.maxX - AppController.barWidth / 2,
-                          y: AppController.slotTop(1) + AppController.indicatorSize / 2))
+                          y: AppController.headroom + AppController.slotTop(1) + AppController.indicatorSize / 2))
         XCTAssertNil(controller.barState.selected, "a ring takes no click")
         XCTAssertFalse(controller.barState.isOpen)
 
@@ -525,7 +548,7 @@ final class SelectionTests: XCTestCase {
         let frame = panel.frame
         func overRow(_ slot: Int) -> CGPoint {
             CGPoint(x: frame.maxX - AppController.barWidth / 2,
-                    y: frame.maxY - AppController.slotTop(slot) - AppController.indicatorSize / 2)
+                    y: frame.maxY - AppController.headroom - AppController.slotTop(slot) - AppController.indicatorSize / 2)
         }
         controller.pointerMoved(overRow(1))
         XCTAssertEqual(controller.barState.hovered, "b", "marked at once")
@@ -565,7 +588,7 @@ final class SelectionTests: XCTestCase {
 
         let frame = panel.frame
         let cursor = CGPoint(x: frame.maxX - AppController.barWidth / 2,
-                             y: frame.maxY - AppController.slotTop(1) - AppController.indicatorSize / 2)
+                             y: frame.maxY - AppController.headroom - AppController.slotTop(1) - AppController.indicatorSize / 2)
         controller.mouseLocation = { cursor }
         controller.pointerMoved(cursor)
         XCTAssertEqual(controller.barState.hovered, "b")
@@ -622,14 +645,14 @@ final class SelectionTests: XCTestCase {
         controller.openBar()
         let frame = panel.frame
         controller.pointerMoved(CGPoint(x: frame.maxX - AppController.barWidth / 2,
-                                        y: frame.maxY - AppController.slotTop(6)
+                                        y: frame.maxY - AppController.headroom - AppController.slotTop(6)
                                             - AppController.indicatorSize / 2))
         XCTAssertEqual(controller.barState.hovered, "e06")
         try XCTUnwrap(scheduled.last).item.perform()
         XCTAssertEqual(controller.barState.selectedSlot, 6)
 
         controller.pointerMoved(CGPoint(x: frame.maxX - AppController.barWidth / 2,
-                                        y: frame.maxY - AppController.slotTop(7) - 2))
+                                        y: frame.maxY - AppController.headroom - AppController.slotTop(7) - 2))
         XCTAssertNil(controller.barState.hovered, "the half row takes no hover")
     }
 

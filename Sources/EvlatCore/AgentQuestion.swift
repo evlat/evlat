@@ -71,9 +71,11 @@ public struct AgentQuestion: Equatable {
             return Dictionary(uniqueKeysWithValues: zip(questions, choices).map { ($0.text, Self.answer($0, $1)) })
         }
 
-        /// A multi-select question with something to send.
+        /// The question up has an answer to go on with: a multi-select one
+        /// with something picked or written, or a single-select one come
+        /// back to, its answer kept — Next goes on without changing it.
         public var canCommit: Bool {
-            guard current?.multiSelect == true else { return false }
+            guard current != nil else { return false }
             return !picked.isEmpty || written != nil
         }
 
@@ -107,7 +109,8 @@ public struct AgentQuestion: Equatable {
             }
         }
 
-        /// A multi-select question's answer, as picked.
+        /// The question up's answer, as it stands: a multi-select one's as
+        /// picked, a single-select one's as answered before.
         public mutating func commit() {
             guard canCommit else { return }
             index += 1

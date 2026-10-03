@@ -564,7 +564,7 @@ final class MenuTests: XCTestCase {
                             control: Bool = false) throws -> NSMenu? {
         let view = try XCTUnwrap(panel.contentView)
         let bounds = view.bounds
-        let local = CGPoint(x: panel.edge.x(atInset: x, in: bounds), y: bounds.minY + y)
+        let local = CGPoint(x: panel.edge.x(atInset: x, in: bounds), y: bounds.minY + AppController.headroom + y)
         let inWindow = view.convert(local, to: nil)
         let event = try XCTUnwrap(NSEvent.mouseEvent(
             with: control ? .leftMouseDown : .rightMouseDown, location: inWindow,
@@ -621,7 +621,7 @@ final class MenuTests: XCTestCase {
         }
         let view = try XCTUnwrap(panel.contentView)
         func send(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags, fromTop y: CGFloat) throws {
-            let local = CGPoint(x: view.bounds.maxX - AppController.barWidth / 2, y: view.bounds.minY + y)
+            let local = CGPoint(x: view.bounds.maxX - AppController.barWidth / 2, y: view.bounds.minY + AppController.headroom + y)
             panel.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(
                 with: type, location: view.convert(local, to: nil), modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,

@@ -83,8 +83,38 @@ final class QuestionCardTests: XCTestCase {
     /// The tallest question card, drawn: three lines of question, four
     /// options, a long description, the button row with the way back and
     /// `[Go to session]`. Under the cap, so nothing is clipped — a clipped
-    /// button would still take clicks where it is not seen.
+    /// button would still take clicks where it is not seen. A name too long
+    /// for the header's one line puts the tool's name on a line of its own.
     func testTheTallestQuestionFitsTheCard() throws {
+        try tallestQuestion(label: "api")
+        try tallestQuestion(label: "Metalterm: GPU glyph atlas eviction under memory pressure")
+    }
+
+    /// Three options with two lines of description each, the common case,
+    /// stay whole: the list does not scroll before `optionsMaxHeight`.
+    func testThreeDescribedOptionsStayWhole() throws {
+        let options = [("LRU", "Evict the glyphs used least recently; simple and predictable."),
+                       ("Clock", "Second-chance sweep; cheaper bookkeeping per frame."),
+                       ("Size-aware", "Evict the largest glyphs first to free the most memory.")]
+            .map { AgentQuestion.Option(label: $0.0, description: $0.1) }
+        let question = AgentQuestion(
+            text: "Which eviction policy should the glyph atlas use when the GPU reports memory pressure?",
+            header: "Policy", options: options)
+        func height(cap: CGFloat) -> CGFloat {
+            let model = DetailModel()
+            model.resolveHost = { _ in .notFound }
+            model.update(row: SessionRow(entity: "s", label: "Metalterm: GPU glyph atlas eviction under memory pressure",
+                                         phase: .waiting, source: .claude, waitKind: .answer),
+                         signal: nil, approval: SessionDetail.ApprovalCard(request([question]),
+                                                                           draft: .init(questions: [question]), armed: true))
+            return NSHostingView(rootView: DetailCard(model: model, maxHeight: cap)).fittingSize.height
+        }
+        XCTAssertLessThanOrEqual(height(cap: 10_000), AppController.detailCardMaxHeight - 8, "inside the cap")
+        let whole = DetailCard.optionsMaxHeight
+        XCTAssertGreaterThan(whole, 0)
+    }
+
+    private func tallestQuestion(label: String) throws {
         let long = String(repeating: "A long description of what this option would change for the build. ", count: 4)
         let options = (1...4).map { AgentQuestion.Option(label: "An option with a long label number \($0) that runs on",
                                                        description: long) }
@@ -98,13 +128,33 @@ final class QuestionCardTests: XCTestCase {
 
         let model = DetailModel()
         model.resolveHost = { _ in .notFound }
-        model.update(row: SessionRow(entity: "s", label: "api", phase: .waiting, source: .claude, waitKind: .answer),
+        model.update(row: SessionRow(entity: "s", label: label, phase: .waiting, source: .claude, waitKind: .answer),
                      signal: nil, approval: card)
         model.hovered = .option(0)
         XCTAssertTrue(DetailCard.showsButton(try XCTUnwrap(model.detail)), "the way to the terminal stays")
         let height = NSHostingView(rootView: DetailCard(model: model, maxHeight: 10_000)).fittingSize.height
         XCTAssertGreaterThan(height, 200, "drawn")
         // With room to spare: type renders a little differently elsewhere.
+        XCTAssertLessThanOrEqual(height, AppController.detailCardMaxHeight - 8, "\(label): clipped at the cap")
+    }
+
+    /// The tallest permission card: a name that wraps, its branch, a
+    /// command long enough to scroll, both buttons and `[Go to session]`.
+    /// The header's second line is the room the 320 pt card took; it still
+    /// ends under the cap.
+    func testTheTallestPermissionFitsTheCard() throws {
+        let command = String(repeating: "swift test --parallel --filter EvlatAppTests.SandboxWatcherTests ", count: 6)
+        let held = HeldRequest(id: "p-1", token: nil, tool: "Bash", subject: command, questions: nil,
+                               input: Data("{}".utf8))
+        let model = DetailModel()
+        model.resolveHost = { _ in .notFound }
+        model.update(row: SessionRow(entity: "s", label: String(repeating: "Refactor the sandbox watcher ", count: 4),
+                                     phase: .waiting, source: .claude,
+                                     branch: "feature/PROJ-1234-sandbox-watcher-reconnect", waitKind: .approval),
+                     signal: nil, approval: SessionDetail.ApprovalCard(held, armed: true))
+        XCTAssertNotNil(try XCTUnwrap(model.detail).approval?.text, "the command is on the card")
+        let height = NSHostingView(rootView: DetailCard(model: model, maxHeight: 10_000)).fittingSize.height
+        XCTAssertGreaterThan(height, 200, "drawn")
         XCTAssertLessThanOrEqual(height, AppController.detailCardMaxHeight - 8, "clipped at the cap")
     }
 }

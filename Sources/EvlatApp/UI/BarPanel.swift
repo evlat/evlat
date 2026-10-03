@@ -45,6 +45,10 @@ public final class BarPanel: NSPanel {
     /// reaches further past the far end, the head does not move. `nil` centres
     /// the window as it is.
     public let anchorLength: CGFloat?
+    /// Transparent room above the head, inside the window: where a tall
+    /// card rises so it stays on the screen (`AppController.headroom`).
+    /// The head is placed where it was; the window's top is this far above.
+    public let headroom: CGFloat
     public private(set) var isExpanded = false
 
     /// Enter, exit and move over the visible bar. The hover's timing is not
@@ -90,14 +94,16 @@ public final class BarPanel: NSPanel {
     ///   side (the shadow gutter). The cursor over it sees nothing, so it is
     ///   left out of the hover area.
     public init(edge: Edge = .right, size: CGSize, expandedSize: CGSize? = nil,
-                anchorLength: CGFloat? = nil,
+                anchorLength: CGFloat? = nil, headroom: CGFloat = 0,
                 trackingInset: CGFloat = 0, content: some View) {
         self.edge = edge
         self.collapsedSize = size
         self.expandedSize = expandedSize ?? size
         self.anchorLength = anchorLength
+        self.headroom = headroom
         self.hosting = BarHostingView(rootView: AnyView(content))
         hosting.edge = edge
+        hosting.headroom = headroom
         hosting.trackingInset = trackingInset
         super.init(contentRect: NSRect(origin: .zero, size: size),
                    // .nonactivatingPanel: clicking the bar does not bring Evlat
@@ -153,16 +159,17 @@ public final class BarPanel: NSPanel {
         // The size it has now, not the one it was built with: a screen
         // change while the bar is open keeps it open.
         setFrameOrigin(Self.origin(edge: edge, visibleFrame: frames.visibleFrame, frame: frames.frame,
-                                   size: frame.size, anchorLength: anchorLength))
+                                   size: frame.size, anchorLength: anchorLength, headroom: headroom))
     }
 
     /// The origin on the first of `screens`; `nil` without one. Apart from
     /// `reposition` so the choice of screen is tested without real displays.
     nonisolated static func origin(edge: Edge, screens: [(frame: NSRect, visibleFrame: NSRect)],
-                                   size: CGSize, anchorLength: CGFloat?) -> NSPoint? {
+                                   size: CGSize, anchorLength: CGFloat?,
+                                   headroom: CGFloat = 0) -> NSPoint? {
         guard let main = screens.first else { return nil }
         return origin(edge: edge, visibleFrame: main.visibleFrame, frame: main.frame,
-                      size: size, anchorLength: anchorLength)
+                      size: size, anchorLength: anchorLength, headroom: headroom)
     }
 
     /// Where a bar of `size` docked to `edge` goes: `visibleFrame` along the
@@ -171,10 +178,12 @@ public final class BarPanel: NSPanel {
     /// `visibleFrame` would make the bar shift whenever the Dock appears or
     /// hides — only a Dock on the bar's own edge pushes it.
     nonisolated static func origin(edge: Edge, visibleFrame usable: NSRect, frame full: NSRect,
-                                   size: CGSize, anchorLength: CGFloat?) -> NSPoint {
+                                   size: CGSize, anchorLength: CGFloat?,
+                                   headroom: CGFloat = 0) -> NSPoint {
         // The head: the top of a vertical bar, the leading end of a
         // horizontal one, placed as if the bar were `anchorLength` long.
-        let vertical = (anchorLength ?? size.height) / 2
+        // The window's top is `headroom` above it.
+        let vertical = (anchorLength ?? size.height) / 2 + headroom
         let horizontal = (anchorLength ?? size.width) / 2
         switch edge {
         case .right:
@@ -394,6 +403,11 @@ public final class BarHostingView: NSHostingView<AnyView> {
     var cardRect: NSRect? {
         didSet { if cardRect != oldValue { updateTrackingAreas() } }
     }
+    /// The transparent room above the head (`BarPanel.headroom`): the body's
+    /// hover area starts this far down.
+    var headroom: CGFloat = 0 {
+        didSet { if headroom != oldValue { updateTrackingAreas() } }
+    }
     /// Which side the gutter is on: the one away from the docked edge.
     var edge: BarPanel.Edge = .right {
         didSet { updateTrackingAreas() }
@@ -444,12 +458,12 @@ public final class BarHostingView: NSHostingView<AnyView> {
     nonisolated static func trackingRects(in bounds: NSRect, inset: CGFloat,
                                           visibleWidth: CGFloat? = nil,
                                           visibleLength: CGFloat?, card: NSRect?,
-                                          flipped: Bool,
+                                          flipped: Bool, headroom: CGFloat = 0,
                                           edge: BarPanel.Edge) -> (body: NSRect, card: NSRect?) {
         var body = trackingRect(in: bounds, inset: inset, visible: visibleWidth, edge: edge)
         if let visibleLength, edge == .right || edge == .left {
-            let length = min(max(0, visibleLength), bounds.height)
-            body.origin.y = flipped ? bounds.minY : bounds.maxY - length
+            let length = min(max(0, visibleLength), max(0, bounds.height - headroom))
+            body.origin.y = flipped ? bounds.minY + headroom : bounds.maxY - headroom - length
             body.size.height = length
         }
         return (body, card)
@@ -516,7 +530,7 @@ public final class BarHostingView: NSHostingView<AnyView> {
         areas.forEach(removeTrackingArea)
         let rects = Self.trackingRects(in: bounds, inset: trackingInset,
                                        visibleWidth: visibleWidth, visibleLength: visibleLength,
-                                       card: cardRect, flipped: isFlipped, edge: edge)
+                                       card: cardRect, flipped: isFlipped, headroom: headroom, edge: edge)
         var parts: [(Region, NSRect)] = [(.body, rects.body)]
         if let card = rects.card { parts.append((.card, card)) }
         areas = parts.map { region, rect in
