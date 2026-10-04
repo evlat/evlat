@@ -422,6 +422,9 @@
 "settings.general.body.detail" = "長條如何停靠在螢幕邊緣。";
 "settings.general.body.always" = "一律顯示";
 "settings.general.body.smart" = "智慧隱藏";
+"settings.general.body.smart.detail" = "下方沒有視窗時顯示；有視窗時收起。";
+"settings.general.body.tucked" = "收起";
+"settings.general.body.tucked.detail" = "即使下方沒有視窗，也保持收起。";
 "settings.general.body.hidden" = "隱藏";
 "settings.general.body.sliver" = "顯示細邊";
 "settings.general.body.sliver.detail" = "邊緣上的小記號和一個狀態圓點。";
@@ -429,6 +432,7 @@
 "settings.general.body.peekWaiting.detail" = "遇到權限請求或問題時，吉祥物會探出頭。";
 "settings.general.body.peekWaiting.off" = "此項關閉時，只有細邊的琥珀色圓點會顯示等待中。";
 "settings.general.body.peekWaiting.off.bare" = "此項和細邊都關閉時，邊緣上沒有任何東西會顯示等待中：只有你把游標移到邊緣時，吉祥物才會出來。";
+"settings.general.body.peekWaiting.off.bare.smart" = "此項和細邊都關閉且邊緣有視窗時，邊緣上沒有任何東西會顯示等待中：只有邊緣空出或你把游標移到邊緣時，吉祥物才會出來。";
 "settings.general.body.peekDone" = "完成時短暫探出頭";
 "settings.general.body.peekDone.detail" = "工作階段或工作完成或失敗時，探出幾秒鐘。";
 "settings.general.nudge.off" = "關閉";

@@ -21,8 +21,9 @@ enum TrayIcon {
     static let amber = NSColor(srgbRed: 1.0, green: 0.72, blue: 0.18, alpha: 1)
 
     /// Whether the icon carries the waiting signal: only Hidden takes it
-    /// from the edge by design. Smart shows it on the sliver's dot or the
-    /// peek; turning both off is a choice Settings warns about beside the
+    /// from the edge by design. Smart and Tucked show it on the sliver's dot
+    /// or the peek (Smart also on the full body while the edge is clear);
+    /// turning both off is a choice Settings warns about beside the
     /// switch (`SettingsModel.peekWarningKey`).
     static func isAmber(mode: BodyPresence.Mode, phase: Phase) -> Bool {
         mode == .hidden && phase == .waiting

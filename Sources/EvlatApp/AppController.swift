@@ -195,6 +195,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var bodyToggles = BodyPresence.Toggles() {
         didSet { if bodyToggles != oldValue { applyPresence() } }
     }
+    /// No other app's window is under the closed body (`BodyPresence.edgeClear`);
+    /// only Smart reads it. Nothing writes it yet, so Smart is Tucked.
+    var edgeClear = false {
+        didSet { if edgeClear != oldValue { applyPresence() } }
+    }
     /// The mode came from `EVLAT_BODY`: the settings' writers apply the
     /// choice but never store it, so a forced launch — an isolated copy
     /// looked at or measured — leaves the user's choice alone.
@@ -860,7 +865,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                     peekDone: on(bodyPeekDoneKey))
     }
 
-    /// `EVLAT_BODY=always|smart|hidden` forces the mode over what is stored —
+    /// `EVLAT_BODY=always|smart|tucked|hidden` forces the mode over what is stored —
     /// for looking at and measuring one mode (`EVLAT_PHASE × EVLAT_BODY`)
     /// without touching the user's choice, the same pattern as `EVLAT_EDGE`.
     /// Read, never written. Any other value is ignored.
@@ -3777,7 +3782,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var presence: BodyPresence {
         BodyPresence(mode: bodyMode, toggles: bodyToggles, phase: mascot.effectivePhase,
                      peekPhase: peekPhase, isOpen: barState.isOpen,
-                     chatOpen: isChatOpen, dragging: isDragging,
+                     chatOpen: isChatOpen, dragging: isDragging, edgeClear: edgeClear,
                      closedLength: barState.length, openWidth: barState.openWidth,
                      openLength: barState.openLength)
     }

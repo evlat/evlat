@@ -422,6 +422,9 @@
 "settings.general.body.detail" = "长条在屏幕边缘的显示方式。";
 "settings.general.body.always" = "始终显示";
 "settings.general.body.smart" = "智能隐藏";
+"settings.general.body.smart.detail" = "下方没有窗口时显示；有窗口时收起。";
+"settings.general.body.tucked" = "收起";
+"settings.general.body.tucked.detail" = "即使下方没有窗口，也保持收起。";
 "settings.general.body.hidden" = "隐藏";
 "settings.general.body.sliver" = "显示细边";
 "settings.general.body.sliver.detail" = "边缘上的一个小标记和一个状态圆点。";
@@ -429,6 +432,7 @@
 "settings.general.body.peekWaiting.detail" = "遇到权限请求或问题时，吉祥物会探出头来。";
 "settings.general.body.peekWaiting.off" = "关闭此项时，等待只由细边上的琥珀色圆点显示。";
 "settings.general.body.peekWaiting.off.bare" = "此项和细边都关闭时，边缘上没有任何东西显示等待：只有当你把指针移向边缘时，吉祥物才会出来。";
+"settings.general.body.peekWaiting.off.bare.smart" = "此项和细边都关闭且边缘有窗口时，边缘上没有任何东西显示等待：只有当边缘空出或你把指针移向边缘时，吉祥物才会出来。";
 "settings.general.body.peekDone" = "完成时短暂探头";
 "settings.general.body.peekDone.detail" = "会话或任务完成或失败时出来几秒钟。";
 "settings.general.nudge.off" = "关闭";

@@ -34,10 +34,10 @@ final class BodyPresenceTests: XCTestCase {
                           toggles: BodyPresence.Toggles = .init(),
                           peekPhase: Phase? = nil,
                           isOpen: Bool = false, chatOpen: Bool = false,
-                          dragging: Bool = false) -> BodyPresence {
+                          dragging: Bool = false, edgeClear: Bool = false) -> BodyPresence {
         BodyPresence(mode: mode, toggles: toggles, phase: phase,
                      peekPhase: peekPhase, isOpen: isOpen, chatOpen: chatOpen,
-                     dragging: dragging, closedLength: Self.closedLength,
+                     dragging: dragging, edgeClear: edgeClear, closedLength: Self.closedLength,
                      openWidth: Self.openWidth, openLength: Self.openLength)
     }
 
@@ -98,6 +98,76 @@ final class BodyPresenceTests: XCTestCase {
         XCTAssertEqual(presence(.smart, .working, toggles: off, peekPhase: .review).dot, .review)
         XCTAssertEqual(presence(.smart, .waiting, toggles: off, peekPhase: .failed).dot, .failed)
         XCTAssertEqual(presence(.smart, .working, toggles: off).dot, .working, "and only while it lasts")
+    }
+
+    /// Every input the rule reads but the edge, in every combination.
+    private func everyCase(_ mode: BodyPresence.Mode, edgeClear: Bool) -> [BodyPresence] {
+        Phase.allCases.flatMap { phase in
+            Self.allToggles.flatMap { toggles in
+                [nil, Phase.review, .failed, .working].flatMap { peek in
+                    [(false, false, false), (true, false, false),
+                     (false, true, false), (false, false, true)].map { open, chat, drag in
+                        presence(mode, phase, toggles: toggles, peekPhase: peek,
+                                 isOpen: open, chatOpen: chat, dragging: drag, edgeClear: edgeClear)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Tucked is the Smart hide that was: the same level, dot, area and
+    /// trigger in every case, and the edge means nothing to it.
+    func testTuckedIsSmartWithACoveredEdge() {
+        let smart = everyCase(.smart, edgeClear: false)
+        for clear in [false, true] {
+            let tucked = everyCase(.tucked, edgeClear: clear)
+            XCTAssertEqual(tucked.count, smart.count)
+            for (t, s) in zip(tucked, smart) {
+                let what = "\(s.phase) · \(s.toggles) · peek \(String(describing: s.peekPhase)) · clear \(clear)"
+                XCTAssertEqual(t.level, s.level, what)
+                XCTAssertEqual(t.dot, s.dot, what)
+                XCTAssertEqual(t.area, s.area, what)
+                XCTAssertEqual(t.trigger, s.trigger, what)
+                XCTAssertEqual(t.mascotShown, s.mascotShown, what)
+            }
+        }
+        XCTAssertEqual(presence(.tucked, .idle).level, .sliver)
+        XCTAssertEqual(presence(.tucked, .working).dot, .working)
+        XCTAssertEqual(presence(.tucked, .waiting).level, .peek)
+        XCTAssertEqual(presence(.tucked, .idle, peekPhase: .review).level, .peek)
+    }
+
+    /// Under Smart a clear edge is the whole body, whatever the phase, the
+    /// switches or a peek; it keeps the trigger strip and its length.
+    func testSmartWithAClearEdgeIsTheFullBody() {
+        for p in everyCase(.smart, edgeClear: true) {
+            let what = "\(p.phase) · \(p.toggles) · peek \(String(describing: p.peekPhase))"
+            XCTAssertEqual(p.level, .full, what)
+            XCTAssertNil(p.dot, what)
+            XCTAssertTrue(p.mascotShown, what)
+            XCTAssertTrue(p.takesMascotClick, what)
+            XCTAssertNotNil(p.trigger, "not today's bar: \(what)")
+        }
+        let closed = presence(.smart, .idle, edgeClear: true)
+        XCTAssertEqual(closed.area, BodyPresence.Area(width: AppController.barWidth,
+                                                      length: max(Self.closedLength, BodyPresence.triggerLength)))
+        let open = presence(.smart, .idle, isOpen: true, edgeClear: true)
+        XCTAssertEqual(open.area, presence(.smart, .idle, isOpen: true).area, "open, the edge changes nothing")
+    }
+
+    /// Only Smart reads the edge: Always is out anyway, Hidden stays hidden.
+    func testOnlySmartReadsTheEdge() {
+        for mode in [BodyPresence.Mode.always, .tucked, .hidden] {
+            XCTAssertEqual(everyCase(mode, edgeClear: true).map(\.level),
+                           everyCase(mode, edgeClear: false).map(\.level), "\(mode)")
+        }
+    }
+
+    /// The picker's order is the cases' order; the switches shape only
+    /// the two modes that have a sliver and peeks.
+    func testTheModesAndWhichHaveSwitches() {
+        XCTAssertEqual(BodyPresence.Mode.allCases, [.always, .smart, .tucked, .hidden])
+        XCTAssertEqual(BodyPresence.Mode.allCases.filter(\.hasToggles), [.smart, .tucked])
     }
 
     /// R3.3: an open bar, the balloon or a file drag is the full body in
@@ -244,7 +314,7 @@ final class BodyPresenceTests: XCTestCase {
     func testTheWholeBodyHoldsTheStripThatOpenedIt() {
         let short = AppController.barLength(slots: 0)
         XCTAssertLessThan(short, BodyPresence.triggerLength, "precondition")
-        for mode in [BodyPresence.Mode.smart, .hidden] {
+        for mode in [BodyPresence.Mode.smart, .tucked, .hidden] {
             for isOpen in [false, true] {
                 let p = BodyPresence(mode: mode, toggles: .init(), phase: .idle,
                                      peekPhase: nil, isOpen: isOpen, chatOpen: false, dragging: true,
@@ -286,6 +356,7 @@ final class BodyPresenceTests: XCTestCase {
         }
         XCTAssertEqual(BodyPresence.Mode.always.storedValue, "always")
         XCTAssertEqual(BodyPresence.Mode.smart.storedValue, "smart")
+        XCTAssertEqual(BodyPresence.Mode.tucked.storedValue, "tucked")
         XCTAssertEqual(BodyPresence.Mode.hidden.storedValue, "hidden")
         XCTAssertNil(BodyPresence.Mode(stored: "top"))
         XCTAssertNil(BodyPresence.Mode(stored: nil))
@@ -301,7 +372,9 @@ final class BodyPresenceTests: XCTestCase {
 
     func testTheStoredModeAndTogglesAreRead() {
         defaults.set("smart", forKey: AppController.bodyModeKey)
-        XCTAssertEqual(AppController.storedBodyMode(defaults), .smart)
+        XCTAssertEqual(AppController.storedBodyMode(defaults), .smart, "a stored Smart stays Smart")
+        defaults.set("tucked", forKey: AppController.bodyModeKey)
+        XCTAssertEqual(AppController.storedBodyMode(defaults), .tucked)
         defaults.set("hidden", forKey: AppController.bodyModeKey)
         XCTAssertEqual(AppController.storedBodyMode(defaults), .hidden)
         defaults.set("sideways", forKey: AppController.bodyModeKey)
@@ -332,6 +405,7 @@ final class BodyPresenceTests: XCTestCase {
 
     func testEvlatBodyForcesTheModeAndAnUnreadableValueIsIgnored() {
         XCTAssertEqual(AppController.forcedBodyMode(["EVLAT_BODY": "smart"]), .smart)
+        XCTAssertEqual(AppController.forcedBodyMode(["EVLAT_BODY": "Tucked"]), .tucked)
         XCTAssertEqual(AppController.forcedBodyMode(["EVLAT_BODY": " Hidden "]), .hidden)
         XCTAssertEqual(AppController.forcedBodyMode(["EVLAT_BODY": "always"]), .always)
         XCTAssertNil(AppController.forcedBodyMode(["EVLAT_BODY": "peek"]))

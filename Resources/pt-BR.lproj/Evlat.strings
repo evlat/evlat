@@ -423,6 +423,9 @@
 "settings.general.body.detail" = "Como a barra fica na borda da tela.";
 "settings.general.body.always" = "Sempre à vista";
 "settings.general.body.smart" = "Ocultar com inteligência";
+"settings.general.body.smart.detail" = "À vista enquanto não há janela embaixo; recolhido quando há uma.";
+"settings.general.body.tucked" = "Recolhido";
+"settings.general.body.tucked.detail" = "Recolhido, mesmo quando não há janela embaixo.";
 "settings.general.body.hidden" = "Oculto";
 "settings.general.body.sliver" = "Mostrar o filete";
 "settings.general.body.sliver.detail" = "Uma pequena marca na borda e um ponto de estado.";
@@ -430,6 +433,7 @@
 "settings.general.body.peekWaiting.detail" = "Diante de uma permissão ou pergunta, o mascote espia para fora.";
 "settings.general.body.peekWaiting.off" = "Com isto desativado, a espera aparece só no ponto âmbar do filete.";
 "settings.general.body.peekWaiting.off.bare" = "Com isto e o filete desativados, nada na borda mostra a espera: o mascote só sai quando você leva o cursor até a borda.";
+"settings.general.body.peekWaiting.off.bare.smart" = "Com isto e o filete desativados e uma janela sob a borda, nada na borda mostra a espera: o mascote só sai quando a borda fica livre ou quando você leva o cursor até a borda.";
 "settings.general.body.peekDone" = "Espiar rapidinho ao concluir";
 "settings.general.body.peekDone.detail" = "Aparece por alguns segundos quando uma sessão ou tarefa termina ou falha.";
 "settings.general.nudge.off" = "Desativado";

@@ -139,6 +139,25 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertFalse(rig.controller.mascot.isAwake)
     }
 
+    /// The edge's input reaches the bar through the one writer: under
+    /// Smart a clear edge is the whole body, with the mascot shown; Tucked
+    /// ignores it.
+    func testAClearEdgeBringsSmartOutAndLeavesTuckedIn() throws {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        rig.controller.edgeClear = true
+        XCTAssertEqual(rig.controller.barState.presence.level, .full)
+        XCTAssertEqual(try rig.bodyRect().width, AppController.barWidth, accuracy: 0.5)
+        XCTAssertTrue(rig.controller.mascot.isShown)
+        rig.controller.bodyMode = .tucked
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        XCTAssertFalse(rig.controller.mascot.isShown)
+        rig.controller.bodyMode = .smart
+        rig.controller.edgeClear = false
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        XCTAssertEqual(try rig.bodyRect().width, BodyPresence.sliverWidth, accuracy: 0.5)
+    }
+
     func testTheLeftStripSitsOnTheLeftEdge() throws {
         let rig = rig(.smart, edge: .left)
         defer { rig.panel.close() }

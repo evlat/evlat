@@ -423,6 +423,9 @@
 "settings.general.body.detail" = "La façon dont la barre se tient au bord de l’écran.";
 "settings.general.body.always" = "Toujours visible";
 "settings.general.body.smart" = "Masquage intelligent";
+"settings.general.body.smart.detail" = "Visible tant qu’aucune fenêtre n’est dessous ; rentré dès qu’il y en a une.";
+"settings.general.body.tucked" = "Rentré";
+"settings.general.body.tucked.detail" = "Rentré, même quand aucune fenêtre n’est dessous.";
 "settings.general.body.hidden" = "Masqué";
 "settings.general.body.sliver" = "Afficher le liseré";
 "settings.general.body.sliver.detail" = "Une petite marque sur le bord et un point d’état.";
@@ -430,6 +433,7 @@
 "settings.general.body.peekWaiting.detail" = "Sur une autorisation ou une question, la mascotte passe la tête.";
 "settings.general.body.peekWaiting.off" = "Tant que cette option est désactivée, l’attente n’est signalée que par le point ambre du liseré.";
 "settings.general.body.peekWaiting.off.bare" = "Tant que cette option et le liseré sont désactivés, rien sur le bord ne signale l’attente : la mascotte ne sort que lorsque vous approchez du bord.";
+"settings.general.body.peekWaiting.off.bare.smart" = "Tant que cette option et le liseré sont désactivés et qu’une fenêtre est sous le bord, rien sur le bord ne signale l’attente : la mascotte ne sort que lorsque le bord se libère ou que vous approchez du bord.";
 "settings.general.body.peekDone" = "Se montrer brièvement à la fin";
 "settings.general.body.peekDone.detail" = "Sort quelques secondes quand une session ou une tâche se termine ou échoue.";
 "settings.general.nudge.off" = "Désactivé";

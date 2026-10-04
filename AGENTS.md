@@ -603,10 +603,15 @@ is lost with the process.
   name could match), which says nothing.
   Approvals and the branch stay with local rows.
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
-  Hidden). One pure rule, `BodyPresence`, turns the mode, its three switches,
-  the effective phase, the finish latch, the peek, the open bar, the balloon
-  and a drag into a level — `none · sliver · peek · full` — and its hover and
-  drop area; `AppController.applyPresence()` is the only writer of what
+  Tucked, Hidden). Tucked is in at rest: the sliver, a peek while waiting
+  or at a finish (its three switches). Smart hide is Tucked while another
+  app's window is under the edge, and the whole body while none is
+  (`edgeClear`, nothing writes it yet: Smart is Tucked for now); the
+  switches are shown under both. A stored `smart` is the new Smart hide,
+  `tucked` is Tucked. One pure rule, `BodyPresence`, turns the mode, its
+  three switches, the edge, the effective phase, the finish latch, the peek,
+  the open bar, the balloon and a drag into a level — `none · sliver · peek
+  · full` — and its hover and drop area; `AppController.applyPresence()` is the only writer of what
   follows from it (panel area, drawn level, `isShown`, gaze, tray icon). The
   level is not a `Phase`. At rest in the hiding modes (`none`, `sliver`) the
   hover area is a 5 pt band from the head to 60 pt below where the
@@ -882,7 +887,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` |
 | `EVLAT_CHATS` | temporary chat root |
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
-| `EVLAT_BODY` | force the body's mode (`always`, `smart`, `hidden`) at launch; the stored mode is never written |
+| `EVLAT_BODY` | force the body's mode (`always`, `smart`, `tucked`, `hidden`) at launch; the stored mode is never written |
 | `EVLAT_CLAUDE` | `claude` to run (tests use `Tests/Fixtures/fake-claude`) |
 | `EVLAT_CODEX` | `codex` to run for the chat (tests use `Tests/Fixtures/fake-codex-app-server`) |
 | `EVLAT_FEED` | the appcast to check; the only way an isolated launch gets an updater (a release bundle otherwise checks its `SUFeedURL`, a development bundle nothing) |

@@ -476,9 +476,18 @@ final class SettingsModel: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
-    /// The switches shape only Smart: Always has nothing to hide, Hidden
-    /// has neither the sliver nor a peek.
-    var showsBodyToggles: Bool { bodyMode == .smart }
+    /// The switches shape only Smart and Tucked (`Mode.hasToggles`).
+    var showsBodyToggles: Bool { bodyMode.hasToggles }
+
+    /// The line under the picker that says what the chosen mode does; the
+    /// two that differ only by the edge need it, the others say it by name.
+    var bodyModeDetailKey: String? {
+        switch bodyMode {
+        case .smart: return "settings.general.body.smart.detail"
+        case .tucked: return "settings.general.body.tucked.detail"
+        case .always, .hidden: return nil
+        }
+    }
 
     /// Without the waiting peek, waiting is told only by the sliver's amber
     /// dot, or with the sliver off by nothing on the edge — said beside the
@@ -486,10 +495,13 @@ final class SettingsModel: ObservableObject {
     var showsPeekWarning: Bool { showsBodyToggles && !bodyToggles.peekWaiting }
 
     /// With the sliver off too there is no amber dot to fall back on, and
-    /// Smart leaves the tray icon plain: the warning must say nothing is left.
+    /// Smart and Tucked leave the tray icon plain: the warning must say
+    /// nothing is left. Under Smart a clear edge still brings the whole body
+    /// out, so its own line says nothing is left only while a window is there.
     var peekWarningKey: String {
-        bodyToggles.sliver ? "settings.general.body.peekWaiting.off"
-                           : "settings.general.body.peekWaiting.off.bare"
+        if bodyToggles.sliver { return "settings.general.body.peekWaiting.off" }
+        return bodyMode == .smart ? "settings.general.body.peekWaiting.off.bare.smart"
+                                  : "settings.general.body.peekWaiting.off.bare"
     }
 
     // MARK: - Chat
@@ -858,10 +870,12 @@ final class SettingsModel: ObservableObject {
         "settings.general.display", "settings.general.display.detail", "settings.general.display.main",
         "settings.general.display.missing", "settings.general.display.seam",
         "settings.general.body", "settings.general.body.detail", "settings.general.body.always",
-        "settings.general.body.smart", "settings.general.body.hidden",
+        "settings.general.body.smart", "settings.general.body.smart.detail",
+        "settings.general.body.tucked", "settings.general.body.tucked.detail", "settings.general.body.hidden",
         "settings.general.body.sliver", "settings.general.body.sliver.detail",
         "settings.general.body.peekWaiting", "settings.general.body.peekWaiting.detail",
         "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.bare",
+        "settings.general.body.peekWaiting.off.bare.smart",
         "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
         "settings.general.nudge.off", "settings.general.nudge.minutes",
         "settings.general.nudge.notify.denied", "settings.general.nudge.notify.open",

@@ -13,15 +13,22 @@ import EvlatCore
 ///
 /// The level is **not** a `Phase`: `Phase` stays at five values.
 struct BodyPresence: Equatable {
-    /// The user's choice in Settings → General.
+    /// The user's choice in Settings → General, in the picker's order.
     enum Mode: CaseIterable, Equatable {
         /// Today's bar: the body is always out.
         case always
-        /// The body is in; it comes out when something is asked of the user
-        /// or the user reaches for the edge.
+        /// Out while no other app's window is under the edge (`edgeClear`);
+        /// while one is, the same as `tucked`.
         case smart
+        /// The body is in; it comes out when something is asked of the user
+        /// or the user reaches for the edge, whatever is on the edge.
+        case tucked
         /// Not even the sliver: only reaching for the edge opens it.
         case hidden
+
+        /// Whether the three switches shape it: Always has nothing to hide,
+        /// Hidden has neither the sliver nor a peek.
+        var hasToggles: Bool { self == .smart || self == .tucked }
 
         /// The stored form (`bar.body`). Anything else reads as `nil` and
         /// the caller falls back to `always`.
@@ -29,6 +36,7 @@ struct BodyPresence: Equatable {
             switch raw {
             case "always": self = .always
             case "smart": self = .smart
+            case "tucked": self = .tucked
             case "hidden": self = .hidden
             default: return nil
             }
@@ -38,6 +46,7 @@ struct BodyPresence: Equatable {
             switch self {
             case .always: return "always"
             case .smart: return "smart"
+            case .tucked: return "tucked"
             case .hidden: return "hidden"
             }
         }
@@ -113,6 +122,9 @@ struct BodyPresence: Equatable {
     var isOpen: Bool
     var chatOpen: Bool
     var dragging: Bool
+    /// No other app's window is under the closed body. Read only under
+    /// Smart; every other mode ignores it.
+    var edgeClear = false
     /// Today's sizes: the closed body's length and the open body's width and
     /// length (`BarState`). The full body's area is exactly these.
     var closedLength: CGFloat
@@ -122,8 +134,9 @@ struct BodyPresence: Equatable {
     // MARK: Outputs
 
     var level: Level {
-        if mode == .always || isOpen || chatOpen || dragging { return .full }
-        guard mode == .smart else { return .none }
+        if mode == .always || isOpen || chatOpen || dragging
+            || (mode == .smart && edgeClear) { return .full }
+        guard mode.hasToggles else { return .none }
         if phase == .waiting && toggles.peekWaiting { return .peek }
         if let peekPhase, Self.isFinish(peekPhase), toggles.peekDone { return .peek }
         return toggles.sliver ? .sliver : .none

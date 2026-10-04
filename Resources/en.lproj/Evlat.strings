@@ -495,6 +495,9 @@
 "settings.general.body.detail" = "How the bar sits on the edge of the screen.";
 "settings.general.body.always" = "Always out";
 "settings.general.body.smart" = "Smart hide";
+"settings.general.body.smart.detail" = "Out while no window is under it; tucked in while one is.";
+"settings.general.body.tucked" = "Tucked";
+"settings.general.body.tucked.detail" = "Tucked in, even while no window is under it.";
 "settings.general.body.hidden" = "Hidden";
 "settings.general.body.sliver" = "Show the sliver";
 "settings.general.body.sliver.detail" = "A small mark on the edge and a status dot.";
@@ -502,6 +505,7 @@
 "settings.general.body.peekWaiting.detail" = "On a permission or a question the mascot peeks out.";
 "settings.general.body.peekWaiting.off" = "While this is off, waiting is shown only by the sliver's amber dot.";
 "settings.general.body.peekWaiting.off.bare" = "While this and the sliver are off, nothing on the edge shows waiting: the mascot comes out only when you reach for the edge.";
+"settings.general.body.peekWaiting.off.bare.smart" = "While this and the sliver are off, nothing on the edge shows waiting while a window is under it: the mascot comes out only when the edge is clear or you reach for it.";
 "settings.general.body.peekDone" = "Peek briefly when done";
 "settings.general.body.peekDone.detail" = "Out for a few seconds when a session or a job finishes or fails.";
 "settings.general.nudge.off" = "Off";

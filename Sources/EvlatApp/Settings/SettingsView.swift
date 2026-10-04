@@ -219,8 +219,9 @@ private struct DisplayRow: View {
     }
 }
 
-/// "Body": how much of the bar stays out, and under Smart the three
-/// switches that shape it, with a note when waiting loses its peek.
+/// "Body": how much of the bar stays out, and under Smart and Tucked a line
+/// saying which, the three switches that shape it, and a note when waiting
+/// loses its peek.
 private struct BodyRows: View {
     @ObservedObject var model: SettingsModel
 
@@ -231,12 +232,18 @@ private struct BodyRows: View {
                 Picker("", selection: Binding(get: { model.bodyMode }, set: { model.setBodyMode($0) })) {
                     Text(model.t("settings.general.body.always")).tag(BodyPresence.Mode.always)
                     Text(model.t("settings.general.body.smart")).tag(BodyPresence.Mode.smart)
+                    Text(model.t("settings.general.body.tucked")).tag(BodyPresence.Mode.tucked)
                     Text(model.t("settings.general.body.hidden")).tag(BodyPresence.Mode.hidden)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
                 .accessibilityLabel(model.t("settings.general.body"))
+            }
+            if let key = model.bodyModeDetailKey {
+                Text(model.t(key))
+                    .font(.system(size: 11.5)).foregroundStyle(SettingsPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         if model.showsBodyToggles {

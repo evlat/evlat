@@ -422,6 +422,9 @@
 "settings.general.body.detail" = "Wie die Leiste am Bildschirmrand sitzt.";
 "settings.general.body.always" = "Immer draußen";
 "settings.general.body.smart" = "Smart ausblenden";
+"settings.general.body.smart.detail" = "Draußen, solange kein Fenster darunter liegt; eingezogen, sobald eines da ist.";
+"settings.general.body.tucked" = "Eingezogen";
+"settings.general.body.tucked.detail" = "Eingezogen, auch wenn kein Fenster darunter liegt.";
 "settings.general.body.hidden" = "Versteckt";
 "settings.general.body.sliver" = "Den Streifen zeigen";
 "settings.general.body.sliver.detail" = "Eine kleine Markierung am Rand und ein Statuspunkt.";
@@ -429,6 +432,7 @@
 "settings.general.body.peekWaiting.detail" = "Bei einer Berechtigung oder einer Frage schaut das Maskottchen hervor.";
 "settings.general.body.peekWaiting.off" = "Solange das aus ist, zeigt nur der bernsteinfarbene Punkt des Streifens das Warten.";
 "settings.general.body.peekWaiting.off.bare" = "Solange das und der Streifen aus sind, zeigt nichts am Rand das Warten: Das Maskottchen kommt nur heraus, wenn du zum Rand greifst.";
+"settings.general.body.peekWaiting.off.bare.smart" = "Solange das und der Streifen aus sind und ein Fenster unter dem Rand liegt, zeigt nichts am Rand das Warten: Das Maskottchen kommt nur heraus, wenn der Rand frei ist oder du zum Rand greifst.";
 "settings.general.body.peekDone" = "Kurz hervorschauen, wenn fertig";
 "settings.general.body.peekDone.detail" = "Ein paar Sekunden draußen, wenn eine Sitzung oder ein Job fertig wird oder fehlschlägt.";
 "settings.general.nudge.off" = "Aus";

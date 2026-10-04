@@ -422,6 +422,9 @@
 "settings.general.body.detail" = "바가 화면 가장자리에 어떻게 놓일지 정합니다.";
 "settings.general.body.always" = "항상 표시";
 "settings.general.body.smart" = "스마트 숨기기";
+"settings.general.body.smart.detail" = "아래에 창이 없으면 나와 있고, 창이 있으면 들어갑니다.";
+"settings.general.body.tucked" = "집어넣기";
+"settings.general.body.tucked.detail" = "아래에 창이 없어도 들어가 있습니다.";
 "settings.general.body.hidden" = "숨김";
 "settings.general.body.sliver" = "가는 띠 표시";
 "settings.general.body.sliver.detail" = "가장자리의 작은 표시와 상태 점.";
@@ -429,6 +432,7 @@
 "settings.general.body.peekWaiting.detail" = "권한 요청이나 질문이 있으면 마스코트가 살짝 나옵니다.";
 "settings.general.body.peekWaiting.off" = "이 옵션이 꺼져 있으면 대기는 가는 띠의 앰버색 점으로만 표시됩니다.";
 "settings.general.body.peekWaiting.off.bare" = "이 옵션과 가는 띠가 모두 꺼져 있으면 가장자리에 대기를 알리는 것이 없습니다. 마스코트는 가장자리로 손을 뻗을 때만 나옵니다.";
+"settings.general.body.peekWaiting.off.bare.smart" = "이 옵션과 가는 띠가 모두 꺼져 있고 가장자리에 창이 있으면 대기를 알리는 것이 없습니다. 마스코트는 가장자리가 비었거나 가장자리로 손을 뻗을 때만 나옵니다.";
 "settings.general.body.peekDone" = "끝나면 잠깐 나오기";
 "settings.general.body.peekDone.detail" = "세션이나 작업이 끝나거나 실패하면 몇 초 동안 나옵니다.";
 "settings.general.nudge.off" = "끔";

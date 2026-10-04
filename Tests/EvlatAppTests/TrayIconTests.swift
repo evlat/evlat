@@ -58,6 +58,8 @@ final class TrayIconTests: XCTestCase {
         XCTAssertTrue(controller.trayAmber)
         controller.bodyMode = .smart
         XCTAssertFalse(controller.trayAmber, "smart still has its peek: no amber")
+        controller.bodyMode = .tucked
+        XCTAssertFalse(controller.trayAmber, "nor does tucked")
         controller.bodyMode = .hidden
         controller.mascot.override = .review
         controller.applyPresence()

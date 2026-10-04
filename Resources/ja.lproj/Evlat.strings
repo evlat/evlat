@@ -422,6 +422,9 @@
 "settings.general.body.detail" = "バーを画面の端にどう置くか。";
 "settings.general.body.always" = "常に表示";
 "settings.general.body.smart" = "スマートに隠す";
+"settings.general.body.smart.detail" = "下にウインドウがないときは表示し、あるときはしまいます。";
+"settings.general.body.tucked" = "端にしまう";
+"settings.general.body.tucked.detail" = "下にウインドウがなくても、しまったままにします。";
 "settings.general.body.hidden" = "隠す";
 "settings.general.body.sliver" = "細い目印を表示";
 "settings.general.body.sliver.detail" = "端の小さな目印と、状態を示すドット。";
@@ -429,6 +432,7 @@
 "settings.general.body.peekWaiting.detail" = "権限の確認や質問があると、マスコットが顔をのぞかせます。";
 "settings.general.body.peekWaiting.off" = "これがオフの間、返答待ちは目印の琥珀色のドットでのみ示されます。";
 "settings.general.body.peekWaiting.off.bare" = "これと目印がオフの間、端には返答待ちを示すものが何もありません。マスコットは、ポインタを端に持っていったときだけ現れます。";
+"settings.general.body.peekWaiting.off.bare.smart" = "これと目印がオフの間、端にウインドウがあると返答待ちを示すものが何もありません。マスコットは、端が空いたときか、ポインタを端に持っていったときだけ現れます。";
 "settings.general.body.peekDone" = "完了時に少しのぞかせる";
 "settings.general.body.peekDone.detail" = "セッションやジョブが完了または失敗すると、数秒間だけ現れます。";
 "settings.general.nudge.off" = "オフ";

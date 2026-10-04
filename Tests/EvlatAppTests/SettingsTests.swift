@@ -388,8 +388,9 @@ final class SettingsTests: XCTestCase {
     // MARK: - Body
 
     /// The choice goes to the writer; the switches are offered only under
-    /// Smart, and turning the waiting peek off says what is left of it.
-    func testTheBodyRowGoesToTheWriterAndShowsTheSwitchesOnlyWhenSmart() {
+    /// Smart (and Tucked, below), and turning the waiting peek off says what
+    /// is left of it.
+    func testTheBodyRowGoesToTheWriterAndShowsTheSwitchesOnlyWhenItHides() {
         let recorder = Recorder()
         let model = model(recorder)
         XCTAssertEqual(model.bodyMode, .always)
@@ -406,11 +407,40 @@ final class SettingsTests: XCTestCase {
         model.setBodyToggle(\.sliver, on: false)
         XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: false, peekWaiting: false, peekDone: true))
         XCTAssertTrue(model.showsPeekWarning)
-        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.bare",
-                       "no sliver, no peek: the warning says nothing is left on the edge")
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.bare.smart",
+                       "no sliver, no peek: the warning says nothing is left while a window is on the edge")
         model.setBodyMode(.hidden)
         XCTAssertFalse(model.showsBodyToggles, "hidden has neither sliver nor peek")
         XCTAssertFalse(model.showsPeekWarning)
+    }
+
+    /// Smart and Tucked both offer the switches, each says in a line what it
+    /// does, and with the sliver and the waiting peek off Smart's warning
+    /// knows a clear edge still brings the body out.
+    func testSmartAndTuckedOfferTheSwitchesAndSayWhatTheyDo() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        XCTAssertNil(model.bodyModeDetailKey, "always says it by name")
+        model.setBodyMode(.tucked)
+        XCTAssertEqual(recorder.bodyMode, .tucked)
+        XCTAssertTrue(model.showsBodyToggles)
+        XCTAssertEqual(model.bodyModeDetailKey, "settings.general.body.tucked.detail")
+        model.setBodyToggle(\.peekWaiting, on: false)
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off")
+        model.setBodyToggle(\.sliver, on: false)
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.bare",
+                       "tucked: nothing on the edge, ever")
+        model.setBodyMode(.smart)
+        XCTAssertTrue(model.showsBodyToggles)
+        XCTAssertTrue(model.showsPeekWarning)
+        XCTAssertEqual(model.bodyModeDetailKey, "settings.general.body.smart.detail")
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.bare.smart",
+                       "smart: nothing only while a window is under the edge")
+        model.setBodyToggle(\.sliver, on: true)
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off")
+        model.setBodyMode(.hidden)
+        XCTAssertNil(model.bodyModeDetailKey)
+        XCTAssertFalse(model.showsBodyToggles)
     }
 
     /// The controller's writers store the choice and apply it at once.
@@ -428,6 +458,10 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(AppController.storedBodyToggles(defaults),
                        BodyPresence.Toggles(sliver: false, peekWaiting: true, peekDone: false))
         XCTAssertEqual(controller.barState.presence.level, .none, "the sliver switched off is gone")
+        host.setBodyMode(.tucked)
+        XCTAssertEqual(controller.bodyMode, .tucked)
+        XCTAssertEqual(defaults.string(forKey: AppController.bodyModeKey), "tucked")
+        XCTAssertEqual(controller.barState.presence.level, .none, "the switches hold under tucked too")
     }
 
     /// Under `EVLAT_BODY` the writers apply but never store: the user's

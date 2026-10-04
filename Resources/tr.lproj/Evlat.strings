@@ -432,6 +432,9 @@
 "settings.general.body.detail" = "Bar ekran kenarında nasıl dursun.";
 "settings.general.body.always" = "Hep açık";
 "settings.general.body.smart" = "Akıllı saklan";
+"settings.general.body.smart.detail" = "Altında pencere yokken dışarıda; bir pencere gelince içeri çekilir.";
+"settings.general.body.tucked" = "Kenarda";
+"settings.general.body.tucked.detail" = "Altında pencere olmasa da içeride durur.";
 "settings.general.body.hidden" = "Tam gizli";
 "settings.general.body.sliver" = "Kabartmayı göster";
 "settings.general.body.sliver.detail" = "Kenarda küçük bir iz ve durum noktası.";
@@ -439,6 +442,7 @@
 "settings.general.body.peekWaiting.detail" = "İzin ya da soru varsa maskot göz ucuyla görünür.";
 "settings.general.body.peekWaiting.off" = "Bu kapalıyken bekleme yalnızca kabartmadaki amber noktayla anlatılır.";
 "settings.general.body.peekWaiting.off.bare" = "Bu ve kabartma kapalıyken kenarda beklemeyi gösteren hiçbir şey kalmaz: maskot yalnızca kenara uzandığında çıkar.";
+"settings.general.body.peekWaiting.off.bare.smart" = "Bu ve kabartma kapalıyken, kenarda bir pencere durdukça beklemeyi gösteren hiçbir şey kalmaz: maskot yalnızca kenar boşaldığında ya da kenara uzandığında çıkar.";
 "settings.general.body.peekDone" = "Bitince kısaca göster";
 "settings.general.body.peekDone.detail" = "Bir oturum ya da iş bitince veya hata verince birkaç saniye görünür.";
 "settings.general.nudge.off" = "Kapalı";
