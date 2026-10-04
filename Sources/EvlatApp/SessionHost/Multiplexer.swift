@@ -13,11 +13,12 @@ protocol Multiplexer {
     /// The server's clients that may be showing the agent's pane, best first.
     static func clients(server: Int32, path: String, agent: Int32, _ probe: SessionHost.Probe) -> [Int32]
     /// What the host learns once a client is found: herdr's pane to select.
-    static func finish(_ app: inout SessionHost.App, server path: String, agent: Int32,
+    /// `root` is the walk's last process before the server: the pane's own.
+    static func finish(_ app: inout SessionHost.App, server: Int32, root: Int32, agent: Int32,
                        _ probe: SessionHost.Probe)
 }
 
 extension Multiplexer {
-    static func finish(_ app: inout SessionHost.App, server path: String, agent: Int32,
+    static func finish(_ app: inout SessionHost.App, server: Int32, root: Int32, agent: Int32,
                        _ probe: SessionHost.Probe) {}
 }

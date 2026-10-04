@@ -480,11 +480,18 @@ is lost with the process.
   most). A pane whose client is not found opens no tab: the app comes
   forward only if the walk still reaches one. Each multiplexer is one
   type conforming to `Multiplexer` (`Herdr`, `Tmux`), listed in
-  `SessionHost.multiplexers`. A herdr pane is then selected inside the tab with
-  `herdr agent focus <HERDR_PANE_ID>` (`HerdrPane`). That and the tmux
-  query above are the only processes Evlat runs to find and open a
-  local session: each the server's own executable, fixed arguments, checked
-  values, no shell, and a command that only reads or selects. The value is checked
+  `SessionHost.multiplexers`. A herdr pane is found from the process, not
+  the agent's environment: over the server's own API socket (`herdr.sock`,
+  among its unix sockets; `HerdrSocket`), `pane.list` and each pane's
+  `pane.process_info`, the pane whose shell (else a foreground process) is
+  the walk's last process before the server; the click selects it with
+  `pane.focus` before the app comes forward, which comes whether or not it
+  could (`HerdrPane`). One user action's herdr calls — the card coming up,
+  or a click's lookup and selection — share one 0.25 s deadline (monotonic,
+  from the first call), past which nothing more is sent; `--list` says what herdr answered (`HerdrLookup`).
+  The tmux query above is the only process Evlat runs to find and open a
+  local session: the server's own executable, fixed arguments, checked
+  values, no shell, and a command that only reads. The value is checked
   (`TabLink`): `metalterm://tab/restart` is an action, not a tab.
   Setting sandboxes up is the one place Evlat runs `sbx` (`SandboxRunner`,
   found as `EVLAT_SBX` or on the login `PATH`), only while "Watch
@@ -1067,8 +1074,17 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   no order of attaching either (17:08 got 22670, 17:18 got 37020). A
   client counts only with a terminal and a connection to the client socket
   (`unsi_conn_pcb` = the server's accepted `soi_pcb`, what `lsof -U` shows
-  as `->0x…`), newest start first. Every client shows the same view: a
-  switch in one window was seen in the other at once.
+  as `->0x…`), newest start first. Clients navigate on their own since
+  herdr 0.9.0 (its changelog), so the newest may show another workspace;
+  a focus over the API socket moves every client (0.9.3's source,
+  `focus_all_shell_clients_on_default_target`), which is what makes the
+  newest right — once the pane is selected.
+- **herdr's API socket answers one request per connection.** A second
+  line on the same connection met `Broken pipe` (0.9.3), so each request
+  is its own connection, with `SO_NOSIGPIPE`: a write to a closed peer
+  otherwise ended the process (signal 13, `HerdrSocketTests`). Calls took
+  0.5–2.5 ms; finding one pane among six, 3–7 ms. `pane.process_info`'s
+  `tty` was `null` on macOS; its `shell_pid` is the pane's root process.
 - **A home NAT rewrites the ssh client port.** The tunnel's
   `192.168.1.217:60070` reached the server as `31.223.75.17:19656`, a
   Bateri tab's `:63114` as `:19554` (OpenSSH 9.6p1, 2026-10-02): matching

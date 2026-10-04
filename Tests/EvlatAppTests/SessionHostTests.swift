@@ -30,7 +30,8 @@ final class SessionHostTests: XCTestCase {
                        terminals: [Int32: Bool] = [:],
                        started: [Int32: TimeInterval] = [:],
                        tcp: [Int32: [SessionHost.TCPSocket]] = [:],
-                       tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil }) -> SessionHost.Probe {
+                       tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil },
+                       herdr: @escaping HerdrSocket.Call = { _, _ in .unreachable }) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
                           regularApp: { table[$0]?.app },
                           executablePath: { table[$0]?.path },
@@ -43,6 +44,7 @@ final class SessionHostTests: XCTestCase {
                           hasTerminal: { terminals[$0] },
                           startedAt: { started[$0].map(Date.init(timeIntervalSince1970:)) },
                           tmux: tmux,
+                          herdr: herdr,
                           tcpSockets: { tcp[$0] ?? [] })
     }
 

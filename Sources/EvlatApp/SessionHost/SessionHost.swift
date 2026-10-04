@@ -32,10 +32,11 @@ enum SessionHost: Equatable {
         /// The session's own tab in that app, when the app publishes a link
         /// to it (`TabLink`); activation then opens it instead.
         var tab: URL? = nil
-        /// The herdr pane the session runs in, when it runs in one: the tab
-        /// is herdr's client, and herdr picks the pane inside it. The one
-        /// multiplexer whose pane is selected (`Multiplexer.finish`).
-        var herdr: HerdrPane? = nil
+        /// What herdr said of the session's pane, when the walk reached the
+        /// app through a herdr client: the tab is herdr's client, and herdr
+        /// picks the pane inside it (`.pane`). The one multiplexer whose pane
+        /// is selected (`Multiplexer.finish`).
+        var herdr: HerdrLookup? = nil
     }
 
     /// The lookups the walk makes, injected so the walk has no Darwin in it.
@@ -68,6 +69,9 @@ enum SessionHost: Equatable {
         /// A tmux server asked for a pane's session and its clients
         /// (`TmuxQuery.run`).
         var tmux: (TmuxQuery) -> TmuxReply? = { _ in nil }
+        /// One request line to a herdr server's API socket, under the
+        /// action's one deadline (`HerdrSocket.session`).
+        var herdr: HerdrSocket.Call = { _, _ in .unreachable }
         /// The established TCP connections a process holds: an ssh to a
         /// server is found by the server's end (`Ssh`). `nil` when they
         /// cannot be read.
@@ -156,6 +160,9 @@ enum SessionHost: Equatable {
     private static func walk(pid: Int32, _ probe: Probe,
                              throughServers: Bool = true) -> (host: SessionHost, terminal: Int32, passedServer: Bool) {
         var current = pid
+        // The process before `current` in the walk: at a server, the pane's
+        // root process.
+        var previous = pid
         var paths: [String] = []
         var passedServer = false
         for _ in 0..<maxSteps {
@@ -166,12 +173,14 @@ enum SessionHost: Equatable {
                 if let multiplexer = multiplexers.first(where: { $0.isServer(current, path: path, probe) }) {
                     passedServer = true
                     if throughServers,
-                       let found = viaClient(of: multiplexer, server: current, path: path, agent: pid, probe) {
+                       let found = viaClient(of: multiplexer, server: current, path: path, root: previous,
+                                             agent: pid, probe) {
                         return (found.host, found.terminal, true)
                     }
                 }
             }
             guard let up = probe.parent(current), up != current else { break }
+            previous = current
             current = up
         }
         for path in paths.reversed() {
@@ -187,13 +196,13 @@ enum SessionHost: Equatable {
     /// first closed app named; `nil` when none reaches either. A server with
     /// no client is not a host: the walk goes on and ends `notFound`, or
     /// names a client's closed app.
-    private static func viaClient(of multiplexer: Multiplexer.Type, server: Int32, path: String, agent: Int32,
-                                  _ probe: Probe) -> (host: SessionHost, terminal: Int32)? {
+    private static func viaClient(of multiplexer: Multiplexer.Type, server: Int32, path: String, root: Int32,
+                                  agent: Int32, _ probe: Probe) -> (host: SessionHost, terminal: Int32)? {
         var closed: SessionHost?
         for client in multiplexer.clients(server: server, path: path, agent: agent, probe) {
             switch walk(pid: client, probe, throughServers: false).host {
             case .app(var app):
-                multiplexer.finish(&app, server: path, agent: agent, probe)
+                multiplexer.finish(&app, server: server, root: root, agent: agent, probe)
                 return (.app(app), client)
             case .closed(let name): closed = closed ?? .closed(name: name)
             case .notFound: continue
@@ -225,10 +234,10 @@ enum SessionHost: Equatable {
     }
 
     /// `--list`'s word for it. Names only: the pid stays out of anything that
-    /// ends up pasted into a bug report.
+    /// ends up pasted into a bug report. What herdr said of the pane follows.
     var diagnostic: String {
         switch self {
-        case .app(let app): return "\(app.name) (\(app.bundleID))"
+        case .app(let app): return "\(app.name) (\(app.bundleID))" + (app.herdr.map { "  ·  \($0.diagnostic)" } ?? "")
         case .closed(let name): return "\(name) (closed)"
         case .notFound: return "no terminal"
         }
@@ -237,12 +246,17 @@ enum SessionHost: Equatable {
 
     // MARK: - The real lookups
 
-    static let live = Probe(parent: parentPID, regularApp: regularApp,
-                            executablePath: executablePath, bundle: bundle, running: runningApp,
-                            environment: environment, arguments: arguments, processes: allPIDs,
-                            unixSockets: unixSockets, hasTerminal: hasTerminal,
-                            startedAt: startedAt, tmux: TmuxQuery.run, tcpSockets: tcpSockets,
-                            currentDirectory: currentDirectory)
+    /// A new one per user action: its herdr calls share one deadline from
+    /// the first of them (`HerdrSocket.session`), and so does the pane it
+    /// finds. Read it once per action; never keep it.
+    static var live: Probe {
+        Probe(parent: parentPID, regularApp: regularApp,
+              executablePath: executablePath, bundle: bundle, running: runningApp,
+              environment: environment, arguments: arguments, processes: allPIDs,
+              unixSockets: unixSockets, hasTerminal: hasTerminal,
+              startedAt: startedAt, tmux: TmuxQuery.run, herdr: HerdrSocket.session(), tcpSockets: tcpSockets,
+              currentDirectory: currentDirectory)
+    }
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }
 
@@ -255,11 +269,25 @@ enum SessionHost: Equatable {
     /// both be on the machine, and the default handler may not be the one
     /// the session is in. The app selects the tab and comes forward itself;
     /// if the open fails, the app is still brought forward.
+    ///
+    /// A herdr pane is selected first, and waited for (within the click's
+    /// deadline), so the window comes up on it; checked before, so a test
+    /// run offstage never selects a pane in the user's herdr.
     @discardableResult
     static func activate(_ app: App) -> Bool {
         guard let running = NSRunningApplication(processIdentifier: app.pid),
               !running.isTerminated, !WindowStage.isOffstage else { return false }
-        app.herdr?.focus()
+        return activate(app, focus: { $0.focus() }, bringForward: { bringForward($0, running) })
+    }
+
+    /// The order, apart from AppKit: the pane, then the window, which comes
+    /// whether or not the pane could be selected.
+    static func activate(_ app: App, focus: (HerdrPane) -> Bool, bringForward: (App) -> Bool) -> Bool {
+        if case .pane(let pane) = app.herdr { _ = focus(pane) }
+        return bringForward(app)
+    }
+
+    private static func bringForward(_ app: App, _ running: NSRunningApplication) -> Bool {
         if let tab = app.tab, let bundle = running.bundleURL {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
