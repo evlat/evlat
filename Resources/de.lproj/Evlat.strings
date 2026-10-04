@@ -156,6 +156,7 @@
 "remote.combined.checkNote" = "Die Prüfung liest nur, über ssh. Zum Entfernen gelten die Anleitungen der einzelnen Zeilen.";
 
 "chat.placeholder" = "Was soll ich tun?";
+"chat.placeholder.looking" = "Chat-Programm wird gesucht…";
 "chat.placeholder.file" = "Was soll ich damit tun?";
 "chat.placeholder.files" = "Was soll ich mit diesen Dateien tun?";
 "chat.suggestion.summarize" = "Zusammenfassen";
@@ -189,6 +190,7 @@
 "chat.notDone.prompt" = "Versuch das noch einmal: {command}";
 "chat.hint" = "Du kannst Dateien hineinziehen · Esc schließt";
 "chat.missing" = "{agent} wurde nicht gefunden — installiere es und öffne das hier dann erneut.";
+"chat.nothingFound" = "Für den Chat wird eines dieser Programme gebraucht:";
 "chat.working" = "Arbeitet …";
 "chat.suggestion.capabilities" = "Was kannst du?";
 "chat.suggestion.memory" = "Was belegt den meisten Arbeitsspeicher?";

@@ -40,8 +40,9 @@ final class ChatStore {
 
     /// The backends, in the catalogue's order.
     let lanes: [Lane]
-    /// The backend a new chat is made on: the user's choice, read when one
-    /// is made. An id among no lane's is the first lane's.
+    /// The backend a new chat is made on: the user's choice, else the first
+    /// found (`firstFoundLane`), read when one is made. An id among no
+    /// lane's is the first lane's.
     private let selected: () -> AgentID
     private let now: () -> Date
     /// Sends a signal to a pid; `kill`, handed in so the orphan rule's
@@ -188,11 +189,61 @@ final class ChatStore {
 
     var sessionIDs: Set<String> { provider.sessionIDs }
 
-    /// Is there a program to send to — the chat's backend's, or for no chat
-    /// the selected one's? For the balloon's empty state; the same lookup a
-    /// turn makes, so the two never disagree. Main queue.
-    func locateBackend(for chat: String? = nil, _ completion: @escaping (Bool) -> Void) {
-        (chat.flatMap(lane(of:)) ?? selectedLane).locator.locate { completion($0.executable != nil) }
+    /// The first lane, in the catalogue's order, whose program was found and
+    /// kept (`AgentLocator.isFound`): the new chats' backend when none is
+    /// stored. Asks nothing.
+    var firstFoundLane: Lane? { lanes.first { $0.locator.isFound } }
+
+    /// Whether the balloon has a program to send to.
+    enum Availability: Equatable {
+        case ready
+        /// Nothing stored and no program known yet: the search decides the
+        /// backend, so nothing is sent until it has.
+        case looking
+        /// The chat's backend — or the stored one, while another's program
+        /// is there — has no program.
+        case missing
+        /// No backend's program was found.
+        case nothingFound
+    }
+
+    /// Is there a program to send to — the chat's backend's, the stored
+    /// one's (`stored`), or with neither the first found? The same lookups a
+    /// turn makes, so the two never disagree. A lookup runs only where the
+    /// answer depends on it: nothing stored and a lane ahead of the first
+    /// found one not found yet (in order, stopping at the first hit), or a
+    /// backend that missed (the others, to tell `missing` from
+    /// `nothingFound`). Calls back once with the answer, and before that
+    /// with `.looking` when the answer decides the backend. Main queue.
+    func locateBackend(for chat: String? = nil, stored: AgentID? = nil,
+                       _ completion: @escaping (Availability) -> Void) {
+        if let chat, let lane = lane(of: chat) {
+            // A chat is its backend's for good: another's program is no help.
+            return lane.locator.locate { completion($0.executable != nil ? .ready : .missing) }
+        }
+        if let stored, let lane = lanes.first(where: { $0.backend.id == stored }) {
+            let others = lanes.filter { $0.backend.id != stored }
+            return lane.locator.locate { location in
+                guard location.executable == nil else { return completion(.ready) }
+                Self.firstFound(in: others[...]) { completion($0 == nil ? .nothingFound : .missing) }
+            }
+        }
+        let known = lanes.firstIndex { $0.locator.isFound }
+        let ahead = lanes[..<(known ?? lanes.count)]
+        guard !ahead.isEmpty else { return completion(.ready) }
+        if known == nil { completion(.looking) }
+        Self.firstFound(in: ahead) { hit in completion(hit != nil || known != nil ? .ready : .nothingFound) }
+    }
+
+    /// The first of `lanes` whose program is there, looked up one after
+    /// another — one login shell at a time (`AgentLocator.SharedLoginPath`) —
+    /// and no further once one is.
+    private static func firstFound(in lanes: ArraySlice<Lane>, _ completion: @escaping (Lane?) -> Void) {
+        guard let lane = lanes.first else { return completion(nil) }
+        lane.locator.locate { location in
+            if location.executable != nil { return completion(lane) }
+            firstFound(in: lanes.dropFirst(), completion)
+        }
     }
 
     /// Why the first backend's index (`indexFile`) could not be read.

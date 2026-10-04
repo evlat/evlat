@@ -156,6 +156,7 @@
 "remote.combined.checkNote" = "확인은 ssh로 읽기만 합니다. 제거는 각 행의 안내를 따르세요.";
 
 "chat.placeholder" = "무엇을 할까요?";
+"chat.placeholder.looking" = "채팅 프로그램을 찾는 중…";
 "chat.placeholder.file" = "이 파일로 무엇을 할까요?";
 "chat.placeholder.files" = "이 파일들로 무엇을 할까요?";
 "chat.suggestion.summarize" = "요약하기";
@@ -189,6 +190,7 @@
 "chat.notDone.prompt" = "이것을 다시 시도해 줘: {command}";
 "chat.hint" = "파일을 끌어다 놓을 수 있음 · Esc로 닫기";
 "chat.missing" = "{agent}을(를) 찾을 수 없습니다. 설치한 뒤 다시 여세요.";
+"chat.nothingFound" = "채팅에는 다음 프로그램 중 하나가 필요합니다:";
 "chat.working" = "작업 중…";
 "chat.suggestion.capabilities" = "뭘 할 수 있어?";
 "chat.suggestion.memory" = "메모리를 가장 많이 쓰는 게 뭐야?";

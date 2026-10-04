@@ -308,10 +308,10 @@ final class CodexRunnerTests: XCTestCase {
         XCTAssertNil(made.chat(id)?.failure, "still Codex's: Claude's program is not there")
         let next = made.newChat()
         XCTAssertEqual(made.backend(of: next)?.id, .claude)
-        var found: Bool?
+        var found: ChatStore.Availability?
         made.locateBackend(for: next) { found = $0 }
         waitUntil("looked for") { found != nil }
-        XCTAssertEqual(found, false, "the new chat's program is Claude's, which is not there")
+        XCTAssertEqual(found, .missing, "the new chat's program is Claude's, which is not there")
     }
 }
 
@@ -336,11 +336,11 @@ final class ChatBackendChoiceTests: XCTestCase {
     }
 
     func testTheNewChatsBackendIsStoredByItsID() {
-        XCTAssertEqual(AppController.storedBackend(defaults).id, .claude, "none stored is the catalogue's first")
+        XCTAssertNil(AppController.storedBackend(defaults), "none stored is no choice")
         defaults.set("codex", forKey: AppController.backendKey)
-        XCTAssertEqual(AppController.storedBackend(defaults).id, .codex)
+        XCTAssertEqual(AppController.storedBackend(defaults)?.id, .codex)
         defaults.set("nobody", forKey: AppController.backendKey)
-        XCTAssertEqual(AppController.storedBackend(defaults).id, .claude, "an id this build has no backend for")
+        XCTAssertNil(AppController.storedBackend(defaults), "an id this build has no backend for")
         XCTAssertEqual(AppController.backendKey, "chat.backend")
     }
 

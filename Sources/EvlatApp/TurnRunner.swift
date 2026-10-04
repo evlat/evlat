@@ -216,6 +216,10 @@ final class AgentLocator {
         }
     }
 
+    /// Is a find kept — will `locate` answer at once with a program? Asks
+    /// nothing: a miss is never kept, so this is `false` until a lookup hit.
+    var isFound: Bool { found?.executable != nil }
+
     /// Calls back on the main queue — at once when already known, else after
     /// one lookup off the main queue. Called on the main queue.
     func locate(_ completion: @escaping (Location) -> Void) {

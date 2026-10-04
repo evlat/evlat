@@ -186,9 +186,18 @@ which agent it is:
   server, so Codex's "this command again" is measured to hold within one
   server only; across a turn's `thread/resume` it was not measured.
 - A chat runs on the backend selected when it was made (Settings → Chat,
-  `chat.backend`, none stored is the catalogue's first) and keeps it; its
-  session id is the agent's own when the first turn names one (Codex's
-  thread). The conversation itself is the agent's: Claude Code and Codex
+  `chat.backend`) and keeps it; its session id is the agent's own when the
+  first turn names one (Codex's thread). None stored, it is the first
+  backend in the catalogue whose program was found and kept
+  (`ChatStore.firstFoundLane`, `AgentLocator.isFound`), else the
+  catalogue's first — derived each time, never written. The balloon looks
+  a program up only where the answer depends on it (`ChatStore.locateBackend`):
+  nothing stored and a backend ahead of the first found one not found
+  yet (in order, stopping at the first hit; meanwhile it is `looking` and
+  sends nothing), or the chat's or stored backend missing. An open chat's
+  missing program, or a stored one's while another's is there, is
+  `chat.missing`; no program at all names no agent and links each
+  backend's `installPage`, opened in the browser behind the app in front. The conversation itself is the agent's: Claude Code and Codex
   write it under their own homes (`~/.claude`, `~/.codex`), Evlat keeps
   only the index.
 - Modes are the backend's (`ChatMode`): a mode's own denial is retried in

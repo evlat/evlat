@@ -214,6 +214,7 @@
 
 /* The chat balloon (011) */
 "chat.placeholder" = "What should I do?";
+"chat.placeholder.looking" = "Looking for the chat program…";
 "chat.placeholder.file" = "What should I do with it?";
 "chat.placeholder.files" = "What should I do with these files?";
 "chat.suggestion.summarize" = "Summarize";
@@ -247,6 +248,7 @@
 "chat.notDone.prompt" = "Try this again: {command}";
 "chat.hint" = "You can drop files · Esc closes";
 "chat.missing" = "{agent} was not found — install it, then open this again.";
+"chat.nothingFound" = "Chat needs one of these programs:";
 "chat.working" = "Working…";
 "chat.suggestion.capabilities" = "What can you do?";
 "chat.suggestion.memory" = "What's using the most memory?";

@@ -89,8 +89,10 @@ struct ChatView: View {
         let shape = BalloonShape(tailOnLeft: isLeft, tailCenter: ChatPanel.tailCenter,
                                  tailDepth: ChatPanel.tailDepth)
         return VStack(alignment: .leading, spacing: 10) {
-            if model.backendMissing {
+            if model.backendState == .missing {
                 missing
+            } else if model.backendState == .nothingFound {
+                nothingFound
             } else {
                 if !model.messages.isEmpty { transcript }
                 if let failure = model.failure { failureLine(failure) }
@@ -131,6 +133,25 @@ struct ChatView: View {
             Text(L10n.t("chat.missing", ["agent": model.agentName]))
                 .foregroundStyle(ChatPalette.reply)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.system(size: 12.5))
+        .padding(.vertical, 2)
+    }
+
+    /// No program at all: one sentence that names no agent, and each
+    /// backend's install page under it, opened behind the app in front.
+    private var nothingFound: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(ChatPalette.placeholder)
+                Text(L10n.t("chat.nothingFound"))
+                    .foregroundStyle(ChatPalette.reply)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(ChatModel.installLinks) { link in
+                InstallLinkRow(title: L10n.t(link.nameKey)) { model.openInstallPage(link) }
+            }
         }
         .font(.system(size: 12.5))
         .padding(.vertical, 2)
@@ -1027,6 +1048,30 @@ private struct SuggestionChip: View {
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .animation(.easeOut(duration: 0.1), value: hovered)
+    }
+}
+
+/// An install page's link: the agent's name and the mark of a page that
+/// opens elsewhere, in the reply's link blue.
+private struct InstallLinkRow: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .underline(hovered)
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(ChatPalette.link)
+            .padding(.leading, 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 

@@ -156,6 +156,7 @@
 "remote.combined.checkNote" = "Перевірка лише читає, через ssh. Щоб видалити, дотримуйтеся інструкцій кожного рядка.";
 
 "chat.placeholder" = "Що мені зробити?";
+"chat.placeholder.looking" = "Шукаємо програму для чату…";
 "chat.placeholder.file" = "Що з ним зробити?";
 "chat.placeholder.files" = "Що зробити з цими файлами?";
 "chat.suggestion.summarize" = "Стисло переказати";
@@ -189,6 +190,7 @@
 "chat.notDone.prompt" = "Спробуй ще раз: {command}";
 "chat.hint" = "Можна кинути файли · Esc закриває";
 "chat.missing" = "{agent} не знайдено — установіть його й відкрийте знову.";
+"chat.nothingFound" = "Для чату потрібна одна з цих програм:";
 "chat.working" = "Працює…";
 "chat.suggestion.capabilities" = "Що ти вмієш?";
 "chat.suggestion.memory" = "Що займає найбільше пам’яті?";

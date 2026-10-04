@@ -159,6 +159,7 @@
 
 /* Sohbet balonu (011) */
 "chat.placeholder" = "Ne yapayım?";
+"chat.placeholder.looking" = "Sohbet programı aranıyor…";
 "chat.placeholder.file" = "Bununla ne yapayım?";
 "chat.placeholder.files" = "Bu dosyalarla ne yapayım?";
 "chat.suggestion.summarize" = "Özetle";
@@ -192,6 +193,7 @@
 "chat.notDone.prompt" = "Bunu tekrar dene: {command}";
 "chat.hint" = "Dosya bırakabilirsin · Esc kapatır";
 "chat.missing" = "{agent} bulunamadı — kurduktan sonra balonu yeniden aç.";
+"chat.nothingFound" = "Sohbet için şu programlardan biri gerekiyor:";
 "chat.working" = "Çalışıyor…";
 "chat.suggestion.capabilities" = "Neler yapabilirsin?";
 "chat.suggestion.memory" = "En çok belleği ne kullanıyor?";

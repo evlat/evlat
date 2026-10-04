@@ -10,6 +10,10 @@ Markdown; keep it to a few bullets.
 
 ## Unreleased
 
+- **Chat starts with what you have.** If you haven't picked one in
+  Settings → Chat, a new chat runs on whichever of Claude Code and Codex
+  is installed — with only Codex, it's Codex. With neither, the chat says
+  so and links to where each one is installed.
 - **Claude Code in Docker sandboxes.** Sessions of Claude Code running in a
   local Docker sandbox (`sbx`) now show on the bar under the sandbox's
   name: working, waiting for you, finished, with the same sounds and

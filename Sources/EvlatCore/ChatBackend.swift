@@ -39,6 +39,9 @@ public protocol ChatBackend {
     /// A catalogue key for one line Settings shows under the backend while it
     /// is chosen (an experimental protocol, say); `nil` for none.
     var noteKey: String? { get }
+    /// Where the backend's program is installed from: the balloon links it
+    /// when no backend's program was found. `nil` links nothing.
+    var installPage: URL? { get }
 
     /// The turn to start for `spec`, with what is known only when it starts.
     func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch
@@ -64,6 +67,8 @@ extension ChatBackend {
     public var measuredVersion: String? { nil }
 
     public var noteKey: String? { nil }
+
+    public var installPage: URL? { nil }
 
     /// A stored mode read back; anything else — an old value, a mode this
     /// build does not offer — is `nil`, and the caller's default applies.

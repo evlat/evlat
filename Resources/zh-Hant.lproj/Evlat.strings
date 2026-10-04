@@ -156,6 +156,7 @@
 "remote.combined.checkNote" = "檢查只會透過 ssh 讀取。若要移除，請依照各列自己的說明。";
 
 "chat.placeholder" = "要我做什麼？";
+"chat.placeholder.looking" = "正在尋找對話程式…";
 "chat.placeholder.file" = "要我拿它做什麼？";
 "chat.placeholder.files" = "要我拿這些檔案做什麼？";
 "chat.suggestion.summarize" = "摘要";
@@ -189,6 +190,7 @@
 "chat.notDone.prompt" = "再試一次這個：{command}";
 "chat.hint" = "可以拖入檔案 · Esc 關閉";
 "chat.missing" = "找不到 {agent}——請先安裝，再重新開啟。";
+"chat.nothingFound" = "對話需要以下其中一個程式：";
 "chat.working" = "執行中…";
 "chat.suggestion.capabilities" = "你能做什麼？";
 "chat.suggestion.memory" = "什麼最占記憶體？";

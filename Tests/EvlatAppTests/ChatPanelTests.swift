@@ -512,7 +512,159 @@ final class ChatPanelTests: XCTestCase {
         controller.chats = ChatStore(root: directory, platform: .unknown,
                                      locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": "/nonexistent"]))
         controller.openChat()
-        XCTAssertTrue(controller.chatModel.backendMissing)
+        XCTAssertEqual(controller.chatModel.backendState, .nothingFound, "the one backend there is has no program")
+    }
+
+    // MARK: - The backend found
+
+    /// An executable named `name` in a folder of its own: a program a
+    /// locator can find.
+    private func program(_ name: String) throws -> String {
+        let folder = directory.appendingPathComponent("bin-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let path = folder.appendingPathComponent(name).path
+        FileManager.default.createFile(atPath: path, contents: Data("#!/bin/sh\n".utf8),
+                                       attributes: [.posixPermissions: 0o755])
+        return path
+    }
+
+    /// A locator answered by `EVLAT_<NAME>` alone: the program at `path`,
+    /// or none. Never the login shell.
+    private func locator(_ name: String, at path: String?) -> AgentLocator {
+        AgentLocator(name: name, environment: [ChatBackends.variable(for: name): path ?? "/nonexistent"],
+                     loginPath: { XCTFail("no login shell"); return nil })
+    }
+
+    /// Every chat backend on its lane, the controller choosing among them as
+    /// the app does.
+    private func store(_ controller: AppController, _ locators: [AgentID: AgentLocator]) -> ChatStore {
+        ChatStore(root: directory, platform: .unknown,
+                  lanes: Agents.chatBackends.map { ChatStore.Lane(backend: $0, locator: locators[$0.id]!) },
+                  selected: { [unowned controller] in MainActor.assumeIsolated { controller.chatBackend.id } })
+    }
+
+    /// Only Codex is there and nothing is stored: the balloon is Codex's,
+    /// a chat is made on it, and nothing is written down.
+    func testWithOnlyCodexTheChatIsCodexs() throws {
+        let controller = controller()
+        defer { close(controller) }
+        controller.chats = store(controller, [.claude: locator("claude", at: nil),
+                                              .codex: locator("codex", at: try program("codex"))])
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.backendState, .ready)
+        XCTAssertEqual(controller.chatBackend.id, .codex)
+        XCTAssertEqual(controller.chatModel.agent, .codex, "the corner names it")
+        XCTAssertEqual(controller.chatModel.mode, controller.defaultMode(for: CodexChat()))
+        let chats = try XCTUnwrap(controller.chats)
+        XCTAssertEqual(chats.backend(of: chats.newChat())?.id, .codex)
+        XCTAssertNil(defaults.string(forKey: AppController.backendKey), "the default is never stored")
+    }
+
+    /// Both are there: the catalogue's order picks.
+    func testWithBothTheFirstIsTheChats() throws {
+        let controller = controller()
+        defer { close(controller) }
+        controller.chats = store(controller, [.claude: locator("claude", at: try program("claude")),
+                                              .codex: locator("codex", at: try program("codex"))])
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.backendState, .ready)
+        XCTAssertEqual(controller.chatBackend.id, .claude)
+        XCTAssertNil(defaults.string(forKey: AppController.backendKey))
+    }
+
+    /// The stored choice stands without its program: the balloon says it is
+    /// missing — another's is there — and the record is left as it was.
+    func testAStoredBackendWithoutItsProgramIsMissing() throws {
+        defaults.set("codex", forKey: AppController.backendKey)
+        let controller = controller()
+        defer { close(controller) }
+        controller.chats = store(controller, [.claude: locator("claude", at: try program("claude")),
+                                              .codex: locator("codex", at: nil)])
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.backendState, .missing)
+        XCTAssertEqual(controller.chatModel.agent, .codex, "the line names the chosen one")
+        XCTAssertEqual(controller.chatBackend.id, .codex)
+        XCTAssertEqual(defaults.string(forKey: AppController.backendKey), "codex")
+    }
+
+    /// No program at all: one sentence and every backend's install page, in
+    /// the catalogue's order; nothing is sent.
+    func testWithNoProgramTheBalloonLinksTheInstallPages() throws {
+        let controller = controller()
+        defer { close(controller) }
+        controller.chats = store(controller, [.claude: locator("claude", at: nil), .codex: locator("codex", at: nil)])
+        var sent: [String] = []
+        controller.chatModel.onSend = { sent.append($0) }
+        controller.openChat()
+        var opened: [URL] = []
+        controller.chatModel.onOpenInstallPage = { opened.append($0) }
+        XCTAssertEqual(controller.chatModel.backendState, .nothingFound)
+        XCTAssertEqual(ChatModel.installLinks.map(\.id), Agents.chatBackends.map(\.id))
+        XCTAssertEqual(ChatModel.installLinks.map(\.url), Agents.chatBackends.compactMap(\.installPage))
+        XCTAssertTrue(ChatModel.installLinks.allSatisfy { $0.url.scheme == "https" })
+        XCTAssertFalse(controller.chatModel.submit("hello"))
+        XCTAssertEqual(sent, [])
+        controller.chatModel.openInstallPage(ChatModel.installLinks[1])
+        XCTAssertEqual(opened, [ChatModel.installLinks[1].url])
+    }
+
+    /// Nothing stored and no program known yet: the line stays — enabled,
+    /// so it keeps the keyboard — says it is looking and sends nothing,
+    /// until the search has decided the backend.
+    func testWhileLookingNothingIsSent() throws {
+        let controller = controller()
+        defer { close(controller) }
+        let empty = directory.appendingPathComponent("empty", isDirectory: true).path
+        let lookup = { (name: String) in
+            AgentLocator(name: name, environment: ["PATH": empty], loginPath: { empty })
+        }
+        controller.chats = store(controller, [.claude: lookup("claude"), .codex: lookup("codex")])
+        var sent: [String] = []
+        controller.chatModel.onSend = { sent.append($0) }
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.backendState, .looking)
+        XCTAssertEqual(controller.chatModel.placeholderKey, "chat.placeholder.looking")
+        XCTAssertFalse(controller.chatModel.submit("hello"))
+        XCTAssertEqual(sent, [])
+        let content = try XCTUnwrap(controller.chatPanel?.contentView)
+        content.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(textField(in: content), "the line is drawn")
+        XCTAssertTrue(field.isEnabled, "a disabled field drops its focus")
+        let decided = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated { controller.chatModel.backendState == .nothingFound }
+        }, object: nil)
+        wait(for: [decided], timeout: 10)
+        XCTAssertEqual(controller.chatModel.placeholderKey, "chat.placeholder")
+    }
+
+    /// A found program is kept: opening the balloon again asks no shell.
+    func testAFoundProgramIsNotLookedForAgain() throws {
+        let controller = controller()
+        defer { close(controller) }
+        let claude = try program("claude")
+        let folder = (claude as NSString).deletingLastPathComponent
+        let asked = Counter()
+        controller.chats = store(controller, [
+            .claude: AgentLocator(name: "claude", environment: ["PATH": ""],
+                                  loginPath: { asked.add("claude"); return folder }),
+            .codex: AgentLocator(name: "codex", environment: ["PATH": ""],
+                                 loginPath: { asked.add("codex"); return folder }),
+        ])
+        controller.openChat()
+        let found = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated { controller.chatModel.backendState == .ready }
+        }, object: nil)
+        wait(for: [found], timeout: 10)
+        controller.closeChat()
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.backendState, .ready, "known at once")
+        XCTAssertEqual(asked.names, ["claude"], "one shell, and Codex was never looked for")
+        XCTAssertEqual(controller.chatBackend.id, .claude)
+    }
+
+    private func textField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable { return field }
+        return view.subviews.lazy.compactMap(textField(in:)).first
     }
 
     // MARK: - Dropped files
@@ -663,4 +815,15 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertEqual(L10n.t("chat.placeholder", in: "tr"), "Ne yapayım?")
         XCTAssertEqual(L10n.t("chat.hint", in: "tr"), "Dosya bırakabilirsin · Esc kapatır")
     }
+}
+
+/// Names of the lookups made, in order: a login shell is read off the main
+/// queue.
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var made: [String] = []
+
+    func add(_ name: String) { lock.withLock { made.append(name) } }
+
+    var names: [String] { lock.withLock { made } }
 }

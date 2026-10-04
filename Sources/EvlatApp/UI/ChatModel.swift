@@ -18,9 +18,10 @@ final class ChatModel: ObservableObject {
     @Published private(set) var messages: [ChatSession.Message] = []
     @Published private(set) var isRunning = false
     @Published private(set) var failure: ChatSession.Failure?
-    /// The chat backend's program was not found: the balloon says so
-    /// instead of offering a line.
-    @Published var backendMissing = false
+    /// Is there a program to send to? Without one the balloon says so
+    /// instead of offering a line; while it is looked for, the line stays
+    /// and sends nothing. Written by the controller.
+    @Published var backendState: ChatStore.Availability = .ready
     /// The chat's agent — or, before the first prompt, the one it will be
     /// made on: the corner names it, and so do the "not found" line and the
     /// card. Written by the controller.
@@ -90,6 +91,21 @@ final class ChatModel: ObservableObject {
     var onCopy: ((String) -> Void)?
     /// A reply's link, already checked by `openLink`.
     var onOpenLink: ((URL) -> Void)?
+    /// An install page's link, from the balloon that found no program.
+    var onOpenInstallPage: ((URL) -> Void)?
+
+    /// One backend's install page, for the balloon that found no program.
+    struct InstallLink: Equatable, Identifiable {
+        let id: AgentID
+        /// The agent's name, a catalogue key (`AgentDisplay.nameKey`).
+        let nameKey: String
+        let url: URL
+    }
+
+    /// Every backend's install page, in the catalogue's order.
+    static let installLinks = Agents.chatBackends.compactMap { backend in
+        backend.installPage.map { InstallLink(id: backend.id, nameKey: backend.id.agent.display.nameKey, url: $0) }
+    }
 
     /// Three prompts a bare `claude -p` can answer from its own folder,
     /// asking for no folder the system guards (Downloads, Desktop) and no
@@ -127,7 +143,8 @@ final class ChatModel: ObservableObject {
 
     /// Every key the balloon asks for, but the failures'.
     static let keys = ["chat.placeholder", "chat.placeholder.file", "chat.placeholder.files",
-                       "chat.hint", "chat.missing", "chat.working", "chat.stop", "chat.agent.help",
+                       "chat.placeholder.looking", "chat.hint", "chat.missing", "chat.nothingFound",
+                       "chat.working", "chat.stop", "chat.agent.help",
                        "chat.permission.title", "chat.permission.tool", "chat.permission.folder",
                        "chat.permission.allow", "chat.permission.deny", "chat.permission.always",
                        "chat.permission.access", "chat.permission.always.command", "chat.permission.reason",
@@ -143,8 +160,10 @@ final class ChatModel: ObservableObject {
     /// What the balloon offers now.
     var suggestions: [String] { Self.suggestionKeys(for: attachments) }
 
-    /// The line's prompt: what to do, or what to do with these.
+    /// The line's prompt: what to do, or what to do with these — or,
+    /// while the program is looked for, that.
     var placeholderKey: String {
+        if backendState == .looking { return "chat.placeholder.looking" }
         switch attachments.count {
         case 0: return "chat.placeholder"
         case 1: return "chat.placeholder.file"
@@ -241,12 +260,14 @@ final class ChatModel: ObservableObject {
         if self.failure != failure { self.failure = failure }
     }
 
-    /// Sends a prompt: `false` for a blank line, while a turn runs, or with
-    /// no `claude` to send it to.
+    /// Sends a prompt: `false` for a blank line, while a turn runs, or
+    /// unless the program to send it to is there (`backendState`) — while
+    /// it is looked for too, so a chat is not made on a backend the search
+    /// is about to replace.
     @discardableResult
     func submit(_ text: String) -> Bool {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, !isRunning, !backendMissing, let onSend else { return false }
+        guard !prompt.isEmpty, !isRunning, backendState == .ready, let onSend else { return false }
         draft = ""
         onSend(prompt)
         return true
@@ -334,6 +355,8 @@ final class ChatModel: ObservableObject {
     func clearHistory() { onClearHistory?() }
     func save(_ path: String) { onSaveFile?(path) }
     func reveal(_ path: String) { onRevealFile?(path) }
+
+    func openInstallPage(_ link: InstallLink) { onOpenInstallPage?(link.url) }
 
     // MARK: - A reply's markdown
 

@@ -35,6 +35,10 @@ struct CodexChat: ChatBackend {
 
     let noteKey: String? = "settings.chat.backend.codex.note"
 
+    /// Where `developers.openai.com/codex/cli` redirected to (308, then 200;
+    /// 2026-10-04).
+    let installPage = URL(string: "https://learn.chatgpt.com/docs/codex/cli")
+
     /// The server alone; everything the turn is — its thread, its mode, its
     /// prompt — goes over stdin, the first line now and the rest as the
     /// server answers (`AppServerStream`). The task variable reaches the

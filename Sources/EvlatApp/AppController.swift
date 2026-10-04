@@ -1569,17 +1569,35 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         chatModel.opened()
     }
 
-    /// Is the balloon's backend's program there — the chat's, or for none
-    /// the selected one's? Asked each time the balloon opens or changes
-    /// chat: the program may have been installed since. Known at once after
-    /// the first find (or with `EVLAT_<NAME>`).
+    /// Is the balloon's backend's program there — the chat's, the chosen
+    /// one's, or with neither the first found? Asked each time the balloon
+    /// opens or changes chat: the program may have been installed since.
+    /// Known at once after the first find (or with `EVLAT_<NAME>`).
     private func locateBalloonBackend() {
-        let agent = balloonBackend.id
-        chats?.locateBackend(for: currentChat) { [weak self] found in
-            guard let self, self.balloonBackend.id == agent, self.chatModel.backendMissing == found else { return }
-            self.chatModel.backendMissing = !found
+        backendLookup &+= 1
+        let asked = backendLookup
+        // A lookup starts out able to send, unless nothing could be found
+        // last time: `.looking` comes again at once where it applies.
+        if chatModel.backendState == .looking { chatModel.backendState = .ready }
+        chats?.locateBackend(for: currentChat, stored: chosenBackend?.id) { [weak self] availability in
+            guard let self else { return }
+            // A find kept moves the derived backend, whichever lookup made
+            // it: the corner and the mode follow, as for a pick, and nothing
+            // is stored.
+            if self.currentChat == nil, self.chatModel.agent != self.chatBackend.id {
+                self.chosenMode = nil
+                self.refreshMode()
+            }
+            guard self.backendLookup == asked else { return }
+            // An empty balloon that found nothing last time stays so while
+            // it looks again: it could send nothing either way.
+            if availability == .looking, self.chatModel.backendState == .nothingFound { return }
+            if self.chatModel.backendState != availability { self.chatModel.backendState = availability }
         }
     }
+
+    /// Counts the balloon's lookups: only the latest one's answer is drawn.
+    private var backendLookup = 0
 
     /// Ordered out. Nothing is handed back: the app in front never lost
     /// being the active one, so the keyboard is simply its again.
@@ -1620,6 +1638,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The browser comes forward and the balloon, losing the keyboard,
         // closes: Evlat activates nothing itself.
         chatModel.onOpenLink = { url in NSWorkspace.shared.open(url) }
+        // In the browser, behind the app in front: the balloon keeps the
+        // keyboard and stays out, so the other links are still there.
+        chatModel.onOpenInstallPage = { url in
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = false
+            NSWorkspace.shared.open(url, configuration: configuration)
+        }
         chatModel.onMode = { [weak self] in self?.showModes() }
         chatModel.onRetry = { [weak self] line in self?.retryAsking(line) }
         chatModel.onNew = { [weak self] in self?.show(nil) }
@@ -2035,22 +2060,30 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     // MARK: - Chat backend
 
-    /// The new chats' backend, by its id; none stored is the catalogue's
-    /// first chat backend. An id this build has no backend for reads as none.
+    /// The new chats' backend the user chose, by its id. An id this build
+    /// has no backend for reads as none.
     nonisolated static let backendKey = "chat.backend"
 
-    nonisolated static func storedBackend(_ defaults: UserDefaults?) -> any ChatBackend {
+    nonisolated static func storedBackend(_ defaults: UserDefaults?) -> (any ChatBackend)? {
         let stored = defaults?.string(forKey: backendKey).map(AgentID.init(rawValue:))
-        return Agents.chatBackends.first { $0.id == stored } ?? Agents.chatBackends[0]
+        return Agents.chatBackends.first { $0.id == stored }
     }
 
     /// Without storage (`modeDefaults`' isolation), kept here.
     private var backendUnstored: AgentID?
 
-    /// The backend a new chat is made on.
-    var chatBackend: any ChatBackend {
+    /// The user's choice, stored or — isolated — kept here; `nil` for none.
+    private var chosenBackend: (any ChatBackend)? {
         if let modeDefaults { return Self.storedBackend(modeDefaults) }
-        return Agents.chatBackends.first { $0.id == backendUnstored } ?? Agents.chatBackends[0]
+        return Agents.chatBackends.first { $0.id == backendUnstored }
+    }
+
+    /// The backend a new chat is made on: the user's choice; with none, the
+    /// first in the catalogue whose program was found (`firstFoundLane`),
+    /// else the catalogue's first. Derived each time and never stored, so a
+    /// program found later moves it until the user picks one.
+    var chatBackend: any ChatBackend {
+        chosenBackend ?? chats?.firstFoundLane?.backend ?? Agents.chatBackends[0]
     }
 
     /// The balloon's backend: the open chat's own, else the new chats'.

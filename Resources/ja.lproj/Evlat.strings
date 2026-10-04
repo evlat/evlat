@@ -156,6 +156,7 @@
 "remote.combined.checkNote" = "確認はsshで読み込むだけです。削除するには、各行の手順に従ってください。";
 
 "chat.placeholder" = "何をしましょうか？";
+"chat.placeholder.looking" = "チャットのプログラムを探しています…";
 "chat.placeholder.file" = "このファイルをどうしますか？";
 "chat.placeholder.files" = "これらのファイルをどうしますか？";
 "chat.suggestion.summarize" = "要約して";
@@ -189,6 +190,7 @@
 "chat.notDone.prompt" = "もう一度試してください：{command}";
 "chat.hint" = "ファイルをドロップできます · Escで閉じる";
 "chat.missing" = "{agent}が見つかりません。インストールしてから、もう一度開いてください。";
+"chat.nothingFound" = "チャットには次のいずれかのプログラムが必要です：";
 "chat.working" = "作業中…";
 "chat.suggestion.capabilities" = "何ができる？";
 "chat.suggestion.memory" = "メモリを一番使っているのは？";

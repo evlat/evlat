@@ -28,6 +28,9 @@ struct ClaudeChat: ChatBackend {
     /// SIGINT, the documented way ("To end the turn instead, send SIGINT").
     let stopPlan = ChatStopPlan.signal
 
+    /// Answered 200 with no redirect (2026-10-04).
+    let installPage = URL(string: "https://claude.com/product/claude-code")
+
     func turn(_ spec: TurnSpec, ctx: TurnContext) -> TurnLaunch {
         ClaudeInvocation.turn(chatID: spec.chatID, sessionID: spec.sessionID, resume: spec.resume,
                               prompt: spec.prompt, attachments: spec.attachments, directory: spec.directory,
