@@ -7,8 +7,13 @@ sandboxes on the sandbox listener, outside jobs on /signal and the usage
 windows. Names and paths are made up, except two: the first session's folder is
 this repository, so its card shows a real branch, and three sessions run in a
 repository the demo makes, under a long folder name, and its worktree — same name, two
-branches, so their rows draw the branch (and number the two on one). With --held an approval and
-a question are held on /approval, so their cards draw their buttons.
+branches, so their rows draw the branch (and number the two on one).
+
+Waits come both ways, as they do for real: a local approval and a local
+question are held on /approval, as Claude Code's approval hook holds them, so
+their cards draw their buttons; the remote and sandboxed ones, which have no
+approval hook, are only heard — among them a question on a server, whose card
+shows the question and nothing to press.
 """
 import argparse
 import datetime as dt
@@ -24,7 +29,6 @@ parser.add_argument("--dir", required=True)
 parser.add_argument("--repo", required=True)
 parser.add_argument("--port", type=int, required=True)
 parser.add_argument("--sandbox-port", type=int, required=True)
-parser.add_argument("--held", action="store_true")
 args = parser.parse_args()
 
 D = args.dir
@@ -185,6 +189,13 @@ REMOTE = [
          "command": "terraform apply -auto-approve"}})]),
     ("10.0.4.21", "codex", 4343, "019a0000-aaaa-7000-8000-000000000004", "/home/dev/src/ops",
      [("UserPromptSubmit", {})]),
+    # A question on a server: no approval hook there, so it is heard, not held.
+    ("10.0.4.21", "claude", 4444, "aaaaaaaa-0000-4000-8000-000000000005", "/home/dev/src/docs-search",
+     [("UserPromptSubmit", {}), ("PreToolUse", {"tool_name": "AskUserQuestion", "tool_input": {"questions": [{
+         "question": "Should the docs search index rebuild on every push or once a night?",
+         "header": "Index", "multiSelect": False,
+         "options": [{"label": "Every push"}, {"label": "Nightly"}]}]}}),
+      ("Notification", {"notification_type": "elicitation_dialog", "message": "Claude needs your input"})]),
 ]
 for host, source, pid, sid, cwd, events in REMOTE:
     port = by_host.get(host)
@@ -254,18 +265,17 @@ for job in JOBS:
 
 # Held requests: the connection stays open until the card's answer, so their
 # curls run on past this script; their pids go where `stop` finds them.
-if args.held:
-    held = [
-        {"hook_event_name": "PermissionRequest", "session_id": LOCAL[0][0], "cwd": LOCAL[0][1],
-         "tool_name": "Bash", "tool_input": {"command": BASH, "description": "Run the sandbox watcher tests"}},
-        {"hook_event_name": "PermissionRequest", "session_id": LOCAL[5][0], "cwd": LOCAL[5][1],
-         "tool_name": "AskUserQuestion", "tool_input": QUESTION},
-    ]
-    with open(os.path.join(D, "held.pid"), "w") as pidfile:
-        for body in held:
-            process = subprocess.Popen(
-                ["curl", "-s", "-m", "3600", "-X", "POST", f"http://127.0.0.1:{PORT}/approval",
-                 "-H", "Content-Type: application/json", "-d", json.dumps(body)],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True)
-            pidfile.write(f"{process.pid}\n")
+held = [
+    {"hook_event_name": "PermissionRequest", "session_id": LOCAL[0][0], "cwd": LOCAL[0][1],
+     "tool_name": "Bash", "tool_input": {"command": BASH, "description": "Run the sandbox watcher tests"}},
+    {"hook_event_name": "PermissionRequest", "session_id": LOCAL[5][0], "cwd": LOCAL[5][1],
+     "tool_name": "AskUserQuestion", "tool_input": QUESTION},
+]
+with open(os.path.join(D, "held.pid"), "w") as pidfile:
+    for body in held:
+        process = subprocess.Popen(
+            ["curl", "-s", "-m", "3600", "-X", "POST", f"http://127.0.0.1:{PORT}/approval",
+             "-H", "Content-Type: application/json", "-d", json.dumps(body)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+        pidfile.write(f"{process.pid}\n")

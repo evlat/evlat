@@ -3,11 +3,11 @@
 # chats; the user's Evlat and files untouched) filled with every kind of row —
 # local sessions in each phase, worktrees of one repository, Codex, three
 # remote machines through the fake ssh, Docker sandboxes, outside jobs and
-# usage windows.
+# usage windows. A local approval and a local question are held, so their cards
+# draw their buttons (a press answers only the demo's own request); the remote
+# and sandboxed waits are only heard, as they are for real.
 #
-#   scripts/demo.sh [left|right] [--held] [--no-build]
-#       --held      also hold an approval and a question, so their cards draw
-#                   their buttons (a press answers only the demo's own request)
+#   scripts/demo.sh [left|right] [--no-build]
 #       --no-build  run the binary already built
 #   scripts/demo.sh stop
 #
@@ -32,15 +32,13 @@ stop() {
 }
 
 EDGE=left
-HELD=0
 BUILD=1
 for arg in "$@"; do
     case "$arg" in
         stop) stop; exit 0 ;;
         left|right) EDGE=$arg ;;
-        --held) HELD=1 ;;
         --no-build) BUILD=0 ;;
-        *) echo "usage: scripts/demo.sh [left|right] [--held] [--no-build] | stop" >&2; exit 2 ;;
+        *) echo "usage: scripts/demo.sh [left|right] [--no-build] | stop" >&2; exit 2 ;;
     esac
 done
 
@@ -73,5 +71,5 @@ until curl -s -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; do
 done
 
 python3 "$ROOT/scripts/demo-seed.py" --dir "$DIR" --repo "$ROOT" --port $PORT \
-    --sandbox-port $SANDBOX_PORT $([ "$HELD" = 1 ] && echo --held)
+    --sandbox-port $SANDBOX_PORT
 echo "Demo up on the $EDGE edge. Stop it with: scripts/demo.sh stop"
