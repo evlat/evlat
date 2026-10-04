@@ -3504,6 +3504,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     func approvalFrameChanged(_ button: DetailModel.Button, _ rect: CGRect?) {
         approvalRects[button] = barState.selected == nil ? nil : rect
+        // The line written in stays on its row wherever the row goes.
+        if button == .other, answering != nil, let rect, let bar = panel, let view = bar.contentView {
+            answerPanel?.follow(bar.convertToScreen(view.convert(rect, to: nil)))
+        }
     }
 
     private func approvalButton(at point: CGPoint) -> DetailModel.Button? {
@@ -3581,7 +3585,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let line = answerPanel ?? makeAnswerPanel()
         answering = id
         exitHeld = false
-        answerModel.open(question: question.text, text: draft.written ?? "")
+        answerModel.open(question: question.text, text: draft.written ?? "", multiSelect: question.multiSelect)
         // On the "Other…" row itself, its size: the answer is written where
         // it was asked for. Without the row's rectangle, at the card's top.
         if let row = approvalRects[.other] {

@@ -98,10 +98,19 @@ final class AnswerPanel: NSPanel {
     /// Laid on `rect` (screen coordinates), its size: the "Other…" row
     /// the line stands in for.
     func present(over rect: NSRect) {
-        setFrame(rect, display: false)
-        contentView?.frame = NSRect(origin: .zero, size: rect.size)
+        follow(rect)
         orderFrontRegardless()
         makeKey()
+    }
+
+    /// Moved to the row's new place, keyboard untouched: the row moves while
+    /// it is written in — the options scroll, the card goes to another slot
+    /// or changes height — and a line left where it was opened stood beside
+    /// the row it was writing for.
+    func follow(_ rect: NSRect) {
+        guard rect != frame else { return }
+        setFrame(rect, display: false)
+        contentView?.frame = NSRect(origin: .zero, size: rect.size)
     }
 
     func present(atTopLeft point: NSPoint) {
@@ -123,13 +132,17 @@ final class AnswerPanel: NSPanel {
 final class AnswerModel: ObservableObject {
     @Published var question = ""
     @Published var text = ""
+    /// The question picks any, not one: the line's mark is square, as the
+    /// row's it stands on.
+    @Published var multiSelect = false
     /// Bumped on every opening, so the field takes the focus each time.
     @Published private(set) var openings = 0
     var onSubmit: (String) -> Void = { _ in }
 
-    func open(question: String, text: String) {
+    func open(question: String, text: String, multiSelect: Bool = false) {
         self.question = question
         self.text = text
+        self.multiSelect = multiSelect
         openings += 1
     }
 }
@@ -142,16 +155,13 @@ struct AnswerView: View {
     static let hintKey = "answer.hint"
     static var keys: [String] { [placeholderKey, hintKey] }
 
-    /// The card's "Other…" row being written in: its pencil in amber, the
-    /// field where its words were, the keys under it — on the row's own
-    /// ground, opaque, so nothing of the row beneath shows through.
+    /// The card's "Other…" row being written in: its empty mark where it
+    /// was, the field where its words were, the keys under it — on the
+    /// row's own ground, opaque, so nothing of the row beneath shows through.
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "pencil")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(SessionIndicator.amber)
-                .frame(width: 14, height: 14)
+            DetailCard.mark(multi: model.multiSelect, picked: false)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 TextField("", text: $model.text, prompt: Text(verbatim: L10n.t(Self.placeholderKey)))

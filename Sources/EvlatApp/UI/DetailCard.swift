@@ -549,7 +549,7 @@ struct DetailCard: View {
     /// round mark picks one, a square one any; amber when picked.
     private func optionRow(_ option: AgentQuestion.Option, index: Int, multi: Bool, picked: Bool) -> some View {
         choiceRow(picked: picked, button: .option(index)) {
-            markView(multi: multi, picked: picked)
+            Self.mark(multi: multi, picked: picked)
         } text: {
             // An option's label and description are Claude's words: data.
             Text(verbatim: option.label)
@@ -571,21 +571,18 @@ struct DetailCard: View {
     /// "Other…", the last choice: a press opens the line to write in, laid
     /// on this row (`AppController.openAnswer`). Once written, the answer
     /// stands here, marked, and a press opens the line again, filled.
+    ///
+    /// Drawn as the options are — the same mark, the label at full white:
+    /// it is an answer like them. A pencil and a faint label made it read
+    /// as switched off (the user's feedback).
     private func otherRow(written: String?, multi: Bool) -> some View {
         choiceRow(picked: written != nil, button: .other) {
-            if written != nil {
-                markView(multi: multi, picked: true)
-            } else {
-                Image(systemName: "pencil")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Self.secondary)
-                    .frame(width: 14, height: 14)
-            }
+            Self.mark(multi: multi, picked: written != nil)
         } text: {
             // What was written is the user's own words: data.
             Text(verbatim: written ?? L10n.t(Self.otherKey))
                 .font(Self.replyFont.weight(.medium))
-                .foregroundStyle(written == nil ? BarPalette.textPrimary.opacity(0.78) : BarPalette.textPrimary)
+                .foregroundStyle(BarPalette.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(verbatim: L10n.t(written == nil ? Self.otherHintKey : Self.writtenHintKey))
@@ -615,8 +612,9 @@ struct DetailCard: View {
     }
 
     /// A round mark for one, a square one for any; filled amber with a
-    /// tick when picked.
-    private func markView(multi: Bool, picked: Bool) -> some View {
+    /// tick when picked. Static: the answer line draws the same one
+    /// (`AnswerView`).
+    static func mark(multi: Bool, picked: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: multi ? 4 : 7, style: .continuous)
         return ZStack {
             if picked {

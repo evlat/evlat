@@ -158,4 +158,25 @@ final class QuestionCardTests: XCTestCase {
         XCTAssertGreaterThan(height, 200, "drawn")
         XCTAssertLessThanOrEqual(height, AppController.detailCardMaxHeight - 8, "clipped at the cap")
     }
+
+    /// The line written in goes where its row goes, and keeps the keyboard:
+    /// laid once where it opened, it stood beside a row that had moved.
+    func testTheAnswerLineFollowsItsRow() {
+        let line = AnswerPanel(content: EmptyView())
+        defer { line.close() }
+        line.present(over: NSRect(x: 100, y: 300, width: 284, height: 48))
+        line.follow(NSRect(x: 100, y: 220, width: 284, height: 48))
+        XCTAssertEqual(line.frame, NSRect(x: 100, y: 220, width: 284, height: 48))
+        XCTAssertEqual(line.contentView?.frame.size, NSSize(width: 284, height: 48))
+    }
+
+    /// The line's mark is the row's: round for a question that picks one,
+    /// square for one that picks any.
+    func testTheAnswerLineKnowsWhichMarkItStandsOn() {
+        let model = AnswerModel()
+        model.open(question: "Which sizes?", text: "", multiSelect: true)
+        XCTAssertTrue(model.multiSelect)
+        model.open(question: "Which color?", text: "")
+        XCTAssertFalse(model.multiSelect, "a later opening says its own")
+    }
 }
