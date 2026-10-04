@@ -106,6 +106,20 @@ final class HookEventTests: XCTestCase {
         XCTAssertEqual(event.toolSubject, "cat <<'EOF' > a.txt")
     }
 
+    /// A question put to the user is about its first question's text: it
+    /// has no command, file or other subject key.
+    func testAQuestionsSubjectIsItsFirstQuestion() {
+        let input: [String: Any] = ["questions": [
+            ["question": "Which eviction policy should the glyph atlas use?\nPick one.", "header": "Policy",
+             "options": [["label": "LRU"], ["label": "Clock"]]],
+            ["question": "And the size?", "options": [["label": "Small"]]],
+        ]]
+        XCTAssertEqual(HookEvent.subject(of: input), "Which eviction policy should the glyph atlas use?")
+        XCTAssertNil(HookEvent.subject(of: ["questions": [[String: Any]]()]))
+        XCTAssertEqual(HookEvent.subject(of: ["command": "ls", "questions": [["question": "Q?"]]]), "ls",
+                       "a subject key still comes first")
+    }
+
     /// A shell line continuation is one line, as the shell reads it. Claude
     /// Code 2.1.281, measured from the balloon: a command opening with `\` +
     /// newline had a lone `\` for its subject — on the card that asked to run it.

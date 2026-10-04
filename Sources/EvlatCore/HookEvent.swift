@@ -141,6 +141,14 @@ public struct HookEvent: Equatable {
             let line = lines(of: value).first
             if let line { return capped(line, at: subjectLimit) }
         }
+        // A question put to the user carries none of the keys, only its
+        // `questions`: the first one's text is what it is about. Without it
+        // a card with no held request drew the tool's name over nothing.
+        if let questions = input["questions"] as? [[String: Any]],
+           let text = questions.first?["question"] as? String,
+           let line = lines(of: text).first {
+            return capped(line, at: subjectLimit)
+        }
         return nil
     }
 
