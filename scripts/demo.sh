@@ -1,8 +1,9 @@
 #!/bin/sh
 # A full bar to look at: an isolated Evlat (its own port, home, sessions and
 # chats; the user's Evlat and files untouched) filled with every kind of row —
-# local sessions in each phase, Codex, three remote machines through the fake
-# ssh, Docker sandboxes, outside jobs and usage windows.
+# local sessions in each phase, worktrees of one repository, Codex, three
+# remote machines through the fake ssh, Docker sandboxes, outside jobs and
+# usage windows.
 #
 #   scripts/demo.sh [left|right] [--held] [--no-build]
 #       --held      also hold an approval and a question, so their cards draw
@@ -50,7 +51,7 @@ mkdir -p "$DIR/home/.claude" "$DIR/home/.codex/sessions" "$DIR/home/.gemini/anti
 
 # Stand-ins for the agents' processes: a session record lives as long as its
 # pid does and the process started when the record says.
-for _ in 1 2 3 4 5 6; do
+for _ in 1 2 3 4 5 6 7 8 9; do
     sleep 86400 </dev/null >/dev/null 2>&1 &
     echo $! >> "$DIR/agents.pid"
 done

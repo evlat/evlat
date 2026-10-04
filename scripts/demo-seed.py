@@ -4,8 +4,10 @@
 Local sessions in each phase (session records + hooks), a Codex session,
 sessions on three remote machines through their tunnels' listeners, Docker
 sandboxes on the sandbox listener, outside jobs on /signal and the usage
-windows. Names and paths are made up, except the first session's folder: it is
-this repository, so its card shows a real branch. With --held an approval and
+windows. Names and paths are made up, except two: the first session's folder is
+this repository, so its card shows a real branch, and three sessions run in a
+repository the demo makes, under a long folder name, and its worktree — same name, two
+branches, so their rows draw the branch (and number the two on one). With --held an approval and
 a question are held on /approval, so their cards draw their buttons.
 """
 import argparse
@@ -78,6 +80,40 @@ for index, entry in enumerate(LOCAL):
               "statusUpdatedAt": now_ms, "updatedAt": now_ms}
     with open(os.path.join(D, "sessions", f"{pids[index]}.json"), "w") as f:
         json.dump(record, f)
+
+# Worktrees: one repository and a worktree of it, folders both given the
+# same long name, on two branches. Unnamed records, so the rows are called
+# after the folder: three of one long name, which only the branch (and, for
+# the two on one branch, a number) tells apart — the name and the branch
+# both cut, at their widest. Real git files, since the branch is read
+# from them (`GitHead`).
+def git(*argv, cwd=None):
+    subprocess.run(["git", "-c", "user.name=Demo", "-c", "user.email=demo@example.com",
+                    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *argv],
+                   cwd=cwd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+MAIN_TREE = os.path.join(D, "projects", "payments-and-checkout-service-for-the-storefront-monorepo")
+FEATURE_TREE = os.path.join(D, "worktrees", "apple-pay", "payments-and-checkout-service-for-the-storefront-monorepo")
+FEATURE = "feat/apple-pay-checkout-with-saved-cards"
+os.makedirs(MAIN_TREE)
+git("init", "-q", "-b", "main", cwd=MAIN_TREE)
+git("commit", "-q", "--allow-empty", "-m", "Start", cwd=MAIN_TREE)
+git("worktree", "add", "-q", "-b", FEATURE, FEATURE_TREE, cwd=MAIN_TREE)
+LOCAL += [
+    ("77777777-7777-4777-8777-777777777777", MAIN_TREE, None, "busy"),
+    ("88888888-8888-4888-8888-888888888888", FEATURE_TREE, None, "idle"),
+    ("99999999-9999-4999-8999-999999999999", FEATURE_TREE, None, "busy"),
+]
+for index, entry in enumerate(LOCAL):
+    if index < 6 or not entry:
+        continue
+    sid, cwd, name, status = entry
+    record = {"pid": pids[index], "sessionId": sid, "cwd": cwd,
+              "startedAt": started_ms(pids[index]), "status": status,
+              "statusUpdatedAt": now_ms, "updatedAt": now_ms}
+    with open(os.path.join(D, "sessions", f"{pids[index]}.json"), "w") as f:
+        json.dump(record, f)
 time.sleep(2.5)  # the records are read every 1.5 s
 
 
@@ -115,6 +151,15 @@ event(3, "StopFailure", error="rate_limit")
 event(5, "UserPromptSubmit")
 event(5, "PreToolUse", tool_name="AskUserQuestion", tool_input=QUESTION)
 event(5, "Notification", notification_type="elicitation_dialog", message="Claude needs your input")
+
+event(6, "UserPromptSubmit")
+event(6, "PreToolUse", tool_name="Bash", tool_input={"command": "npm run test -- --watch=false"})
+event(7, "UserPromptSubmit")
+event(7, "Stop", last_assistant_message=(
+    "Apple Pay is wired into checkout behind the `applePay` flag; saved cards reuse the existing vault token."))
+event(8, "UserPromptSubmit")
+event(8, "PreToolUse", tool_name="Edit",
+      tool_input={"file_path": os.path.join(FEATURE_TREE, "src", "checkout", "ApplePayButton.tsx")})
 
 # A Codex session.
 codex = {"session_id": "019a0000-5555-7555-8555-555555555555", "cwd": "/Users/demo/Projects/terminal-app"}

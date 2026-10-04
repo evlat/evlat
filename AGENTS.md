@@ -772,7 +772,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
-| a full bar to look at | `scripts/demo.sh [left\|right] [--held]` — isolated (port 48999, its own home under `$TMPDIR/evlat-demo`): local sessions in every phase, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; `--held` holds an approval and a question so their cards draw buttons; `scripts/demo.sh stop` ends it all |
+| a full bar to look at | `scripts/demo.sh [left\|right] [--held]` — isolated (port 48999, its own home under `$TMPDIR/evlat-demo`): local sessions in every phase, worktrees of one repository on two branches, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; `--held` holds an approval and a question so their cards draw buttons; `scripts/demo.sh stop` ends it all |
 | window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
 | ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |
