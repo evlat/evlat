@@ -89,6 +89,23 @@ extension SessionHostTests {
         XCTAssertEqual(tab(of: remote(connection(port: 19554, start: 0))), "bateri://tab/\(Self.olderTab)")
     }
 
+    /// The tab's `ssh` in a tab Bateri's relaunch orphaned: its `login` is
+    /// launchd's, and the master of its terminal is the relaunched Bateri's.
+    func testAnSshInAnOrphanedTabIsFoundByItsPtyMaster() {
+        var table = sshInBateri
+        table[1000] = Proc(parent: 999, path: "/bin/zsh")
+        table[999] = Proc(parent: 1, path: "/usr/bin/login")
+        let tty: Int32 = 0x1000_0012
+        let probe = probe(table, environment: [1001: Self.bateriTab(Self.olderTab)], tcp: sshSockets,
+                          ttys: [1001: tty, 1000: tty, 999: tty], masters: [580: [0, 18, 22]])
+        let host = SessionHost.resolve(remote: connection(port: 19554, start: 0), tunnel: Self.tunnel,
+                                       evlat: Self.evlat, probe)
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.olderTab)")
+        XCTAssertEqual(SessionHost.resolve(remote: connection(port: 19554, start: 0), tunnel: Self.tunnel,
+                                           evlat: Self.evlat, self.probe(table, tcp: sshSockets)),
+                       .notFound, "no terminal read: today's walk")
+    }
+
     /// Two tabs to the same server.
     var twoTabs: [Int32: Proc] {
         var table = sshInBateri

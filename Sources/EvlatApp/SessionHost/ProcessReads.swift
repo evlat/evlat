@@ -166,6 +166,33 @@ extension SessionHost {
         kinfo(pid).map { $0.kp_eproc.e_tdev != -1 }
     }
 
+    /// The device of the process's controlling terminal (`e_tdev`); `nil`
+    /// when it has none (`NODEV`) or it cannot be read.
+    static func terminalDevice(_ pid: Int32) -> Int32? {
+        guard let device = kinfo(pid)?.kp_eproc.e_tdev, device != -1 else { return nil }
+        return device
+    }
+
+    /// The pty masters the process holds: its descriptors opened on
+    /// `/dev/ptmx` (`PROC_PIDFDVNODEPATHINFO`), by the number their device
+    /// shares with the terminal they serve (`ptyNumber`). Readable without a
+    /// permission for the user's own processes; `nil` when the descriptor
+    /// list cannot be read at all.
+    static func ptyMasters(_ pid: Int32) -> [Int32]? {
+        guard let fds = descriptors(pid) else { return nil }
+        return fds.compactMap { fd -> Int32? in
+            guard fd.proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { return nil }
+            var info = vnode_fdinfowithpath()
+            let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { return nil }
+            let path = withUnsafeBytes(of: &info.pvip.vip_path) { bytes in
+                String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+            }
+            guard path == "/dev/ptmx" else { return nil }
+            return ptyNumber(Int32(bitPattern: info.pvip.vip_vi.vi_stat.vst_rdev))
+        }
+    }
+
     /// `KERN_PROCARGS2`, whole: an `argc`, the executable path, NUL padding,
     /// `argc` arguments, then the environment up to an empty string.
     static func procArgs(_ pid: Int32) -> [UInt8]? {

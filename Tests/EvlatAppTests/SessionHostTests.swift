@@ -30,6 +30,8 @@ final class SessionHostTests: XCTestCase {
                        terminals: [Int32: Bool] = [:],
                        started: [Int32: TimeInterval] = [:],
                        tcp: [Int32: [SessionHost.TCPSocket]] = [:],
+                       ttys: [Int32: Int32] = [:],
+                       masters: [Int32: [Int32]] = [:],
                        tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil },
                        herdr: @escaping HerdrSocket.Call = { _, _ in .unreachable }) -> SessionHost.Probe {
         SessionHost.Probe(parent: { table[$0]?.parent },
@@ -45,7 +47,9 @@ final class SessionHostTests: XCTestCase {
                           startedAt: { started[$0].map(Date.init(timeIntervalSince1970:)) },
                           tmux: tmux,
                           herdr: herdr,
-                          tcpSockets: { tcp[$0] ?? [] })
+                          tcpSockets: { tcp[$0] ?? [] },
+                          terminalDevice: { ttys[$0] },
+                          ptyMasters: { masters[$0] })
     }
 
     func testADirectTerminal() {
@@ -436,5 +440,212 @@ extension SessionHostTests {
         XCTAssertEqual(SessionHost.hasTerminal(1), false, "launchd has no terminal")
         XCTAssertNil(SessionHost.hasTerminal(Int32.max))
         XCTAssertNotNil(SessionHost.startedAt(ProcessInfo.processInfo.processIdentifier))
+        XCTAssertNil(SessionHost.terminalDevice(1), "launchd has no terminal")
+        XCTAssertNil(SessionHost.terminalDevice(Int32.max))
+    }
+
+    /// A pty opened here: its master is among this process's, by the
+    /// number its terminal's device carries.
+    func testTheRealPtyMastersAreRead() throws {
+        let master = posix_openpt(O_RDWR | O_NOCTTY)
+        XCTAssertGreaterThanOrEqual(master, 0)
+        defer { close(master) }
+        XCTAssertEqual(grantpt(master), 0)
+        XCTAssertEqual(unlockpt(master), 0)
+        let name = try XCTUnwrap(ptsname(master).map { String(cString: $0) })
+        var info = stat()
+        XCTAssertEqual(stat(name, &info), 0, name)
+        let me = ProcessInfo.processInfo.processIdentifier
+        let masters = try XCTUnwrap(SessionHost.ptyMasters(me))
+        XCTAssertTrue(SessionHost.holdsMaster(of: Int32(bitPattern: UInt32(truncatingIfNeeded: info.st_rdev)),
+                                              masters: masters), "\(name) in \(masters)")
+        XCTAssertNil(SessionHost.ptyMasters(Int32.max))
+    }
+
+    /// One action reads a process's masters once, an unreadable one too:
+    /// several candidates falling back scan the processes once.
+    func testThePtyMastersAreReadOncePerAction() {
+        var reads: [Int32] = []
+        let masters = SessionHost.kept { pid in reads.append(pid); return pid == 1 ? nil : [pid] }
+        XCTAssertEqual(masters(2), [2])
+        XCTAssertNil(masters(1))
+        XCTAssertEqual(masters(2), [2])
+        XCTAssertNil(masters(1))
+        XCTAssertEqual(reads, [2, 1])
+    }
+}
+
+// MARK: - A relaunched terminal's orphaned tab
+
+/// Bateri 0.4.0 relaunched with its tabs open (macOS 26.4.1, 2026-10-04):
+/// the old tab's `login` was left to launchd, and the walk up the parents
+/// reached no app. Its pty master is still held by the new `bateri` and its
+/// child `bateri hold`: `/dev/ttys018` is device 16,18, the master 15,18.
+extension SessionHostTests {
+    static let ttys018: Int32 = 0x1000_0012
+    var relaunched: SessionHost.App { SessionHost.App(bundleID: "dev.bateri.bateri", name: "bateri", pid: 16041) }
+
+    /// `claude → -zsh → login (ttys018) → launchd`, and the relaunched
+    /// Bateri, its `hold`, and another Bateri copy with a tab of its own.
+    var orphanedTab: [Int32: Proc] {
+        [
+            39495: Proc(parent: 38874, path: "/Users/u/.local/bin/claude"),
+            38874: Proc(parent: 38873, path: "/bin/zsh"),
+            38873: Proc(parent: 1, path: "/usr/bin/login"),
+            16041: Proc(parent: 1, path: Self.bateriPath, app: relaunched),
+            16054: Proc(parent: 16041, path: Self.bateriPath),
+            32994: Proc(parent: 1, path: "/Users/u/src/bateri/build/bateri.app/Contents/MacOS/bateri",
+                        app: SessionHost.App(bundleID: "dev.bateri.bateri", name: "bateri", pid: 32994)),
+        ]
+    }
+
+    /// The tab's processes on ttys018; the masters as `lsof /dev/ptmx` read them.
+    var orphanedTTYs: [Int32: Int32] { [39495: Self.ttys018, 38874: Self.ttys018, 38873: Self.ttys018] }
+    var orphanedMasters: [Int32: [Int32]] {
+        [16041: [0, 37, 18, 22, 1, 10], 16054: [18, 22, 1, 10, 0, 37], 32994: [19]]
+    }
+
+    func testARelaunchedTerminalsOrphanedTabIsFoundByItsPtyMaster() {
+        let probe = probe(orphanedTab, environment: [39495: Self.bateriTab(Self.newerTab)],
+                          ttys: orphanedTTYs, masters: orphanedMasters)
+        var expected = relaunched
+        expected.tab = URL(string: "bateri://tab/\(Self.newerTab)")
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, probe), .app(expected),
+                       "both owners reach the one Bateri; the tab is the agent's")
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, self.probe(orphanedTab)), .notFound,
+                       "with no terminal read, the walk is today's")
+    }
+
+    /// The tab link is the agent's, as on any walk: an owner's own (the
+    /// tab Bateri was started from) never stands for it.
+    func testTheOwnersTabLinkIsNotTheSessions() {
+        let owners: [Int32: [String]] = [16041: Self.bateriTab(Self.olderTab), 16054: Self.bateriTab(Self.olderTab)]
+        var environment = owners
+        environment[39495] = Self.bateriTab(Self.newerTab)
+        let probe = probe(orphanedTab, environment: environment, ttys: orphanedTTYs, masters: orphanedMasters)
+        XCTAssertEqual(tab(of: SessionHost.resolve(pid: 39495, probe)), "bateri://tab/\(Self.newerTab)")
+        let silent = self.probe(orphanedTab, environment: owners, ttys: orphanedTTYs, masters: orphanedMasters)
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, silent), .app(relaunched), "no tab of the agent's, none")
+    }
+
+    /// Owners that reach two apps say nothing of which one the tab is in.
+    func testOwnersInTwoAppsAreNotFound() {
+        var table = orphanedTab
+        table[500] = Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm)
+        var masters = orphanedMasters
+        masters[500] = [18]
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, probe(table, ttys: orphanedTTYs, masters: masters)), .notFound)
+    }
+
+    /// Two copies of one bundle (an installed Bateri and a development one)
+    /// are two apps: the pid is part of the answer.
+    func testTwoProcessesOfOneBundleAreNotFound() {
+        var masters = orphanedMasters
+        masters[32994] = [19, 18]
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, probe(orphanedTab, ttys: orphanedTTYs, masters: masters)),
+                       .notFound)
+    }
+
+    /// No controlling terminal, no master to look for: nobody is asked.
+    func testAProcessWithNoTerminalAsksNoOwner() {
+        var asked = 0
+        var lookups = probe(orphanedTab, masters: orphanedMasters)
+        lookups.processes = { asked += 1; return [16041, 16054] }
+        lookups.ptyMasters = { _ in asked += 1; return [18] }
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, lookups), .notFound)
+        XCTAssertEqual(asked, 0)
+    }
+
+    /// A process whose descriptors cannot be read is no owner, and rules
+    /// nobody out: the owners read still decide.
+    func testAnUnreadableProcessRulesNobodyOut() {
+        var table = orphanedTab
+        table[500] = Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm)
+        let probe = probe(table, ttys: orphanedTTYs, masters: orphanedMasters)
+        XCTAssertNil(probe.ptyMasters(500))
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, probe), .app(relaunched))
+        XCTAssertEqual(SessionHost.resolve(pid: 39495, self.probe(table, ttys: orphanedTTYs)), .notFound,
+                       "no process read at all: no owner")
+    }
+
+    /// An owner's own walk does not look for owners again: a `screen`
+    /// holding the master, itself on a tab Metalterm holds, is not followed
+    /// on to Metalterm.
+    func testAnOwnersWalkDoesNotFallBackAgain() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 1, path: "/bin/zsh"),
+            700: Proc(parent: 1, path: "/usr/bin/screen"),
+            500: Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm),
+        ]
+        let probe = probe(table, ttys: [900: 0x1000_0005, 800: 0x1000_0005, 700: 0x1000_0006],
+                          masters: [700: [5], 500: [6]])
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe), .notFound)
+    }
+
+    /// A tty and a master share their minor number (`sys/types.h`'s
+    /// `minor()`: the low 24 bits); the major differs, 16 against 15.
+    func testATerminalMatchesItsMasterByNumber() {
+        let rows: [(device: Int32, masters: [Int32], owns: Bool)] = [
+            (Self.ttys018, [0, 37, 18], true),
+            (Self.ttys018, [19], false),
+            (Self.ttys018, [], false),
+            (0x1000_0000, [0], true),
+            (0x1000_0100, [256], true),
+            (0x1000_0100, [0], false),
+        ]
+        for row in rows {
+            XCTAssertEqual(SessionHost.holdsMaster(of: row.device, masters: row.masters), row.owns,
+                           "\(String(row.device, radix: 16)) \(row.masters)")
+        }
+        XCTAssertEqual(SessionHost.ptyNumber(0x0F00_0012), 18, "the master 15,18")
+        XCTAssertEqual(SessionHost.ptyNumber(Self.ttys018), 18)
+    }
+
+    // MARK: Chains that reach their host today
+
+    /// A chain that reaches an app does not look for owners at all.
+    func testAnAppFoundAsksNoOwner() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 500, path: "/bin/zsh"),
+            500: Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+        ]
+        var asked = 0
+        var lookups = probe(table, ttys: [900: Self.ttys018, 800: Self.ttys018], masters: [580: [18]])
+        lookups.processes = { asked += 1; return Array(table.keys) }
+        XCTAssertEqual(SessionHost.resolve(pid: 900, lookups), .app(metalterm))
+        XCTAssertEqual(asked, 0)
+    }
+
+    /// Orca's helper holds the master and names the app: unchanged
+    /// (ttys012 → Orca Helper, measured), and so is the closed case.
+    func testOrcasHelperIsUnchangedWithItsTerminalKnown() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 750, path: "/bin/zsh"),
+            750: Proc(parent: 1, path: Self.orcaHelper),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+        ]
+        let ttys: [Int32: Int32] = [900: 0x1000_000c, 800: 0x1000_000c]
+        let bundles: [String: (bundleID: String, name: String)] = [
+            "/Applications/Orca.app": ("com.stablyai.orca", "Orca"),
+        ]
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table, bundles: bundles, running: ["com.stablyai.orca": orca],
+                                                           ttys: ttys, masters: [750: [12]])), .app(orca))
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table, bundles: bundles, ttys: ttys,
+                                                           masters: [580: [12]])),
+                       .closed(name: "Orca"), "a closed app is today's answer, not a reason to look further")
+    }
+
+    /// `screen` holds its windows' masters and reaches no app: no host, as today.
+    func testScreenIsUnchangedWithItsTerminalKnown() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 1, path: "/usr/bin/screen"),
+        ]
+        XCTAssertEqual(SessionHost.resolve(pid: 900, probe(table, ttys: [900: 0x1000_0009], masters: [800: [9]])),
+                       .notFound)
     }
 }

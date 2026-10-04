@@ -444,12 +444,65 @@ extension SessionHostTests {
     func herdrInBateriProbe(table: [Int32: Proc]? = nil,
                                     sockets: [Int32: [SessionHost.UnixSocket]]? = nil,
                                     terminals: [Int32: Bool] = [37880: false, 37020: true, 22670: true],
-                                    started: [Int32: TimeInterval] = [37880: 1_000, 22670: 3_100, 37020: 3_700])
+                                    started: [Int32: TimeInterval] = [37880: 1_000, 22670: 3_100, 37020: 3_700],
+                                    ttys: [Int32: Int32] = [:], masters: [Int32: [Int32]] = [:])
         -> SessionHost.Probe {
         probe(table ?? herdrInBateri, environment: herdrInBateriEnvironment,
               arguments: herdrInBateriArguments, sockets: sockets ?? herdrInBateriSockets,
-              terminals: terminals, started: started,
+              terminals: terminals, started: started, ttys: ttys, masters: masters,
               herdr: HerdrFake(panes: [("w5:p4", 37225, [37225]), ("w5:p1", 37882, [36114])]).call)
+    }
+
+    /// The pane's terminal, ttys026, and its master held by the server, as
+    /// measured; Bateri holds its own tabs' masters.
+    var herdrInBateriTTYs: [Int32: Int32] { [92981: 0x1000_001a, 37882: 0x1000_001a] }
+    var herdrInBateriMasters: [Int32: [Int32]] { [37881: [11, 26, 32, 33, 27, 28], 580: [0, 1, 10, 18, 22, 37]] }
+
+    /// A chain through herdr's server gives what it gave, its terminal and
+    /// that terminal's owners known: the newest client's tab and the pane,
+    /// or, no client found, Bateri with no tab.
+    func testHerdrInBateriIsUnchangedWithItsTerminalKnown() {
+        let host = SessionHost.resolve(pid: 92981, herdrInBateriProbe(ttys: herdrInBateriTTYs,
+                                                                      masters: herdrInBateriMasters))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
+        guard case .app(let app) = host else { return XCTFail("\(host)") }
+        XCTAssertEqual(app.herdr, .pane(HerdrPane(socket: "/Users/u/.config/herdr/herdr.sock", pane: "w5:p1")))
+        let none = herdrInBateriProbe(terminals: [37880: false, 37020: false, 22670: false],
+                                      ttys: herdrInBateriTTYs, masters: herdrInBateriMasters)
+        XCTAssertEqual(SessionHost.resolve(pid: 92981, none), .app(bateri))
+    }
+
+    /// Past a multiplexer's server whose client was not found, the pane's
+    /// master is the server's, and whoever else holds it — here an app —
+    /// says nothing of the session's terminal: no owner is looked for.
+    func testAServerWithNoClientFoundLooksForNoOwner() {
+        var table = herdrInCmux
+        table[650] = nil
+        table[500] = Proc(parent: 1, path: "/Applications/Metalterm.app/Contents/MacOS/Metalterm", app: metalterm)
+        let host = SessionHost.resolve(pid: 900, probe(table, arguments: [700: [Self.herdr, "server"]],
+                                                       ttys: [900: 0x1000_001a, 800: 0x1000_001a],
+                                                       masters: [500: [26]]))
+        XCTAssertEqual(host, .notFound)
+    }
+
+    /// A herdr client in a tab Bateri's relaunch orphaned is followed to
+    /// its terminal's owner, and the tab is the client's.
+    func testAClientInAnOrphanedTabIsFoundByItsPtyMaster() {
+        var table = herdrInCmux
+        table[630] = Proc(parent: 1, path: "/usr/bin/login")
+        table[16041] = Proc(parent: 1, path: Self.bateriPath, app: relaunched)
+        let fake = HerdrFake(panes: [("w4:p1", 810, []), ("w4:p2", 800, [900])])
+        let host = SessionHost.resolve(pid: 900, probe(table,
+                                                       environment: [900: Self.staleTab,
+                                                                     650: Self.bateriTab(Self.newerTab)],
+                                                       arguments: [700: [Self.herdr, "server"], 650: ["herdr"]],
+                                                       sockets: Self.apiSockets,
+                                                       ttys: [650: 0x1000_0003, 640: 0x1000_0003, 630: 0x1000_0003],
+                                                       masters: [16041: [3]], herdr: fake.call))
+        var expected = relaunched
+        expected.tab = URL(string: "bateri://tab/\(Self.newerTab)")
+        expected.herdr = .pane(HerdrPane(socket: Self.apiSocket, pane: "w4:p2"))
+        XCTAssertEqual(host, .app(expected))
     }
 
     /// The closed tab's client holds the highest pid and its walk still

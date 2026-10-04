@@ -86,6 +86,13 @@ enum SessionHost: Equatable {
         /// A process's working directory: an unnamed sandbox is named after
         /// its client's (`Sandbox`). `nil` when it cannot be read.
         var currentDirectory: (Int32) -> String? = { _ in nil }
+        /// The device of a process's controlling terminal; `nil` when it has
+        /// none or it cannot be read.
+        var terminalDevice: (Int32) -> Int32? = { _ in nil }
+        /// The pty masters a process holds, by number (`ptyNumber`): a
+        /// terminal holds its tabs'. `nil` when its descriptors cannot be
+        /// read, and then it is nobody's owner and rules nobody out.
+        var ptyMasters: (Int32) -> [Int32]? = { _ in nil }
     }
 
     /// One established TCP connection of a process: its own end and the
@@ -125,7 +132,8 @@ enum SessionHost: Equatable {
     ///     `~/.local/share/claude/ClaudeCode.app/…/claude`, which is the
     ///     agent's bundle, not its terminal (seen on the live `--list`).
     /// A multiplexer's server met on the way is passed for its best client
-    /// (`Multiplexer`).
+    /// (`Multiplexer`). Failing both passes, the terminal's master is
+    /// followed to the processes that hold it (`walk`).
     /// The walk ends at launchd, at a process that is its own parent, at one
     /// that cannot be read, or at the step limit.
     /// `forwarded` (`NAME=value` lines a server read, `Ssh`) fills a tab the
@@ -164,8 +172,38 @@ enum SessionHost: Equatable {
 
     /// The host, the process whose environment names its tab, and whether
     /// the walk went through a multiplexer's server on the way.
+    ///
+    /// A third pass, only when the climb reached no app and passed no
+    /// multiplexer's server: the processes that hold the master of `pid`'s
+    /// terminal. A terminal that relaunches and takes its tabs over keeps
+    /// their masters, while each old tab's `login` is left to launchd, so
+    /// the chain up from the session reaches nothing (Bateri 0.4.0,
+    /// measured). Every owner is climbed, and only when all of them reach
+    /// the one same app is it the host: two apps, or two copies of one, say
+    /// nothing of which the tab is in. An owner's own climb does not look
+    /// for owners again. The tab is still read from `pid`'s environment,
+    /// never an owner's: an owner's is the tab it was itself started from.
+    /// Past a server the master is the server's, and its holders say
+    /// nothing of the session's terminal. The scan reads every process's
+    /// descriptors, so a chain that finds its host never pays for it.
     private static func walk(pid: Int32, _ probe: Probe,
                              throughServers: Bool = true) -> (host: SessionHost, terminal: Int32, passedServer: Bool) {
+        let climbed = climb(pid: pid, probe, throughServers: throughServers)
+        guard climbed.host == .notFound, !climbed.passedServer,
+              let device = probe.terminalDevice(pid) else { return climbed }
+        let owners = probe.processes().filter { owner in
+            owner != pid && probe.ptyMasters(owner).map { holdsMaster(of: device, masters: $0) } == true
+        }
+        // The owner is the terminal itself, never in a pane: asking a
+        // multiplexer for its clients would only spend the action's deadline.
+        let hosts = owners.map { climb(pid: $0, probe, throughServers: false).host }
+        guard case .app(let app)? = hosts.first, hosts.allSatisfy({ $0 == .app(app) }) else { return climbed }
+        return (.app(app), pid, false)
+    }
+
+    /// The walk up the parents, then the bundles on the way (see `resolve`).
+    private static func climb(pid: Int32, _ probe: Probe,
+                              throughServers: Bool) -> (host: SessionHost, terminal: Int32, passedServer: Bool) {
         var current = pid
         // The process before `current` in the walk: at a server, the pane's
         // root process.
@@ -240,6 +278,18 @@ enum SessionHost: Equatable {
         return NSString.path(withComponents: Array(components[...index]))
     }
 
+    /// The number a pty's two ends share: the minor of either device
+    /// (`sys/types.h`'s `minor()`, a macro Swift does not import). Measured:
+    /// `/dev/ttys018` is device 16,18 and its master, open on `/dev/ptmx`,
+    /// 15,18.
+    static func ptyNumber(_ device: Int32) -> Int32 { device & 0xff_ffff }
+
+    /// Whether a process holding `masters` holds the master of the terminal
+    /// `device`.
+    static func holdsMaster(of device: Int32, masters: [Int32]) -> Bool {
+        masters.contains(ptyNumber(device))
+    }
+
     /// `--list`'s word for it. Names only: the pid stays out of anything that
     /// ends up pasted into a bug report. What herdr said of the pane follows.
     var diagnostic: String {
@@ -255,14 +305,29 @@ enum SessionHost: Equatable {
 
     /// A new one per user action: its herdr calls share one deadline from
     /// the first of them (`HerdrSocket.session`), and so does the pane it
-    /// finds. Read it once per action; never keep it.
+    /// finds. Read it once per action; never keep it. The pty masters are
+    /// kept for the action too: several `ssh` candidates or clients may each
+    /// fall back to the owners, and every process's descriptors are read
+    /// once.
     static var live: Probe {
         Probe(parent: parentPID, regularApp: regularApp,
               executablePath: executablePath, bundle: bundle, running: runningApp,
               environment: environment, arguments: arguments, processes: allPIDs,
               unixSockets: unixSockets, hasTerminal: hasTerminal,
               startedAt: startedAt, tmux: TmuxQuery.run, herdr: HerdrSocket.session(), tcpSockets: tcpSockets,
-              currentDirectory: currentDirectory)
+              currentDirectory: currentDirectory, terminalDevice: terminalDevice,
+              ptyMasters: kept(ptyMasters))
+    }
+
+    /// A read answered once per pid, an unreadable one (`nil`) included.
+    static func kept(_ read: @escaping (Int32) -> [Int32]?) -> (Int32) -> [Int32]? {
+        var known: [Int32: [Int32]?] = [:]
+        return { pid in
+            if let answer = known[pid] { return answer }
+            let answer = read(pid)
+            known[pid] = .some(answer)
+            return answer
+        }
     }
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }

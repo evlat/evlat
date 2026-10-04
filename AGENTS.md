@@ -478,7 +478,12 @@ is lost with the process.
   client socket and with a terminal, tmux's client of the pane's session
   that did something last (asked of the server's own `tmux`, 0.25 s at
   most). A pane whose client is not found opens no tab: the app comes
-  forward only if the walk still reaches one. Each multiplexer is one
+  forward only if the walk still reaches one. A chain that reaches no app
+  and passes no multiplexer's server is taken up again at its terminal's
+  pty master: the processes holding it (their descriptors, `/dev/ptmx` by
+  `PROC_PIDFDVNODEPATHINFO` — no permission) are walked, never past that,
+  and only when all reach the one same app is it the host; the tab is
+  still the walked process's own. Each multiplexer is one
   type conforming to `Multiplexer` (`Herdr`, `Tmux`), listed in
   `SessionHost.multiplexers`. A herdr pane is found from the process, not
   the agent's environment: over the server's own API socket (`herdr.sock`,
@@ -1081,6 +1086,18 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   host until `SessionHost.helperBundle` named it. Its `reveal` link wants the
   whole `ITERM_SESSION_ID` (`w0t0p0:<UUID>`); the UUID alone only brought
   the app forward.
+- **A terminal that takes over its tabs on a relaunch orphans their
+  `login`** (Bateri 0.4.0, macOS 26.4.1, 2026-10-04). After the relaunch
+  the old tab ran `claude → -zsh → login (ttys018) → launchd`, and the walk
+  found no terminal. Its master was still held, by the new `bateri` and its
+  child `bateri hold`: `/dev/ttys018` is device 16,18, the master on
+  `/dev/ptmx` 15,18 — the minor is what they share (`SessionHost.ptyNumber`).
+  The tab's own `BATERI_TAB_URL`, opened with the running Bateri, selected
+  that tab. Following the master costs a read of every process's
+  descriptors: in a release build's `--list`, four orphaned sessions, six
+  runs, the scan and the owners' walks took 8.6–11.6 ms per session over
+  768–782 pids (521–525 readable), except the very first run's first two, 19.9
+  and 14.1 ms. It runs only where the walk found nothing.
 - **`/proc/net/unix` names no peer, and `ss -x` prints big inodes
   negative.** A server's accepted ends carry the socket's path there, a
   client's end carries nothing, and no column pairs them; `ss -x`'s

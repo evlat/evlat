@@ -20,6 +20,8 @@ final class SandboxTests: XCTestCase {
         var cwd: String? = nil
         var started: TimeInterval? = nil
         var environment: [String] = []
+        var tty: Int32? = nil
+        var masters: [Int32]? = nil
     }
 
     static let sbx = "/opt/homebrew/bin/sbx"
@@ -43,7 +45,9 @@ final class SandboxTests: XCTestCase {
                           processes: { Array(table.keys) },
                           hasTerminal: { table[$0]?.terminal ?? nil },
                           startedAt: { table[$0]?.started.map(Date.init(timeIntervalSince1970:)) },
-                          currentDirectory: { table[$0]?.cwd })
+                          currentDirectory: { table[$0]?.cwd },
+                          terminalDevice: { table[$0]?.tty },
+                          ptyMasters: { table[$0]?.masters })
     }
 
     /// The daemon, and a client of `evlat-hook` in a Bateri tab started
@@ -168,6 +172,19 @@ final class SandboxTests: XCTestCase {
         XCTAssertEqual(tab(resolve(table(client(1001, shell: 1000)))), "bateri://tab/\(Self.tabID(1001))")
         XCTAssertEqual(tab(resolve(table(client(1001, offset: 14, shell: 1000)))), "bateri://tab/\(Self.tabID(1001))",
                        "14 s before the session, as creating a sandbox measured")
+    }
+
+    /// A client in a tab Bateri's relaunch orphaned: its `login` is
+    /// launchd's, and its terminal's master the relaunched Bateri's.
+    func testAClientInAnOrphanedTabIsFoundByItsPtyMaster() {
+        let tty: Int32 = 0x1000_0012
+        var t = table(client(1001, shell: 1000))
+        t[1001]?.tty = tty
+        t[1000] = Proc(parent: 999, path: "/bin/zsh", tty: tty)
+        t[999] = Proc(parent: 1, path: "/usr/bin/login", tty: tty)
+        XCTAssertEqual(resolve(t), .host(.notFound), "no master read: today's walk")
+        t[580]?.masters = [0, 18, 22]
+        XCTAssertEqual(tab(resolve(t)), "bateri://tab/\(Self.tabID(1001))")
     }
 
     /// A lone client 40 s before the session may be an earlier session's:
