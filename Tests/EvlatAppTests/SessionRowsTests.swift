@@ -304,12 +304,12 @@ final class SessionRowsTests: XCTestCase {
     /// constantly.
     func testAListChangeUnderTheSameBoolDoesNotRestartTheClock() {
         let model = SessionRowsModel()
-        model.update(from: [signal("a", .working)])
+        model.update(from: [signal("a", .waiting)])
         XCTAssertTrue(model.isBeating)
         XCTAssertEqual(model.clockStarts, 1)
 
-        model.update(from: [signal("a", .working), signal("b", .idle)])
-        model.update(from: [signal("b", .waiting), signal("a", .working)])
+        model.update(from: [signal("a", .waiting), signal("b", .idle)])
+        model.update(from: [signal("b", .waiting), signal("a", .waiting)])
         model.update(from: [signal("c", .waiting)])
         XCTAssertEqual(model.clockStarts, 1, "the Bool never changed, so neither did the clock")
         XCTAssertTrue(model.isBeating)
@@ -321,7 +321,7 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertTrue(model.isBeating)
         model.update(from: [signal("a", .idle)])
         XCTAssertFalse(model.isBeating)
-        model.update(from: [signal("a", .working)])
+        model.update(from: [signal("a", .waiting)])
         XCTAssertEqual(model.clockStarts, 2, "a new beating stretch is a new clock")
     }
 
@@ -709,11 +709,11 @@ final class SessionRowsTests: XCTestCase {
     }
 
     /// A beating row is never hidden behind still ones: the model orders by
-    /// phase itself, so a working session handed in last still takes a slot
+    /// phase itself, so a waiting session handed in last still takes a slot
     /// and starts the clock, and the count stands for idle rows.
     func testABeatingRowIsNeverBehindTheCount() {
         let model = SessionRowsModel()
-        model.update(from: (1...4).map { signal("s\($0)", .idle) } + [signal("s5", .working)])
+        model.update(from: (1...4).map { signal("s\($0)", .idle) } + [signal("s5", .waiting)])
         XCTAssertEqual(model.overflow, 2)
         XCTAssertEqual(model.rows.first?.entity, "s5")
         XCTAssertTrue(model.isBeating)
@@ -734,21 +734,20 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.overflow, 0)
     }
 
-    /// The clock follows what is drawn. Closed, a working row behind the
-    /// count is not drawn and must not keep the clock running; open, it is.
-    /// Three working jobs with a known progress (still rings) fill the
-    /// closed rings ahead of a turning one, by entity.
-    func testTheClockFollowsTheDrawnRowsOnly() {
+    /// A working row keeps no clock, open or closed: its arc turns outside
+    /// SwiftUI (`SpinningArc`), so a column of busy sessions is never
+    /// re-evaluated on the beat. Only a wait starts one.
+    func testAWorkingRowKeepsNoClock() {
         let model = SessionRowsModel()
-        model.update(from: [outside("a", progress: 0.1), outside("b", progress: 0.2),
-                            outside("c", progress: 0.3), signal("z", .working), signal("e", .idle)])
-        XCTAssertEqual(model.closedRows.map(\.entity), ["signal:a", "signal:b", "signal:c"])
-        XCTAssertFalse(model.isBeating, "the working row is in the count: nothing drawn beats")
-
-        model.setOpen(true)
-        XCTAssertTrue(model.isBeating, "open, the working row is drawn")
-        model.setOpen(false)
+        model.update(from: [signal("a", .working), outside("b"), signal("e", .idle)])
+        XCTAssertFalse(model.rows.contains(where: \.beats))
         XCTAssertFalse(model.isBeating)
+        model.setOpen(true)
+        XCTAssertFalse(model.isBeating, "open, still no clock")
+        model.update(from: [signal("a", .working), signal("w", .waiting)])
+        XCTAssertTrue(model.isBeating, "a wait does")
+        model.setOpen(false)
+        XCTAssertEqual(model.clockStarts, 1)
     }
 
     // MARK: - Outside rows
@@ -781,16 +780,17 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertGreaterThan(writes, 0)
     }
 
-    /// A known progress is the movement: the row does not turn on the beat,
-    /// and a working outside row without one does.
+    /// Neither a working outside row with a progress nor one without beats:
+    /// the fill is the one's movement, the arc turning outside SwiftUI the
+    /// other's.
     func testAWorkingRowWithProgressDoesNotBeat() {
         XCTAssertFalse(SessionRow(outside("a", progress: 0.4)).beats)
-        XCTAssertTrue(SessionRow(outside("a")).beats)
+        XCTAssertFalse(SessionRow(outside("a")).beats)
         let model = SessionRowsModel()
         model.update(from: [outside("a", progress: 0.4)])
         XCTAssertFalse(model.isBeating, "nothing to turn")
         model.update(from: [outside("a")])
-        XCTAssertTrue(model.isBeating)
+        XCTAssertFalse(model.isBeating)
         model.update(from: [])
     }
 
@@ -911,14 +911,15 @@ final class SessionRowsTests: XCTestCase {
     /// beat, and every track comes back to rest — the next gesture starts from
     /// rest whatever the animator keeps at the end.
     func testGesturesAreShortAndEndAtRest() {
-        for phase in [Phase.idle, .failed] {
-            XCTAssertEqual(IndicatorGesture.duration(for: phase), 0, "\(phase) is still")
+        // `working` turns without a stop, outside SwiftUI (`SpinningArc`):
+        // no gesture of its own on the beat.
+        for phase in [Phase.idle, .working, .failed] {
+            XCTAssertEqual(IndicatorGesture.duration(for: phase), 0, "\(phase) is still on the beat")
         }
-        for phase in [Phase.working, .waiting, .review] {
+        for phase in [Phase.waiting, .review] {
             let d = IndicatorGesture.duration(for: phase)
             XCTAssertGreaterThan(d, 0, "\(phase) gestures")
             XCTAssertLessThan(d, SessionRowsModel.beatInterval, "\(phase) is a beat, not a loop")
-            XCTAssertEqual(IndicatorGesture.spin(for: phase).last?.value ?? 0, 0)
             XCTAssertEqual(IndicatorGesture.pulse(for: phase).last?.value ?? 1, 1)
             XCTAssertEqual(IndicatorGesture.glow(for: phase).last?.value ?? 0, 0)
             XCTAssertEqual(IndicatorGesture.wave(for: phase).last?.value ?? 0, 0)

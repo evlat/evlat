@@ -240,10 +240,9 @@ public struct SessionRow: Equatable, Identifiable {
         return Int(min(100, max(0, value)))
     }
 
-    /// Whether this row moves on the beat. `working` turns its arc, `waiting`
-    /// pulses; the rest are still (`review`'s fade is a one-off on arrival).
-    /// A working row with a known progress does not turn: the filling arc is
-    /// its movement, and a turning ring says "how far is not known".
+    /// Whether this row moves on the beat: `waiting`'s wave. The rest are
+    /// still on the beat — `working` turns without one (`SpinningArc`),
+    /// `review`'s fade is a one-off on arrival.
     /// A dimmed row never beats: its phase is the last thing a silent
     /// machine said, and a clock kept running for it would spend the idle
     /// budget on nobody.
@@ -251,9 +250,8 @@ public struct SessionRow: Equatable, Identifiable {
     public var beats: Bool {
         guard isLive, !passive else { return false }
         switch phase {
-        case .working: return progress == nil
         case .waiting: return true
-        case .idle, .review, .failed: return false
+        case .idle, .working, .review, .failed: return false
         }
     }
 }

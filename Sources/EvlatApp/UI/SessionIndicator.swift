@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import EvlatCore
 
 /// The column under the mascot. Closed: one ring per slot, and the overflow
@@ -775,9 +776,10 @@ extension StatusLine.Unit {
 ///
 /// **Beats, not loops.** A spinning arc under `TimelineView` or
 /// `repeatForever` is the measured ~7% floor, and a working session runs
-/// for hours. So `working` turns once per beat and `waiting` sends one wave
-/// out of its ring per beat, still in between; `review` flares once on
-/// arrival and fades.
+/// for hours. So `waiting` sends one wave out of its ring per beat, still in
+/// between, and `review` flares once on arrival and fades. `working` turns
+/// without a stop, but not in SwiftUI: its arc is a layer Core Animation
+/// turns (`SpinningArc`).
 struct SessionIndicator: View {
     let phase: Phase
     var source: AgentID? = nil
@@ -801,8 +803,8 @@ struct SessionIndicator: View {
     /// The phase whose gesture plays; `nil` plays none.
     private var gesture: Phase? { isLive && !passive ? phase : nil }
     /// The turn is `working`'s "how far is not known": a ring whose progress
-    /// is known never turns, not even on arriving at `working`.
-    private var spinGesture: Phase? { progress == nil ? gesture : nil }
+    /// is known never turns, nor does one nobody can hear.
+    private var turns: Bool { gesture == .working && progress == nil }
 
     var body: some View {
         ring
@@ -818,9 +820,6 @@ struct SessionIndicator: View {
             .keyframeAnimator(initialValue: IndicatorGesture(),
                               trigger: IndicatorTrigger(phase: phase, beat: beat)) { view, g in
                 view
-                    // The turn is the ring's alone: the mark and the fill
-                    // inside stay upright, which is what keeps them readable.
-                    .rotationEffect(.degrees(g.spin))
                     // Behind the ring and outside it: the ring and its mark
                     // stay where they are while the wave leaves them.
                     .background { wave(g.wave) }
@@ -828,11 +827,6 @@ struct SessionIndicator: View {
                     .scaleEffect(g.pulse)
                     .shadow(color: glowColor.opacity(g.glow), radius: size * 0.35)
             } keyframes: { _ in
-                KeyframeTrack(\.spin) {
-                    for key in IndicatorGesture.spin(for: spinGesture) {
-                        CubicKeyframe(key.value, duration: key.duration)
-                    }
-                }
                 KeyframeTrack(\.pulse) {
                     for key in IndicatorGesture.pulse(for: gesture) {
                         CubicKeyframe(key.value, duration: key.duration)
@@ -965,11 +959,17 @@ struct SessionIndicator: View {
             } else {
                 ZStack {
                     Circle().stroke(Color.white.opacity(0.14), lineWidth: line)
-                    // The thin arc. The beat turns the whole ring; the track is
-                    // round, so only the arc is seen to move.
-                    Circle()
-                        .trim(from: 0, to: 0.3)
-                        .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    if turns {
+                        // Turned by Core Animation, without a stop: a turn a
+                        // beat left the arc still two seconds in three, which
+                        // read as stuck.
+                        SpinningArc(lineWidth: line)
+                    } else {
+                        // A dimmed row's: the last thing a silent machine said.
+                        Circle()
+                            .trim(from: 0, to: SpinningArc.length)
+                            .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    }
                 }
             }
         case .waiting:
@@ -1037,6 +1037,81 @@ struct ProgressWedge: Shape {
     }
 }
 
+/// `working`'s arc, turned without a stop by Core Animation. SwiftUI's own
+/// continuous animations cost ~7% CPU here whatever the technique
+/// (`AGENTS.md` → Rendering and CPU); a layer animation is handed to the
+/// render server once and plays there, so Evlat itself is not woken per
+/// frame. In the tree only while its ring turns: a still arc is SwiftUI's.
+struct SpinningArc: NSViewRepresentable {
+    var lineWidth: CGFloat
+
+    /// The arc's share of the ring, as the still one draws it.
+    static let length: CGFloat = 0.3
+    /// Seconds per turn: calm enough to sit in the corner of the eye.
+    static let period: CFTimeInterval = 1.2
+    static let animationKey = "turn"
+
+    func makeNSView(context: Context) -> SpinningArcView { SpinningArcView(lineWidth: lineWidth) }
+    func updateNSView(_ view: SpinningArcView, context: Context) {}
+}
+
+final class SpinningArcView: NSView {
+    private let arc = CAShapeLayer()
+    private let lineWidth: CGFloat
+
+    init(lineWidth: CGFloat) {
+        self.lineWidth = lineWidth
+        super.init(frame: .zero)
+        wantsLayer = true
+        arc.fillColor = nil
+        arc.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        arc.lineWidth = lineWidth
+        arc.lineCap = .round
+        arc.strokeEnd = SpinningArc.length
+        layer?.addSublayer(arc)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The ring takes no clicks; the column's hit-testing is geometry.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        arc.frame = bounds
+        let inset = lineWidth / 2
+        arc.path = CGPath(ellipseIn: bounds.insetBy(dx: inset, dy: inset), transform: nil)
+        CATransaction.commit()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        arc.contentsScale = window.backingScaleFactor
+        // Added once per stay in a window; a layer that left one may have
+        // lost it.
+        guard arc.animation(forKey: SpinningArc.animationKey) == nil else { return }
+        let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+        turn.fromValue = 0
+        // Clockwise on screen, as the beat's turn was.
+        turn.toValue = (layer?.contentsAreFlipped() ?? false) ? 2 * Double.pi : -2 * Double.pi
+        turn.duration = SpinningArc.period
+        turn.repeatCount = .infinity
+        // A 20 pt arc reads as smooth at 30; every frame is the render
+        // server's work, so it is not asked for more.
+        turn.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
+        turn.isRemovedOnCompletion = false
+        arc.add(turn, forKey: SpinningArc.animationKey)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        arc.contentsScale = window?.backingScaleFactor ?? arc.contentsScale
+    }
+}
+
 /// What fires a gesture: arriving at a phase, or a beat while in one.
 struct IndicatorTrigger: Equatable {
     var phase: Phase
@@ -1051,8 +1126,6 @@ struct IndicatorTrigger: Equatable {
 /// keyframe or falls back to the initial value, the ring is left in its rest
 /// state, and the next gesture starts from rest.
 struct IndicatorGesture {
-    /// Degrees the ring is turned.
-    var spin: Double = 0
     /// Scale of the ring.
     var pulse: Double = 1
     /// Opacity of the halo.
@@ -1064,12 +1137,6 @@ struct IndicatorGesture {
         var value: Double
         /// Seconds to reach it.
         var duration: Double
-    }
-
-    /// `working`: one full turn, then snap back to 0 — which is the same angle.
-    static func spin(for phase: Phase?) -> [Key] {
-        guard phase == .working else { return [] }
-        return [Key(value: 360, duration: 0.9), Key(value: 0, duration: 0)]
     }
 
     /// `review`: one swell and back. `waiting` no longer swells: its mark
@@ -1099,7 +1166,7 @@ struct IndicatorGesture {
 
     /// How long the gesture keeps producing frames: the longest track.
     static func duration(for phase: Phase) -> Double {
-        [spin(for: phase), pulse(for: phase), glow(for: phase), wave(for: phase)]
+        [pulse(for: phase), glow(for: phase), wave(for: phase)]
             .map { $0.reduce(0) { $0 + $1.duration } }
             .max() ?? 0
     }

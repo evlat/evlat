@@ -422,6 +422,13 @@ is lost with the process.
 - Continuous SwiftUI animation costs ~7% CPU on this hardware regardless of
   technique (`PhaseAnimator`, `repeatForever`, `.drawingGroup()`), so the
   mascot lives in **beats**: a short blink or a sparse breath, still in between.
+- **The one continuous motion is outside SwiftUI**: `working`'s arc is a
+  `CAShapeLayer` turned by Core Animation (`SpinningArc`, 30 fps at most), so
+  only `waiting`'s wave keeps the beat clock. Measured on a release build,
+  one working row, the mascot forced idle, 90 s: Evlat 1.33–1.41% against
+  1.29–1.51% with no row, where a turn per beat cost 3.97–4.16%. The render
+  server pays instead — WindowServer rose by some points, not pinned down: a
+  video playing behind moved its own baseline between 34% and 44%.
 - The mascot reduces to a handful of animatable numbers (`MascotPose`); SwiftUI
   springs are interruptible and keep velocity, so a state change never snaps.
   Expression lives in the pose; the body shape is swappable.
