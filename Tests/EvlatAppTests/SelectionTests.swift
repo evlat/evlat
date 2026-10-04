@@ -605,6 +605,27 @@ final class SelectionTests: XCTestCase {
         XCTAssertEqual(controller.barState.selected, "a")
     }
 
+    /// A tall card is placed for its own height in its first layout: up from
+    /// its row so it stays on the screen, never first level with the row and
+    /// past the window's foot. It used to take the height of the card before
+    /// it for a frame, and the window's whole layer jumped.
+    func testATallCardIsPlacedForItsHeightInItsFirstLayout() {
+        let room: ClosedRange<CGFloat> = 0...730
+        var placed: CGRect?
+        let card = Color.red.frame(width: AppController.detailCardWidth, height: 600)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { placed = $0 }
+        let host = NSHostingView(rootView: BarBody.CardLayout(slot: 0, offset: 0, room: room, isLeft: false) { card })
+        host.frame = CGRect(x: 0, y: 0, width: 400, height: room.upperBound)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNotNil(placed)
+        let top = BarBody.cardTop(slot: 0, height: 600, room: room)
+        XCTAssertLessThan(top, BarBody.cardTop(slot: 0), "a card this tall rises from its row")
+        XCTAssertEqual(placed?.minY ?? -1, top, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(placed?.maxY ?? .infinity, room.upperBound, "whole inside the window")
+        XCTAssertEqual(placed?.maxX ?? -1, 400, accuracy: 0.5, "on the docked side")
+    }
+
     /// A selected row pushed below the visible area has nothing on screen for
     /// the card to hang from: the card closes, as it does for a row that left.
     func testASelectedRowThatIsNoLongerVisibleClosesItsCard() {

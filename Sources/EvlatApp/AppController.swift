@@ -4648,10 +4648,6 @@ struct BarBody: View {
         AppController.slotTop(SessionRowsModel.slotCount - 1)
     }
 
-    /// The card's measured height, for the one case it decides: a card that
-    /// would leave the screen rises (`cardTop`).
-    @State private var cardHeight: CGFloat = 0
-
     private var isLeft: Bool { state.edge.isLeft }
     /// The docked side's top corner: where the body, the mascot and the
     /// column hang from.
@@ -4667,7 +4663,12 @@ struct BarBody: View {
                 .padding(.top, AppController.headroom)
             card
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: head)
+        // The window's size, whatever is in it. With a maximum alone a frame
+        // takes the size of a child larger than it was offered: a tall card
+        // laid out level with the top row for a frame made the whole layer
+        // taller than the window, and the hosting view centred it — the body
+        // jumped up and came back.
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: head)
     }
 
     private var headLayer: some View {
@@ -4730,11 +4731,10 @@ struct BarBody: View {
                 .animation(BarMotion.cardContent, value: state.selected)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                     onCardFrame(rect)
-                    if abs(rect.height - cardHeight) > 0.5 { cardHeight = rect.height }
                 }
                 .onDisappear { onCardFrame(nil) }
                 .transition(BarMotion.cardTransition(edge: state.edge))
-                .modifier(CardPlacing(scroll: scroll, slot: slot, height: cardHeight, room: state.cardRoom))
+                .modifier(CardPlacing(scroll: scroll, slot: slot, room: state.cardRoom, isLeft: isLeft))
                 .padding(isLeft ? .leading : .trailing, state.openWidth + AppController.detailCardGap)
                 .animation(BarMotion.length, value: slot)
         }
@@ -4756,18 +4756,44 @@ struct BarBody: View {
     }
 
     /// The card's top, level with its row wherever the list is scrolled. A
-    /// modifier of its own so a scroll re-evaluates this padding and not the
-    /// body, the mascot or the card's content. The offset is written without
-    /// an animation and the spring above is keyed on the slot alone, so the
-    /// card follows the finger directly.
+    /// modifier of its own so a scroll re-evaluates this placement and not
+    /// the body, the mascot or the card's content. The offset is written
+    /// without an animation and the spring above is keyed on the slot alone,
+    /// so the card follows the finger directly.
     private struct CardPlacing: ViewModifier {
         @ObservedObject var scroll: ListScroll
         let slot: Int
-        let height: CGFloat
         let room: ClosedRange<CGFloat>?
+        let isLeft: Bool
 
         func body(content: Content) -> some View {
-            content.padding(.top, BarBody.cardTop(slot: slot, offset: scroll.offset, height: height, room: room))
+            CardLayout(slot: slot, offset: scroll.offset, room: room, isLeft: isLeft) { content }
+        }
+    }
+
+    /// Places the card where `cardTop` says for the height it has **in the
+    /// same pass**. The height used to come back from a geometry reader into
+    /// state, a frame late: a tall card was first laid out for the height of
+    /// the card before it — level with the top row, past the window's foot —
+    /// and rose a frame later.
+    struct CardLayout: Layout {
+        let slot: Int
+        let offset: CGFloat
+        let room: ClosedRange<CGFloat>?
+        let isLeft: Bool
+
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            proposal.replacingUnspecifiedDimensions()
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            for card in subviews {
+                let size = card.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+                let top = BarBody.cardTop(slot: slot, offset: offset, height: size.height, room: room)
+                let x = isLeft ? bounds.minX : bounds.maxX - size.width
+                card.place(at: CGPoint(x: x, y: bounds.minY + top), anchor: .topLeading,
+                           proposal: ProposedViewSize(size))
+            }
         }
     }
 
