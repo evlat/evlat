@@ -33,6 +33,11 @@ final class AnswerPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         isOpaque = false
         backgroundColor = .clear
+        // Drawn dark whatever the system's look, as the bar and the card
+        // are: under the light look a field's placeholder, caret and
+        // selection came in colours for a light ground — the placeholder
+        // near black on the dark row.
+        appearance = NSAppearance(named: .darkAqua)
         hasShadow = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
@@ -164,7 +169,10 @@ struct AnswerView: View {
             DetailCard.mark(multi: model.multiSelect, picked: false)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
-                TextField("", text: $model.text, prompt: Text(verbatim: L10n.t(Self.placeholderKey)))
+                // The placeholder in the hint's grey, the row's own second
+                // colour, not the system's.
+                TextField("", text: $model.text,
+                          prompt: Text(verbatim: L10n.t(Self.placeholderKey)).foregroundStyle(DetailCard.secondary))
                     .textFieldStyle(.plain)
                     .font(DetailCard.replyFont.weight(.medium))
                     .foregroundStyle(BarPalette.textPrimary)
@@ -273,7 +281,8 @@ struct PromptView: View {
                         button("prompt.yes") { model.submit("yes") }
                     }
                 } else {
-                    SecureField("", text: $model.secret, prompt: Text(verbatim: L10n.t("prompt.placeholder")))
+                    SecureField("", text: $model.secret,
+                                prompt: Text(verbatim: L10n.t("prompt.placeholder")).foregroundStyle(BarPalette.textSecondary))
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .foregroundStyle(BarPalette.textPrimary)
