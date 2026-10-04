@@ -926,6 +926,18 @@ final class SessionRowsTests: XCTestCase {
         }
     }
 
+    /// A row's ground stays inside its hover slot, dropped or not, so two
+    /// grounds drawn at once — the selected row's and the hovered one's —
+    /// keep body between them and never overlap.
+    func testAGroundStaysInsideItsSlot() {
+        let half = AppController.rowPitch / 2
+        let top = AppController.indicatorSize / 2 - SessionColumn.groundHeight / 2 + SessionColumn.groundDrop
+        let bottom = top + SessionColumn.groundHeight
+        XCTAssertGreaterThanOrEqual(top, AppController.indicatorSize / 2 - half + 1, "1 pt of body above")
+        XCTAssertLessThanOrEqual(bottom, AppController.indicatorSize / 2 + half, "inside its slot below")
+        XCTAssertGreaterThanOrEqual(SessionColumn.groundHeight, SessionColumn.labelHeight, "holds the label")
+    }
+
     /// A waiting ring does not swell: its mark stays still while a wave
     /// leaves the ring.
     func testWaitingSendsAWaveAndKeepsItsSize() {

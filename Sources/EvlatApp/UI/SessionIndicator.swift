@@ -47,6 +47,14 @@ struct SessionColumn: View {
     /// inside its slot — 2 pt of body between two grounds — and still holds
     /// the 26 pt label with 1 pt to spare, the pitch unchanged.
     static let groundHeight: CGFloat = 28
+    /// How far the ground sits under the ring's centre: the label's ink is
+    /// that much lower — the name's line keeps room above its capitals, the
+    /// status line's words hang below it (approval, question, working).
+    /// Measured on the drawn bar, the ground centred on the ring kept the
+    /// text 3 pt from its top and 1 pt from its foot, and stood 4.5 pt from
+    /// the row above against 6.5 from the row below; 1 pt down evens both.
+    /// It stays inside its slot, 2 pt from the next ground.
+    static let groundDrop: CGFloat = 1
 
     /// Between a name's end and its ring.
     static let nameGap: CGFloat = 8
@@ -335,7 +343,7 @@ struct SessionColumn: View {
             .fill(Color.white.opacity(0.09))
             .frame(width: max(0, openWidth - 2 * Self.groundInset),
                    height: Self.groundHeight)
-            .offset(x: -mirror * Self.groundInset)
+            .offset(x: -mirror * Self.groundInset, y: Self.groundDrop)
             .opacity(selected ? 1 : hovered ? 0.5 : 0)
             .animation(BarMotion.namesOut, value: selected)
             .animation(BarMotion.namesOut, value: hovered)
