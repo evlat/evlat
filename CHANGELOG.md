@@ -8,6 +8,16 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+Work that lands on `main` adds its bullet under `## Unreleased`; the release
+renames that heading to its version.
+
+## Unreleased
+
+- **Quiet at the tab you're watching.** With Bateri 0.4 or newer, a
+  session's finish sound, peek and reminders stay quiet while you're at its
+  tab — on this Mac, or over ssh from a Bateri tab. The bar still shows what
+  happened, and the finish stays new until you look at it.
+
 ## 0.2.2
 
 - **Smart hide now gets out of your way.** With Settings → General →
