@@ -743,6 +743,11 @@ struct DetailCard: View {
     /// A drawn button answering the pointer: brighter under it, pressed in
     /// on a click. Only a live button does (`nil` is a faint one); only a
     /// change animates, so a still card draws nothing.
+    ///
+    /// The animation reaches the brightness and the scale alone. Keyed on
+    /// the press, it once took the whole view: the press ends as the next
+    /// question comes up, and the pressed Next, now Send, slid up from where
+    /// the taller question had put it.
     struct PressFeedback: ViewModifier {
         @ObservedObject var model: DetailModel
         let button: DetailModel.Button?
@@ -750,11 +755,10 @@ struct DetailCard: View {
         func body(content: Content) -> some View {
             let hovered = button != nil && model.hovered == button
             let pressed = button != nil && model.pressed == button
-            content
-                .brightness(pressed ? -0.12 : hovered ? 0.08 : 0)
-                .scaleEffect(pressed ? 0.96 : 1)
-                .animation(.easeOut(duration: 0.08), value: hovered)
-                .animation(.easeOut(duration: 0.08), value: pressed)
+            content.animation(.easeOut(duration: 0.08)) {
+                $0.brightness(pressed ? -0.12 : hovered ? 0.08 : 0)
+                    .scaleEffect(pressed ? 0.96 : 1)
+            }
         }
     }
 
