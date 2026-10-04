@@ -128,14 +128,39 @@ def event(index, name, **fields):
 
 BASH = ('swift test --parallel --filter EvlatAppTests.SandboxWatcherTests 2>&1 | '
         'tee /tmp/evlat-sandbox-watcher-test-output-with-a-long-name.log | grep -E "error|failed"')
-QUESTION = {"questions": [{
-    "question": "Which eviction policy should the glyph atlas use when the GPU reports memory pressure?",
-    "header": "Policy", "multiSelect": False,
-    "options": [
-        {"label": "LRU", "description": "Evict the glyphs used least recently; simple and predictable."},
-        {"label": "Clock", "description": "Second-chance sweep; cheaper bookkeeping per frame."},
-        {"label": "Size-aware", "description": "Evict the largest glyphs first to free the most memory."},
-    ]}]}
+# Four questions, the most AskUserQuestion asks at once: single- and
+# multi-select, with and without descriptions, so the card's tabs, Back, Next
+# and Send all have something to do.
+QUESTION = {"questions": [
+    {"question": "Which eviction policy should the glyph atlas use when the GPU reports memory pressure?",
+     "header": "Policy", "multiSelect": False,
+     "options": [
+         {"label": "LRU", "description": "Evict the glyphs used least recently; simple and predictable."},
+         {"label": "Clock", "description": "Second-chance sweep; cheaper bookkeeping per frame."},
+         {"label": "Size-aware", "description": "Evict the largest glyphs first to free the most memory."},
+     ]},
+    {"question": "How much GPU memory may the atlas keep before it starts evicting?",
+     "header": "Budget", "multiSelect": False,
+     "options": [
+         {"label": "64 MB", "description": "Enough for one font at two sizes."},
+         {"label": "128 MB", "description": "Room for ligatures and a second font."},
+         {"label": "256 MB", "description": "Rarely evicts; costly on integrated GPUs."},
+     ]},
+    {"question": "Which signals should start an eviction?",
+     "header": "Triggers", "multiSelect": True,
+     "options": [
+         {"label": "Memory warning", "description": "The system's memory pressure notification."},
+         {"label": "Frame over budget", "description": "A frame took longer than 16 ms to draw."},
+         {"label": "Window hidden"},
+         {"label": "Font size changed"},
+     ]},
+    {"question": "Ship it behind a feature flag?",
+     "header": "Rollout", "multiSelect": False,
+     "options": [
+         {"label": "Behind a flag"},
+         {"label": "On by default"},
+     ]},
+]}
 
 event(0, "SessionStart", source="startup")
 event(0, "UserPromptSubmit")
