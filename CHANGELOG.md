@@ -33,6 +33,12 @@ Markdown; keep it to a few bullets.
   takes both out of the running sandboxes. **Go to session** opens the tab
   of the `sbx run` that started the session, when it can tell which.
   Sandboxes in Docker's cloud can't reach your Mac.
+- **Go to session lands on the right herdr pane.** For a session in
+  [herdr](https://herdr.dev), Go to session now selects its pane in more
+  places: behind an `ssh` or `sbx run` started in a herdr pane, in herdr
+  on a server you work on over `ssh`, and in a `herdr --remote` window.
+  When Evlat can't select the pane, the button says so: "Open herdr in
+  Bateri" instead of "Open in Bateri".
 - **A roomier list.** Names on the open bar get more room, and a waiting
   session says what it waits for in one word, **approval** or
   **question**, so the word is never cut; the card still says it in full.
