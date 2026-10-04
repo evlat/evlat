@@ -149,6 +149,31 @@ final class TabFocusTests: XCTestCase {
         wait(for: [gone], timeout: 10)
     }
 
+    /// A program that answers and exits while a child it left holds the
+    /// pipe: the read ends at the deadline too, and the question with it.
+    func testAPipeHeldOpenEndsAtTheDeadline() throws {
+        let app = try fakeApp(version: "0.4.0")
+        let dir = app.home.appendingPathComponent("fake-bateri")
+        try answer("pane=live focused=1 idle=4", in: app.home)
+        FileManager.default.createFile(atPath: dir.appendingPathComponent("linger").path, contents: Data())
+        let query = try XCTUnwrap(query(app))
+        let start = Date()
+        XCTAssertNil(TabFocus.run(query, deadline: 0.5))
+        // Room for a loaded machine; the child waits 30 s.
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+        let pid = try XCTUnwrap(Int32(String(contentsOf: dir.appendingPathComponent("linger-pid"), encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        kill(pid, SIGKILL)
+    }
+
+    /// Only a terminal the table can ask counts as one running.
+    func testOnlyAnAskableTerminalCountsAsRunning() {
+        XCTAssertTrue(TabFocus.anyRunning { $0 == "dev.bateri.bateri" })
+        XCTAssertTrue(TabFocus.anyRunning { $0 == "io.github.bateri.bateri" })
+        XCTAssertFalse(TabFocus.anyRunning { $0 == "dev.warp.Warp-Stable" }, "a tab link alone says nothing of focus")
+        XCTAssertFalse(TabFocus.anyRunning { _ in false })
+    }
+
     /// Answered on the main queue, once; the lock read only for a reading.
     func testAQuestionIsAnsweredOnceOnTheMainQueue() throws {
         let query = TabFocus.Query(executable: URL(fileURLWithPath: "/nonexistent"), arguments: [], environment: [:])

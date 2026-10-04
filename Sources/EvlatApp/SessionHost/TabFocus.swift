@@ -21,8 +21,8 @@ import Darwin
 /// same file's, read from disk at each question (`Bundle(url:)` keeps one per
 /// path, and an app put back to an older version would pass a stale gate).
 /// A copy older than `focusSince` is never run: Bateri 0.3.0 opened a window
-/// for a word it did not know, and from 0.4.0 an argument that starts with
-/// `-` still does (measured on 0.5.0), so the arguments are fixed.
+/// for a word it did not know, and from 0.4.0 a first argument that starts
+/// with `-` still does (measured on 0.5.0), so the arguments are fixed.
 enum TabFocus {
     /// What a live pane said.
     struct Reading: Equatable {
@@ -131,6 +131,17 @@ enum TabFocus {
                      environment: ["HOME": home])
     }
 
+    /// Whether a terminal that can be asked runs at all, by the bundle ids
+    /// running now: with none, the news walks no process and asks no
+    /// server for nothing.
+    static func anyRunning(_ isRunning: (String) -> Bool) -> Bool {
+        TabLink.known.contains { id, entry in entry.focusSince != nil && isRunning(id) }
+    }
+
+    static var anyRunning: Bool {
+        anyRunning { !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty }
+    }
+
     /// The question for a running app, by its pid.
     static func query(for app: SessionHost.App) -> Query? {
         let running = NSRunningApplication(processIdentifier: app.pid)
@@ -142,7 +153,10 @@ enum TabFocus {
 
     /// The process, synchronously: its one line, or `nil` for anything but
     /// an answer in time. One still running at `deadline` is killed — it
-    /// only reads, so there is nothing to let it finish.
+    /// only reads, so there is nothing to let it finish. Its output is read
+    /// as it comes, under the same deadline: a program that exits while
+    /// something it started still holds the pipe would otherwise hold this
+    /// queue, and every question behind it, for good.
     static func run(_ query: Query, deadline: TimeInterval = deadline) -> Reading? {
         let process = Process()
         process.executableURL = query.executable
@@ -152,15 +166,33 @@ enum TabFocus {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        let reader = output.fileHandleForReading
+        let data = NSMutableData()
+        let closed = DispatchSemaphore(value: 0)
+        reader.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard chunk.isEmpty else { return data.append(chunk) }
+            handle.readabilityHandler = nil
+            closed.signal()
+        }
         let done = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in done.signal() }
-        guard (try? process.run()) != nil else { return nil }
-        guard done.wait(timeout: .now() + deadline) == .success else {
+        guard (try? process.run()) != nil else {
+            reader.readabilityHandler = nil
+            return nil
+        }
+        let end = DispatchTime.now() + deadline
+        guard done.wait(timeout: end) == .success else {
             kill(process.processIdentifier, SIGKILL)
+            reader.readabilityHandler = nil
+            return nil
+        }
+        guard closed.wait(timeout: end) == .success else {
+            reader.readabilityHandler = nil
             return nil
         }
         guard process.terminationReason == .exit, process.terminationStatus == 0 else { return nil }
-        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let text = String(decoding: data as Data, as: UTF8.self)
         return text.split(separator: "\n", omittingEmptySubsequences: false).first.flatMap(parse)
     }
 
@@ -185,10 +217,10 @@ enum TabFocus {
 
 /// Whether the screen is locked, from the window server's session
 /// dictionary — no permission. Measured (macOS 26.4.1): unlocked, the
-/// dictionary has no `CGSSessionScreenIsLocked` at all; locked, it is
-/// `true`; unlocked again, gone. So a missing key is unlocked, not
-/// unknown. No dictionary, or a value that is not a number, is locked: the
-/// news is then told.
+/// dictionary has no `CGSSessionScreenIsLocked` at all; locked (⌃⌘Q), it
+/// is `true`; unlocked again, gone. After a wake from sleep: not measured.
+/// So a missing key is unlocked, not unknown. No dictionary, or a value
+/// that is not a number, is locked: the news is then told.
 enum ScreenLock {
     static let key = "CGSSessionScreenIsLocked"
 

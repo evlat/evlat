@@ -31,7 +31,8 @@ Sources/Evlat/       main.swift — classifies argv (app, `watch`, `signal`, hel
 Tests/EvlatCoreTests/
 Tests/EvlatAgentsTests/ the agents' tests, the installed contracts' golden strings among them
 Tests/EvlatAppTests/
-Tests/Fixtures/      fake `claude`, fake `codex app-server`, fake `ssh`, fake `sbx`
+Tests/Fixtures/      fake `claude`, fake `codex app-server`, fake `ssh`, fake `sbx`,
+                     fake `bateri`
 Resources/<lang>.lproj/Evlat.strings
 docs/media/          README's banner and screenshots; not bundled into the app
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
@@ -371,7 +372,8 @@ answer or the look; a click opens that session's card on the bar. Waits are
 timed from when this process first saw them (`WaitingNudge`), finishes from
 when they were told; a finish that entered silently is never reminded of.
 A reminder due while the user is at the session's tab (below) is not
-given: the wait or the finish is timed again from then.
+given: the wait or the finish is timed again from then. Reminders due
+together still make one sound, once each tab has answered (`SoundBatch`).
 An upgrade from the old reminder keeps its sound: with minutes and "Play a
 sound" stored, the two wait rows start on (`storedSoundOn`), so those users
 now also hear a wait begin.
@@ -406,25 +408,29 @@ merge that holds a finish back for a while neither retells nor revives it):
   ("Force state") still peeks on its own, without a sound.
 
 **At the tab, the news is quiet.** A lone new finish whose peek, dot or
-sound would tell it, a wait that begins with its sound on, and a reminder
-come due first ask whether the user is at that session's tab
+sound would tell it, a lone wait that begins with its sound on, and a
+reminder come due first ask whether the user is at that session's tab
 (`AppController.isAtTab`): a session on this Mac, or a remote one whose
-server can be asked (below), whose walk reaches a terminal that says so
-(`TabLink.focusSince`; today Bateri, `TabFocus`) —
-its pane focused, input within 120 s (not measured), the screen unlocked.
-At it, nothing sounds or peeks; the finish is still announced, so it is
+server can be asked (below; a Docker sandbox's is not: no pid here, no
+server), whose walk reaches a terminal that says so
+(`TabLink.focusSince`; today Bateri, `TabFocus`) — its pane focused,
+input within 120 s (not measured), the screen unlocked. At it, nothing
+sounds or peeks; the finish is still told (`toldFinishes`), so it is
 reminded of like any told one, and a reminder is timed again. Focus is
 never "seen": the face, the ring and the news stay. Every other answer,
 none in time, or no terminal to ask, tells it as before; an answer that
 comes late tells only what still holds (the bar and the balloon closed,
-the row still news or still waiting; a reminder keeps its own rule).
-Several finishes at once are told without asking. The walk is the shallow
-one (`SessionHost.resolveShallow`): a session in a tmux or herdr pane is
-not asked about, since its client's tab may show another pane. A remote
-session is walked only when its server walked from the agent itself
-(`RemoteHost.Connection.direct`), and here only from one `ssh` that
-carries no other (`Ssh`'s `shallow`: no riders, not herdr's master, no
-candidates too close to tell apart, no local multiplexer on the way).
+the row still news or still the same wait; a reminder keeps its own
+rule). Several finishes at once, or several waits that begin at once, are
+told without asking: being at one's tab says nothing of the others. With
+no terminal that can say running, nothing is walked and no server asked.
+The walk is the shallow one (`SessionHost.resolveShallow`): a session in
+a tmux or herdr pane is not asked about, since its client's tab may show
+another pane. A remote session is walked only when its server walked
+from the agent itself (`RemoteHost.Connection.direct`), and here only
+from one `ssh` that carries no other (`Ssh`'s `shallow`: no riders, not
+herdr's master, no candidates too close to tell apart, no local
+multiplexer on the way).
 
 A seen chat (`job`) stays through the close it was seen at and goes to the
 balloon's history at the next one (`ChatStore.markSeen`, which writes it
@@ -554,8 +560,8 @@ is lost with the process.
   refused one sets nothing up and is said in Settings.
   A remote session whose agent keeps session records
   (`Agent.sessionRecords`; Claude Code's) is asked of its server once per
-  card, off the main queue (`RemoteHostLookup`), and once more as news of
-  it is about to be told (`AppController.findRemoteForNews`), by a lookup
+  card, off the main queue (`RemoteHostLookup`), and once more as a finish, a wait's sound or a
+  reminder of it is about to be told (`AppController.findRemoteForNews`), by a lookup
   of its own on a queue of its own whose call is ended at 1 s, so a card's
   stuck question never holds a finish: a read-only `sh` script
   (`RemoteHost`), never installed, over the machine's live tunnel master
@@ -694,8 +700,9 @@ an architecture decision, not an implementation detail.
 
 The news reads whether the screen is locked from the window server's
 session dictionary (`ScreenLock`), with no permission. Measured on macOS
-26.4.1: unlocked, `CGSSessionScreenIsLocked` is not in it at all; locked,
-it is `true`. A missing key is unlocked; no dictionary is locked.
+26.4.1: unlocked, `CGSSessionScreenIsLocked` is not in it at all; locked
+(⌃⌘Q), it is `true`; after a wake from sleep, not measured. A missing key
+is unlocked; no dictionary is locked.
 
 Smart hide reads other apps' window **bounds** with no permission
 (`CGWindowListCopyWindowInfo`; measured on macOS 26.4.1: without Screen
@@ -951,7 +958,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's |
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |

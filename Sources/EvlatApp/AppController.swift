@@ -2799,10 +2799,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The same question as a card's, asked as news of the session is about
     /// to be told (`findRemoteForNews`), under the same rule, by the news's
     /// own lookup: its own queue, and `RemoteHostLookup.newsDeadline`.
-    /// Under XCTest nobody is asked.
+    /// Under XCTest nobody is asked, nor with no terminal here that could
+    /// say (`TabFocus.anyRunning`).
     private func findRemoteHostForNews(_ query: DetailModel.RemoteQuery,
                                        _ completion: @escaping (RemoteHost.Reply?) -> Void) -> Bool {
-        guard NSClassFromString("XCTestCase") == nil, let call = remoteHostCall(query.machineID) else { return false }
+        guard NSClassFromString("XCTestCase") == nil, TabFocus.anyRunning,
+              let call = remoteHostCall(query.machineID) else { return false }
         let lookup = newsHostLookup ?? RemoteHostLookup(sshPath: remoteSSHPath,
                                                         queue: DispatchQueue(label: "evlat.remote-host.news"),
                                                         deadline: RemoteHostLookup.newsDeadline)
@@ -4144,28 +4146,40 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         waitsScanned = true
         notifier?.remove(entities: change.ended)
         // The first row's kind for several at once: one sound, not a chord.
-        // Its sound waits for the tab's answer; the wait is timed meanwhile.
-        if !first, !barState.isOpen, !isChatOpen,
-           let began = rows.first(where: { change.began.contains($0.entity) }) {
-            let moment = Self.waitMoment(began.activity?.waitKind)
-            if soundOn[moment] == true {
-                unlessAtTab(began, stillDue: { [weak self] in
+        // A lone wait's sound waits for its tab's answer, the wait timed
+        // meanwhile; several are told as they always were — being at one's
+        // tab says nothing of the others.
+        let began = rows.filter { change.began.contains($0.entity) }
+        if !first, !barState.isOpen, !isChatOpen, let lead = began.first {
+            let moment = Self.waitMoment(lead.activity?.waitKind)
+            if began.count == 1, soundOn[moment] == true {
+                unlessAtTab(lead, stillDue: { [weak self] in
                     guard let self else { return false }
-                    return self.isUnwatched && self.isWaiting(began.entity)
+                    return self.isUnwatched && self.isWaiting(lead.entity)
                 }) { [weak self] in
                     self?.speak(moment)
                 }
+            } else {
+                speak(moment)
             }
         }
         // Each wait due asks its own tab. At it, the wait is timed again and
-        // comes due after the same minutes; otherwise it speaks — the first
-        // one's sound, the rest let go inside the gap — and notifies.
-        for row in rows where change.due.contains(row.entity) {
+        // comes due after the same minutes; otherwise it notifies. Those due
+        // together still make one sound, the first told one's, once every
+        // tab has answered (`SoundBatch`).
+        let due = rows.filter { change.due.contains($0.entity) }
+        guard !due.isEmpty else { return }
+        let batch = SoundBatch(count: due.count) { [weak self] moments in
+            if let moment = moments.first { self?.speak(moment) }
+        }
+        for (index, row) in due.enumerated() {
             let moment = Self.waitMoment(row.activity?.waitKind)
+            // The wait as it came due: one answered and begun again while
+            // its tab was asked is another, with its own reminder.
+            let since = waitingNudge.since[row.entity]
             let tell = { [weak self] in
-                guard let self else { return }
-                self.speak(moment)
-                guard self.nudgeNotify, let notifier = self.notifier else { return }
+                batch.report(index, moment)
+                guard let self, self.nudgeNotify, let notifier = self.notifier else { return }
                 let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
                 notifier.post(entity: row.entity,
                               title: L10n.t("notify.waiting.title", ["name": name]),
@@ -4173,9 +4187,38 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
             guard soundOn[moment] == true || (nudgeNotify && notifier != nil) else { tell(); continue }
             unlessAtTab(row, atTab: { [weak self] in
+                batch.report(index, nil)
                 guard let self else { return }
                 self.waitingNudge.rearm(row.entity, at: self.now())
-            }, stillDue: { [weak self] in self?.isWaiting(row.entity) == true }, tell: tell)
+            }, stillDue: { [weak self] in
+                guard let self else { return false }
+                return self.isWaiting(row.entity) && self.waitingNudge.since[row.entity] == since
+            }, tell: tell, otherwise: { batch.report(index, nil) })
+        }
+    }
+
+    /// Reminders due together make one sound, as they did before each asked
+    /// its own tab: every item reports once — told, with its moment, or
+    /// not — and the last report plays the one sound `play` picks from the
+    /// told ones, in the items' order. The sound waits for the slowest
+    /// answer, the questions' deadlines at most; a batch answered at once
+    /// speaks at once.
+    private final class SoundBatch {
+        private var moments: [SoundMoment?]
+        private var left: Int
+        private let play: ([SoundMoment]) -> Void
+
+        init(count: Int, play: @escaping ([SoundMoment]) -> Void) {
+            moments = Array(repeating: nil, count: count)
+            left = count
+            self.play = play
+        }
+
+        func report(_ index: Int, _ moment: SoundMoment?) {
+            guard left > 0 else { return }
+            moments[index] = moment
+            left -= 1
+            if left == 0 { play(moments.compactMap { $0 }) }
         }
     }
 
@@ -4190,15 +4233,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// usual "no", no terminal to ask — it is told within this call, as it
     /// always was. Answered later, it is told only if `stillDue` says the
     /// news still holds under the rule that let it be told — what the user
-    /// saw meanwhile is not told late. A late sound may still fall inside
-    /// `soundGap` of another and be let go, as any would. Every question
-    /// ends in exactly one of the two.
+    /// saw meanwhile is not told late, and `otherwise` runs instead. A late
+    /// sound may still fall inside `soundGap` of another and be let go, as
+    /// any would. Every question ends in exactly one of the three.
     private func unlessAtTab(_ row: Signal, atTab: @escaping () -> Void = {},
-                             stillDue: @escaping () -> Bool, tell: @escaping () -> Void) {
+                             stillDue: @escaping () -> Bool, tell: @escaping () -> Void,
+                             otherwise: @escaping () -> Void = {}) {
         var asking = true
         isAtTab(row) { at in
             if at { return atTab() }
-            if asking || stillDue() { tell() }
+            if asking || stillDue() { tell() } else { otherwise() }
         }
         asking = false
     }
@@ -4211,7 +4255,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// terminal that can say (`askTabFocus`). The walk is the shallow one,
     /// here on the main queue as the card's is: it runs no multiplexer, and
     /// a session in a pane is not asked about, since the client's tab may
-    /// show another pane.
+    /// show another pane. With no such terminal running (`TabFocus.anyRunning`)
+    /// nothing is walked and no server asked.
     /// - On this Mac, from the agent's pid. Under XCTest nothing is walked.
     /// - On a connected machine, a session whose agent keeps records (the
     ///   card's rule, `DetailModel.RemoteQuery`): its server is asked first
@@ -4224,7 +4269,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func askIsAtTab(_ row: Signal, _ answer: @escaping (Bool) -> Void) {
         guard row.kind == .session else { return answer(false) }
         guard row.machine != nil else {
-            guard NSClassFromString("XCTestCase") == nil, let pid = row.activity?.pid,
+            guard NSClassFromString("XCTestCase") == nil, TabFocus.anyRunning, let pid = row.activity?.pid,
                   case .app(let app) = SessionHost.resolveShallow(pid: pid) else { return answer(false) }
             return askTabFocus(row, app, answer)
         }
@@ -4360,16 +4405,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard !due.isEmpty else { return }
         remindedFinishes.formUnion(due)
         // Each asks its own tab. At it, the finish is timed again from now;
-        // otherwise it speaks — failures first, so one failed makes the
-        // failure's sound and the rest are let go inside the gap — and
-        // notifies.
-        for finish in due.sorted(by: { $0.phase == .failed && $1.phase != .failed }) {
+        // otherwise it notifies. Those due together make one sound, a
+        // failure's if one told failed, once every tab has answered.
+        let batch = SoundBatch(count: due.count) { [weak self] moments in
+            guard !moments.isEmpty else { return }
+            self?.speak(moments.contains(.failed) ? .failed : .done)
+        }
+        for (index, finish) in due.enumerated() {
             let row = snapshot.ordered.first { $0.entity == finish.entity }
             let moment: SoundMoment = finish.phase == .failed ? .failed : .done
             let tell = { [weak self] in
-                guard let self else { return }
-                self.speak(moment)
-                guard self.nudgeNotify, let notifier = self.notifier else { return }
+                batch.report(index, moment)
+                guard let self, self.nudgeNotify, let notifier = self.notifier else { return }
                 let name = row.map { $0.label.isEmpty ? L10n.t("notify.waiting.unnamed") : $0.label }
                     ?? L10n.t("notify.waiting.unnamed")
                 let failed = finish.phase == .failed
@@ -4380,13 +4427,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
             guard let row, soundOn[moment] == true || (nudgeNotify && notifier != nil) else { tell(); continue }
             unlessAtTab(row, atTab: { [weak self] in
+                batch.report(index, nil)
                 guard let self, self.toldFinishes[finish] != nil else { return }
                 self.remindedFinishes.remove(finish)
                 self.toldFinishes[finish] = self.now()
             }, stillDue: { [weak self] in
                 guard let self else { return false }
                 return self.registry.snapshot(seen: self.seen).news.contains(finish)
-            }, tell: tell)
+            }, tell: tell, otherwise: { batch.report(index, nil) })
         }
     }
 

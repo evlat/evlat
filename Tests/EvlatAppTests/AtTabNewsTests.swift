@@ -31,6 +31,8 @@ final class AtTabNewsTests: XCTestCase {
         /// The answer given at once; `nil` holds the question in `held`.
         var answer: Bool? = true
         var held: [(Bool) -> Void] = []
+        /// Rows whose questions are held whatever `answer` says.
+        var heldFor: Set<String> = []
 
         /// The live question's parts (`live`): the server asked by the
         /// news's lookup, held to answer by hand; the server's answer
@@ -73,7 +75,11 @@ final class AtTabNewsTests: XCTestCase {
             } else {
                 controller.isAtTab = { [unowned self] row, reply in
                     self.asked.append(row.entity)
-                    if let answer = self.answer { reply(answer) } else { self.held.append(reply) }
+                    if let answer = self.answer, !self.heldFor.contains(row.entity) {
+                        reply(answer)
+                    } else {
+                        self.held.append(reply)
+                    }
                 }
             }
             controller.refresh()
@@ -130,6 +136,53 @@ final class AtTabNewsTests: XCTestCase {
         rig.controller.refresh()
         XCTAssertEqual(rig.asked, ["s", "s"])
         XCTAssertEqual(rig.played, [.evlat(.rise)], "the reminder, away from the tab")
+    }
+
+    /// A finish's reminder due at its tab is timed again from then, and
+    /// comes due once more after the same minutes.
+    func testAFinishDueAtItsTabIsTimedAgain() {
+        let rig = Rig()
+        defer { rig.panel.close() }
+        rig.controller.nudgeMinutes = 2
+        rig.controller.nudgeScope = .all
+        rig.answer = false
+        rig.set([("s", .working)])
+        rig.set([("s", .review)])
+        XCTAssertEqual(rig.played, [.evlat(.rise)])
+        rig.answer = true
+        rig.now += 120
+        rig.controller.refresh()
+        XCTAssertEqual(rig.asked, ["s", "s"])
+        XCTAssertEqual(rig.played, [.evlat(.rise)], "at the tab, no reminder")
+        rig.now += 119
+        rig.controller.refresh()
+        XCTAssertEqual(rig.asked.count, 2, "not before the minutes again")
+        rig.answer = false
+        rig.now += 1
+        rig.controller.refresh()
+        XCTAssertEqual(rig.asked.count, 3)
+        XCTAssertEqual(rig.played, [.evlat(.rise), .evlat(.rise)])
+    }
+
+    /// Reminders due together make one sound, a failure's if one failed,
+    /// however their tabs' answers come: one answered later is waited for.
+    func testFinishesDueTogetherMakeOneSoundOnceEveryTabAnswered() {
+        let rig = Rig()
+        defer { rig.panel.close() }
+        rig.controller.nudgeMinutes = 2
+        rig.controller.nudgeScope = .all
+        rig.set([("a", .working), ("b", .working)])
+        rig.set([("a", .failed), ("b", .review)])
+        XCTAssertEqual(rig.asked, [], "told together, without asking")
+        XCTAssertEqual(rig.played, [.evlat(.fall)])
+        rig.answer = false
+        rig.heldFor = ["a"]
+        rig.now += 120
+        rig.controller.refresh()
+        XCTAssertEqual(Set(rig.asked), ["a", "b"])
+        XCTAssertEqual(rig.played, [.evlat(.fall)], "the sound waits for the failed one's tab")
+        rig.reply(false)
+        XCTAssertEqual(rig.played, [.evlat(.fall), .evlat(.fall)])
     }
 
     func testAFinishAwayFromItsTabIsToldAsAlways() {
@@ -334,6 +387,17 @@ final class AtTabNewsTests: XCTestCase {
         XCTAssertEqual(rig.controller.mascot.phase, .waiting, "the face is the registry's")
     }
 
+    /// Several waits begin at once: one sound, as always, without asking —
+    /// being at one's tab says nothing of the others.
+    func testWaitsBeginningTogetherAreToldWithoutAsking() {
+        let rig = Rig()
+        defer { rig.panel.close() }
+        rig.set([("a", .working), ("b", .working)])
+        rig.set([("a", .waiting), ("b", .waiting)])
+        XCTAssertEqual(rig.asked, [])
+        XCTAssertEqual(rig.played, [.evlat(.bell)])
+    }
+
     func testAWaitAnsweredBeforeTheAnswerIsNotTold() {
         let rig = Rig()
         defer { rig.panel.close() }
@@ -365,6 +429,25 @@ final class AtTabNewsTests: XCTestCase {
         rig.controller.refresh()
         XCTAssertEqual(rig.asked.count, 3)
         XCTAssertEqual(rig.played, [.evlat(.bell)])
+    }
+
+    /// A wait answered and begun again while its tab was asked is another
+    /// wait: the late answer tells nothing of the first one.
+    func testAWaitBegunAgainMeanwhileIsNotRemindedLate() {
+        let rig = Rig()
+        defer { rig.panel.close() }
+        rig.controller.nudgeMinutes = 2
+        rig.set([("s", .working)])
+        rig.set([("s", .waiting)])
+        rig.controller.openBar()
+        rig.answer = nil
+        rig.now += 120
+        rig.controller.refresh()
+        XCTAssertEqual(rig.held.count, 1)
+        rig.set([("s", .working)])
+        rig.set([("s", .waiting)])
+        rig.reply(false)
+        XCTAssertEqual(rig.played, [])
     }
 
     /// The reminder is the user's to have asked for: it speaks on the open

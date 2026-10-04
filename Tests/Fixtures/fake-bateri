@@ -8,6 +8,9 @@
 #   $HOME/fake-bateri/exit    the exit code (0 when missing)
 #   $HOME/fake-bateri/hang    when present, wait instead of answering, its
 #                             pid in $HOME/fake-bateri/pid
+#   $HOME/fake-bateri/linger  when present, leave a child holding stdout
+#                             open after answering, its pid in
+#                             $HOME/fake-bateri/linger-pid
 #   $HOME/fake-bateri/log     every run's arguments, one per line after a
 #                             `--- run` line, then its environment's names
 #                             after `--- env`
@@ -27,6 +30,10 @@ dir="$HOME/fake-bateri"
 if [ -e "$dir/hang" ]; then
   echo $$ > "$dir/pid"
   exec sleep 30
+fi
+if [ -e "$dir/linger" ]; then
+  sleep 30 &
+  echo $! > "$dir/linger-pid"
 fi
 [ -f "$dir/reply" ] && cat "$dir/reply"
 exit "$(cat "$dir/exit" 2>/dev/null || echo 0)"
