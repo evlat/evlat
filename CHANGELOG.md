@@ -8,7 +8,7 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
-## Unreleased
+## 0.2.1
 
 - **A question's answers go when you press Send.** When Claude asks you
   something on the bar, picking an option on the last question no longer
