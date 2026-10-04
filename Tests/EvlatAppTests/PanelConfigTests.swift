@@ -382,6 +382,50 @@ final class PanelConfigTests: XCTestCase {
         XCTAssertEqual(owned().count, 1)
     }
 
+    /// An exit is believed only once the cursor is out of the area. Rebuilt
+    /// under a still cursor, an area got an enter and at once an exit from
+    /// AppKit; believed, it closed the open bar under the cursor. Doubted,
+    /// it is looked at again until the cursor has gone or an enter comes,
+    /// so a jump straight off the bar still leaves it.
+    func testAnExitWithTheCursorStillInsideIsDoubtedUntilItLeaves() {
+        let relay = BarHostingView.PointerRelay()
+        var events: [String] = []
+        relay.handler = { pointer in
+            switch pointer {
+            case .entered: events.append("in")
+            case .exited: events.append("out")
+            case .moved: break
+            }
+        }
+        var cursorInBody = true
+        relay.holds = { $0 == .body && cursorInBody }
+        var rechecks: [() -> Void] = []
+        relay.scheduleRecheck = { _, work in rechecks.append(work) }
+
+        relay.entered(.body)
+        relay.exited(.body)
+        XCTAssertEqual(events, ["in"], "the cursor is still over the body: not a leave")
+        XCTAssertEqual(rechecks.count, 1)
+
+        rechecks.removeFirst()()
+        XCTAssertEqual(events, ["in"], "still there at the recheck")
+        XCTAssertEqual(rechecks.count, 1, "looked at again")
+
+        cursorInBody = false
+        rechecks.removeFirst()()
+        XCTAssertEqual(events, ["in", "out"], "gone with no exit from AppKit: left all the same")
+        XCTAssertTrue(rechecks.isEmpty)
+
+        // An enter ends the doubt: nothing is looked at for it any more.
+        cursorInBody = true
+        relay.entered(.body)
+        relay.exited(.body)
+        relay.entered(.body)
+        cursorInBody = false
+        rechecks.removeFirst()()
+        XCTAssertEqual(events, ["in", "out", "in"], "the enter put the doubt to rest")
+    }
+
     /// The two areas reach `HoverIntent` as one "inside": crossing from the
     /// body onto the card is not a leave, leaving both is.
     func testTwoAreasReportOneInside() {

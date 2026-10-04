@@ -1185,6 +1185,14 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **`HoverIntent.closeNow` does not drop a pending open.** On a closed bar the
   pending open is dropped by `pointerExited`; otherwise the list opened under
   the chat bubble 80 ms later.
+- **A tracking area rebuilt under a still cursor gets an exit it should not.**
+  While a card's frame moved through its transition the hover areas were
+  rebuilt every few milliseconds, and AppKit answered many rebuilds with an
+  enter and at once an exit of the area just installed, the cursor inside it
+  (traced: 62 in eight row-to-row moves). The last one, with no move after
+  it, closed the open bar under the cursor 0.25 s later. An exit is
+  believed only once the cursor is out of the area's rectangle
+  (`PointerRelay.holds`), and looked at again until it is or an enter comes.
 - **Ctrl-click reaches `mouseDown` too.** `BarHostingView.mouseDown` does not
   pass a ctrl-click to `onClick`; otherwise the menu click opened the bubble.
 - **A text field takes a dragged file as text, and SwiftUI allows no other

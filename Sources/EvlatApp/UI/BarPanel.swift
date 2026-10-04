@@ -349,6 +349,26 @@ public final class BarHostingView: NSHostingView<AnyView> {
         var handler: ((Pointer) -> Void)?
         private var inside: Set<Region> = []
 
+        /// Whether the cursor is in that area now, by its rectangle. Asked of
+        /// every exit before it is believed: rebuilt under a still cursor,
+        /// an area got an enter and at once an exit from AppKit — while a
+        /// card's frame moved through its transition the areas were rebuilt
+        /// every few milliseconds, and the last such exit, with no move after
+        /// it, closed the open bar under the cursor 0.25 s later (traced).
+        var holds: ((Region) -> Bool)?
+        /// After an exit not believed, AppKit counts the cursor out of the
+        /// area and a jump straight off the bar would bring no exit at all:
+        /// until an enter says otherwise, the cursor is looked for every
+        /// `recheck` and the exit taken once it has gone. A few reads a
+        /// second, only in that state.
+        static let recheck: TimeInterval = 0.25
+        private var doubted: Set<Region> = []
+        private var recheckScheduled = false
+        /// How a recheck is scheduled; a test runs it at once.
+        var scheduleRecheck: (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+
         override func mouseEntered(with event: NSEvent) {
             entered(Self.region(of: event))
         }
@@ -363,6 +383,7 @@ public final class BarHostingView: NSHostingView<AnyView> {
         }
 
         func entered(_ region: Region) {
+            doubted.remove(region)
             let wasOutside = inside.isEmpty
             inside.insert(region)
             if wasOutside { handler?(.entered) }
@@ -370,10 +391,27 @@ public final class BarHostingView: NSHostingView<AnyView> {
 
         /// Reported even without a matching enter: an area installed under
         /// the cursor never says "entered", and swallowing its exit would
-        /// leave the bar open with nobody over it.
+        /// leave the bar open with nobody over it. Believed only once the
+        /// cursor is out of the area (`holds`).
         func exited(_ region: Region) {
+            if holds?(region) == true {
+                doubted.insert(region)
+                recheckLater()
+                return
+            }
+            doubted.remove(region)
             inside.remove(region)
             if inside.isEmpty { handler?(.exited) }
+        }
+
+        private func recheckLater() {
+            guard !recheckScheduled else { return }
+            recheckScheduled = true
+            scheduleRecheck(Self.recheck) { [weak self] in
+                guard let self else { return }
+                self.recheckScheduled = false
+                for region in self.doubted { self.exited(region) }
+            }
         }
 
         /// Areas that are gone send no exit. Forgetting one the cursor was in
@@ -539,6 +577,11 @@ public final class BarHostingView: NSHostingView<AnyView> {
                            owner: relay, userInfo: [Self.regionKey: region.rawValue])
         }
         areas.forEach(addTrackingArea)
+        let rectsByRegion = Dictionary(uniqueKeysWithValues: parts)
+        relay.holds = { [weak self] region in
+            guard let self, let window = self.window, let rect = rectsByRegion[region] else { return false }
+            return rect.contains(self.convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        }
         // A removed area sends no exit, and a shorter body can leave the
         // cursor outside without one — a session leaving the last row while
         // hovered. What the cursor is in is asked of the new rectangles.

@@ -3474,8 +3474,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// hover area.
     private func cardFrameChanged(_ rect: CGRect?) {
         cardRect = barState.selected == nil ? nil : rect
+        // In whole points: through its transition the card's frame moves by
+        // fractions every frame, and each change rebuilds the hover areas.
         panel?.setCardRect(barState.selected == nil ? nil
-                           : rect.map { Self.cardHoverRect($0, edge: barState.edge) })
+                           : rect.map { Self.cardHoverRect($0.integral, edge: barState.edge) })
     }
 
     /// `[Go to session]`'s drawn rectangle, in the content view's (flipped)
