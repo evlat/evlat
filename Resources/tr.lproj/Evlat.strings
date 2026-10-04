@@ -257,6 +257,7 @@
 "card.question.next" = "Sonraki";
 "card.question.send" = "Gönder";
 "card.open" = "{app} ile aç";
+"card.openHerdr" = "herdr'ı {app} ile aç";
 "card.question.pickOne" = "Birini seç";
 "card.question.pickAny" = "İstediklerini seç";
 "card.question.otherHint" = "Kendi cevabını yaz";

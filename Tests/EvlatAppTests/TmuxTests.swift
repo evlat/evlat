@@ -44,6 +44,17 @@ extension SessionHostTests {
                                         server: 4000, pane: "%3"))
     }
 
+    /// tmux selects no pane and says nothing of one: the plain words, alone
+    /// or among candidates.
+    func testATmuxPaneKeepsThePlainWords() throws {
+        let reply = TmuxReply(session: "$1", clients: [.init(pid: 4200, activity: 1_900, session: "$1")])
+        for host in [SessionHost.resolve(pid: 900, tmuxProbe(reply)), SessionHost.sameApp([900], tmuxProbe(reply))] {
+            guard case .app(let app) = host else { return XCTFail("\(host)") }
+            XCTAssertNil(app.herdr)
+            XCTAssertEqual(DetailCard.button(for: host, in: "en").title, "Open in \(bateri.name)")
+        }
+    }
+
     /// tmux did not answer: the server's chain reaches no app, and even one
     /// that did would not open the pane's inherited tab.
     func testATmuxPaneWithNoAnswerOpensNoTab() {

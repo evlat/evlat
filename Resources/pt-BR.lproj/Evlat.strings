@@ -252,6 +252,7 @@
 "card.question.next" = "Próxima";
 "card.question.send" = "Enviar";
 "card.open" = "Abrir em {app}";
+"card.openHerdr" = "Abrir herdr em {app}";
 "card.question.pickOne" = "Escolha uma";
 "card.question.pickAny" = "Escolha quantas quiser";
 "card.question.otherHint" = "Escreva sua própria resposta";

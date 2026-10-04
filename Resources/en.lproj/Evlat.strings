@@ -318,6 +318,9 @@
 "card.question.next" = "Next";
 "card.question.send" = "Send";
 "card.open" = "Open in {app}";
+/* The card's button when the session is in herdr but its pane cannot be
+   selected: it opens herdr's window, not the pane. */
+"card.openHerdr" = "Open herdr in {app}";
 "card.question.pickOne" = "Pick one";
 "card.question.pickAny" = "Pick any";
 "card.question.otherHint" = "Write your own answer";

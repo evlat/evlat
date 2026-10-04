@@ -147,6 +147,17 @@ enum HerdrLookup: Equatable {
     case unsupported
     /// No pane's processes include the agent's root.
     case noMatch
+    /// The session's terminal was not told apart from others'
+    /// (`SessionHost.sameApp`): several candidates in different panes, some
+    /// in herdr and some not, or one that may be another session's. Herdr
+    /// is not asked where no pane could be kept.
+    case ambiguous
+
+    /// Whether the click selects the session's pane: the card's words.
+    var selectsPane: Bool {
+        if case .pane = self { return true }
+        return false
+    }
 
     var diagnostic: String {
         switch self {
@@ -155,6 +166,7 @@ enum HerdrLookup: Equatable {
         case .timeout: return "herdr: timeout"
         case .unsupported: return "herdr: unsupported"
         case .noMatch: return "herdr: no pane"
+        case .ambiguous: return "herdr: ambiguous"
         }
     }
 }

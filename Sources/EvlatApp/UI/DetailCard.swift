@@ -96,6 +96,9 @@ struct DetailCard: View {
     static let goKey = "card.go"
     /// The way back named by where it goes: "Open in Bateri".
     static let openKey = "card.open"
+    /// The session is in herdr but its pane cannot be selected: the click
+    /// brings herdr's window, on whatever pane it shows (`HerdrLookup`).
+    static let openHerdrKey = "card.openHerdr"
     static let closedKey = "card.closed"
     static let notFoundKey = "card.notFound"
     /// A sandbox's session with no `sbx` client in a terminal (`Sandbox`).
@@ -136,8 +139,8 @@ struct DetailCard: View {
         Agents.all[id: source]?.display.nameKey ?? source.rawValue
     }
     static var keys: [String] {
-        [toolsOneKey, toolsKey, goKey, openKey, closedKey, notFoundKey, noTerminalKey, taskKey, returnKey,
-         outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey,
+        [toolsOneKey, toolsKey, goKey, openKey, openHerdrKey, closedKey, notFoundKey, noTerminalKey, taskKey,
+         returnKey, outsideKey, progressKey, approvalToolKey, approvalSubagentKey, allowKey, denyKey,
          otherKey, otherHintKey, writtenKey, writtenHintKey, pickOneKey, pickAnyKey, nextKey, sendKey]
             + Agents.all.map(\.display.nameKey)
     }
@@ -841,8 +844,12 @@ struct DetailCard: View {
     /// opened: the session went with it.
     static func button(for host: SessionHost, in lang: String = L10n.language) -> ButtonState {
         switch host {
-        // Named by where it goes: the app is data, not translated.
-        case .app(let app): return ButtonState(title: L10n.t(openKey, ["app": app.name], in: lang), enabled: true)
+        // Named by where it goes: the app is data, not translated. Through
+        // herdr with no pane to select it says so, rather than promise the
+        // session (tmux never selects one, and keeps the plain words).
+        case .app(let app):
+            let key = app.herdr.map { $0.selectsPane ? openKey : openHerdrKey } ?? openKey
+            return ButtonState(title: L10n.t(key, ["app": app.name], in: lang), enabled: true)
         case .closed(let name):
             return ButtonState(title: L10n.t(closedKey, ["app": name], in: lang), enabled: false)
         case .notFound: return ButtonState(title: L10n.t(notFoundKey, in: lang), enabled: false)

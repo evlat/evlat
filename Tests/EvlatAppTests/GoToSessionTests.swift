@@ -364,6 +364,21 @@ final class GoToSessionTests: XCTestCase {
                        .init(title: "Orca is closed", enabled: false))
     }
 
+    /// Through herdr the button promises the session only when its pane
+    /// will be selected; otherwise it names herdr, which is what comes up.
+    func testTheButtonNamesHerdrWhenItsPaneCannotBeSelected() {
+        var app = term
+        app.herdr = .pane(HerdrPane(socket: "/s", pane: "w1:p1"))
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"), .init(title: "Open in Metalterm", enabled: true))
+        for lookup in [HerdrLookup.noSocket, .timeout, .unsupported, .noMatch, .ambiguous] {
+            app.herdr = lookup
+            XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"),
+                           .init(title: "Open herdr in Metalterm", enabled: true), "\(lookup)")
+            XCTAssertEqual(DetailCard.button(for: .app(app), in: "tr"),
+                           .init(title: "herdr'ı Metalterm ile aç", enabled: true), "\(lookup)")
+        }
+    }
+
     func testTheFooterEndsWithTheTerminal() {
         let now = Date(timeIntervalSince1970: 10_000)
         XCTAssertEqual(DetailCard.footer(enteredAt: now.addingTimeInterval(-125),

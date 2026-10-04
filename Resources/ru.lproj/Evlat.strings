@@ -252,6 +252,7 @@
 "card.question.next" = "Далее";
 "card.question.send" = "Отправить";
 "card.open" = "Открыть в {app}";
+"card.openHerdr" = "Открыть herdr в {app}";
 "card.question.pickOne" = "Выберите один вариант";
 "card.question.pickAny" = "Выберите любые";
 "card.question.otherHint" = "Напишите свой ответ";

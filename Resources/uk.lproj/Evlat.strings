@@ -251,6 +251,7 @@
 "card.question.next" = "Далі";
 "card.question.send" = "Надіслати";
 "card.open" = "Відкрити в {app}";
+"card.openHerdr" = "Відкрити herdr в {app}";
 "card.question.pickOne" = "Виберіть один варіант";
 "card.question.pickAny" = "Виберіть будь-які";
 "card.question.otherHint" = "Напишіть свою відповідь";

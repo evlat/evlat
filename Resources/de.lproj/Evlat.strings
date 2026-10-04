@@ -251,6 +251,7 @@
 "card.question.next" = "Weiter";
 "card.question.send" = "Senden";
 "card.open" = "In {app} öffnen";
+"card.openHerdr" = "herdr in {app} öffnen";
 "card.question.pickOne" = "Eine auswählen";
 "card.question.pickAny" = "Beliebig viele auswählen";
 "card.question.otherHint" = "Eigene Antwort schreiben";

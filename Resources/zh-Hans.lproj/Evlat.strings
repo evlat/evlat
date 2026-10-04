@@ -251,6 +251,7 @@
 "card.question.next" = "下一个";
 "card.question.send" = "发送";
 "card.open" = "在 {app} 中打开";
+"card.openHerdr" = "在 {app} 中打开 herdr";
 "card.question.pickOne" = "选择一项";
 "card.question.pickAny" = "可多选";
 "card.question.otherHint" = "自己写答案";

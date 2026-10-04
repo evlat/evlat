@@ -253,7 +253,8 @@ extension SessionHostTests {
         XCTAssertEqual(SessionHost.app(app).diagnostic, "cmux (com.cmuxterm.app)")
         let words: [(HerdrLookup, String)] = [(.pane(HerdrPane(socket: "/s", pane: "w4:p2")), "herdr pane w4:p2"),
                                               (.noSocket, "herdr: no socket"), (.timeout, "herdr: timeout"),
-                                              (.unsupported, "herdr: unsupported"), (.noMatch, "herdr: no pane")]
+                                              (.unsupported, "herdr: unsupported"), (.noMatch, "herdr: no pane"),
+                                              (.ambiguous, "herdr: ambiguous")]
         for (lookup, word) in words {
             app.herdr = lookup
             XCTAssertEqual(SessionHost.app(app).diagnostic, "cmux (com.cmuxterm.app)  ·  \(word)")
@@ -330,6 +331,65 @@ extension SessionHostTests {
         XCTAssertEqual(SessionHost.arguments(me).count, CommandLine.arguments.count)
         XCTAssertTrue(SessionHost.allPIDs().contains(me))
         XCTAssertEqual(SessionHost.arguments(Int32.max), [])
+    }
+
+    // MARK: Candidates not told apart (`SessionHost.sameApp`)
+
+    /// `ssh` processes as `Ssh` hands them over when it cannot tell them
+    /// apart: 950 and 951 in the agent's pane (shell 800), 952 in another
+    /// (shell 810), 960 in a cmux tab with no herdr.
+    var sshInHerdrPanes: [Int32: Proc] {
+        var table = herdrInCmux
+        table[950] = Proc(parent: 800, path: "/usr/bin/ssh")
+        table[951] = Proc(parent: 800, path: "/usr/bin/ssh")
+        table[810] = Proc(parent: 700, path: "/bin/zsh")
+        table[952] = Proc(parent: 810, path: "/usr/bin/ssh")
+        table[961] = Proc(parent: 400, path: "/bin/zsh")
+        table[960] = Proc(parent: 961, path: "/usr/bin/ssh")
+        return table
+    }
+
+    func sameApp(_ pids: [Int32], keepsTab: Bool = true, _ fake: HerdrFake) -> SessionHost.App? {
+        let host = SessionHost.sameApp(pids, keepsTab: keepsTab,
+                                       probe(sshInHerdrPanes, arguments: [700: [Self.herdr, "server"], 650: ["herdr"]],
+                                             sockets: Self.apiSockets, herdr: fake.call))
+        guard case .app(let app) = host else { return nil }
+        return app
+    }
+
+    var twoPanes: HerdrFake { HerdrFake(panes: [("w4:p1", 810, []), ("w4:p2", 800, [])]) }
+
+    /// Every candidate in the same pane: that pane is the session's, and
+    /// the card promises it.
+    func testCandidatesInOnePaneKeepIt() throws {
+        let app = try XCTUnwrap(sameApp([950, 951], twoPanes))
+        XCTAssertEqual(app.herdr, .pane(HerdrPane(socket: Self.apiSocket, pane: "w4:p2")))
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en").title, "Open in cmux")
+    }
+
+    /// Two panes: neither is selected, and the card says it opens herdr.
+    func testCandidatesInTwoPanesAreAmbiguous() throws {
+        let app = try XCTUnwrap(sameApp([950, 952], twoPanes))
+        XCTAssertEqual(app.herdr, .ambiguous)
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en").title, "Open herdr in cmux")
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "tr").title, "herdr'ı cmux ile aç")
+    }
+
+    /// One in herdr, one not: the session may be in herdr, its pane unknown.
+    /// None in herdr: nothing of herdr is said.
+    func testCandidatesInAndOutOfHerdrAreAmbiguous() throws {
+        XCTAssertEqual(try XCTUnwrap(sameApp([950, 960], twoPanes)).herdr, .ambiguous)
+        XCTAssertEqual(try XCTUnwrap(sameApp([960, 950], twoPanes)).herdr, .ambiguous, "whichever comes first")
+        XCTAssertNil(try XCTUnwrap(sameApp([960], twoPanes)).herdr)
+    }
+
+    /// Candidates that may be another session's (`keepsTab: false`, a
+    /// sandbox's) keep no pane even when they agree, so herdr is not asked.
+    func testCandidatesThatMayBeAnotherSessionsAskHerdrNothing() throws {
+        let fake = twoPanes
+        let app = try XCTUnwrap(sameApp([950, 951], keepsTab: false, fake))
+        XCTAssertEqual(app.herdr, .ambiguous)
+        XCTAssertEqual(fake.requests, [])
     }
 
     // MARK: Which client (herdr 0.9.3, measured on this Mac with Bateri)

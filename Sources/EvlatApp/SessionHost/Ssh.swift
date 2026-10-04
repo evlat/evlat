@@ -134,17 +134,27 @@ extension SessionHost {
         }
     }
 
-    /// The one app every pid's walk reaches, with no pane, and with a tab
-    /// only when every walk gives that same tab and `keepsTab`; else nothing.
+    /// The one app every pid's walk reaches, else nothing. Its tab and its
+    /// herdr pane only when every walk gives that same one and `keepsTab`
+    /// (a candidate that may be another session's opens neither); a walk
+    /// through herdr with no one pane kept says `.ambiguous`, so the card
+    /// does not promise the session.
     static func sameApp(_ pids: [Int32], forwarded: [String] = [], keepsTab: Bool = true,
                         _ probe: Probe) -> SessionHost {
+        // No pane will be kept, so herdr is not asked: its answer would be
+        // thrown away, and the asking spends the action's one deadline.
+        var probe = probe
+        if !keepsTab { probe.herdr = { _, _ in .unreachable } }
         let apps = pids.map { resolve(pid: $0, forwarded: forwarded, probe) }.map { host -> App? in
-            if case .app(let app) = host { return App(bundleID: app.bundleID, name: app.name, pid: app.pid, tab: app.tab) }
+            if case .app(let app) = host { return app }
             return nil
         }
         guard var first = apps.first ?? nil,
               apps.allSatisfy({ $0?.bundleID == first.bundleID }) else { return .notFound }
         if !keepsTab || first.tab == nil || !apps.allSatisfy({ $0?.tab == first.tab }) { first.tab = nil }
+        if !keepsTab || !apps.allSatisfy({ $0?.herdr == first.herdr }) {
+            first.herdr = apps.contains { $0?.herdr != nil } ? .ambiguous : nil
+        }
         return .app(first)
     }
 
