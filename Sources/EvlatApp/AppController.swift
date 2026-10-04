@@ -4648,6 +4648,10 @@ struct BarBody: View {
         AppController.slotTop(SessionRowsModel.slotCount - 1)
     }
 
+    /// The last card's slot, so a leaving card fades where it was rather
+    /// than where no selection puts it.
+    @State private var cardSlot = 0
+
     private var isLeft: Bool { state.edge.isLeft }
     /// The docked side's top corner: where the body, the mascot and the
     /// column hang from.
@@ -4724,20 +4728,28 @@ struct BarBody: View {
     /// Beside the open body, `detailCardGap` from its inner edge, level with
     /// the selected row. The window already has room for it at every slot
     /// (`AppController.envelopeSize`), so it is never pushed around.
-    @ViewBuilder private var card: some View {
-        if state.isOpen, state.selected != nil, let slot = state.selectedSlot {
-            DetailCard(model: detail, onButtonFrame: onGoButtonFrame, onApprovalFrame: onApprovalFrame)
-                .id(state.language)
-                .animation(BarMotion.cardContent, value: state.selected)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
-                    onCardFrame(rect)
-                }
-                .onDisappear { onCardFrame(nil) }
-                .transition(BarMotion.cardTransition(edge: state.edge))
-                .modifier(CardPlacing(scroll: scroll, slot: slot, room: state.cardRoom, isLeft: isLeft))
-                .padding(isLeft ? .leading : .trailing, state.openWidth + AppController.detailCardGap)
-                .animation(BarMotion.length, value: slot)
+    ///
+    /// The placing layout is always in the tree and the card comes and goes
+    /// inside it: a container inserted with the card would bring the card in
+    /// with it, and SwiftUI plays no transition for a view whose container
+    /// has just arrived — the first card popped in.
+    private var card: some View {
+        let slot = state.selectedSlot ?? cardSlot
+        return CardPlacing(scroll: scroll, slot: slot, room: state.cardRoom, isLeft: isLeft) {
+            if state.isOpen, state.selected != nil, state.selectedSlot != nil {
+                DetailCard(model: detail, onButtonFrame: onGoButtonFrame, onApprovalFrame: onApprovalFrame)
+                    .id(state.language)
+                    .animation(BarMotion.cardContent, value: state.selected)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                        onCardFrame(rect)
+                    }
+                    .onDisappear { onCardFrame(nil) }
+                    .transition(BarMotion.cardTransition(edge: state.edge))
+            }
         }
+        .padding(isLeft ? .leading : .trailing, state.openWidth + AppController.detailCardGap)
+        .animation(BarMotion.length, value: slot)
+        .onChange(of: state.selectedSlot) { _, new in if let new { cardSlot = new } }
     }
 
     /// Under the summary, outside the scrolled list: it stays put while the
@@ -4756,18 +4768,19 @@ struct BarBody: View {
     }
 
     /// The card's top, level with its row wherever the list is scrolled. A
-    /// modifier of its own so a scroll re-evaluates this placement and not
-    /// the body, the mascot or the card's content. The offset is written
+    /// view of its own so a scroll re-evaluates this placement and not the
+    /// body, the mascot or the card's content. The offset is written
     /// without an animation and the spring above is keyed on the slot alone,
     /// so the card follows the finger directly.
-    private struct CardPlacing: ViewModifier {
+    private struct CardPlacing<Card: View>: View {
         @ObservedObject var scroll: ListScroll
         let slot: Int
         let room: ClosedRange<CGFloat>?
         let isLeft: Bool
+        @ViewBuilder let card: () -> Card
 
-        func body(content: Content) -> some View {
-            CardLayout(slot: slot, offset: scroll.offset, room: room, isLeft: isLeft) { content }
+        var body: some View {
+            CardLayout(slot: slot, offset: scroll.offset, room: room, isLeft: isLeft) { card() }
         }
     }
 
