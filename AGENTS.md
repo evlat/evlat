@@ -781,14 +781,15 @@ never `EVLAT_PORT`'s: it is written into every sandbox.
 
 The website documents these contracts for users: `../evlat-landing/docs-src`
 (the `evlat` command, `/signal`, remote servers) and
-`../evlat-landing/public/works-with.html` (agents, terminals with a tab link,
-Docker sandboxes).
+`../evlat-landing/src/pages/works-with.astro` (agents, terminals with a tab
+link, Docker sandboxes; `sandboxes.astro` and `herdr.astro` beside it).
 A change a user would notice there (a flag, a default, an exit code, a body
 field, a limit, an agent, an entry in `TabLink.known`) updates that page in
 the same piece of work. Each docs page lists the files it describes in
-`docs-src/pages.json`; rebuild with `node scripts/docs.mjs` there and set
-`verified` to the release it now matches. The site shows no version number,
-so a release with nothing user-visible needs no website change.
+`docs-src/pages.json`; the site's build renders the pages, so there is
+nothing to regenerate. Set `verified` to the release it now matches. The
+site shows no version number, so a release with nothing user-visible needs
+no website change.
 
 ### User files
 
