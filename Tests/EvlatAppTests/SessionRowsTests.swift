@@ -921,6 +921,19 @@ final class SessionRowsTests: XCTestCase {
             XCTAssertEqual(IndicatorGesture.spin(for: phase).last?.value ?? 0, 0)
             XCTAssertEqual(IndicatorGesture.pulse(for: phase).last?.value ?? 1, 1)
             XCTAssertEqual(IndicatorGesture.glow(for: phase).last?.value ?? 0, 0)
+            XCTAssertEqual(IndicatorGesture.wave(for: phase).last?.value ?? 0, 0)
         }
+    }
+
+    /// A waiting ring does not swell: its mark stays still while a wave
+    /// leaves the ring.
+    func testWaitingSendsAWaveAndKeepsItsSize() {
+        XCTAssertTrue(IndicatorGesture.pulse(for: .waiting).isEmpty)
+        XCTAssertFalse(IndicatorGesture.wave(for: .waiting).isEmpty)
+        for phase in [Phase.idle, .working, .review, .failed] {
+            XCTAssertTrue(IndicatorGesture.wave(for: phase).isEmpty, "\(phase) sends no wave")
+        }
+        XCTAssertLessThanOrEqual(AppController.indicatorSize * (SessionIndicator.waveReach - 1) / 2,
+                                 AppController.indicatorSpacing / 2, "the wave stays inside the cut")
     }
 }

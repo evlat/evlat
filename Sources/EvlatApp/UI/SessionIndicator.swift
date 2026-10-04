@@ -775,8 +775,9 @@ extension StatusLine.Unit {
 ///
 /// **Beats, not loops.** A spinning arc under `TimelineView` or
 /// `repeatForever` is the measured ~7% floor, and a working session runs
-/// for hours. So `working` turns once per beat and `waiting` pulses once per
-/// beat, still in between; `review` flares once on arrival and fades.
+/// for hours. So `working` turns once per beat and `waiting` sends one wave
+/// out of its ring per beat, still in between; `review` flares once on
+/// arrival and fades.
 struct SessionIndicator: View {
     let phase: Phase
     var source: AgentID? = nil
@@ -820,6 +821,9 @@ struct SessionIndicator: View {
                     // The turn is the ring's alone: the mark and the fill
                     // inside stay upright, which is what keeps them readable.
                     .rotationEffect(.degrees(g.spin))
+                    // Behind the ring and outside it: the ring and its mark
+                    // stay where they are while the wave leaves them.
+                    .background { wave(g.wave) }
                     .overlay { inside }
                     .scaleEffect(g.pulse)
                     .shadow(color: glowColor.opacity(g.glow), radius: size * 0.35)
@@ -839,6 +843,13 @@ struct SessionIndicator: View {
                         CubicKeyframe(key.value, duration: key.duration)
                     }
                 }
+                KeyframeTrack(\.wave) {
+                    for key in IndicatorGesture.wave(for: gesture) {
+                        // Linear: the ring travels at one speed; the fade
+                        // below is what eases it out.
+                        LinearKeyframe(key.value, duration: key.duration)
+                    }
+                }
             }
             // Outside the animator, so the dimmed look is one layer's opacity
             // and not a second copy of every colour.
@@ -847,6 +858,24 @@ struct SessionIndicator: View {
     }
 
     private var line: CGFloat { 1.6 }
+
+    /// How far the wave grows past the ring, as a share of its size. 1.5 is
+    /// 5 pt each side: the half gap the list and the closed column leave
+    /// around a ring before they cut (`AppController.indicatorSpacing`), so
+    /// the first row's wave is never clipped at the top.
+    static let waveReach: CGFloat = 1.5
+
+    /// `waiting`'s wave at `progress` (0…1): a ring of its colour leaving the
+    /// ring, growing and thinning as it fades. Nothing at rest.
+    @ViewBuilder private func wave(_ progress: Double) -> some View {
+        if progress > 0 {
+            let t = CGFloat(progress)
+            Circle()
+                .stroke(Self.amber, lineWidth: line * (1 - t * 0.5))
+                .scaleEffect(1 + (Self.waveReach - 1) * t)
+                .opacity(0.85 * (1 - t))
+        }
+    }
 
     /// The tool's mark, in the phase's colour: the ring and the mark say the
     /// same state, the mark alone says where the session runs. An outside
@@ -1028,6 +1057,8 @@ struct IndicatorGesture {
     var pulse: Double = 1
     /// Opacity of the halo.
     var glow: Double = 0
+    /// How far the wave has travelled out of the ring, 0…1; 0 draws none.
+    var wave: Double = 0
 
     struct Key: Equatable {
         var value: Double
@@ -1041,28 +1072,34 @@ struct IndicatorGesture {
         return [Key(value: 360, duration: 0.9), Key(value: 0, duration: 0)]
     }
 
-    /// `waiting`: one swell and back — the amber pulse.
+    /// `review`: one swell and back. `waiting` no longer swells: its mark
+    /// stays still and readable while a wave leaves the ring (`wave`).
     static func pulse(for phase: Phase?) -> [Key] {
         switch phase {
-        case .waiting: return [Key(value: 1.3, duration: 0.2), Key(value: 1, duration: 0.45)]
         case .review: return [Key(value: 1.25, duration: 0.15), Key(value: 1, duration: 0.5)]
-        case .idle, .working, .failed, nil: return []
+        case .idle, .working, .waiting, .failed, nil: return []
         }
     }
 
-    /// `waiting` glows with its pulse; `review` flares and fades — the
-    /// "green, then dies away" of the indicator language, played once.
+    /// `review` flares and fades — the "green, then dies away" of the
+    /// indicator language, played once.
     static func glow(for phase: Phase?) -> [Key] {
         switch phase {
-        case .waiting: return [Key(value: 0.9, duration: 0.2), Key(value: 0, duration: 0.45)]
         case .review: return [Key(value: 1, duration: 0.15), Key(value: 0, duration: 1.6)]
-        case .idle, .working, .failed, nil: return []
+        case .idle, .working, .waiting, .failed, nil: return []
         }
+    }
+
+    /// `waiting`: one wave out of the ring, then back to none at once — the
+    /// last key is the rest state, drawn as nothing.
+    static func wave(for phase: Phase?) -> [Key] {
+        guard phase == .waiting else { return [] }
+        return [Key(value: 1, duration: 1.1), Key(value: 0, duration: 0)]
     }
 
     /// How long the gesture keeps producing frames: the longest track.
     static func duration(for phase: Phase) -> Double {
-        [spin(for: phase), pulse(for: phase), glow(for: phase)]
+        [spin(for: phase), pulse(for: phase), glow(for: phase), wave(for: phase)]
             .map { $0.reduce(0) { $0 + $1.duration } }
             .max() ?? 0
     }
