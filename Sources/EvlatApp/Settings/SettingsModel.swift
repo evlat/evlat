@@ -569,7 +569,9 @@ final class SettingsModel: ObservableObject {
 
     /// Only a backend whose program is here can be picked.
     func setBackend(_ id: AgentID) {
-        guard id != host.chatBackend().id, backendChoices.first(where: { $0.id == id })?.isFound == true else { return }
+        // The one now derived may be picked too: that stores it
+        // (`AppController.setChatBackend` refuses only the stored one).
+        guard backendChoices.first(where: { $0.id == id })?.isFound == true else { return }
         host.setChatBackend(id)
         objectWillChange.send()
     }

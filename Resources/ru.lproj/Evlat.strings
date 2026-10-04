@@ -507,7 +507,7 @@
 "settings.chat.enabled.detail" = "Чтобы начать чат, кликните по маскоту, нажмите сочетание клавиш или перетащите файл на полосу. Выключение останавливает идущий чат.";
 "settings.chat.open" = "Открытие";
 "settings.chat.hotkey" = "Сочетание клавиш";
-"settings.chat.hotkey.detail" = "Клавиши, занятые системой, не принимаются. Клик по маскоту открывает чат всегда.";
+"settings.chat.hotkey.detail" = "Клавиши, занятые системой, не принимаются.";
 "settings.chat.hotkey.change" = "Изменить";
 "settings.chat.hotkey.cancel" = "Отменить";
 "settings.chat.hotkey.recording" = "Нажмите клавиши…";

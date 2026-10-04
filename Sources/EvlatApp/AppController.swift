@@ -2133,8 +2133,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// its own; a mode picked for a chat not made yet was the old backend's
     /// and goes.
     func setChatBackend(_ id: AgentID) {
-        guard id != chatBackend.id, Agents.chatBackends.contains(where: { $0.id == id }) else { return }
+        // Against the choice, not the derived backend: picking the one now
+        // derived stores it, so a program found or lost later moves nothing.
+        guard id != chosenBackend?.id, Agents.chatBackends.contains(where: { $0.id == id }) else { return }
+        let before = chatBackend.id
         if let modeDefaults { modeDefaults.set(id.rawValue, forKey: Self.backendKey) } else { backendUnstored = id }
+        guard chatBackend.id != before else { return }
         chosenMode = nil
         refreshMode()
         if isChatOpen { locateBalloonBackend() }
@@ -2152,9 +2156,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
     /// `EVLAT_CHATS`), which must not change the user's default — kept here.
-    private var modeDefaults: UserDefaults? {
+    /// Read once: `isChatEnabled` asks it on every drag event and click.
+    private lazy var modeDefaults: UserDefaults? =
         Self.chatDefaults(defaults, environment: ProcessInfo.processInfo.environment)
-    }
 
     /// The chat's storage — its switch, backend and modes — or none in an
     /// isolated process (`ChatStore.isolated`).
@@ -4033,9 +4037,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let first = !scanned
         scanned = true
         // `news` is newest first.
-        let untold = news.filter { !announced.contains($0) }
-        guard let fresh = untold.first else { return }
+        let all = news.filter { !announced.contains($0) }
         announced.formUnion(news)
+        // With the chat switched off a chat's finish is a turn the switch
+        // stopped: it enters silently, and stays news until it is seen.
+        let untold = isChatEnabled ? all : all.filter { ChatSession.chatID(fromEntity: $0.entity) == nil }
+        guard let fresh = untold.first else { return }
         guard !first, !barState.isOpen, !isChatOpen else { return }
         // An older peek's timer finds the generation moved and does nothing.
         peekGeneration &+= 1

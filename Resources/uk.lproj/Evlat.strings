@@ -506,7 +506,7 @@
 "settings.chat.enabled.detail" = "Щоб почати чат, клацніть по маскоту, натисніть сполучення клавіш або перетягніть файл на панель. Вимкнення зупиняє чат, що триває.";
 "settings.chat.open" = "Відкриття";
 "settings.chat.hotkey" = "Сполучення клавіш";
-"settings.chat.hotkey.detail" = "Клавіші, які використовує система, не приймаються. Клік по маскоту завжди відкриває чат.";
+"settings.chat.hotkey.detail" = "Клавіші, які використовує система, не приймаються.";
 "settings.chat.hotkey.change" = "Змінити";
 "settings.chat.hotkey.cancel" = "Скасувати";
 "settings.chat.hotkey.recording" = "Натисніть клавіші…";

@@ -506,7 +506,7 @@
 "settings.chat.enabled.detail" = "마스코트를 클릭하거나 단축키를 누르거나 바에 파일을 놓으면 채팅할 수 있습니다. 끄면 진행 중인 채팅이 멈춥니다.";
 "settings.chat.open" = "열기";
 "settings.chat.hotkey" = "단축키";
-"settings.chat.hotkey.detail" = "시스템이 쓰는 키는 사용할 수 없습니다. 마스코트를 클릭하면 언제나 열립니다.";
+"settings.chat.hotkey.detail" = "시스템이 쓰는 키는 사용할 수 없습니다.";
 "settings.chat.hotkey.change" = "변경";
 "settings.chat.hotkey.cancel" = "취소";
 "settings.chat.hotkey.recording" = "키를 누르세요…";

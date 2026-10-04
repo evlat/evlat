@@ -507,7 +507,7 @@
 "settings.chat.enabled.detail" = "Cliquez sur la mascotte, utilisez le raccourci ou déposez un fichier sur la barre pour discuter. Le désactiver arrête un chat en cours.";
 "settings.chat.open" = "Ouverture";
 "settings.chat.hotkey" = "Raccourci";
-"settings.chat.hotkey.detail" = "Une touche utilisée par le système n’est pas acceptée. Un clic sur la mascotte l’ouvre toujours.";
+"settings.chat.hotkey.detail" = "Une touche utilisée par le système n’est pas acceptée.";
 "settings.chat.hotkey.change" = "Modifier";
 "settings.chat.hotkey.cancel" = "Annuler";
 "settings.chat.hotkey.recording" = "Appuyez sur des touches…";

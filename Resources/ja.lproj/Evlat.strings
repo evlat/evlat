@@ -506,7 +506,7 @@
 "settings.chat.enabled.detail" = "マスコットをクリックするか、ショートカットを押すか、バーにファイルをドロップするとチャットできます。オフにすると実行中のチャットは止まります。";
 "settings.chat.open" = "開き方";
 "settings.chat.hotkey" = "ショートカット";
-"settings.chat.hotkey.detail" = "システムが使っているキーは使えません。マスコットをクリックすればいつでも開けます。";
+"settings.chat.hotkey.detail" = "システムが使っているキーは使えません。";
 "settings.chat.hotkey.change" = "変更";
 "settings.chat.hotkey.cancel" = "キャンセル";
 "settings.chat.hotkey.recording" = "キーを押してください…";

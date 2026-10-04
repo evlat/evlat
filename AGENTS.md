@@ -192,22 +192,27 @@ which agent it is:
   (its own switch is kept) and leaves the menu, and a chat's card has no
   `[Back to chat]`. Turning it off stops every running turn as Stop does
   (`ChatStore.stopRunning`, not quitting's SIGTERM) and closes the balloon;
-  the rows stay.
+  the rows stay, and a chat's finish while it is off enters silently (no
+  peek, no sound) and stays news until seen.
 - A chat runs on the backend selected when it was made (Settings → Chat,
   `chat.backend`) and keeps it; its session id is the agent's own when the
   first turn names one (Codex's thread). None stored, it is the first
   backend in the catalogue whose program was found and kept
   (`ChatStore.firstFoundLane`, `AgentLocator.isFound`), else the
-  catalogue's first — derived each time, never written. The balloon looks
+  catalogue's first — derived each time, never written; a pick in
+  Settings stores even the backend now derived. The balloon looks
   a program up only where the answer depends on it (`ChatStore.locateBackend`):
   nothing stored and a backend ahead of the first found one not found
-  yet (in order, stopping at the first hit; meanwhile it is `looking` and
-  sends nothing), or the chat's or stored backend missing. An open chat's
+  yet (in order, stopping at the first hit; with none found yet it is
+  `looking` meanwhile and sends nothing, and a hit not kept — the inherited
+  `PATH` alone — is the derived backend until the next search), or the
+  chat's or stored backend missing. An open chat's
   missing program, or a stored one's while another's is there, is
   `chat.missing`; no program at all names no agent and links each
-  backend's `installPage`, opened in the browser behind the app in front. The conversation itself is the agent's: Claude Code and Codex
-  write it under their own homes (`~/.claude`, `~/.codex`), Evlat keeps
-  only the index.
+  backend's `installPage`, opened in the browser behind the app in front.
+  The conversation itself is the agent's: Claude Code and Codex write it
+  under their own homes (`~/.claude`, `~/.codex`), Evlat keeps only the
+  index.
 - Modes are the backend's (`ChatMode`): a mode's own denial is retried in
   the mode it names (`retryDenialAs`). The new chats' default is stored per
   backend (`modeKey`), and so is the index (`indexFile`); Claude Code keeps

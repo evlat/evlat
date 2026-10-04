@@ -516,7 +516,7 @@
 "settings.chat.enabled.detail" = "Sohbet için maskota tıkla, kısayola bas ya da bara bir dosya bırak. Kapatmak koşan bir sohbeti durdurur.";
 "settings.chat.open" = "Açmak";
 "settings.chat.hotkey" = "Kısayol";
-"settings.chat.hotkey.detail" = "Sistemin kullandığı bir tuşu kabul etmez. Maskota tıklamak her zaman açar.";
+"settings.chat.hotkey.detail" = "Sistemin kullandığı bir tuşu kabul etmez.";
 "settings.chat.hotkey.change" = "Değiştir";
 "settings.chat.hotkey.cancel" = "Vazgeç";
 "settings.chat.hotkey.recording" = "Tuşlara bas…";

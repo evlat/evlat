@@ -506,7 +506,7 @@
 "settings.chat.enabled.detail" = "Haz clic en la mascota, pulsa el atajo o suelta un archivo en la barra para chatear. Desactivarlo detiene un chat en curso.";
 "settings.chat.open" = "Apertura";
 "settings.chat.hotkey" = "Atajo";
-"settings.chat.hotkey.detail" = "No se acepta una tecla que use el sistema. Hacer clic en la mascota siempre lo abre.";
+"settings.chat.hotkey.detail" = "No se acepta una tecla que use el sistema.";
 "settings.chat.hotkey.change" = "Cambiar";
 "settings.chat.hotkey.cancel" = "Cancelar";
 "settings.chat.hotkey.recording" = "Pulsa las teclas…";

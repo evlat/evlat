@@ -648,7 +648,8 @@ private struct ChatSection: View {
                 } else if setup.attention.contains(.hotKeyUnregistered) {
                     Text(model.t("setup.attention.hotKey")).font(.system(size: 11.5))
                         .foregroundStyle(SettingsPalette.wait)
-                } else if !model.isHotKeyOn {
+                } else if !model.isHotKeyOn && model.isChatEnabled {
+                    // With the chat off the mascot opens nothing either.
                     Text(model.t("settings.chat.hotkey.off")).font(.system(size: 11.5))
                         .foregroundStyle(SettingsPalette.muted)
                 }

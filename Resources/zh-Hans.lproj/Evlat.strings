@@ -506,7 +506,7 @@
 "settings.chat.enabled.detail" = "点按吉祥物、按下快捷键或把文件拖到长条上即可对话。关闭后，正在进行的对话会停止。";
 "settings.chat.open" = "打开方式";
 "settings.chat.hotkey" = "快捷键";
-"settings.chat.hotkey.detail" = "不接受系统已占用的按键。点按吉祥物总能打开对话。";
+"settings.chat.hotkey.detail" = "不接受系统已占用的按键。";
 "settings.chat.hotkey.change" = "更改";
 "settings.chat.hotkey.cancel" = "取消";
 "settings.chat.hotkey.recording" = "请按键…";

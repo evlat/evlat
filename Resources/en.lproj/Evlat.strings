@@ -573,7 +573,7 @@
 "settings.chat.enabled.detail" = "Click the mascot, press the shortcut or drop a file on the bar to chat. Turning it off stops a running chat.";
 "settings.chat.open" = "Opening";
 "settings.chat.hotkey" = "Shortcut";
-"settings.chat.hotkey.detail" = "A key the system uses is not accepted. Clicking the mascot always opens it.";
+"settings.chat.hotkey.detail" = "A key the system uses is not accepted.";
 "settings.chat.hotkey.change" = "Change";
 "settings.chat.hotkey.cancel" = "Cancel";
 "settings.chat.hotkey.recording" = "Press keys…";

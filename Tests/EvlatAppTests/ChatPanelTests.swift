@@ -662,6 +662,61 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertEqual(controller.chatBackend.id, .claude)
     }
 
+    /// The login shell gives no `PATH` and Codex is found on the inherited
+    /// one alone — a find not kept: the balloon that says it can send is
+    /// Codex's, and so is the chat it makes.
+    func testAFindNotKeptIsStillTheChats() throws {
+        let controller = controller()
+        defer { close(controller) }
+        let codex = try program("codex")
+        let folder = (codex as NSString).deletingLastPathComponent
+        controller.chats = store(controller, [
+            .claude: locator("claude", at: nil),
+            .codex: AgentLocator(name: "codex", environment: ["PATH": folder], loginPath: { nil }),
+        ])
+        controller.openChat()
+        let found = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated { controller.chatModel.backendState == .ready }
+        }, object: nil)
+        wait(for: [found], timeout: 10)
+        XCTAssertEqual(controller.chatBackend.id, .codex)
+        XCTAssertEqual(controller.chatModel.agent, .codex, "the corner names it")
+        let chats = try XCTUnwrap(controller.chats)
+        XCTAssertEqual(chats.backend(of: chats.newChat())?.id, .codex)
+    }
+
+    /// Codex is known and Claude, ahead of it, is looked for again: the line
+    /// can send at once, and an earlier "not found" is not left up.
+    func testWithALaterOneKnownTheLineIsReadyAtOnce() throws {
+        let controller = controller()
+        defer { close(controller) }
+        let empty = directory.appendingPathComponent("empty", isDirectory: true).path
+        let claude = AgentLocator(name: "claude", environment: ["PATH": empty], loginPath: { empty })
+        controller.chats = store(controller, [.claude: claude, .codex: locator("codex", at: try program("codex"))])
+        controller.chatModel.backendState = .missing
+        controller.openChat()
+        XCTAssertEqual(controller.chatModel.backendState, .ready)
+        XCTAssertEqual(controller.chatBackend.id, .codex)
+        let looked = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated { claude.lastLoginPath != nil }
+        }, object: nil)
+        wait(for: [looked], timeout: 10)
+        XCTAssertEqual(controller.chatModel.backendState, .ready)
+    }
+
+    /// Nothing stored and Claude derived: picking Claude stores it, so a
+    /// program lost later does not move new chats elsewhere.
+    func testPickingTheDerivedBackendStoresIt() throws {
+        let controller = controller()
+        defer { close(controller) }
+        controller.chats = store(controller, [.claude: locator("claude", at: try program("claude")),
+                                              .codex: locator("codex", at: try program("codex"))])
+        XCTAssertEqual(controller.chatBackend.id, .claude)
+        XCTAssertNil(defaults.string(forKey: AppController.backendKey))
+        controller.setChatBackend(.claude)
+        XCTAssertEqual(defaults.string(forKey: AppController.backendKey), "claude")
+    }
+
     // MARK: - The chat switched off
 
     /// Off, no way in opens the balloon: the calls, the shortcut, files
@@ -718,6 +773,8 @@ final class ChatPanelTests: XCTestCase {
         }, object: nil)
         wait(for: [streams], timeout: 10)
         let pid = try XCTUnwrap(chats.processIdentifier(of: id))
+        // The first scan's news is old; this one's finish would be told.
+        controller.refresh()
         controller.setChatEnabled(false)
         XCTAssertFalse(controller.isChatOpen, "the balloon closes")
         let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -729,6 +786,7 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertFalse(AppController.isProcessAlive(pid), "the process is gone")
         controller.refresh()
         XCTAssertEqual(controller.sessionRows.rows.map(\.kind), [.job], "the row stays")
+        XCTAssertNil(controller.peekPhase, "a turn the switch stopped is not told")
     }
 
     private func textField(in view: NSView) -> NSTextField? {

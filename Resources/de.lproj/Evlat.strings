@@ -506,7 +506,7 @@
 "settings.chat.enabled.detail" = "Klicke auf das Maskottchen, drücke den Kurzbefehl oder lege eine Datei auf der Leiste ab, um zu chatten. Ausschalten stoppt einen laufenden Chat.";
 "settings.chat.open" = "Öffnen";
 "settings.chat.hotkey" = "Kurzbefehl";
-"settings.chat.hotkey.detail" = "Eine Taste, die das System nutzt, wird nicht angenommen. Ein Klick aufs Maskottchen öffnet ihn immer.";
+"settings.chat.hotkey.detail" = "Eine Taste, die das System nutzt, wird nicht angenommen.";
 "settings.chat.hotkey.change" = "Ändern";
 "settings.chat.hotkey.cancel" = "Abbrechen";
 "settings.chat.hotkey.recording" = "Tasten drücken …";

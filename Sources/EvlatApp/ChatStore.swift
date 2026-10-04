@@ -191,8 +191,17 @@ final class ChatStore {
 
     /// The first lane, in the catalogue's order, whose program was found and
     /// kept (`AgentLocator.isFound`): the new chats' backend when none is
-    /// stored. Asks nothing.
-    var firstFoundLane: Lane? { lanes.first { $0.locator.isFound } }
+    /// stored. Else the one the last search answered `.ready` for, whose
+    /// find was not kept (the inherited `PATH` alone): the balloon must not
+    /// send to the catalogue's first after calling another's program ready.
+    /// Asks nothing.
+    var firstFoundLane: Lane? {
+        lanes.first { $0.locator.isFound } ?? lanes.first { $0.backend.id == unkeptHit }
+    }
+
+    /// The lane the last search for the new chats' backend hit without
+    /// keeping it; `nil` when it hit none, or a kept one.
+    private var unkeptHit: AgentID?
 
     /// Whether the balloon has a program to send to.
     enum Availability: Equatable {
@@ -231,8 +240,14 @@ final class ChatStore {
         let known = lanes.firstIndex { $0.locator.isFound }
         let ahead = lanes[..<(known ?? lanes.count)]
         guard !ahead.isEmpty else { return completion(.ready) }
-        if known == nil { completion(.looking) }
-        Self.firstFound(in: ahead) { hit in completion(hit != nil || known != nil ? .ready : .nothingFound) }
+        // With one known the line can send now, whatever the search ahead
+        // of it finds: no `.looking`, and an earlier answer is not left up.
+        completion(known == nil ? .looking : .ready)
+        Self.firstFound(in: ahead) { [weak self] hit in
+            // Set before the answer: the caller reads the derived backend.
+            self?.unkeptHit = hit.flatMap { $0.locator.isFound ? nil : $0.backend.id }
+            completion(hit != nil || known != nil ? .ready : .nothingFound)
+        }
     }
 
     /// The first of `lanes` whose program is there, looked up one after

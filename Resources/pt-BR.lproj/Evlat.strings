@@ -507,7 +507,7 @@
 "settings.chat.enabled.detail" = "Clique no mascote, use o atalho ou solte um arquivo na barra para conversar. Desativar interrompe um chat em andamento.";
 "settings.chat.open" = "Abertura";
 "settings.chat.hotkey" = "Atalho";
-"settings.chat.hotkey.detail" = "Uma tecla usada pelo sistema não é aceita. Um clique no mascote sempre o abre.";
+"settings.chat.hotkey.detail" = "Uma tecla usada pelo sistema não é aceita.";
 "settings.chat.hotkey.change" = "Alterar";
 "settings.chat.hotkey.cancel" = "Cancelar";
 "settings.chat.hotkey.recording" = "Pressione as teclas…";

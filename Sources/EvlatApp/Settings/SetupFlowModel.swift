@@ -45,7 +45,11 @@ final class SetupFlowModel: ObservableObject {
     @Published private(set) var blinks = 0
     /// "Install" was pressed on this visit: the hint about open sessions.
     @Published private(set) var installed = false
-    @Published private(set) var backend: SettingsModel.Location = .looking
+    /// Where each backend's program is: every one is looked up, since the
+    /// new chats' backend is derived from what is found (none stored).
+    @Published private var locations: [AgentID: SettingsModel.Location] = [:]
+    /// Where the new chats' backend's program is, read as it is drawn.
+    var backend: SettingsModel.Location { locations[settings.chatBackend().id] ?? .looking }
     /// The optional step's "Watch Docker sandboxes": off unless turned on,
     /// applied by "Finish" (`AppController.setSandboxesEnabled`).
     @Published var sandboxesQueued = false
@@ -94,10 +98,13 @@ final class SetupFlowModel: ObservableObject {
         self.step = step
         if step == .edge || step == .done { blinks += 1 }
         settings.lookForSbx { [weak self] in self?.objectWillChange.send() }
-        settings.locateBackend(settings.chatBackend().id) { [weak self] path in
-            self?.backend = path.map(SettingsModel.Location.found) ?? .missing
-            // The login `PATH` for the command link's note (`SettingsModel.reload`).
-            self?.setup.reload()
+        for backend in settings.chatBackends() {
+            let id = backend.id
+            settings.locateBackend(id) { [weak self] path in
+                self?.locations[id] = path.map(SettingsModel.Location.found) ?? .missing
+                // The login `PATH` for the command link's note (`SettingsModel.reload`).
+                self?.setup.reload()
+            }
         }
     }
 

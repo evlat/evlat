@@ -235,6 +235,22 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(writes, ["mode default"], "`ask` is claude's `default`")
     }
 
+    /// The new chats' backend is derived from what is found, so the chat
+    /// step looks every backend up, not only the one derived before it.
+    func testTheChatStepLooksEveryBackendUp() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        var settings = controller.settingsHost
+        var asked: [AgentID] = []
+        settings.locateBackend = { id, done in asked.append(id); done(nil) }
+        let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: controller.setupHost, lang: "en"),
+                                  recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
+                                  close: {}, lang: "en")
+        flow.start(at: .chat)
+        XCTAssertEqual(asked, Agents.chatBackends.map(\.id))
+        XCTAssertEqual(flow.backend, .missing)
+    }
+
     func testTheEdgeIsAppliedAtOnceAndTheMascotLooksThere() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
