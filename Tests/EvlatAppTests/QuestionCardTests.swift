@@ -17,10 +17,11 @@ final class QuestionCardTests: XCTestCase {
                                subject: nil, questions: questions, input: Data("{}".utf8))
     }
 
-    /// A bare Allow answers no question; a faint card takes nothing.
+    /// A bare Allow answers no question. Every button the card draws takes
+    /// a press at once: there is no wait after the card comes up.
     func testAQuestionCardHasNoAllow() {
         var draft = AgentQuestion.Draft(questions: [color])
-        let card = SessionDetail.ApprovalCard(request([color]), draft: draft, armed: true)
+        let card = SessionDetail.ApprovalCard(request([color]), draft: draft)
         XCTAssertFalse(card.takes(.allow))
         XCTAssertTrue(card.takes(.deny))
         XCTAssertTrue(card.takes(.option(1)))
@@ -28,20 +29,18 @@ final class QuestionCardTests: XCTestCase {
         XCTAssertTrue(card.takes(.other))
         XCTAssertFalse(card.takes(.send), "nothing picked: Send is faint")
         XCTAssertEqual(card.question?.isLast, true, "the only question is the last: Send is drawn")
-        let faint = SessionDetail.ApprovalCard(request([color]), draft: draft, armed: false)
-        XCTAssertFalse([.deny, .option(0), .other].contains(where: faint.takes))
 
         draft.choose(0)
-        let picked = SessionDetail.ApprovalCard(request([color]), draft: draft, armed: true)
+        let picked = SessionDetail.ApprovalCard(request([color]), draft: draft)
         XCTAssertEqual(picked.question?.picked, [0], "the last question's press picks")
         XCTAssertTrue(picked.takes(.send), "and Send sends")
         draft.commit()
-        XCTAssertNil(SessionDetail.ApprovalCard(request([color]), draft: draft, armed: true).question,
+        XCTAssertNil(SessionDetail.ApprovalCard(request([color]), draft: draft).question,
                      "an answered draft is no question")
     }
 
     func testAPermissionCardHasNoQuestionButtons() {
-        let card = SessionDetail.ApprovalCard(request(nil), armed: true)
+        let card = SessionDetail.ApprovalCard(request(nil))
         XCTAssertTrue(card.takes(.allow))
         XCTAssertFalse(card.takes(.option(0)))
         XCTAssertFalse(card.takes(.other))
@@ -50,30 +49,27 @@ final class QuestionCardTests: XCTestCase {
     /// Send is live once something is picked.
     func testSendWaitsForAPick() {
         var draft = AgentQuestion.Draft(questions: [sizes])
-        XCTAssertFalse(SessionDetail.ApprovalCard(request([sizes]), draft: draft, armed: true).takes(.send))
+        XCTAssertFalse(SessionDetail.ApprovalCard(request([sizes]), draft: draft).takes(.send))
         draft.choose(1)
-        XCTAssertTrue(SessionDetail.ApprovalCard(request([sizes]), draft: draft, armed: true).takes(.send))
+        XCTAssertTrue(SessionDetail.ApprovalCard(request([sizes]), draft: draft).takes(.send))
     }
 
-    /// The next question is a new card: it arms again, so the press that
-    /// answered one does not land on the next one's option.
-    func testTheNextQuestionArmsAgain() {
+    /// The next question takes a press as soon as it is up: no wait between
+    /// questions either.
+    func testTheNextQuestionTakesAPressAtOnce() {
         var draft = AgentQuestion.Draft(questions: [color, sizes])
-        let first = SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true)
         draft.choose(0)
-        let second = SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true)
-        XCTAssertNotEqual(first.key, second.key)
-        draft.choose(1)
-        XCTAssertEqual(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true).key, second.key,
-                       "a tick is not a new card")
+        let second = SessionDetail.ApprovalCard(request([color, sizes]), draft: draft)
+        XCTAssertEqual(second.question?.question, sizes)
+        XCTAssertTrue([.option(0), .other, .deny, .back].allSatisfy(second.takes))
     }
 
     /// The way back is on the second question, not the first.
     func testBackIsOnlyAfterTheFirst() {
         var draft = AgentQuestion.Draft(questions: [color, sizes])
-        XCTAssertFalse(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true).takes(.back))
+        XCTAssertFalse(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft).takes(.back))
         draft.choose(0)
-        XCTAssertTrue(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft, armed: true).takes(.back))
+        XCTAssertTrue(SessionDetail.ApprovalCard(request([color, sizes]), draft: draft).takes(.back))
     }
 
     func testTheTagNamesTheTabAndWhereItIs() throws {
@@ -111,7 +107,7 @@ final class QuestionCardTests: XCTestCase {
             model.update(row: SessionRow(entity: "s", label: "Metalterm: GPU glyph atlas eviction under memory pressure",
                                          phase: .waiting, source: .claude, waitKind: .answer),
                          signal: nil, approval: SessionDetail.ApprovalCard(request([question]),
-                                                                           draft: .init(questions: [question]), armed: true))
+                                                                           draft: .init(questions: [question])))
             return NSHostingView(rootView: DetailCard(model: model, maxHeight: cap)).fittingSize.height
         }
         XCTAssertLessThanOrEqual(height(cap: 10_000), AppController.detailCardMaxHeight - 8, "inside the cap")
@@ -128,7 +124,7 @@ final class QuestionCardTests: XCTestCase {
             header: "Colour", options: options, multiSelect: true)
         var draft = AgentQuestion.Draft(questions: [color, question])
         draft.choose(0)
-        let card = SessionDetail.ApprovalCard(request([color, question]), draft: draft, armed: true)
+        let card = SessionDetail.ApprovalCard(request([color, question]), draft: draft)
         XCTAssertTrue(try XCTUnwrap(card.question).canGoBack)
 
         let model = DetailModel()
@@ -156,7 +152,7 @@ final class QuestionCardTests: XCTestCase {
         model.update(row: SessionRow(entity: "s", label: String(repeating: "Refactor the sandbox watcher ", count: 4),
                                      phase: .waiting, source: .claude,
                                      branch: "feature/PROJ-1234-sandbox-watcher-reconnect", waitKind: .approval),
-                     signal: nil, approval: SessionDetail.ApprovalCard(held, armed: true))
+                     signal: nil, approval: SessionDetail.ApprovalCard(held))
         XCTAssertNotNil(try XCTUnwrap(model.detail).approval?.text, "the command is on the card")
         let height = NSHostingView(rootView: DetailCard(model: model, maxHeight: 10_000)).fittingSize.height
         XCTAssertGreaterThan(height, 200, "drawn")

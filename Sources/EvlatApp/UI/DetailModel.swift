@@ -79,8 +79,9 @@ public struct SessionDetail: Equatable {
 
     var traits: RowTraits { .of(kind) }
 
-    /// What the card shows of a held request, and whether its buttons take
-    /// a press yet (`AppController.approvalArmDelay`).
+    /// What the card shows of a held request. Its buttons take a press as
+    /// soon as they are drawn: the pause that once held them after the card
+    /// or a question came up read as a card not answering (user's decision).
     struct ApprovalCard: Equatable {
         let id: String
         let tool: String
@@ -90,25 +91,17 @@ public struct SessionDetail: Equatable {
         let fromSubagent: Bool
         /// A question to answer in place of Allow (`AskQuestion`).
         let question: QuestionCard?
-        var armed: Bool
 
-        init(_ request: HeldRequest, draft: AgentQuestion.Draft? = nil, armed: Bool) {
+        init(_ request: HeldRequest, draft: AgentQuestion.Draft? = nil) {
             id = request.id
             tool = request.tool
             text = request.command ?? request.subject
             fromSubagent = request.agentID != nil
             question = draft.flatMap(QuestionCard.init)
-            self.armed = armed
         }
 
-        /// What arms: the request, and which of its questions is up — the
-        /// click that answers one must not land on the next one's option
-        /// drawn under it.
-        var key: String { "\(id)#\(question?.index ?? 0)" }
-
-        /// Is `button` one this card has, live? A faint card has none.
+        /// Is `button` one this card has, live?
         func takes(_ button: DetailModel.Button) -> Bool {
-            guard armed else { return false }
             switch button {
             case .allow: return question == nil
             case .deny: return true

@@ -353,7 +353,7 @@ struct DetailCard: View {
         if let approval = detail.approval {
             Group {
                 if let question = approval.question {
-                    questionSection(question, armed: approval.armed)
+                    questionSection(question)
                 } else {
                     permissionSection(approval)
                 }
@@ -434,10 +434,7 @@ struct DetailCard: View {
     }
 
     /// What Allow lets run, whole, and Deny and Allow under it, on amber:
-    /// the request and its answer in one place. Until the card has stood
-    /// still for a moment the buttons take no press, drawn as they will be
-    /// (`AppController.click`): a card that comes up under the pointer is
-    /// not an answer.
+    /// the request and its answer in one place.
     private func permissionSection(_ approval: SessionDetail.ApprovalCard) -> some View {
         section(ask: true, gap: 10) {
             sectionTitle(L10n.t(approval.fromSubagent ? Self.approvalSubagentKey : Self.approvalToolKey,
@@ -459,8 +456,8 @@ struct DetailCard: View {
                     .fill(Color.black.opacity(0.35)))
             }
             HStack(spacing: 8) {
-                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false, live: approval.armed)
-                approvalButton(L10n.t(Self.allowKey), button: .allow, loud: true, live: approval.armed)
+                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false)
+                approvalButton(L10n.t(Self.allowKey), button: .allow, loud: true)
             }
             .padding(.top, 2)
         }
@@ -472,8 +469,8 @@ struct DetailCard: View {
     /// single-select option answers with its press and moves on; one
     /// answered before, come back to, has Next to keep its answer. On the
     /// last question a press only picks, and Send sends. A multi-select one
-    /// is ticked, then Next or Send. No press until armed.
-    private func questionSection(_ question: SessionDetail.QuestionCard, armed: Bool) -> some View {
+    /// is ticked, then Next or Send.
+    private func questionSection(_ question: SessionDetail.QuestionCard) -> some View {
         let options = question.question.options
         let multi = question.question.multiSelect
         return section(ask: true, gap: 10) {
@@ -498,23 +495,23 @@ struct DetailCard: View {
                 VStack(spacing: 6) {
                     ForEach(options.indices, id: \.self) { index in
                         optionRow(options[index], index: index, multi: multi,
-                                  picked: question.picked.contains(index), live: armed)
+                                  picked: question.picked.contains(index))
                     }
-                    otherRow(written: question.written, multi: multi, live: armed)
+                    otherRow(written: question.written, multi: multi)
                 }
             }
             .frame(maxHeight: Self.optionsMaxHeight)
             .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 if question.canGoBack {
-                    backButton(live: armed)
+                    backButton
                 }
-                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false, live: armed)
+                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false)
                 // On the last question Send is always there, faint until
                 // something is picked: a press there picks, Send sends.
                 if multi || question.canCommit || question.isLast {
                     approvalButton(L10n.t(question.isLast ? Self.sendKey : Self.nextKey), button: .send,
-                                   loud: true, live: armed, enabled: question.canCommit)
+                                   loud: true, enabled: question.canCommit)
                 }
             }
             .padding(.top, 2)
@@ -550,9 +547,8 @@ struct DetailCard: View {
 
     /// An option: its mark, its label and its description under it. A
     /// round mark picks one, a square one any; amber when picked.
-    private func optionRow(_ option: AgentQuestion.Option, index: Int, multi: Bool, picked: Bool,
-                           live: Bool) -> some View {
-        choiceRow(picked: picked, live: live, button: .option(index)) {
+    private func optionRow(_ option: AgentQuestion.Option, index: Int, multi: Bool, picked: Bool) -> some View {
+        choiceRow(picked: picked, button: .option(index)) {
             markView(multi: multi, picked: picked)
         } text: {
             // An option's label and description are Claude's words: data.
@@ -575,8 +571,8 @@ struct DetailCard: View {
     /// "Other…", the last choice: a press opens the line to write in, laid
     /// on this row (`AppController.openAnswer`). Once written, the answer
     /// stands here, marked, and a press opens the line again, filled.
-    private func otherRow(written: String?, multi: Bool, live: Bool) -> some View {
-        choiceRow(picked: written != nil, live: live, button: .other) {
+    private func otherRow(written: String?, multi: Bool) -> some View {
+        choiceRow(picked: written != nil, button: .other) {
             if written != nil {
                 markView(multi: multi, picked: true)
             } else {
@@ -599,7 +595,7 @@ struct DetailCard: View {
         }
     }
 
-    private func choiceRow<Mark: View, Words: View>(picked: Bool, live: Bool, button: DetailModel.Button,
+    private func choiceRow<Mark: View, Words: View>(picked: Bool, button: DetailModel.Button,
                                                     @ViewBuilder mark: () -> Mark,
                                                     @ViewBuilder text: () -> Words) -> some View {
         HStack(alignment: .top, spacing: 10) {
@@ -615,7 +611,7 @@ struct DetailCard: View {
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .strokeBorder(picked ? SessionIndicator.amber.opacity(0.45) : .clear, lineWidth: 1))
         .reportingFrame(button, to: onApprovalFrame)
-        .modifier(PressFeedback(model: model, button: live ? button : nil))
+        .modifier(PressFeedback(model: model, button: button))
     }
 
     /// A round mark for one, a square one for any; filled amber with a
@@ -636,14 +632,14 @@ struct DetailCard: View {
     }
 
     /// Back to the question before: a chevron, narrow beside the words.
-    private func backButton(live: Bool) -> some View {
+    private var backButton: some View {
         Image(systemName: "chevron.left")
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(BarPalette.textPrimary)
             .frame(width: Self.buttonHeight, height: Self.buttonHeight)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.white.opacity(0.10)))
             .reportingFrame(.back, to: onApprovalFrame)
-            .modifier(PressFeedback(model: model, button: live ? .back : nil))
+            .modifier(PressFeedback(model: model, button: .back))
     }
 
     /// The way back to the session, the card's one action, last: "Open in
@@ -715,14 +711,9 @@ struct DetailCard: View {
 
     /// Drawn, like `[Go to session]`: the panel reads the click from the
     /// rectangle. The loud one is the phase's amber (Allow, Send), the rest
-    /// quiet; none is a default, and no key presses them.
-    ///
-    /// Until the card has stood still a moment (`live` false) it takes no
-    /// press (`AppController.click`), but it is drawn as it will be: drawn
-    /// faint, every card came up looking switched off for half a second
-    /// (the user's feedback). Faint is kept for a button that cannot be
-    /// pressed at all — Next or Send with nothing picked (`enabled`).
-    private func approvalButton(_ title: String, button: DetailModel.Button, loud: Bool, live: Bool,
+    /// quiet; none is a default, and no key presses them. Faint is a button
+    /// that cannot be pressed — Next or Send with nothing picked (`enabled`).
+    private func approvalButton(_ title: String, button: DetailModel.Button, loud: Bool,
                                 enabled: Bool = true,
                                 height: CGFloat = DetailCard.buttonHeight, ticked: Bool = false) -> some View {
         let fill = loud ? Self.color(.waiting) : Color.white.opacity(ticked ? 0.22 : 0.12)
@@ -737,7 +728,7 @@ struct DetailCard: View {
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(fill))
             .opacity(enabled ? 1 : 0.4)
             .reportingFrame(button, to: onApprovalFrame)
-            .modifier(PressFeedback(model: model, button: live && enabled ? button : nil))
+            .modifier(PressFeedback(model: model, button: enabled ? button : nil))
     }
 
     /// A drawn button answering the pointer: brighter under it, pressed in

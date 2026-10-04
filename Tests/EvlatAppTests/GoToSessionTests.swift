@@ -464,7 +464,7 @@ final class GoToSessionTests: XCTestCase {
                                   input: Data("{}".utf8))
         let signal = askable()
         model.update(row: SessionRow(signal), signal: signal,
-                     approval: SessionDetail.ApprovalCard(request, armed: true))
+                     approval: SessionDetail.ApprovalCard(request))
         let detail = try XCTUnwrap(model.detail)
         XCTAssertTrue(detail.hasRemoteHost)
         XCTAssertFalse(detail.hasLocalHost)

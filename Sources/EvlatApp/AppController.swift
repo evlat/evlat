@@ -3346,7 +3346,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         detail.cardClosed()
         goButtonRect = nil
         approvalRects = [:]
-        shownApproval = nil
         if detail.hovered != nil { detail.hovered = nil }
         if detail.pressed != nil { detail.pressed = nil }
         if barState.selected != nil { barState.selected = nil }
@@ -3370,7 +3369,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// Which of the card's live buttons is under `point` (the content view's
-    /// coordinates, as a click's). An approval button not armed yet is none.
+    /// coordinates, as a click's). A faint one — Send with nothing picked —
+    /// is none.
     private func cardButton(at point: CGPoint) -> DetailModel.Button? {
         guard barState.selected != nil else { return nil }
         if let approval = detail.detail?.approval, let button = approvalButton(at: point), approval.takes(button) {
@@ -3445,9 +3445,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func click(at point: CGPoint) -> Bool {
         if barState.selected != nil, let approval = detail.detail?.approval,
            let button = approvalButton(at: point) {
-            // A button not armed yet takes the click and does nothing with it; a press
+            // A faint button takes the click and does nothing with it; a press
             // on a request no longer held sends nothing (`ApprovalStore`).
-            if approval.takes(button), approval.key == shownApproval {
+            if approval.takes(button) {
                 let id = approval.id
                 // Checked again after the press is drawn: the store sends
                 // nothing for a request no longer held.
@@ -3497,17 +3497,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         Agents.routes.approval.flatMap { $0.agent.approvals?.body(decision) } ?? "{}"
     }
 
-    /// How long a request stands still on the card before its buttons take
-    /// a press: a card that comes up, or changes, under the pointer is not
-    /// an answer. The same pause browsers put on their permission prompts.
-    static let approvalArmDelay: TimeInterval = 0.6
-
     /// The held request's buttons' drawn rectangles, like `goButtonRect`.
     private var approvalRects: [DetailModel.Button: CGRect] = [:]
-    /// The card's `ApprovalCard.key` it shows, and the one whose buttons
-    /// are live.
-    private var shownApproval: String?
-    private var armedApproval: String?
     /// The card's drawn rectangle, where the answer line is laid.
     private var cardRect: CGRect?
 
@@ -3632,28 +3623,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         hover.pointerExited()
     }
 
-    /// The selected session's card for its held request, arming it after
-    /// `approvalArmDelay` the first time it is shown.
+    /// The selected session's card for its held request.
     private func approvalCard(for entity: String) -> SessionDetail.ApprovalCard? {
-        guard let request = approvals.request(forSession: entity) else {
-            shownApproval = nil
-            return nil
+        approvals.request(forSession: entity).map {
+            SessionDetail.ApprovalCard($0, draft: approvals.draft($0.id))
         }
-        var card = SessionDetail.ApprovalCard(request, draft: approvals.draft(request.id), armed: false)
-        if shownApproval != card.key {
-            shownApproval = card.key
-            armedApproval = nil
-            let id = card.key
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.approvalArmDelay) { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, self.shownApproval == id else { return }
-                    self.armedApproval = id
-                    self.approvalsChanged()
-                }
-            }
-        }
-        card.armed = armedApproval == card.key
-        return card
     }
 
     /// A request came, went or was answered: the card follows at once, and
