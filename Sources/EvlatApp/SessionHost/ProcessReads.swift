@@ -167,9 +167,12 @@ extension SessionHost {
     }
 
     /// The device of the process's controlling terminal (`e_tdev`); `nil`
-    /// when it has none (`NODEV`) or it cannot be read.
+    /// when it has none (`NODEV`), it cannot be read, or it is not a pty's
+    /// slave (`/dev/ttys…`): only the number is matched against masters
+    /// (`ptyNumber`), so `/dev/console`'s 0 would otherwise meet ttys000's.
     static func terminalDevice(_ pid: Int32) -> Int32? {
-        guard let device = kinfo(pid)?.kp_eproc.e_tdev, device != -1 else { return nil }
+        guard let device = kinfo(pid)?.kp_eproc.e_tdev, device != -1,
+              let name = devname(device, S_IFCHR), String(cString: name).hasPrefix("ttys") else { return nil }
         return device
     }
 
