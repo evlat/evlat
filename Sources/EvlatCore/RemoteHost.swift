@@ -44,15 +44,22 @@ public enum RemoteHost {
         /// the click can select it (`selectScript`); `nil` when it runs in
         /// no herdr pane there.
         public let herdrPane: Pane?
+        /// Whether the connection was walked from the agent itself — not
+        /// from a tmux or herdr client, nor herdr's ssh bridge — as the
+        /// script says on a line of its own (`<nonce> direct`). Only such
+        /// a session's tab is sure enough for the news to ask its terminal
+        /// about; without the line it is `false`.
+        public let direct: Bool
 
         public init(clientPort: Int, serverPort: Int, startedAt: Date, offset: TimeInterval?,
-                    forwarded: [String] = [], herdrPane: Pane? = nil) {
+                    forwarded: [String] = [], herdrPane: Pane? = nil, direct: Bool = false) {
             self.clientPort = clientPort
             self.serverPort = serverPort
             self.startedAt = startedAt
             self.offset = offset
             self.forwarded = forwarded
             self.herdrPane = herdrPane
+            self.direct = direct
         }
 
         /// The connection's start on this Mac's clock; `nil` without an
@@ -146,7 +153,9 @@ public enum RemoteHost {
     ///   closed tab's ghost and still does not. The agent's pane is found
     ///   too (`herdrFunctions`) and one more line says whether herdr would
     ///   select it — `agent get`, which only reads;
-    /// - otherwise the agent itself. A pane's environment is the server's
+    /// - otherwise the agent itself, said first on a line of its own
+    ///   (`<nonce> direct`, `Connection.direct`): the one answer whose tab
+    ///   the news may ask about. A pane's environment is the server's
     ///   first client's, which may be long gone, so a pane never falls back
     ///   to it.
     /// From that process the parents are walked up to the connection's
@@ -299,6 +308,7 @@ public enum RemoteHost {
             done
           fi
         else
+          printf '%s direct\n' "$n"
           say "$p"
         fi
         if [ -z "$h" ]; then
@@ -507,15 +517,22 @@ public enum RemoteHost {
     /// all of them "not known", never a guess. `arrivedAt` is when the
     /// answer reached this Mac: the clock offset is read against it. A
     /// forwarded variable whose line does not parse is left out; the
-    /// connection stands without it. So does the herdr pane's.
+    /// connection stands without it. So do the herdr pane's and `direct`'s.
     public static func reply(exitCode: Int32, output: Data, nonce: String, arrivedAt: Date) -> Reply? {
         guard exitCode == 0 else { return nil }
         let text = String(decoding: output, as: UTF8.self)
         var forwarded: [String] = []
         var herdrPane: Pane?
+        var direct = false
         var said: [Substring] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix(nonce + " ") {
             let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false)
+            if parts.count >= 2, parts[1] == "direct" {
+                // Anything but the bare word is not it: not direct is the
+                // side that tells the news as it always was.
+                if parts.count == 2 { direct = true }
+                continue
+            }
             if parts.count >= 2, parts[1] == "herdr" {
                 // A word not known is no pane: the card then promises nothing
                 // it would not keep, and the click selects nothing.
@@ -544,6 +561,6 @@ public enum RemoteHost {
         // `date` without `%N` (busybox, BSD) prints a letter there: no offset.
         let offset = Double(words[6]).flatMap { $0.isFinite ? $0 : nil }.map { $0 - arrivedAt.timeIntervalSince1970 }
         return .connection(Connection(clientPort: client, serverPort: server, startedAt: started, offset: offset,
-                                      forwarded: forwarded, herdrPane: herdrPane))
+                                      forwarded: forwarded, herdrPane: herdrPane, direct: direct))
     }
 }

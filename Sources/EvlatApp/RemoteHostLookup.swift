@@ -9,20 +9,31 @@ import EvlatCore
 ///
 /// Not under `RemoteInstaller`'s per-machine lock: the call only reads, or
 /// selects a pane, and a card must not wait for a settings write, nor make
-/// one wait. The caller
-/// asks once per card (`DetailModel`); a master that has gone is no call at
+/// one wait. A card
+/// asks once (`DetailModel`); the news asks too, with an instance of its
+/// own — its own queue, `newsDeadline` — so a card's stuck question never
+/// holds a finish's sound. A master that has gone is no call at
 /// all (`RemoteHost.arguments`), never a new login.
 final class RemoteHostLookup {
     private let sshPath: String
     private let queue: DispatchQueue
+    /// This instance's longest call.
+    private let callDeadline: TimeInterval
     /// The longest one call may take. Over a live master the script took
     /// 0.19–0.25 s, its tmux question is cut at 2 s; a call still running
     /// past this is stuck, and the queue is serial.
     static let deadline: TimeInterval = 10
+    /// The news's longest call: a finish waits for it before it is told.
+    /// A pane's answer is never walked for the news (`Connection.direct`),
+    /// so cutting its tmux or herdr question loses nothing. Past it the
+    /// news is told.
+    static let newsDeadline: TimeInterval = 1
 
-    init(sshPath: String, queue: DispatchQueue = DispatchQueue(label: "evlat.remote-host")) {
+    init(sshPath: String, queue: DispatchQueue = DispatchQueue(label: "evlat.remote-host"),
+         deadline: TimeInterval = RemoteHostLookup.deadline) {
         self.sshPath = sshPath
         self.queue = queue
+        self.callDeadline = deadline
     }
 
     /// `false`, and no `completion`, for an id that is not a session id: it
@@ -32,9 +43,10 @@ final class RemoteHostLookup {
               completion: @escaping (RemoteHost.Reply?) -> Void) -> Bool {
         guard RemoteHost.isSessionID(sessionID) else { return false }
         let sshPath = self.sshPath
+        let deadline = callDeadline
         queue.async {
             let reply = Self.ask(sessionID: sessionID, records: records, target: target,
-                                 controlPath: controlPath, ssh: sshPath)
+                                 controlPath: controlPath, ssh: sshPath, deadline: deadline)
             DispatchQueue.main.async { completion(reply) }
         }
         return true

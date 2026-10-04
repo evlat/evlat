@@ -66,12 +66,14 @@ extension SessionHostTests {
     func remote(_ reply: RemoteHost.Reply, table: [Int32: Proc]? = nil,
                 sockets: [Int32: [SessionHost.TCPSocket]]? = nil, started: [Int32: TimeInterval] = [:],
                 environment: [Int32: [String]]? = nil, running: [String: SessionHost.App] = [:],
-                tunnel: Int32? = SessionHostTests.tunnel) -> SessionHost {
-        SessionHost.resolve(remote: reply, tunnel: tunnel, evlat: Self.evlat,
+                tunnel: Int32? = SessionHostTests.tunnel, shallow: Bool = false,
+                unix: [Int32: [SessionHost.UnixSocket]]? = nil,
+                tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil }) -> SessionHost {
+        SessionHost.resolve(remote: reply, tunnel: tunnel, evlat: Self.evlat, shallow: shallow,
                             probe(table ?? sshInBateri, running: running,
                                   environment: environment ?? [1001: Self.bateriTab(Self.olderTab),
                                                                1101: Self.bateriTab(Self.newerTab)],
-                                  started: started, tcp: sockets ?? sshSockets))
+                                  sockets: unix, started: started, tcp: sockets ?? sshSockets, tmux: tmux))
     }
 
     // MARK: - Candidates
@@ -292,6 +294,65 @@ extension SessionHostTests {
         XCTAssertEqual(remote(.noConnection, running: running), .notFound)
     }
 
+    // MARK: - The news's shallow walk
+
+    /// One plain `ssh`, riding nothing: the news's walk finds its tab as the
+    /// card's does. On this Mac the tab's `ssh` is Apple's and its
+    /// environment cannot be read, so the tab is the forwarded value.
+    func testAShallowWalkOfOnePlainSshKeepsItsTab() {
+        let reply = connection(forwarded: [Self.forwardedTab(Self.olderTab)])
+        let host = remote(reply, environment: [:], shallow: true)
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.olderTab)")
+        XCTAssertEqual(host, remote(reply, environment: [:]), "the card's walk")
+    }
+
+    /// Riders of one master, two close starts, herdr's own master: the card
+    /// brings the app, and keeps a tab every candidate gives; the news has
+    /// no tab it is sure of — nothing.
+    func testAShallowWalkGivesNothingWhereTheTabIsNotSure() {
+        let reply = connection(forwarded: [Self.forwardedTab(Self.olderTab)])
+        let riders: [Int32: [SessionHost.UnixSocket]] = [1001: [.init(pcb: 0xA1, peer: 0)],
+                                                         1101: [.init(pcb: 0xB1, peer: 0xA1)]]
+        var riding = sshInBateri
+        riding[1101] = Proc(parent: 1100, path: Self.sshPath)
+        riding[1100] = Proc(parent: 580, path: "/bin/zsh")
+        XCTAssertNotEqual(remote(reply, table: riding, environment: [:], unix: riders), .notFound, "the card's")
+        XCTAssertEqual(remote(reply, table: riding, environment: [:], shallow: true, unix: riders), .notFound,
+                       "a master with riders")
+
+        let started: [Int32: TimeInterval] = [1001: Self.tabStart, 1101: Self.tabStart + 5]
+        XCTAssertNotEqual(remote(reply, table: twoTabs, sockets: twoTabSockets, started: started, environment: [:]),
+                          .notFound, "the card's")
+        XCTAssertEqual(remote(reply, table: twoTabs, sockets: twoTabSockets, started: started, environment: [:],
+                              shallow: true), .notFound, "two too close to tell apart")
+
+        XCTAssertNotNil(tab(of: herdrRemote(herdrBridge)), "the card's")
+        XCTAssertEqual(herdrRemote(herdrBridge, shallow: true), .notFound, "herdr --remote's own master")
+    }
+
+    /// An `ssh` started in a local tmux pane: its client's tab may show
+    /// another pane. No tab — not the forwarded one either — and tmux is
+    /// never asked.
+    func testAShallowWalkOfAnSshInALocalPaneNamesNoTab() {
+        var table = sshInBateri
+        table[1000] = Proc(parent: 4000, path: "/bin/zsh")
+        table[4000] = Proc(parent: 1, path: Self.tmuxPath)
+        table[4100] = Proc(parent: 4101, path: Self.tmuxPath)
+        table[4101] = Proc(parent: 580, path: "/bin/zsh")
+        let reply = connection(forwarded: [Self.forwardedTab(Self.olderTab)])
+        let client = TmuxReply(session: "$1", clients: [.init(pid: 4100, activity: 1, session: "$1")])
+        var asked = 0
+        let environment: [Int32: [String]] = [1001: Self.tmuxEnvironment, 4100: Self.bateriTab(Self.newerTab)]
+        XCTAssertEqual(tab(of: remote(reply, table: table, environment: environment,
+                                      tmux: { _ in asked += 1; return client })),
+                       "bateri://tab/\(Self.newerTab)", "the card's: the client's tab")
+        asked = 0
+        let host = remote(reply, table: table, environment: environment, shallow: true,
+                          tmux: { _ in asked += 1; return client })
+        XCTAssertNil(tab(of: host))
+        XCTAssertEqual(asked, 0)
+    }
+
     // MARK: - herdr --remote
 
     /// The chain measured (2026-10-04, herdr 0.9.3, a Bateri tab running
@@ -322,7 +383,8 @@ extension SessionHostTests {
     func herdrRemote(_ reply: RemoteHost.Reply, table: [Int32: Proc]? = nil,
                      environment: [Int32: [String]]? = nil,
                      arguments: [Int32: [String]] = [2241: ["herdr", "--remote", "ssh://dev@127.0.0.1:2222"],
-                                                     2250: ["/Users/u/.local/bin/herdr", "client"]]) -> SessionHost {
+                                                     2250: ["/Users/u/.local/bin/herdr", "client"]],
+                     shallow: Bool = false) -> SessionHost {
         // The master's accepted end (0xA2) is the rider's peer; 0xA1 is its
         // listening socket.
         let sockets: [Int32: [SessionHost.UnixSocket]] = [2245: [.init(pcb: 0xA1, peer: 0), .init(pcb: 0xA2, peer: 0)],
@@ -330,7 +392,7 @@ extension SessionHostTests {
         let tcp: [Int32: [SessionHost.TCPSocket]] = [
             51: [.init(local: .init(address: "127.0.0.1", port: 49890), remote: Self.container)],
             2245: [.init(local: .init(address: "127.0.0.1", port: 49567), remote: Self.container)]]
-        return SessionHost.resolve(remote: reply, tunnel: Self.tunnel, evlat: Self.evlat,
+        return SessionHost.resolve(remote: reply, tunnel: Self.tunnel, evlat: Self.evlat, shallow: shallow,
                                    probe(table ?? herdrRemoteChain,
                                          environment: environment ?? [2241: Self.bateriTab(Self.remoteTab)],
                                          arguments: arguments, sockets: sockets,

@@ -144,7 +144,15 @@ extension SessionHost {
     /// no pane: it is right to bring forward, and nothing more is known.
     /// The server's herdr pane is the session's whichever `ssh` was picked,
     /// so it rides to the app either way.
-    static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?, evlat: Int32,
+    ///
+    /// `shallow` is the news's walk (`resolveShallow`): only a tab it is
+    /// sure of. One `ssh` riding nothing, walked without looking for a
+    /// multiplexer's client — an `ssh` in a local tmux or herdr pane names
+    /// no tab; riders of one master, herdr's own master and candidates too
+    /// close to tell apart are nothing at all, not the app alone. Whether
+    /// the server walked from the agent itself (`Connection.direct`) is
+    /// the caller's to have checked.
+    static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?, evlat: Int32, shallow: Bool = false,
                         _ probe: Probe) -> SessionHost {
         guard case .connection(let connection) = reply, let tunnel else { return .notFound }
         let forwarded = connection.forwarded
@@ -154,7 +162,9 @@ extension SessionHost {
         case .one(let pid):
             let riders = Ssh.muxClients(of: pid, probe)
             if riders.isEmpty {
-                host = resolve(pid: pid, forwarded: forwarded, probe)
+                host = resolve(pid: pid, forwarded: forwarded, throughServers: !shallow, probe)
+            } else if shallow {
+                return .notFound
             } else if let clients = Ssh.herdrRemoteClients(master: pid, riders: riders, probe) {
                 // herdr's own master stands for the `herdr --remote` it
                 // serves: the session's tab is that one's.
@@ -164,6 +174,7 @@ extension SessionHost {
                 host = sameApp([pid] + riders, forwarded: forwarded, probe)
             }
         case .ambiguous(let pids):
+            if shallow { return .notFound }
             host = sameApp(pids, forwarded: forwarded, probe)
         case .none:
             return .notFound
@@ -199,5 +210,11 @@ extension SessionHost {
 
     static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?) -> SessionHost {
         resolve(remote: reply, tunnel: tunnel, evlat: getpid(), live)
+    }
+
+    /// The news's walk of a remote session (`shallow`): no multiplexer is
+    /// asked, so no `tmux` runs and no herdr socket is opened.
+    static func resolveShallow(remote reply: RemoteHost.Reply, tunnel: Int32?) -> SessionHost {
+        resolve(remote: reply, tunnel: tunnel, evlat: getpid(), shallow: true, live)
     }
 }

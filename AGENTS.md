@@ -408,8 +408,9 @@ merge that holds a finish back for a while neither retells nor revives it):
 **At the tab, the news is quiet.** A lone new finish whose peek, dot or
 sound would tell it, a wait that begins with its sound on, and a reminder
 come due first ask whether the user is at that session's tab
-(`AppController.isAtTab`): a session on this Mac whose walk reaches a
-terminal that says so (`TabLink.focusSince`; today Bateri, `TabFocus`) —
+(`AppController.isAtTab`): a session on this Mac, or a remote one whose
+server can be asked (below), whose walk reaches a terminal that says so
+(`TabLink.focusSince`; today Bateri, `TabFocus`) —
 its pane focused, input within 120 s (not measured), the screen unlocked.
 At it, nothing sounds or peeks; the finish is still announced, so it is
 reminded of like any told one, and a reminder is timed again. Focus is
@@ -419,7 +420,11 @@ comes late tells only what still holds (the bar and the balloon closed,
 the row still news or still waiting; a reminder keeps its own rule).
 Several finishes at once are told without asking. The walk is the shallow
 one (`SessionHost.resolveShallow`): a session in a tmux or herdr pane is
-not asked about, since its client's tab may show another pane.
+not asked about, since its client's tab may show another pane. A remote
+session is walked only when its server walked from the agent itself
+(`RemoteHost.Connection.direct`), and here only from one `ssh` that
+carries no other (`Ssh`'s `shallow`: no riders, not herdr's master, no
+candidates too close to tell apart, no local multiplexer on the way).
 
 A seen chat (`job`) stays through the close it was seen at and goes to the
 balloon's history at the next one (`ChatStore.markSeen`, which writes it
@@ -549,14 +554,18 @@ is lost with the process.
   refused one sets nothing up and is said in Settings.
   A remote session whose agent keeps session records
   (`Agent.sessionRecords`; Claude Code's) is asked of its server once per
-  card, off the main queue (`RemoteHostLookup`): a read-only `sh` script
+  card, off the main queue (`RemoteHostLookup`), and once more as news of
+  it is about to be told (`AppController.findRemoteForNews`), by a lookup
+  of its own on a queue of its own whose call is ended at 1 s, so a card's
+  stuck question never holds a finish: a read-only `sh` script
   (`RemoteHost`), never installed, over the machine's live tunnel master
   only (`ProxyCommand=/usr/bin/false`: a gone master is no call, never a
   login; a call past 10 s is ended), with the session id checked as a
   UUID. The record's pid counts only if its process started within 120 s
   of the record's `startedAt` (pids are recycled). It walks the agent's
   parents to its connection's `sshd` (the one under the listener) and says
-  `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock. In a
+  `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock, after
+  a line of its own, `direct`: the one answer the news walks. In a
   tmux or herdr pane it walks from the client instead, by this Mac's rules:
   tmux's client of the pane's session that did something last, asked of
   the server's own executable (`<proc>/<pid>/exe`, `timeout 2` where there

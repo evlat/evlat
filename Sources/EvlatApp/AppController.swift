@@ -156,6 +156,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var remoteSSHPath = AppController.sshPath()
     /// Remote cards' one question to their server (`findRemoteHost`).
     private var remoteHostLookup: RemoteHostLookup?
+    /// The news's own, on its own queue (`findRemoteHostForNews`): a card's
+    /// question stuck for its 10 s must not hold a finish's sound.
+    private var newsHostLookup: RemoteHostLookup?
     /// The settings window, once opened, and its model.
     private(set) var settingsWindow: AppWindow?
     private(set) var settings: SettingsModel?
@@ -265,10 +268,35 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var playSound: (AlertSound) -> Void = { SoundPlayer.play($0) }
     /// Whether the user is at a row's tab now (`TabFocus`), asked only as
     /// news is about to be told: answered on the main queue, exactly once,
-    /// and at once with "no" for anything but a session on this Mac whose
-    /// terminal can be asked. At the tab the news is kept quiet; it is never
-    /// taken for seen. A `var` so a test answers it.
-    var isAtTab: (Signal, @escaping (Bool) -> Void) -> Void = { AppController.askIsAtTab($0, $1) }
+    /// and at once with "no" for anything but a session whose terminal can
+    /// be asked (`askIsAtTab`). At the tab the news is kept quiet; it is
+    /// never taken for seen. A `var` so a test answers it whole.
+    lazy var isAtTab: (Signal, @escaping (Bool) -> Void) -> Void = { [weak self] row, answer in
+        guard let self else { return answer(false) }
+        self.askIsAtTab(row, answer)
+    }
+    /// The news's own question to a remote session's server
+    /// (`findRemoteHostForNews`): `false`, and no completion, when it
+    /// cannot be asked. The completion comes on the main queue. A `var` so
+    /// a test answers it.
+    lazy var findRemoteForNews: (DetailModel.RemoteQuery, @escaping (RemoteHost.Reply?) -> Void) -> Bool = {
+        [weak self] query, completion in self?.findRemoteHostForNews(query, completion) ?? false
+    }
+    /// A server's answer walked here as the news walks
+    /// (`SessionHost.resolveShallow(remote:)`), for a machine id. A `var`
+    /// so a test answers it; under XCTest the default walks nothing.
+    lazy var resolveRemoteForNews: (RemoteHost.Reply, String) -> SessionHost = { [weak self] reply, machine in
+        guard NSClassFromString("XCTestCase") == nil else { return .notFound }
+        return SessionHost.resolveShallow(remote: reply, tunnel: self?.remote?.processIdentifier(of: machine))
+    }
+    /// The terminal asked whether the user is at a row's tab in the app its
+    /// walk reached (`TabFocus`): "no" at once for a terminal that cannot
+    /// be asked. A `var` so a test answers it; under XCTest — `make
+    /// test-desktop` included — the default asks nothing: a test never runs
+    /// the user's terminal.
+    var askTabFocus: (Signal, SessionHost.App, @escaping (Bool) -> Void) -> Void = {
+        AppController.askTerminal($0, $1, $2)
+    }
     /// Waits seen at the first scan were already there: they make no sound,
     /// as the first scan's finishes do not.
     private var waitsScanned = false
@@ -2754,8 +2782,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func findRemoteHost(_ query: DetailModel.RemoteQuery,
                                 _ completion: @escaping (RemoteHost.Reply?) -> Void) -> Bool {
         guard let call = remoteHostCall(query.machineID) else { return false }
-        return call.lookup.find(sessionID: query.sessionID, records: query.records, target: call.target,
-                                controlPath: call.controlPath, completion: completion)
+        return cardHostLookup.find(sessionID: query.sessionID, records: query.records, target: call.target,
+                                   controlPath: call.controlPath, completion: completion)
     }
 
     /// Has a remote session's server select its herdr pane, under the same
@@ -2763,21 +2791,39 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func selectRemotePane(_ query: DetailModel.RemoteQuery,
                                   _ completion: @escaping () -> Void) -> Bool {
         guard let call = remoteHostCall(query.machineID) else { return false }
-        return call.lookup.select(sessionID: query.sessionID, records: query.records, target: call.target,
-                                  controlPath: call.controlPath, startBy: DetailModel.selectWait,
-                                  completion: completion)
+        return cardHostLookup.select(sessionID: query.sessionID, records: query.records, target: call.target,
+                                     controlPath: call.controlPath, startBy: DetailModel.selectWait,
+                                     completion: completion)
     }
 
-    /// The lookup and what a call to a machine rides on: only a connected
-    /// tunnel's master.
-    private func remoteHostCall(_ machineID: String)
-        -> (lookup: RemoteHostLookup, target: String, controlPath: String)? {
+    /// The same question as a card's, asked as news of the session is about
+    /// to be told (`findRemoteForNews`), under the same rule, by the news's
+    /// own lookup: its own queue, and `RemoteHostLookup.newsDeadline`.
+    /// Under XCTest nobody is asked.
+    private func findRemoteHostForNews(_ query: DetailModel.RemoteQuery,
+                                       _ completion: @escaping (RemoteHost.Reply?) -> Void) -> Bool {
+        guard NSClassFromString("XCTestCase") == nil, let call = remoteHostCall(query.machineID) else { return false }
+        let lookup = newsHostLookup ?? RemoteHostLookup(sshPath: remoteSSHPath,
+                                                        queue: DispatchQueue(label: "evlat.remote-host.news"),
+                                                        deadline: RemoteHostLookup.newsDeadline)
+        newsHostLookup = lookup
+        return lookup.find(sessionID: query.sessionID, records: query.records, target: call.target,
+                           controlPath: call.controlPath, completion: completion)
+    }
+
+    /// What a call to a machine rides on: only a connected tunnel's master.
+    private func remoteHostCall(_ machineID: String) -> (target: String, controlPath: String)? {
         guard let remote, case .connected = remote.state(of: machineID),
               let controlPath = remote.controlPath(of: machineID),
               let target = remote.machines.first(where: { $0.id == machineID })?.target else { return nil }
+        return (target, controlPath)
+    }
+
+    /// The cards' lookup, made at their first call.
+    private var cardHostLookup: RemoteHostLookup {
         let lookup = remoteHostLookup ?? RemoteHostLookup(sshPath: remoteSSHPath)
         remoteHostLookup = lookup
-        return (lookup, target, controlPath)
+        return lookup
     }
 
     /// The window's view of the machines (`RemoteMachinesModel.Host`).
@@ -4161,20 +4207,44 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// begins is told only then.
     private var isUnwatched: Bool { !barState.isOpen && !isChatOpen }
 
-    /// The live question (`isAtTab`): a session on this Mac whose walk
-    /// reaches a terminal that can say (`TabFocus.query`). The walk is the
-    /// shallow one, here on the main queue as the card's is: it runs no
-    /// multiplexer, and a session in a pane is not asked about, since the
-    /// client's tab may show another pane. Only the terminal's own program
-    /// runs, off the main queue. Under XCTest — `make test-desktop`
-    /// included — nothing is asked: a test never runs the user's terminal.
-    nonisolated static func askIsAtTab(_ row: Signal, _ answer: @escaping (Bool) -> Void) {
-        guard NSClassFromString("XCTestCase") == nil, row.kind == .session, row.machine == nil,
-              let pid = row.activity?.pid, case .app(let app) = SessionHost.resolveShallow(pid: pid),
-              let query = TabFocus.query(for: app) else { return answer(false) }
+    /// The live question (`isAtTab`): a session whose walk reaches a
+    /// terminal that can say (`askTabFocus`). The walk is the shallow one,
+    /// here on the main queue as the card's is: it runs no multiplexer, and
+    /// a session in a pane is not asked about, since the client's tab may
+    /// show another pane.
+    /// - On this Mac, from the agent's pid. Under XCTest nothing is walked.
+    /// - On a connected machine, a session whose agent keeps records (the
+    ///   card's rule, `DetailModel.RemoteQuery`): its server is asked first
+    ///   (`findRemoteForNews`), and its answer is walked here
+    ///   (`resolveRemoteForNews`) only when the server walked from the
+    ///   agent itself (`RemoteHost.Connection.direct`) — a pane's client or
+    ///   herdr's bridge is not sure.
+    /// Anything else, a call that cannot be made and an answer not in time
+    /// is "no". Only the terminal's own program runs, off the main queue.
+    func askIsAtTab(_ row: Signal, _ answer: @escaping (Bool) -> Void) {
+        guard row.kind == .session else { return answer(false) }
+        guard row.machine != nil else {
+            guard NSClassFromString("XCTestCase") == nil, let pid = row.activity?.pid,
+                  case .app(let app) = SessionHost.resolveShallow(pid: pid) else { return answer(false) }
+            return askTabFocus(row, app, answer)
+        }
+        guard let query = DetailModel.RemoteQuery(signal: row, agents: detail.agents) else { return answer(false) }
+        let asked = findRemoteForNews(query) { [weak self] reply in
+            guard let self, case .connection(let connection)? = reply, connection.direct,
+                  case .app(let app) = self.resolveRemoteForNews(.connection(connection), query.machineID)
+            else { return answer(false) }
+            self.askTabFocus(row, app, answer)
+        }
+        if !asked { answer(false) }
+    }
+
+    /// The terminal's own answer (`askTabFocus`): "no" at once when the app
+    /// cannot be asked (`TabFocus.query`), and under XCTest.
+    nonisolated static func askTerminal(_ row: Signal, _ app: SessionHost.App, _ answer: @escaping (Bool) -> Void) {
+        guard NSClassFromString("XCTestCase") == nil, let query = TabFocus.query(for: app) else { return answer(false) }
         TabFocus.ask(query) { at in
             // Why a finish made no sound, on stderr like the other traces.
-            NSLog("Evlat: at tab %@ %@", String(row.entity.prefix(8)), at ? "yes" : "no")
+            NSLog("Evlat: at tab %@ %@", String(row.entity.suffix(36).prefix(8)), at ? "yes" : "no")
             answer(at)
         }
     }

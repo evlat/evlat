@@ -155,6 +155,29 @@ final class RemoteHostTests: XCTestCase {
                      "a pane alone is no connection")
     }
 
+    /// A connection walked from the agent itself says so on a line of its
+    /// own; with no such line — a pane's client, herdr's bridge, an older
+    /// answer — it was not, and the news asks no terminal about it.
+    func testDirectIsReadOnlyFromItsOwnLine() throws {
+        let at = Date(timeIntervalSince1970: 0)
+        func direct(_ text: String) -> Bool? {
+            guard case .connection(let connection) = RemoteHost.reply(exitCode: 0, output: Data(text.utf8), nonce: "n",
+                                                                      arrivedAt: at) else { return nil }
+            return connection.direct
+        }
+        XCTAssertEqual(direct("n direct\nn env LC_A 1\nn ssh 1 22 100 50 1.5\n"), true)
+        XCTAssertEqual(direct("n ssh 1 22 100 50 1.5\n"), false, "no line: from a client")
+        XCTAssertEqual(direct("n herdr on\nn ssh 1 22 100 50 1.5\n"), false)
+        XCTAssertEqual(direct("n direct extra\nn ssh 1 22 100 50 1.5\n"), false, "a word more is not the line")
+        XCTAssertEqual(direct("x direct\nn ssh 1 22 100 50 1.5\n"), false, "another nonce's")
+        XCTAssertEqual(RemoteHost.reply(exitCode: 0, output: Data("n direct\nn none\n".utf8), nonce: "n",
+                                        arrivedAt: at), .noConnection)
+        XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n direct\n".utf8), nonce: "n", arrivedAt: at),
+                     "the mark alone is no connection")
+        XCTAssertFalse(RemoteHost.Connection(clientPort: 1, serverPort: 22, startedAt: at, offset: 0).direct,
+                       "not direct unless said")
+    }
+
     /// Only an `LC_` word reaches the script, and only so many.
     func testOnlyForwardedNamesReachTheScript() throws {
         let bad = ["LANG", "PATH", "LC_", "lc_tab", "LC_tab", "LC_A;rm -rf ~", "LC_A B", "LC_A'", "LC_$(id)",
@@ -181,7 +204,7 @@ final class RemoteHostTests: XCTestCase {
                          (700, "bash", 600, 12350), (800, "claude", 700, 12400)],
                  agent: 800, environment: ["TERM=xterm", "SSH_CONNECTION=31.223.75.17 19554 116.202.9.44 22"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 19554 22 1000 12345 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn ssh 19554 22 1000 12345 2000.25", shell)
         }
     }
 
@@ -193,7 +216,7 @@ final class RemoteHostTests: XCTestCase {
                          (650, "sshd-session", 600, 230), (700, "bash", 650, 240), (800, "claude", 700, 250)],
                  agent: 800, environment: ["SSH_CONNECTION=10.0.0.1 50000 10.0.0.2 2222"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 50000 2222 1000 222 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn ssh 50000 2222 1000 222 2000.25", shell)
         }
     }
 
@@ -202,14 +225,14 @@ final class RemoteHostTests: XCTestCase {
         try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 7),
                          (800, "my (odd) agent", 600, 9)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
-        XCTAssertEqual(try run("/bin/sh"), "n ssh 1 22 1000 7 2000.25")
+        XCTAssertEqual(try run("/bin/sh"), "n direct\nn ssh 1 22 1000 7 2000.25")
     }
 
     func testNoSshdAboveIsSaidOutright() throws {
         try tree(chain: [(1, "systemd", 0, 1), (300, "login", 1, 5), (700, "bash", 300, 6), (800, "claude", 700, 7)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n none", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn none", shell)
         }
     }
 
@@ -218,7 +241,7 @@ final class RemoteHostTests: XCTestCase {
     func testAnSshdWithoutAListenerIsNoConnection() throws {
         try tree(chain: [(1, "systemd", 0, 1), (600, "sshd", 1, 5), (800, "claude", 600, 7)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
-        XCTAssertEqual(try run("/bin/sh"), "n none")
+        XCTAssertEqual(try run("/bin/sh"), "n direct\nn none")
     }
 
     func testNotLinuxNoRecordOrNoProcessSaysNothing() throws {
@@ -252,7 +275,7 @@ final class RemoteHostTests: XCTestCase {
 
         try tree(chain: chain, agent: 800, environment: environment, recordedStart: 1_124_000 + 90_000)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
+            XCTAssertEqual(try run(shell), "n direct\nn ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
         }
     }
 
@@ -266,7 +289,7 @@ final class RemoteHostTests: XCTestCase {
         try #"{"pid":700,"sessionId":"\#(Self.session)","startedAt":5000}"#
             .write(to: stale, atomically: true, encoding: .utf8)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 1 22 1000 5 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn ssh 1 22 1000 5 2000.25", shell)
         }
     }
 
@@ -281,6 +304,7 @@ final class RemoteHostTests: XCTestCase {
                                            "SSH_CONNECTION=31.223.75.17 19554 116.202.9.44 22"])
         for shell in Self.shells {
             XCTAssertEqual(try run(shell, forwarded: ["LC_SPACED", "LC_ABSENT", "LC_TAB", "LC_LONG", "LANG"]), """
+                n direct
                 n env LC_SPACED a b
                 n env LC_TAB t://tab/1
                 n env LC_LONG \(long.prefix(RemoteHost.maxForwardedValue + 1))
@@ -437,6 +461,30 @@ final class RemoteHostTests: XCTestCase {
         }
         try muxTree(tmuxOutput: "$0\n", agentEnvironment: Self.tmuxPane + ["LC_TAB=t://tab/stale"])
         XCTAssertEqual(try run("/bin/sh", forwarded: ["LC_TAB"]), "n none", "no client, no value")
+    }
+
+    /// `direct` is the agent's own walk's alone: a tmux client, a herdr
+    /// client and herdr's ssh bridge never say it, under any shell.
+    func testOnlyTheAgentsOwnWalkSaysDirect() throws {
+        try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5), (800, "claude", 600, 7)],
+                 agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
+        for shell in Self.shells {
+            XCTAssertTrue(try run(shell).split(separator: "\n").contains("n direct"), shell)
+        }
+        try muxTree(tmuxOutput: "$0\n612 200 $0\n")
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", "\(shell) tmux")
+        }
+        try muxTree(tmuxOutput: "$0\n")
+        XCTAssertEqual(try run("/bin/sh"), "n none", "tmux, nobody attached")
+        try herdrTree()
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25", "\(shell) herdr")
+        }
+        try herdrTree(bridge: ["herdr", "remote-client-bridge"])
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 4444 22 1000 9400 2000.25", "\(shell) herdr's bridge")
+        }
     }
 
     func testAPaneWritesNothing() throws {

@@ -280,7 +280,7 @@ public final class DetailModel: ObservableObject {
         // session records, but they are in the VM, and there is no server
         // to ask — its client is on this Mac.
         let isSandbox = row.traits.button == .goToSession && signal?.machine?.id == SandboxListener.identity.id
-        let query = row.hasLocalHost || isSandbox ? nil : remoteQuery(row: row, signal: signal)
+        let query = row.hasLocalHost || isSandbox ? nil : signal.flatMap { RemoteQuery(signal: $0, agents: agents) }
         if query == nil { forgetRemote() }
         if !isSandbox { sandboxKey = nil }
         if isSandbox {
@@ -347,15 +347,6 @@ public final class DetailModel: ObservableObject {
         hostKey = nil
         sandboxKey = nil
         forgetRemote()
-    }
-
-    /// The question for a remote row: its machine, its session id, and its
-    /// agent's records; `nil` for any other row.
-    private func remoteQuery(row: SessionRow, signal: Signal?) -> RemoteQuery? {
-        guard row.traits.button == .goToSession, let machine = signal?.machine?.id,
-              let source = row.source, let records = agents[id: source]?.sessionRecords,
-              let session = RemoteHost.sessionID(entity: row.entity, machineID: machine) else { return nil }
-        return RemoteQuery(machineID: machine, sessionID: session, records: records)
     }
 
     private func ask(_ query: RemoteQuery, entity: String) {
@@ -491,5 +482,18 @@ enum CardBody: Equatable {
         if let reply = activity.lastReply, !reply.isEmpty { return .reply(reply) }
         if let tool = activity.lastTool { return .tool(tool) }
         return .none
+    }
+}
+
+extension DetailModel.RemoteQuery {
+    /// The question for a remote row — the card's and the news's one rule
+    /// (`AppController.askIsAtTab`): a session on a machine, its agent's
+    /// records (`Agent.sessionRecords`) and its session id; `nil` for any
+    /// other row, a Docker sandbox's among them, which has no server to ask.
+    init?(signal: Signal, agents: [any Agent]) {
+        guard signal.kind == .session, let machine = signal.machine?.id, machine != SandboxListener.identity.id,
+              let source = signal.source, let records = agents[id: source]?.sessionRecords,
+              let session = RemoteHost.sessionID(entity: signal.entity, machineID: machine) else { return nil }
+        self.init(machineID: machine, sessionID: session, records: records)
     }
 }

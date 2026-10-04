@@ -32,7 +32,20 @@ final class AtTabNewsTests: XCTestCase {
         var answer: Bool? = true
         var held: [(Bool) -> Void] = []
 
-        init() {
+        /// The live question's parts (`live`): the server asked by the
+        /// news's lookup, held to answer by hand; the server's answer
+        /// walked here; the terminal asked about the app.
+        var found: [DetailModel.RemoteQuery] = []
+        var serverReplies: [(RemoteHost.Reply?) -> Void] = []
+        /// `false`: the machine cannot be asked — no live master.
+        var reachable = true
+        var walked: [(RemoteHost.Reply, String)] = []
+        var walk: SessionHost = .notFound
+        var focused: [SessionHost.App] = []
+
+        /// `live` keeps the controller's own question and answers its
+        /// parts instead.
+        init(live: Bool = false) {
             controller.now = { [unowned self] in self.now }
             controller.peekSchedule = { _, _ in }
             controller.soundTones = [.done: .evlat(.rise), .failed: .evlat(.fall),
@@ -41,10 +54,37 @@ final class AtTabNewsTests: XCTestCase {
             controller.registry.register(provider)
             panel = controller.installPanel()
             controller.playSound = { [unowned self] in self.played.append($0) }
-            controller.isAtTab = { [unowned self] row, reply in
-                self.asked.append(row.entity)
-                if let answer = self.answer { reply(answer) } else { self.held.append(reply) }
+            if live {
+                controller.findRemoteForNews = { [unowned self] query, completion in
+                    guard self.reachable else { return false }
+                    self.found.append(query)
+                    self.serverReplies.append(completion)
+                    return true
+                }
+                controller.resolveRemoteForNews = { [unowned self] reply, machine in
+                    self.walked.append((reply, machine))
+                    return self.walk
+                }
+                controller.askTabFocus = { [unowned self] row, app, reply in
+                    self.asked.append(row.entity)
+                    self.focused.append(app)
+                    if let answer = self.answer { reply(answer) } else { self.held.append(reply) }
+                }
+            } else {
+                controller.isAtTab = { [unowned self] row, reply in
+                    self.asked.append(row.entity)
+                    if let answer = self.answer { reply(answer) } else { self.held.append(reply) }
+                }
             }
+            controller.refresh()
+        }
+
+        /// A remote session of `source` on the machine `d`.
+        func setRemote(_ phase: Phase, source: String = "claude", machine: String = "d") {
+            provider.signals = [Signal(provider: "stub", entity: "remote:\(machine):\(AtTabNewsTests.session)",
+                                       phase: phase, label: "api", source: AgentID(source), fidelity: .official,
+                                       updatedAt: Date(timeIntervalSince1970: 0), activity: Signal.Activity(),
+                                       machine: Signal.Machine(name: "devbox", id: machine))]
             controller.refresh()
         }
 
@@ -172,6 +212,114 @@ final class AtTabNewsTests: XCTestCase {
         rig.reply(false)
         XCTAssertEqual(rig.played, [], "no longer news")
         XCTAssertNil(rig.controller.peekPhase)
+    }
+
+    // MARK: - A remote session
+
+    static let session = "8087b2ed-d738-42da-abf1-8693d1094eda"
+    private var entity: String { "remote:d:\(Self.session)" }
+
+    private static func reply(direct: Bool) -> RemoteHost.Reply {
+        .connection(RemoteHost.Connection(clientPort: 19554, serverPort: 22, startedAt: Date(timeIntervalSince1970: 0),
+                                          offset: 0, forwarded: ["LC_BATERI_TAB_URL=bateri://tab/T"], direct: direct))
+    }
+
+    private let bateri = SessionHost.App(bundleID: "dev.bateri.bateri", name: "bateri", pid: 580,
+                                         tab: URL(string: "bateri://tab/9F6818EC-BBCE-41B8-8818-571597ADAEE2"))
+
+    /// A connected machine's Claude Code session, walked on its server from
+    /// the agent itself: its server is asked by the news's own lookup, the
+    /// answer is walked here, and the terminal is asked about the tab the
+    /// walk found. At it, the finish is quiet.
+    func testARemoteFinishAtItsTabAsksItsTerminal() throws {
+        let rig = Rig(live: true)
+        defer { rig.panel.close() }
+        rig.walk = .app(bateri)
+        rig.setRemote(.working)
+        rig.setRemote(.review)
+        let query = try XCTUnwrap(rig.found.first)
+        XCTAssertEqual(rig.found.count, 1)
+        XCTAssertEqual(query.machineID, "d")
+        XCTAssertEqual(query.sessionID, Self.session)
+        XCTAssertEqual(rig.played, [], "waiting for the server")
+        rig.serverReplies.removeFirst()(Self.reply(direct: true))
+        XCTAssertEqual(rig.walked.map(\.1), ["d"])
+        XCTAssertEqual(rig.focused, [bateri])
+        XCTAssertEqual(rig.asked, [entity])
+        XCTAssertEqual(rig.played, [], "at its tab")
+        XCTAssertEqual(rig.news.map(\.entity), [entity], "never taken for seen")
+    }
+
+    func testARemoteFinishAwayFromItsTabIsTold() {
+        let rig = Rig(live: true)
+        defer { rig.panel.close() }
+        rig.walk = .app(bateri)
+        rig.answer = false
+        rig.setRemote(.working)
+        rig.setRemote(.review)
+        rig.serverReplies.removeFirst()(Self.reply(direct: true))
+        XCTAssertEqual(rig.focused, [bateri])
+        XCTAssertEqual(rig.played, [.evlat(.rise)])
+    }
+
+    /// The server walked from a pane's client, or herdr's bridge: the tab
+    /// is not sure, so nothing is walked or asked here, and it is told.
+    func testARemoteAnswerFromAClientAsksNoTerminal() {
+        let rig = Rig(live: true)
+        defer { rig.panel.close() }
+        rig.walk = .app(bateri)
+        rig.setRemote(.working)
+        rig.setRemote(.review)
+        rig.serverReplies.removeFirst()(Self.reply(direct: false))
+        XCTAssertTrue(rig.walked.isEmpty)
+        XCTAssertEqual(rig.asked, [])
+        XCTAssertEqual(rig.played, [.evlat(.rise)])
+    }
+
+    /// No live master: nothing asked, told at once. A server that did not
+    /// answer in time, or a walk that finds no tab here: told.
+    func testARemoteFinishThatCannotBeAskedIsTold() {
+        let rig = Rig(live: true)
+        defer { rig.panel.close() }
+        rig.reachable = false
+        rig.setRemote(.working)
+        rig.setRemote(.review)
+        XCTAssertEqual(rig.played, [.evlat(.rise)], "the machine is not connected")
+
+        let late = Rig(live: true)
+        defer { late.panel.close() }
+        late.setRemote(.working)
+        late.setRemote(.review)
+        late.serverReplies.removeFirst()(nil)
+        XCTAssertEqual(late.asked, [])
+        XCTAssertEqual(late.played, [.evlat(.rise)], "no answer in time")
+
+        let nowhere = Rig(live: true)
+        defer { nowhere.panel.close() }
+        nowhere.setRemote(.working)
+        nowhere.setRemote(.review)
+        nowhere.serverReplies.removeFirst()(Self.reply(direct: true))
+        XCTAssertEqual(nowhere.walked.count, 1)
+        XCTAssertEqual(nowhere.asked, [], "no tab found here")
+        XCTAssertEqual(nowhere.played, [.evlat(.rise)])
+    }
+
+    /// An agent that keeps no session records (Codex) has nothing to ask
+    /// its server, and a sandbox's session has no server: told at once.
+    func testARemoteRowWithNothingToAskIsToldAtOnce() {
+        let rig = Rig(live: true)
+        defer { rig.panel.close() }
+        rig.setRemote(.working, source: "codex")
+        rig.setRemote(.review, source: "codex")
+        XCTAssertEqual(rig.found, [])
+        XCTAssertEqual(rig.played, [.evlat(.rise)])
+
+        let sandbox = Rig(live: true)
+        defer { sandbox.panel.close() }
+        sandbox.setRemote(.working, machine: SandboxListener.identity.id)
+        sandbox.setRemote(.review, machine: SandboxListener.identity.id)
+        XCTAssertEqual(sandbox.found, [])
+        XCTAssertEqual(sandbox.played, [.evlat(.rise)])
     }
 
     // MARK: - A wait
