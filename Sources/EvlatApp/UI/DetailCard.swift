@@ -170,9 +170,6 @@ struct DetailCard: View {
                 // The body's hairline, so the card reads against a dark wall too.
                 .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
                 .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 2)
-                // One question giving way to another: the card's height, its
-                // buttons and the lit tab move together.
-                .animation(BarMotion.questionStep, value: detail.approval?.question?.index)
         }
     }
 

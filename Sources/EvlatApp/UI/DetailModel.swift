@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import EvlatCore
 import EvlatAgents
 
@@ -322,11 +323,22 @@ public final class DetailModel: ObservableObject {
             next.branch = row.branch ?? signal?.detail.flatMap(resolveBranch)
             hostKey = (row.entity, pid)
         }
+        var stepped = false
         if let before = detail?.approval, let now = next.approval, before.id == now.id,
            let from = before.question?.index, let to = now.question?.index {
             next.questionBack = to == from ? detail?.questionBack ?? false : to < from
+            stepped = to != from
         }
-        if detail != next { detail = next }
+        guard detail != next else { return }
+        // A step between questions is written inside the animation, so all
+        // it changes moves on one curve: the card's height and place too,
+        // which the layout placing it sets — an animation hung on the card
+        // reached only its inside, and the card jumped to its new height.
+        if stepped {
+            withAnimation(BarMotion.questionStep) { detail = next }
+        } else {
+            detail = next
+        }
     }
 
     /// The card went away: the next one resolves afresh, even for the same
