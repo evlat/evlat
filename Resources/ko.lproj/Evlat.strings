@@ -431,6 +431,7 @@
 "settings.general.body.peekWaiting" = "대기 중에 살짝 나오기";
 "settings.general.body.peekWaiting.detail" = "권한 요청이나 질문이 있으면 마스코트가 살짝 나옵니다.";
 "settings.general.body.peekWaiting.off" = "이 옵션이 꺼져 있으면 대기는 가는 띠의 앰버색 점으로만 표시됩니다.";
+"settings.general.body.peekWaiting.off.smart" = "이 옵션이 꺼져 있고 가장자리에 창이 있으면 대기는 가는 띠의 앰버색 점으로만 표시됩니다.";
 "settings.general.body.peekWaiting.off.bare" = "이 옵션과 가는 띠가 모두 꺼져 있으면 가장자리에 대기를 알리는 것이 없습니다. 마스코트는 가장자리로 손을 뻗을 때만 나옵니다.";
 "settings.general.body.peekWaiting.off.bare.smart" = "이 옵션과 가는 띠가 모두 꺼져 있고 가장자리에 창이 있으면 대기를 알리는 것이 없습니다. 마스코트는 가장자리가 비었거나 가장자리로 손을 뻗을 때만 나옵니다.";
 "settings.general.body.peekDone" = "끝나면 잠깐 나오기";

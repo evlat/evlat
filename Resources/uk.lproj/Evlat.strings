@@ -431,6 +431,7 @@
 "settings.general.body.peekWaiting" = "Визирати під час чекання";
 "settings.general.body.peekWaiting.detail" = "Коли треба дозвіл чи відповідь, маскот визирає.";
 "settings.general.body.peekWaiting.off" = "Поки це вимкнено, чекання показує лише бурштинова точка смужки.";
+"settings.general.body.peekWaiting.off.smart" = "Поки це вимкнено, а біля краю є вікно, чекання показує лише бурштинова точка смужки.";
 "settings.general.body.peekWaiting.off.bare" = "Поки це й смужку вимкнено, ніщо на краю не показує чекання: маскот з’являється, лише коли ви тягнетеся до краю.";
 "settings.general.body.peekWaiting.off.bare.smart" = "Поки це й смужку вимкнено, а біля краю є вікно, ніщо на краю не показує чекання: маскот з’являється, лише коли край вільний або ви тягнетеся до краю.";
 "settings.general.body.peekDone" = "Ненадовго визирати, коли готово";

@@ -504,6 +504,7 @@
 "settings.general.body.peekWaiting" = "Peek out while waiting";
 "settings.general.body.peekWaiting.detail" = "On a permission or a question the mascot peeks out.";
 "settings.general.body.peekWaiting.off" = "While this is off, waiting is shown only by the sliver's amber dot.";
+"settings.general.body.peekWaiting.off.smart" = "While this is off and a window is under the edge, waiting is shown only by the sliver's amber dot.";
 "settings.general.body.peekWaiting.off.bare" = "While this and the sliver are off, nothing on the edge shows waiting: the mascot comes out only when you reach for the edge.";
 "settings.general.body.peekWaiting.off.bare.smart" = "While this and the sliver are off, nothing on the edge shows waiting while a window is under it: the mascot comes out only when the edge is clear or you reach for it.";
 "settings.general.body.peekDone" = "Peek briefly when done";

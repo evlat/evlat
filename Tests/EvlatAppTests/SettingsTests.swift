@@ -403,7 +403,8 @@ final class SettingsTests: XCTestCase {
         model.setBodyToggle(\.peekWaiting, on: false)
         XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: true, peekWaiting: false, peekDone: true))
         XCTAssertTrue(model.showsPeekWarning)
-        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off", "the amber dot is still there")
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.smart",
+                       "the amber dot is still there while a window is under the edge")
         model.setBodyToggle(\.sliver, on: false)
         XCTAssertEqual(recorder.bodyToggles, BodyPresence.Toggles(sliver: false, peekWaiting: false, peekDone: true))
         XCTAssertTrue(model.showsPeekWarning)
@@ -437,7 +438,10 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.bare.smart",
                        "smart: nothing only while a window is under the edge")
         model.setBodyToggle(\.sliver, on: true)
-        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off")
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off.smart",
+                       "smart: the dot alone only while a window is under the edge")
+        model.setBodyMode(.tucked)
+        XCTAssertEqual(model.peekWarningKey, "settings.general.body.peekWaiting.off", "tucked: the dot, always")
         model.setBodyMode(.hidden)
         XCTAssertNil(model.bodyModeDetailKey)
         XCTAssertFalse(model.showsBodyToggles)

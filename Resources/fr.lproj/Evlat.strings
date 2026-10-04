@@ -432,6 +432,7 @@
 "settings.general.body.peekWaiting" = "Se montrer en cas d’attente";
 "settings.general.body.peekWaiting.detail" = "Sur une autorisation ou une question, la mascotte passe la tête.";
 "settings.general.body.peekWaiting.off" = "Tant que cette option est désactivée, l’attente n’est signalée que par le point ambre du liseré.";
+"settings.general.body.peekWaiting.off.smart" = "Tant que cette option est désactivée et qu’une fenêtre est sous le bord, l’attente n’est signalée que par le point ambre du liseré.";
 "settings.general.body.peekWaiting.off.bare" = "Tant que cette option et le liseré sont désactivés, rien sur le bord ne signale l’attente : la mascotte ne sort que lorsque vous approchez du bord.";
 "settings.general.body.peekWaiting.off.bare.smart" = "Tant que cette option et le liseré sont désactivés et qu’une fenêtre est sous le bord, rien sur le bord ne signale l’attente : la mascotte ne sort que lorsque le bord se libère ou que vous approchez du bord.";
 "settings.general.body.peekDone" = "Se montrer brièvement à la fin";

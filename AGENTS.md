@@ -438,6 +438,15 @@ is lost with the process.
   produces no frames and reads no mouse. The sliver and its dot are static.
   The mascot's view stays in the tree at every level, so `failed`'s shake
   (a `keyframeAnimator`) still fires on the way into the peek.
+- **Smart hide's edge costs no new timer**: it is read on the existing
+  1.5 s poll, one window list a tick. Measured on a release build, no row,
+  the left edge under another app's window, the mouse still (screen locked,
+  HID idle 5–15 min), 90 s: Smart (covered, reading) 0.09% and 0.18%,
+  Tucked (not reading) 0.12% and 0.07%, Always out 0.09% and 0.08% — the
+  reading lies inside the runs' spread. A clear edge is not measured (the
+  user's window covered both edges): it is Always out's bar plus the
+  reading, and with the mascot out the gaze follows the mouse as Always
+  out's does.
 
 ### Window
 
@@ -606,9 +615,24 @@ is lost with the process.
   Tucked, Hidden). Tucked is in at rest: the sliver, a peek while waiting
   or at a finish (its three switches). Smart hide is Tucked while another
   app's window is under the edge, and the whole body while none is
-  (`edgeClear`, nothing writes it yet: Smart is Tucked for now); the
-  switches are shown under both. A stored `smart` is the new Smart hide,
-  `tucked` is Tucked. One pure rule, `BodyPresence`, turns the mode, its
+  (`edgeClear`); the switches are shown under both. A stored `smart` is
+  the new Smart hide, `tucked` is Tucked. Covered (`EdgeCover`): a window
+  on screen, in layer 0, alpha above 0, not Evlat's pid, overlapping the
+  closed body — 54 pt × its closed length from the head — on the bar's own
+  window, found in the same list by its number (no translation between
+  the window server's and Cocoa's coordinates; no alpha threshold, so a
+  near-clear layer-0 window keeps the edge covered — the quiet side). Only
+  under Smart, on the poll's tick (`pollEdge`; not in `refresh`, which a
+  hook burst runs twice in milliseconds), the open bar and the balloon
+  included. A new state takes two readings in a row that agree (every jump
+  seen in use was one reading); a reading that cannot tell (`nil`: the
+  bar's window not in the list) is not counted; the first reading since
+  Smart began — at launch, at the switch — is applied as it is. The body
+  does not come out under a still cursor on its place (it would open the
+  bar at the next move); that reading waits for the cursor to leave. The
+  live reader is set in `applicationDidFinishLaunching` only, so no test
+  reads the user's windows (`edgeReader`, a fake in tests). Each state
+  applied is a line on stderr (`Evlat: edge …`). One pure rule, `BodyPresence`, turns the mode, its
   three switches, the edge, the effective phase, the finish latch, the peek,
   the open bar, the balloon and a drag into a level — `none · sliver · peek
   · full` — and its hover and drop area; `AppController.applyPresence()` is the only writer of what
@@ -629,6 +653,13 @@ sound still works. `UNUserNotificationCenter` needs a bundle, so under
 `swift run` and in tests `WaitingNotifier.make()` returns `nil`. Any other path
 that needs Accessibility, Screen Recording, Apple Events or a new permission is
 an architecture decision, not an implementation detail.
+
+Smart hide reads other apps' window **bounds** with no permission
+(`CGWindowListCopyWindowInfo`; measured on macOS 26.4.1: without Screen
+Recording every normal window came with its bounds and owner and none
+with its name, and no prompt opened). Only bounds, layer, alpha, owner pid
+and number are read (`EdgeCover`); a window's name — what Screen
+Recording guards — never is.
 
 **Evlat keeps one secret**: a remote machine's `ssh` password, when the
 prompt window's "Remember in Keychain" is on (`KeychainPasswordStore`). One

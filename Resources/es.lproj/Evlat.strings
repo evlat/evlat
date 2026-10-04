@@ -431,6 +431,7 @@
 "settings.general.body.peekWaiting" = "Asomarse al esperar";
 "settings.general.body.peekWaiting.detail" = "Ante un permiso o una pregunta, la mascota se asoma.";
 "settings.general.body.peekWaiting.off" = "Mientras esto está desactivado, la espera solo se indica con el punto ámbar de la ranura.";
+"settings.general.body.peekWaiting.off.smart" = "Mientras esto está desactivado y hay una ventana bajo el borde, la espera solo se indica con el punto ámbar de la ranura.";
 "settings.general.body.peekWaiting.off.bare" = "Mientras esto y la ranura están desactivados, nada en el borde indica la espera: la mascota solo sale cuando llevas el cursor al borde.";
 "settings.general.body.peekWaiting.off.bare.smart" = "Mientras esto y la ranura están desactivados y hay una ventana bajo el borde, nada en el borde indica la espera: la mascota solo sale cuando el borde queda libre o llevas el cursor al borde.";
 "settings.general.body.peekDone" = "Asomarse un momento al terminar";

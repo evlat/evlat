@@ -497,11 +497,15 @@ final class SettingsModel: ObservableObject {
     /// With the sliver off too there is no amber dot to fall back on, and
     /// Smart and Tucked leave the tray icon plain: the warning must say
     /// nothing is left. Under Smart a clear edge still brings the whole body
-    /// out, so its own line says nothing is left only while a window is there.
+    /// out, mascot and all, so its own lines speak only of while a window is
+    /// there.
     var peekWarningKey: String {
-        if bodyToggles.sliver { return "settings.general.body.peekWaiting.off" }
-        return bodyMode == .smart ? "settings.general.body.peekWaiting.off.bare.smart"
-                                  : "settings.general.body.peekWaiting.off.bare"
+        let smart = bodyMode == .smart
+        if bodyToggles.sliver {
+            return smart ? "settings.general.body.peekWaiting.off.smart" : "settings.general.body.peekWaiting.off"
+        }
+        return smart ? "settings.general.body.peekWaiting.off.bare.smart"
+                     : "settings.general.body.peekWaiting.off.bare"
     }
 
     // MARK: - Chat
@@ -874,8 +878,8 @@ final class SettingsModel: ObservableObject {
         "settings.general.body.tucked", "settings.general.body.tucked.detail", "settings.general.body.hidden",
         "settings.general.body.sliver", "settings.general.body.sliver.detail",
         "settings.general.body.peekWaiting", "settings.general.body.peekWaiting.detail",
-        "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.bare",
-        "settings.general.body.peekWaiting.off.bare.smart",
+        "settings.general.body.peekWaiting.off", "settings.general.body.peekWaiting.off.smart",
+        "settings.general.body.peekWaiting.off.bare", "settings.general.body.peekWaiting.off.bare.smart",
         "settings.general.body.peekDone", "settings.general.body.peekDone.detail",
         "settings.general.nudge.off", "settings.general.nudge.minutes",
         "settings.general.nudge.notify.denied", "settings.general.nudge.notify.open",

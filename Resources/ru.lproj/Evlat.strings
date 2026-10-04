@@ -432,6 +432,7 @@
 "settings.general.body.peekWaiting" = "Выглядывать при ожидании";
 "settings.general.body.peekWaiting.detail" = "При запросе разрешения или вопросе маскот выглядывает.";
 "settings.general.body.peekWaiting.off" = "Пока это выключено, ожидание видно только по янтарной точке полоски.";
+"settings.general.body.peekWaiting.off.smart" = "Пока это выключено, а у края есть окно, ожидание видно только по янтарной точке полоски.";
 "settings.general.body.peekWaiting.off.bare" = "Пока это и полоска выключены, у края ничего не показывает ожидание: маскот выходит, только когда вы тянетесь к краю.";
 "settings.general.body.peekWaiting.off.bare.smart" = "Пока это и полоска выключены, а у края есть окно, ничто у края не показывает ожидание: маскот выходит, только когда край свободен или вы тянетесь к краю.";
 "settings.general.body.peekDone" = "Ненадолго выглядывать по завершении";

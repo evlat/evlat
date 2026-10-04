@@ -431,6 +431,7 @@
 "settings.general.body.peekWaiting" = "Beim Warten hervorschauen";
 "settings.general.body.peekWaiting.detail" = "Bei einer Berechtigung oder einer Frage schaut das Maskottchen hervor.";
 "settings.general.body.peekWaiting.off" = "Solange das aus ist, zeigt nur der bernsteinfarbene Punkt des Streifens das Warten.";
+"settings.general.body.peekWaiting.off.smart" = "Solange das aus ist und ein Fenster unter dem Rand liegt, zeigt nur der bernsteinfarbene Punkt des Streifens das Warten.";
 "settings.general.body.peekWaiting.off.bare" = "Solange das und der Streifen aus sind, zeigt nichts am Rand das Warten: Das Maskottchen kommt nur heraus, wenn du zum Rand greifst.";
 "settings.general.body.peekWaiting.off.bare.smart" = "Solange das und der Streifen aus sind und ein Fenster unter dem Rand liegt, zeigt nichts am Rand das Warten: Das Maskottchen kommt nur heraus, wenn der Rand frei ist oder du zum Rand greifst.";
 "settings.general.body.peekDone" = "Kurz hervorschauen, wenn fertig";

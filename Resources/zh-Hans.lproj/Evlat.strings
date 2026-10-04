@@ -431,6 +431,7 @@
 "settings.general.body.peekWaiting" = "等待时探出头";
 "settings.general.body.peekWaiting.detail" = "遇到权限请求或问题时，吉祥物会探出头来。";
 "settings.general.body.peekWaiting.off" = "关闭此项时，等待只由细边上的琥珀色圆点显示。";
+"settings.general.body.peekWaiting.off.smart" = "此项关闭且边缘有窗口时，等待只由细边上的琥珀色圆点显示。";
 "settings.general.body.peekWaiting.off.bare" = "此项和细边都关闭时，边缘上没有任何东西显示等待：只有当你把指针移向边缘时，吉祥物才会出来。";
 "settings.general.body.peekWaiting.off.bare.smart" = "此项和细边都关闭且边缘有窗口时，边缘上没有任何东西显示等待：只有当边缘空出或你把指针移向边缘时，吉祥物才会出来。";
 "settings.general.body.peekDone" = "完成时短暂探头";

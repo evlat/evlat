@@ -208,6 +208,182 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
     }
 
+    // MARK: - The edge, read
+
+    /// A fake reading of the edge: hands out what it is told, in order
+    /// (`true` covered, `false` clear, `nil` nothing known), and keeps what
+    /// it was asked. No test reads the user's windows.
+    private final class EdgeReadings {
+        var queue: [Bool?] = []
+        var asked: [EdgeCover.Strip] = []
+        func read(_ strip: EdgeCover.Strip) -> Bool? {
+            asked.append(strip)
+            return queue.isEmpty ? nil : queue.removeFirst()
+        }
+    }
+
+    /// A rig whose edge is read by `readings`, with the cursor far away.
+    private func edgeRig(_ mode: BodyPresence.Mode, _ readings: EdgeReadings,
+                         edge: BarPanel.Edge = .right) -> Rig {
+        rig(mode, edge: edge) { controller, _ in
+            controller.edgeReader = readings.read
+            controller.mouseLocation = { CGPoint(x: -10_000, y: -10_000) }
+        }
+    }
+
+    /// Polls once per reading handed in.
+    private func poll(_ rig: Rig, _ readings: EdgeReadings, _ values: Bool?...) {
+        for value in values {
+            readings.queue.append(value)
+            rig.controller.pollEdge()
+        }
+    }
+
+    /// Nothing reads the edge until it is polled, and a live reader is
+    /// never the default: a controller built in a test reads nothing.
+    func testNoReaderIsLiveByDefault() {
+        XCTAssertNil(AppController().edgeReader(EdgeCover.Strip(window: 1, edge: .right, headroom: 0,
+                                                                width: 54, length: 100, pid: 1)))
+    }
+
+    /// The first reading applies at once; after it one reading moves
+    /// nothing and two that agree do — both ways.
+    func testTwoReadingsThatAgreeMoveTheBody() throws {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        let state = rig.controller.barState
+        poll(rig, readings, true)
+        XCTAssertEqual(state.presence.level, .sliver)
+        poll(rig, readings, false)
+        XCTAssertEqual(state.presence.level, .sliver, "one reading moves nothing")
+        poll(rig, readings, false)
+        XCTAssertEqual(state.presence.level, .full, "two that agree do")
+        XCTAssertTrue(rig.controller.mascot.isShown)
+        XCTAssertEqual(try rig.bodyRect().width, AppController.barWidth, accuracy: 0.5)
+        poll(rig, readings, true)
+        XCTAssertEqual(state.presence.level, .full)
+        poll(rig, readings, true)
+        XCTAssertEqual(state.presence.level, .sliver)
+        XCTAssertFalse(rig.controller.mascot.isShown)
+    }
+
+    /// What the reader is asked for: the bar's own window, its edge, and the
+    /// closed body's length now.
+    func testTheReaderIsAskedForTheBarsClosedBody() throws {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings, edge: .left)
+        defer { rig.panel.close() }
+        rig.set(.working)
+        poll(rig, readings, true)
+        let strip = try XCTUnwrap(readings.asked.last)
+        XCTAssertEqual(strip.window, rig.panel.windowNumber)
+        XCTAssertEqual(strip.edge, .left)
+        XCTAssertEqual(strip.headroom, AppController.headroom)
+        XCTAssertEqual(strip.width, AppController.barWidth)
+        XCTAssertEqual(strip.length, rig.controller.barState.length, accuracy: 0.5)
+        XCTAssertEqual(strip.pid, ProcessInfo.processInfo.processIdentifier)
+    }
+
+    /// A jump of one reading, seen in use, is swallowed; a reading that
+    /// tells nothing breaks no pair.
+    func testAOneReadingJumpIsSwallowed() {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        let state = rig.controller.barState
+        poll(rig, readings, true, false, true, false, true)
+        XCTAssertEqual(state.presence.level, .sliver)
+        XCTAssertFalse(rig.controller.edgeClear)
+        poll(rig, readings, false, nil, false)
+        XCTAssertEqual(state.presence.level, .full, "nil is not counted")
+    }
+
+    /// Until a reading tells something, nothing is applied, and the first
+    /// that does is applied at once.
+    func testTheFirstReadingThatTellsIsApplied() {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        poll(rig, readings, nil, nil)
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        poll(rig, readings, false)
+        XCTAssertEqual(rig.controller.barState.presence.level, .full)
+    }
+
+    /// The body does not come out under a still cursor — it would open at
+    /// the cursor's first move; once the cursor leaves, the next agreeing
+    /// reading brings it out. Going in is never held.
+    func testTheBodyDoesNotComeOutUnderTheCursor() throws {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        let frame = rig.panel.frame
+        let state = rig.controller.barState
+        poll(rig, readings, true)
+        // Over the whole closed body, under the sliver's strip.
+        rig.controller.mouseLocation = {
+            CGPoint(x: frame.maxX - 30, y: frame.maxY - AppController.headroom - BodyPresence.triggerLength + 5)
+        }
+        poll(rig, readings, false, false, false)
+        XCTAssertEqual(state.presence.level, .sliver, "held while the cursor is there")
+        rig.controller.mouseLocation = { CGPoint(x: frame.maxX - 60, y: frame.maxY - AppController.headroom - 20) }
+        poll(rig, readings, false)
+        XCTAssertEqual(state.presence.level, .full, "beside it, the next reading brings it out")
+        rig.controller.mouseLocation = { CGPoint(x: frame.maxX - 10, y: frame.maxY - AppController.headroom - 20) }
+        poll(rig, readings, true, true)
+        XCTAssertEqual(state.presence.level, .sliver, "going in is never held")
+    }
+
+    /// Entering Smart reads at once and applies what it reads; leaving it
+    /// forgets the edge, so Tucked is in whatever the edge was.
+    func testEnteringSmartReadsAtOnce() {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.tucked, readings)
+        defer { rig.panel.close() }
+        readings.queue = [false]
+        rig.controller.bodyMode = .smart
+        XCTAssertEqual(readings.asked.count, 1)
+        XCTAssertEqual(rig.controller.barState.presence.level, .full, "no second reading waited for")
+        rig.controller.bodyMode = .tucked
+        XCTAssertFalse(rig.controller.edgeClear)
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        readings.queue = [true]
+        rig.controller.bodyMode = .smart
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+    }
+
+    /// Only Smart reads the edge: polled under the others, open or closed,
+    /// the reader is never asked.
+    func testTheOtherModesNeverReadTheEdge() {
+        for mode in [BodyPresence.Mode.always, .tucked, .hidden] {
+            let readings = EdgeReadings()
+            let rig = edgeRig(mode, readings)
+            poll(rig, readings, false, false)
+            rig.controller.openBar()
+            poll(rig, readings, false, false)
+            rig.controller.closeBar()
+            XCTAssertTrue(readings.asked.isEmpty, "\(mode) read the edge")
+            XCTAssertFalse(rig.controller.edgeClear)
+            rig.panel.close()
+        }
+    }
+
+    /// The open bar does not stop the reading: it closes onto the edge as
+    /// it is now.
+    func testTheOpenBarStillReads() {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        poll(rig, readings, true)
+        rig.controller.openBar()
+        poll(rig, readings, false, false)
+        XCTAssertEqual(readings.asked.count, 3)
+        XCTAssertTrue(rig.controller.edgeClear)
+        rig.controller.closeBar()
+        XCTAssertEqual(rig.controller.barState.presence.level, .full)
+    }
+
     // MARK: - Peek
 
     /// A finish peeks, then the sliver shows what the open bar would: once

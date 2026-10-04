@@ -189,17 +189,36 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var bodyMode: BodyPresence.Mode = .always {
         didSet {
             guard bodyMode != oldValue else { return }
+            // The edge is Smart's alone: leaving it forgets what was read
+            // (its `didSet` applies), and coming into it reads at once.
+            edgeCandidate = nil
+            edgeSettled = false
+            if bodyMode != .smart { edgeClear = false }
             applyPresence()
+            if bodyMode == .smart { pollEdge() }
         }
     }
     var bodyToggles = BodyPresence.Toggles() {
         didSet { if bodyToggles != oldValue { applyPresence() } }
     }
     /// No other app's window is under the closed body (`BodyPresence.edgeClear`);
-    /// only Smart reads it. Nothing writes it yet, so Smart is Tucked.
+    /// only Smart reads it. Written by `pollEdge` alone, and back to `false`
+    /// whenever the mode leaves Smart.
     var edgeClear = false {
         didSet { if edgeClear != oldValue { applyPresence() } }
     }
+    /// How the edge is read: covered, clear, or `nil` when it cannot be
+    /// told (the bar's window not in the list). Set to the live reading at
+    /// launch only (`applicationDidFinishLaunching`), like the hot key:
+    /// `installPanel` runs in every test, and no test reads the user's
+    /// windows. A `var` so a test hands it a fake.
+    var edgeReader: (EdgeCover.Strip) -> Bool? = { _ in nil }
+    /// A reading that disagreed with `edgeClear` and waits for the next one
+    /// to agree; `nil` while the readings agree with it.
+    private var edgeCandidate: Bool?
+    /// Whether a reading has been applied since Smart began: the first one is
+    /// applied as it is, with no second to wait for.
+    private var edgeSettled = false
     /// The mode came from `EVLAT_BODY`: the settings' writers apply the
     /// choice but never store it, so a forced launch — an isolated copy
     /// looked at or measured — leaves the user's choice alone.
@@ -1357,7 +1376,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         openSetupAtLaunch()
         poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) {
             [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }  // Timer callback is nonisolated
+            MainActor.assumeIsolated {  // Timer callback is nonisolated
+                self?.refresh()
+                // After the scan, so the strip is the body's length now.
+                self?.pollEdge()
+            }
         }
 
         // The edge is read at each call: `dock` moves this same panel.
@@ -1368,6 +1391,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         gaze = tracker
         // Started by the rule: an unseen mascot follows nothing.
         applyPresence()
+        // Here and nowhere else, like the hot key: a test never reads the
+        // user's windows. Read once now, so Smart starts where the edge is.
+        edgeReader = EdgeCover.read
+        pollEdge()
 
         panel.onPointer = { [weak self] pointer in self?.pointer(pointer) }
 
@@ -3815,6 +3842,65 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             trayAmber = amber
             statusItem?.button?.image = TrayIcon.image(amber: amber)
         }
+    }
+
+    /// Reads the edge under Smart, on the poll's tick (not every scan: a
+    /// burst of hook events would make two readings milliseconds apart and
+    /// let a window passing over the edge through as two that agree).
+    /// Under the other modes nothing is read. The open bar and the balloon
+    /// do not stop it, so the body closes onto an edge read just now.
+    ///
+    /// A new state needs two readings in a row that agree: every jump seen
+    /// in a measured use was a single reading. A reading that tells nothing
+    /// (`nil`) is not counted either way. The first reading since Smart
+    /// began is applied as it is. And the body does not come out under a
+    /// still cursor: it would be under the cursor at its first move and
+    /// open the bar unasked — that reading waits until the cursor leaves.
+    func pollEdge() {
+        guard bodyMode == .smart, let panel else { return }
+        let strip = EdgeCover.Strip(window: panel.windowNumber, edge: panel.edge,
+                                    headroom: Self.headroom, width: Self.barWidth,
+                                    length: barState.length,
+                                    pid: ProcessInfo.processInfo.processIdentifier)
+        guard let covered = edgeReader(strip) else { return }
+        let clear = !covered
+        if clear == edgeClear {
+            if !edgeSettled { traceEdge(clear) }
+            edgeCandidate = nil
+            edgeSettled = true
+            return
+        }
+        guard !edgeSettled || edgeCandidate == clear else {
+            edgeCandidate = clear
+            return
+        }
+        if clear, isCursorOnBody(panel) {
+            edgeCandidate = clear
+            return
+        }
+        edgeCandidate = nil
+        edgeSettled = true
+        traceEdge(clear)
+        edgeClear = clear
+    }
+
+    /// The edge's trace on stderr, as the aggregate's: each state applied,
+    /// and the first reading under Smart even when it changes nothing. A
+    /// body that never comes out is otherwise indistinguishable from an
+    /// edge that is never read.
+    private func traceEdge(_ clear: Bool) {
+        NSLog("Evlat: edge %@", clear ? "clear" : "covered")
+    }
+
+    /// The cursor over where the whole closed body would be — today's
+    /// 54 pt, from the head, never shorter than the strip that brings it out
+    /// (`BodyPresence.area`'s rule).
+    private func isCursorOnBody(_ panel: BarPanel) -> Bool {
+        let point = mouseLocation()
+        let fromEdge = panel.edge.inset(of: point.x, in: panel.frame)
+        let fromTop = panel.frame.maxY - point.y - Self.headroom
+        return fromEdge >= 0 && fromEdge < Self.barWidth
+            && fromTop >= 0 && fromTop < max(barState.length, BodyPresence.triggerLength)
     }
 
     /// Settings → General → Body. Stored, then applied at once (`bodyMode`'s

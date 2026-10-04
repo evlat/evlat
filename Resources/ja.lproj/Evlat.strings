@@ -431,6 +431,7 @@
 "settings.general.body.peekWaiting" = "返答待ちのときにのぞかせる";
 "settings.general.body.peekWaiting.detail" = "権限の確認や質問があると、マスコットが顔をのぞかせます。";
 "settings.general.body.peekWaiting.off" = "これがオフの間、返答待ちは目印の琥珀色のドットでのみ示されます。";
+"settings.general.body.peekWaiting.off.smart" = "これがオフで端にウインドウがある間、返答待ちは目印の琥珀色のドットでのみ示されます。";
 "settings.general.body.peekWaiting.off.bare" = "これと目印がオフの間、端には返答待ちを示すものが何もありません。マスコットは、ポインタを端に持っていったときだけ現れます。";
 "settings.general.body.peekWaiting.off.bare.smart" = "これと目印がオフの間、端にウインドウがあると返答待ちを示すものが何もありません。マスコットは、端が空いたときか、ポインタを端に持っていったときだけ現れます。";
 "settings.general.body.peekDone" = "完了時に少しのぞかせる";

@@ -432,6 +432,7 @@
 "settings.general.body.peekWaiting" = "Espiar ao aguardar";
 "settings.general.body.peekWaiting.detail" = "Diante de uma permissão ou pergunta, o mascote espia para fora.";
 "settings.general.body.peekWaiting.off" = "Com isto desativado, a espera aparece só no ponto âmbar do filete.";
+"settings.general.body.peekWaiting.off.smart" = "Com isto desativado e uma janela sob a borda, a espera aparece só no ponto âmbar do filete.";
 "settings.general.body.peekWaiting.off.bare" = "Com isto e o filete desativados, nada na borda mostra a espera: o mascote só sai quando você leva o cursor até a borda.";
 "settings.general.body.peekWaiting.off.bare.smart" = "Com isto e o filete desativados e uma janela sob a borda, nada na borda mostra a espera: o mascote só sai quando a borda fica livre ou quando você leva o cursor até a borda.";
 "settings.general.body.peekDone" = "Espiar rapidinho ao concluir";
