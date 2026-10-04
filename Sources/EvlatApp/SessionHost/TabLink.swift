@@ -48,10 +48,17 @@ struct TabLink {
     let forwarded: [String]
     /// The link, from the variables' values; `nil` when they are not one.
     let link: ([Substring]) -> URL?
+    /// The first version of the app that says whether the user is at a tab
+    /// (`TabFocus`); `nil` for an app that cannot be asked. Bateri's `bateri
+    /// focus` came in 0.4.0, and the version before it opened a window for
+    /// any word it did not know.
+    var focusSince: String? = nil
 
-    init(variable: String, forwarded: String? = nil, link: @escaping (Substring) -> URL?) {
+    init(variable: String, forwarded: String? = nil, focusSince: String? = nil,
+         link: @escaping (Substring) -> URL?) {
         variables = [variable]
         self.forwarded = forwarded.map { [$0] } ?? []
+        self.focusSince = focusSince
         self.link = { values in values.first.flatMap(link) }
     }
 
@@ -65,9 +72,9 @@ struct TabLink {
         // Bateri ships as `dev.bateri.bateri` (seen installed); the older
         // id stays for copies built before the change.
         "dev.bateri.bateri": ready(variable: "BATERI_TAB_URL", forwarded: "LC_BATERI_TAB_URL",
-                                   prefix: "bateri://tab/"),
+                                   focusSince: "0.4.0", prefix: "bateri://tab/"),
         "io.github.bateri.bateri": ready(variable: "BATERI_TAB_URL", forwarded: "LC_BATERI_TAB_URL",
-                                         prefix: "bateri://tab/"),
+                                         focusSince: "0.4.0", prefix: "bateri://tab/"),
         "dev.metalterm.Metalterm": ready(variable: "METALTERM_TAB_URL", prefix: "metalterm://tab/"),
         "dev.warp.Warp-Stable": ready(variable: "WARP_FOCUS_URL", prefix: "warp://session/"),
         "com.googlecode.iterm2": TabLink(variable: "ITERM_SESSION_ID") { value in
@@ -90,8 +97,9 @@ struct TabLink {
     ]
 
     /// A variable that holds the link itself: `<prefix><hex id>`.
-    private static func ready(variable: String, forwarded: String? = nil, prefix: String) -> TabLink {
-        TabLink(variable: variable, forwarded: forwarded) { value in
+    private static func ready(variable: String, forwarded: String? = nil, focusSince: String? = nil,
+                              prefix: String) -> TabLink {
+        TabLink(variable: variable, forwarded: forwarded, focusSince: focusSince) { value in
             guard value.hasPrefix(prefix), isID(value.dropFirst(prefix.count), alphanumeric: false) else {
                 return nil
             }

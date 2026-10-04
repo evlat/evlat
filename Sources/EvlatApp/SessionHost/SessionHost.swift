@@ -139,9 +139,13 @@ enum SessionHost: Equatable {
     /// `forwarded` (`NAME=value` lines a server read, `Ssh`) fills a tab the
     /// walk could not read, and only for the app the walk reached: a value is
     /// inherited by whatever its tab starts, so it never chooses the app.
-    static func resolve(pid: Int32?, forwarded: [String] = [], _ probe: Probe) -> SessionHost {
+    /// With `throughServers` off no multiplexer's client is looked for: no
+    /// `tmux` runs and no herdr socket is opened, and a session in a pane
+    /// names no tab — the rule below gives none past a server.
+    static func resolve(pid: Int32?, forwarded: [String] = [], throughServers: Bool = true,
+                        _ probe: Probe) -> SessionHost {
         guard let agent = pid else { return .notFound }
-        switch walk(pid: agent, probe) {
+        switch walk(pid: agent, probe, throughServers: throughServers) {
         case (.app(var app), let terminal, let passedServer):
             // The environment is read only for an app that has a tab link,
             // and only its own variables are kept. It is the agent's, or
@@ -331,6 +335,11 @@ enum SessionHost: Equatable {
     }
 
     static func resolve(pid: Int32?) -> SessionHost { resolve(pid: pid, live) }
+
+    /// The walk the news asks of (`TabFocus`): only a tab it is sure of. A
+    /// pane's client is the tab someone looks at, which may show another
+    /// pane, and finding it runs `tmux` or spends herdr's deadline.
+    static func resolveShallow(pid: Int32?) -> SessionHost { resolve(pid: pid, throughServers: false, live) }
 
     /// The same path v1 measured (macOS 26.4.1): from a
     /// background `LSUIElement` app this brings the target forward. Evlat

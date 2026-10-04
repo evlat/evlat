@@ -630,3 +630,39 @@ extension HerdrPane {
         self.init(socket: socket, pane: pane, call: { _, _ in .unreachable })
     }
 }
+
+// MARK: - The news's shallow walk
+
+extension SessionHostTests {
+    /// Asked without its clients, a pane names no tab — not the pane's own
+    /// inherited one, which is the closed tab's — and neither tmux nor
+    /// herdr is asked anything.
+    func testAShallowWalkPastAServerNamesNoTabAndAsksNoClient() {
+        var asked: [String] = []
+        let herdr = probe(herdrInBateri, environment: herdrInBateriEnvironment, arguments: herdrInBateriArguments,
+                          sockets: herdrInBateriSockets, terminals: [37880: false, 37020: true, 22670: true],
+                          herdr: { _, request in asked.append(request); return .unreachable })
+        XCTAssertEqual(SessionHost.resolve(pid: 92981, throughServers: false, herdr), .app(bateri))
+        var table = tmuxInBateri
+        table[4000] = Proc(parent: 4101, path: Self.tmuxPath)
+        let tmux = probe(table, environment: [900: Self.bateriTab(Self.closedTab) + Self.tmuxEnvironment,
+                                              4101: Self.bateriTab(Self.newerTab)],
+                         tmux: { _ in asked.append("tmux"); return nil })
+        XCTAssertEqual(SessionHost.resolve(pid: 900, throughServers: false, tmux), .app(bateri))
+        XCTAssertEqual(asked, [])
+    }
+
+    /// A chain with no server on the way is walked as it always was.
+    func testAShallowWalkOfAPlainChainKeepsItsTab() {
+        let table: [Int32: Proc] = [
+            900: Proc(parent: 800, path: "/Users/u/.local/bin/claude"),
+            800: Proc(parent: 700, path: "/bin/zsh"),
+            700: Proc(parent: 580, path: "/usr/bin/login"),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+        ]
+        let host = SessionHost.resolve(pid: 900, throughServers: false,
+                                       probe(table, environment: [900: Self.bateriTab(Self.newerTab)]))
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
+        XCTAssertEqual(host, SessionHost.resolve(pid: 900, probe(table, environment: [900: Self.bateriTab(Self.newerTab)])))
+    }
+}

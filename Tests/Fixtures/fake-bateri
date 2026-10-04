@@ -1,0 +1,32 @@
+#!/bin/sh
+# A fake `bateri` for the focus question's tests (`TabFocus`): it never
+# reaches a running Bateri. The real one is never run from a test.
+#
+# Evlat hands it an environment of `HOME` alone, so its knobs live there:
+#
+#   $HOME/fake-bateri/reply   the line to print (none: print nothing)
+#   $HOME/fake-bateri/exit    the exit code (0 when missing)
+#   $HOME/fake-bateri/hang    when present, wait instead of answering, its
+#                             pid in $HOME/fake-bateri/pid
+#   $HOME/fake-bateri/log     every run's arguments, one per line after a
+#                             `--- run` line, then its environment's names
+#                             after `--- env`
+
+# `--evlat-warm`: exit before anything else (FreshExecutable).
+[ "$1" = --evlat-warm ] && exit 0
+
+dir="$HOME/fake-bateri"
+{
+  echo '--- run'
+  for a in "$@"; do printf '%s\n' "$a"; done
+  echo '--- env'
+  env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort
+} >> "$dir/log"
+
+# `exec`, so the process killed at the deadline is the one waiting.
+if [ -e "$dir/hang" ]; then
+  echo $$ > "$dir/pid"
+  exec sleep 30
+fi
+[ -f "$dir/reply" ] && cat "$dir/reply"
+exit "$(cat "$dir/exit" 2>/dev/null || echo 0)"
