@@ -334,6 +334,39 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertEqual(activated, [herdrTerm], "answered, selected or not: the window comes")
     }
 
+    /// A local herdr pane on the way to the tunnel is selected under the
+    /// click's herdr deadline, which the wait for the server uses up: the
+    /// window's app is walked again when it comes, so the pane is found and
+    /// selected under a deadline of its own. Without a local pane the walk
+    /// at the click is enough.
+    func testALocalHerdrPaneIsWalkedAgainAfterTheServersWait() {
+        let controller = herdrController()
+        defer { controller.panel?.close() }
+        var local = herdrTerm
+        local.herdr = .pane(HerdrPane(socket: "/s", pane: "w4:p2", call: { _, _ in .timeout }))
+        var fresh = local
+        fresh.herdr = .pane(HerdrPane(socket: "/s", pane: "w4:p2", call: { _, _ in .unreachable }))
+        var walks = [local, fresh]
+        controller.detail.resolveRemote = { _, _ in .app(walks.removeFirst()) }
+        controller.goToSession()
+        XCTAssertEqual(walks.count, 1, "walked once at the click")
+        selected[0]()
+        XCTAssertEqual(walks.count, 0, "and again when the window comes")
+        XCTAssertEqual(activated.count, 1)
+        guard case .pane(let pane) = activated.first?.herdr else { return XCTFail("no pane") }
+        XCTAssertEqual(pane.call("/s", ""), .unreachable, "the fresh walk's pane, not the click's")
+
+        activated = []
+        let plain = herdrController()
+        defer { plain.panel?.close() }
+        var plainWalks = 0
+        plain.detail.resolveRemote = { [unowned self] _, _ in plainWalks += 1; return .app(self.herdrTerm) }
+        plain.goToSession()
+        selected[0]()
+        XCTAssertEqual(plainWalks, 1, "no local pane: not walked again")
+        XCTAssertEqual(activated, [herdrTerm])
+    }
+
     /// No tunnel to select through: the window comes at once. A pane herdr
     /// would not select is not waited for, nor asked about — the card did
     /// not promise it; a remote session in no herdr pane asks nothing

@@ -114,7 +114,7 @@ enum Ssh {
         var clients: [Int32] = []
         for rider in riders {
             guard let up = probe.parent(rider), up > 1, let path = probe.executablePath(up),
-                  (path as NSString).lastPathComponent == "herdr",
+                  Herdr.isExecutable(path),
                   probe.arguments(up).dropFirst().contains("--remote") else { return nil }
             if !clients.contains(up) { clients.append(up) }
         }

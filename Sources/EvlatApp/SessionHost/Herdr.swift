@@ -15,7 +15,12 @@ import Foundation
 /// is what makes the newest the right one — and only once the pane is known.
 enum Herdr: Multiplexer {
     static func isServer(_ pid: Int32, path: String, _ probe: SessionHost.Probe) -> Bool {
-        (path as NSString).lastPathComponent == "herdr" && probe.arguments(pid).dropFirst().first == "server"
+        isExecutable(path) && probe.arguments(pid).dropFirst().first == "server"
+    }
+
+    /// Whether a process's executable is herdr's, server or client alike.
+    static func isExecutable(_ path: String) -> Bool {
+        (path as NSString).lastPathComponent == "herdr"
     }
 
     static func clients(server: Int32, path: String, agent: Int32, _ probe: SessionHost.Probe) -> [Int32] {
@@ -29,7 +34,7 @@ enum Herdr: Multiplexer {
         let serverSession = accepted == nil ? session(environment: probe.environment(server)) : ""
         let clients = probe.processes().filter { client in
             guard client != server, let executable = probe.executablePath(client),
-                  (executable as NSString).lastPathComponent == "herdr",
+                  isExecutable(executable),
                   probe.hasTerminal(client) != false else { return false }
             if let accepted {
                 return (probe.unixSockets(client) ?? []).contains { accepted.contains($0.peer) }
@@ -182,7 +187,7 @@ struct HerdrPane: Equatable {
     let pane: String
     let call: HerdrSocket.Call
 
-    init(socket: String, pane: String, call: @escaping HerdrSocket.Call = { _, _ in .unreachable }) {
+    init(socket: String, pane: String, call: @escaping HerdrSocket.Call) {
         self.socket = socket
         self.pane = pane
         self.call = call

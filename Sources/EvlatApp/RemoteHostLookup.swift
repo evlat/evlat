@@ -47,6 +47,8 @@ final class RemoteHostLookup {
     /// not. A call still queued `startBy` after the click — behind another
     /// card's slow question — is not made: the window has come meanwhile,
     /// and a pane selected under the user's hands later would be a surprise.
+    /// One already started runs its course, up to `selectDeadline`, and may
+    /// still select the pane after the window came.
     @discardableResult
     func select(sessionID: String, records: SessionRecords, target: String, controlPath: String,
                 startBy: TimeInterval, completion: @escaping () -> Void) -> Bool {

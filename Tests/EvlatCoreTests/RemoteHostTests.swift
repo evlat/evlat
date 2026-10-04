@@ -471,6 +471,9 @@ final class RemoteHostTests: XCTestCase {
         try herdrTree(match: .foreground)
         XCTAssertEqual(try run("/bin/sh"), "n herdr on\nn ssh 2222 22 1000 610 2000.25",
                        "no pane's shell is the root: the pane running the agent")
+        XCTAssertEqual(try herdrCalls(), ["pane process-info --pane w1:p2", "pane list",
+                                          "pane process-info --pane w1:p1", "agent get w2:p3"],
+                       "the pane the agent's own id answered for is not asked again")
         try herdrTree(match: .none)
         XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn ssh 2222 22 1000 610 2000.25", "no pane")
         XCTAssertFalse(try herdrCalls().contains { $0.hasPrefix("agent") }, "no pane, nothing asked of it")

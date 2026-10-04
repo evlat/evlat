@@ -571,7 +571,9 @@ is lost with the process.
   asked for. The window waits for its answer at most 1 s
   (`DetailModel.selectWait`), off the main queue, and comes whether or not
   herdr took the pane; a selection still queued then is not made, and one
-  running is ended at 3 s. Measured over the master, 37–112 ms. A card that
+  running is ended at 3 s. Measured over the master, 37–112 ms. A herdr
+  pane on this Mac on the way to the tunnel is walked to again when the
+  window comes, under a deadline of its own: the click's was spent waiting. A card that
   could not ask (no live master) asks on the next snapshot. A Docker sandbox's
   session has no pid here and no server to ask: its terminal is a live
   `sbx run` client on this Mac with a terminal that names the sandbox

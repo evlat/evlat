@@ -570,3 +570,10 @@ final class HerdrFake {
                as: UTF8.self)
     }
 }
+
+extension HerdrPane {
+    /// A pane as the tests compare it: the call is not part of its identity.
+    init(socket: String, pane: String) {
+        self.init(socket: socket, pane: pane, call: { _, _ in .unreachable })
+    }
+}

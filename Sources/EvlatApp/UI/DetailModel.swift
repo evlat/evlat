@@ -429,8 +429,8 @@ public final class DetailModel: ObservableObject {
         guard case .app(let app) = host else { return false }
         // Only a pane the card promised: one herdr would not select is not
         // waited for.
-        if app.serverPane == .selectable, let query = remoteKey?.query {
-            return selectThenActivate(app, query)
+        if app.serverPane == .selectable, let query = remoteKey?.query, let reply = remoteReply {
+            return selectThenActivate(app, query, reply)
         }
         return activate(app)
     }
@@ -438,13 +438,23 @@ public final class DetailModel: ObservableObject {
     /// The server's pane first, then the window — once, whichever of the
     /// answer and the wait comes first, and whatever the answer. Nothing
     /// here reads the card: the caller closes it at once.
-    private func selectThenActivate(_ app: SessionHost.App, _ query: RemoteQuery) -> Bool {
+    private func selectThenActivate(_ app: SessionHost.App, _ query: RemoteQuery,
+                                    _ reply: RemoteHost.Reply) -> Bool {
         let activate = self.activate
+        let resolveRemote = self.resolveRemote
         var done = false
         let bring = {
             guard !done else { return }
             done = true
-            _ = activate(app)
+            // A herdr pane on this Mac, on the way to the tunnel, is selected
+            // under the click's herdr deadline (`HerdrSocket.session`), which
+            // the wait for the server has used up: walked again now, it is
+            // found and selected under a deadline of its own.
+            if case .pane = app.herdr, case .app(let now) = resolveRemote(reply, query.machineID) {
+                _ = activate(now)
+            } else {
+                _ = activate(app)
+            }
         }
         guard selectRemote(query, bring) else { return activate(app) }
         waitForSelect(Self.selectWait, bring)

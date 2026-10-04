@@ -419,7 +419,8 @@ public enum RemoteHost {
     /// asks it for the pane whose shell is the root, else the first whose
     /// foreground processes hold the root or the agent (`hp`), trying the
     /// agent's `HERDR_PANE_ID` first — its id at launch, stale once the pane
-    /// moved; the list is asked only when that id is not the root's. The id
+    /// moved; the list is asked only when that id is not the root's, and
+    /// the pane it answered for is not asked again. The id
     /// kept is the one herdr answers with: it still answers `process-info`
     /// for a moved pane's old id, by alias, while `agent` takes only the
     /// current one (measured on herdr 0.9.3). Every call is cut at 2 s by
@@ -475,14 +476,17 @@ public enum RemoteHost {
         hpane() {
           hp=
           hf=
+          q=
           htry "$(val HERDR_PANE_ID)"
           case $? in 0) return 0 ;; 2) return 1 ;; esac
+          h0=$q
           hl=$(hcall pane list)
           case $? in 0) ;; 1|2) hl= ;; *) return 1 ;; esac
           set -f
           set -- $(printf '%s\n' "$hl" | grep -o '"pane_id":"[^"]*"' | sed 's/^"pane_id":"//; s/"$//')
           set +f
           for hv in "$@"; do
+            [ "$hv" != "$h0" ] || continue
             htry "$hv"
             case $? in 0) return 0 ;; 2) return 1 ;; esac
           done
