@@ -8,6 +8,21 @@ with no section ships with no notes.
 Write for the person who runs Evlat, not for the code: what they will notice.
 Markdown; keep it to a few bullets.
 
+## 0.2.2
+
+- **Smart hide now gets out of your way.** With Settings → General →
+  Body set to **Smart hide**, the bar stays out while no window is under
+  it and tucks into the edge when one is — drag a window to the edge and
+  it steps aside, move the window away and it's back. It still peeks out
+  when a session waits for you or finishes. No permission is asked: Evlat
+  only looks at where windows are, never at what's in them.
+- **The old Smart hide is now Tucked.** If you liked the body always
+  tucked in, with only the sliver on the edge, pick **Tucked**. If you
+  were on Smart hide, you get the new behaviour after this update.
+- **Go to session finds the tab after your terminal restarts.** When a
+  terminal app such as Bateri restarts and keeps its tabs open, Go to
+  session still brings you to the session's tab instead of losing it.
+
 ## 0.2.1
 
 - **A question's answers go when you press Send.** When Claude asks you
