@@ -53,6 +53,9 @@ public struct SessionDetail: Equatable {
     /// A permission this session waits on, to answer from the card
     /// (`ApprovalHook`); `nil` on every other card.
     var approval: ApprovalCard?
+    /// The chat is switched on: a chat's card has its `[Back to chat]`
+    /// (`DetailCard.showsButton`). Off, the balloon would not open.
+    var opensChat = true
 
     public init(entity: String, label: String, source: AgentID?, phase: Phase,
                 enteredAt: Date?, activity: Signal.Activity?,
@@ -245,7 +248,7 @@ public final class DetailModel: ObservableObject {
     /// `signals` is the snapshot's: a sandbox's session is matched with the
     /// other sessions of its sandbox (`Sandbox.earlierStarts`).
     func update(row: SessionRow, signal: Signal?, approval: SessionDetail.ApprovalCard? = nil,
-                signals: [Signal] = []) {
+                signals: [Signal] = [], chatEnabled: Bool = true) {
         let pid = signal?.activity?.pid
         let words: (folder: String?, note: String?)
         switch row.traits.detail {
@@ -259,6 +262,7 @@ public final class DetailModel: ObservableObject {
                                  kind: row.kind, folder: words.folder,
                                  sender: row.sender, note: words.note, progress: row.progress)
         next.approval = row.hasLocalHost ? approval : nil
+        next.opensChat = chatEnabled
         // A sandbox's row before the remote question: its agent keeps
         // session records, but they are in the VM, and there is no server
         // to ask — its client is on this Mac.

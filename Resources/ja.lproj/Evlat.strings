@@ -502,6 +502,8 @@
 "settings.sessions.branch.off.detail" = "表示しません。";
 "settings.sessions.branch.auto.detail" = "カードに表示。バーには、同じ名前のセッションが別のブランチにあるときだけ表示します。";
 "settings.sessions.branch.on.detail" = "カードと、gitリポジトリ内のすべてのセッションの横に表示します。";
+"settings.chat.enabled" = "チャットを有効にする";
+"settings.chat.enabled.detail" = "マスコットをクリックするか、ショートカットを押すか、バーにファイルをドロップするとチャットできます。オフにすると実行中のチャットは止まります。";
 "settings.chat.open" = "開き方";
 "settings.chat.hotkey" = "ショートカット";
 "settings.chat.hotkey.detail" = "システムが使っているキーは使えません。マスコットをクリックすればいつでも開けます。";

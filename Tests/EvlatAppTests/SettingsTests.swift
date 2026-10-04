@@ -55,6 +55,8 @@ final class SettingsTests: XCTestCase {
         var retried: [String] = []
         /// General's "Updates": nil is a copy with no updater.
         var autoUpdate: Bool? = nil
+        /// Chat's first switch.
+        var chatEnabled = true
     }
 
     private func model(_ recorder: Recorder) -> SettingsModel {
@@ -85,6 +87,8 @@ final class SettingsTests: XCTestCase {
         host.hasUpdater = { recorder.autoUpdate != nil }
         host.automaticallyUpdates = { recorder.autoUpdate ?? false }
         host.setAutomaticallyUpdates = { recorder.autoUpdate = $0 }
+        host.isChatEnabled = { recorder.chatEnabled }
+        host.setChatEnabled = { recorder.chatEnabled = $0 }
         let setup = SetupModel(host: SetupModel.Host(
             home: { recorder.home }, binary: { recorder.binary }, loginStatus: { nil },
             loginPath: { recorder.loginPath },
@@ -204,6 +208,62 @@ final class SettingsTests: XCTestCase {
         model.reload()
         XCTAssertEqual(model.setup.row(.commandLink)?.note,
                        "~/.local/bin is not on your shell's PATH: add it to type evlat alone.")
+    }
+
+    // MARK: - The chat switch
+
+    func testTheChatIsOnUnlessTurnedOff() {
+        XCTAssertTrue(AppController.chatEnabled(defaults), "nothing stored: on")
+        XCTAssertTrue(AppController.chatEnabled(nil))
+        defaults.set(false, forKey: AppController.chatEnabledKey)
+        XCTAssertFalse(AppController.chatEnabled(defaults))
+        XCTAssertEqual(AppController.chatEnabledKey, "chat.enabled")
+    }
+
+    /// The switch writes `chat.enabled` and nothing reads as a write before
+    /// it; an isolated process keeps it in memory, as it does the backend.
+    func testTheChatSwitchIsStoredAndAnIsolatedProcessKeepsItInMemory() {
+        let controller = AppController(defaults: defaults)
+        XCTAssertTrue(controller.isChatEnabled)
+        XCTAssertNil(defaults.object(forKey: AppController.chatEnabledKey), "reading writes nothing")
+        controller.setChatEnabled(false)
+        XCTAssertEqual(defaults.object(forKey: AppController.chatEnabledKey) as? Bool, false)
+        XCTAssertFalse(controller.isChatEnabled)
+        controller.setChatEnabled(true)
+        XCTAssertEqual(defaults.object(forKey: AppController.chatEnabledKey) as? Bool, true)
+
+        XCTAssertNil(AppController.chatDefaults(defaults, environment: ["EVLAT_PORT": "48999"]))
+        XCTAssertNil(AppController.chatDefaults(defaults, environment: ["EVLAT_CHATS": "/tmp/chats"]))
+        XCTAssertTrue(AppController.chatDefaults(defaults, environment: ["EVLAT_PORT": " "]) === defaults)
+        XCTAssertTrue(AppController.chatDefaults(defaults, environment: [:]) === defaults)
+
+        let unstored = AppController(defaults: nil)
+        unstored.setChatEnabled(false)
+        XCTAssertFalse(unstored.isChatEnabled, "without storage it is kept")
+        XCTAssertFalse(unstored.settingsHost.isChatEnabled())
+    }
+
+    /// The section's model says the switch, and its press goes to the app.
+    func testTheChatSwitchIsTheSectionsFirstWord() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        XCTAssertTrue(model.isChatEnabled)
+        model.setChatEnabled(false)
+        XCTAssertFalse(recorder.chatEnabled)
+        XCTAssertFalse(model.isChatEnabled, "off: the rest of the section is dim and takes no press")
+        model.setChatEnabled(true)
+        XCTAssertTrue(model.isChatEnabled)
+    }
+
+    /// Turning the chat off while a shortcut is being recorded ends the
+    /// recording: it would make a shortcut nothing registers.
+    func testTurningTheChatOffCancelsARecording() {
+        let recorder = Recorder()
+        let model = model(recorder)
+        model.toggleRecording()
+        XCTAssertTrue(model.recorder.isRecording)
+        model.setChatEnabled(false)
+        XCTAssertFalse(model.recorder.isRecording)
     }
 
     func testTheModesAreOfferedOnlyWithAClaude() {

@@ -512,6 +512,8 @@
 "settings.sessions.branch.off.detail" = "Hiç gösterilmez.";
 "settings.sessions.branch.auto.detail" = "Kartta gösterilir. Barda yalnızca aynı adlı oturumlar farklı branch'lerdeyse.";
 "settings.sessions.branch.on.detail" = "Kartta ve git deposundaki her oturumun yanında gösterilir.";
+"settings.chat.enabled" = "Sohbeti etkinleştir";
+"settings.chat.enabled.detail" = "Sohbet için maskota tıkla, kısayola bas ya da bara bir dosya bırak. Kapatmak koşan bir sohbeti durdurur.";
 "settings.chat.open" = "Açmak";
 "settings.chat.hotkey" = "Kısayol";
 "settings.chat.hotkey.detail" = "Sistemin kullandığı bir tuşu kabul etmez. Maskota tıklamak her zaman açar.";

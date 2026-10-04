@@ -185,6 +185,14 @@ which agent it is:
   server exits when stdin closes was not measured. Each turn is a new
   server, so Codex's "this command again" is measured to hold within one
   server only; across a turn's `thread/resume` it was not measured.
+- The chat can be switched off (Settings → Chat's first switch,
+  `chat.enabled`, on when nothing is stored). Off, nothing opens the
+  balloon (`openChat` refuses): the mascot's click is taken and does
+  nothing, a dragged file is not caught, the shortcut is not registered
+  (its own switch is kept) and leaves the menu, and a chat's card has no
+  `[Back to chat]`. Turning it off stops every running turn as Stop does
+  (`ChatStore.stopRunning`, not quitting's SIGTERM) and closes the balloon;
+  the rows stay.
 - A chat runs on the backend selected when it was made (Settings → Chat,
   `chat.backend`) and keeps it; its session id is the agent's own when the
   first turn names one (Codex's thread). None stored, it is the first
@@ -809,7 +817,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's |
+| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |

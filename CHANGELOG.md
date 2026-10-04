@@ -10,10 +10,13 @@ Markdown; keep it to a few bullets.
 
 ## Unreleased
 
-- **Chat starts with what you have.** If you haven't picked one in
-  Settings → Chat, a new chat runs on whichever of Claude Code and Codex
-  is installed — with only Codex, it's Codex. With neither, the chat says
-  so and links to where each one is installed.
+- **Chat starts with what you have, and can be turned off.** If you
+  haven't picked one in Settings → Chat, a new chat runs on whichever of
+  Claude Code and Codex is installed — with only Codex, it's Codex. With
+  neither, the chat says so and links to where each one is installed. If
+  you don't want the chat at all, turn off **Enable chat** at the top of
+  Settings → Chat: the mascot then ignores clicks, the shortcut and dropped
+  files, and a chat that was running stops.
 - **Claude Code in Docker sandboxes.** Sessions of Claude Code running in a
   local Docker sandbox (`sbx`) now show on the bar under the sandbox's
   name: working, waiting for you, finished, with the same sounds and

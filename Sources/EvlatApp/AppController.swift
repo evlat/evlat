@@ -1501,7 +1501,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// first, then the latest unseen end — else none, and the empty
     /// balloon shows the history. Old chats are pruned first.
     func openChat(chat requested: String? = nil, fresh: Bool = false) {
-        guard let bar = panel else { return }
+        // The chat switched off: no way in opens it, today's or a new one.
+        guard isChatEnabled, let bar = panel else { return }
         if isChatOpen {
             // Already out: only a chat asked for changes what it shows.
             if let requested { show(requested) }
@@ -1709,7 +1710,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Files for the next prompt: chips in the balloon, which opens for
     /// them if it is not open yet.
     func attach(_ items: [ChatFolder.Item]) {
-        guard !items.isEmpty else { return }
+        // Switched off, no chips gather for a balloon that cannot open.
+        guard isChatEnabled, !items.isEmpty else { return }
         chatModel.add(items)
         // Dropped on a closed balloon, the files start a chat of their own
         // rather than joining one that may still be running.
@@ -1722,6 +1724,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// lands. Called only while a drag is on; it writes nothing that did
     /// not change.
     func drag(_ drag: BarHostingView.Drag) -> Bool {
+        // The chat switched off takes no file: the hidden body stays in,
+        // the mascot catches nothing and a drop is not taken.
+        guard isChatEnabled else { return false }
         switch drag {
         case .over(let point, let screen):
             // A hidden body comes out whole for a file that reaches it, and
@@ -2058,6 +2063,39 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// switched on installs the approval hook.
     var holdsApprovals: Bool { enabledAgents.contains { $0.agent.approvals != nil } }
 
+    // MARK: - Chat switch
+
+    /// Settings → Chat's first switch; none stored is on. Off, the balloon
+    /// opens from nowhere (`openChat`), and the ways to it say so: the
+    /// mascot's click is taken and does nothing, a dragged file is not
+    /// caught, the shortcut is not registered and leaves the menu, a chat's
+    /// card has no `[Back to chat]`.
+    nonisolated static let chatEnabledKey = "chat.enabled"
+
+    nonisolated static func chatEnabled(_ defaults: UserDefaults?) -> Bool {
+        defaults?.object(forKey: chatEnabledKey) as? Bool ?? true
+    }
+
+    /// Without storage (`modeDefaults`' isolation), kept here.
+    private var chatEnabledUnstored = true
+
+    var isChatEnabled: Bool { modeDefaults.map(Self.chatEnabled) ?? chatEnabledUnstored }
+
+    /// The switch's one writer. Off stops every running turn as its Stop
+    /// would — a card nobody can open would hold its turn forever — and
+    /// closes the balloon; the rows stay. Either way the shortcut and the
+    /// card are applied again. The stored shortcut is left as it was.
+    func setChatEnabled(_ on: Bool) {
+        guard on != isChatEnabled else { return }
+        if let modeDefaults { modeDefaults.set(on, forKey: Self.chatEnabledKey) } else { chatEnabledUnstored = on }
+        if !on {
+            chats?.stopRunning()
+            closeChat()
+        }
+        applyHotKey()
+        if let snapshot = lastSnapshot { syncSelection(snapshot.ordered) }
+    }
+
     // MARK: - Chat backend
 
     /// The new chats' backend the user chose, by its id. An id this build
@@ -2115,7 +2153,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
     /// `EVLAT_CHATS`), which must not change the user's default — kept here.
     private var modeDefaults: UserDefaults? {
-        ChatStore.isolated(ProcessInfo.processInfo.environment) ? nil : defaults
+        Self.chatDefaults(defaults, environment: ProcessInfo.processInfo.environment)
+    }
+
+    /// The chat's storage — its switch, backend and modes — or none in an
+    /// isolated process (`ChatStore.isolated`).
+    nonisolated static func chatDefaults(_ defaults: UserDefaults?,
+                                         environment: [String: String]) -> UserDefaults? {
+        ChatStore.isolated(environment) ? nil : defaults
     }
     /// A mode picked for a backend without storage, by its id.
     private var modesUnstored: [AgentID: ChatMode] = [:]
@@ -2239,10 +2284,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Registers or unregisters the shortcut as the switch says; the answer
     /// is kept for the menu. While the recorder is up nothing is registered:
     /// a registered combination never reaches a window, so pressing the
-    /// current one again could not be recorded.
+    /// current one again could not be recorded. With the chat switched off
+    /// nothing is either, and there is no refusal to tell.
     func applyHotKey() {
         guard let hotKey else { return }
-        if isHotKeyOn, !hotKeyRecorder.isRecording {
+        if isHotKeyOn, isChatEnabled, !hotKeyRecorder.isRecording {
             let status = hotKey.register(hotKeyCombination)
             hotKeyStatus = status
             if status != noErr { NSLog("Evlat: the shortcut was not registered (%d)", status) }
@@ -2748,6 +2794,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
+            isChatEnabled: { [weak self] in self?.isChatEnabled ?? true },
+            setChatEnabled: { [weak self] in self?.setChatEnabled($0) },
             chatBackend: { [weak self] in self?.chatBackend ?? Agents.chatBackends[0] },
             setChatBackend: { [weak self] in self?.setChatBackend($0) },
             defaultMode: { [weak self] in self?.defaultMode ?? Agents.chatBackends[0].standardMode },
@@ -3239,7 +3287,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         detail.update(row: sessionRows.rows[slot],
                       signal: signals.first { $0.entity == selected },
                       approval: approvalCard(for: selected),
-                      signals: signals)
+                      signals: signals, chatEnabled: isChatEnabled)
     }
 
     /// The session's row index, if its row is wholly in sight.
@@ -3391,7 +3439,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard presence.takesMascotClick, let panel, let bounds = panel.contentView?.bounds,
               Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
                                 fromTop: point.y - bounds.minY - Self.headroom) else { return false }
-        toggleChat()
+        // The chat switched off: the click is still the mascot's and does
+        // nothing — handed on, it would reach `super.mouseDown`.
+        if isChatEnabled { toggleChat() }
         return true
     }
 
@@ -4106,7 +4156,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                     keyEquivalent: "")
         edgeItem.submenu = edges
         addDisplayEntry(to: menu, in: lang)
-        addHotKeyEntry(to: menu, in: lang)
+        // A shortcut to a chat that is switched off would open nothing.
+        if isChatEnabled { addHotKeyEntry(to: menu, in: lang) }
 
         if diagnostics {
             // Forcing a phase so it can be looked at: `waiting` and `failed`

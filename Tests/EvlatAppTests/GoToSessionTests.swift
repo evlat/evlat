@@ -481,6 +481,32 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertEqual(DetailCard.returnButton(in: "en"), .init(title: "Back to chat", enabled: true))
     }
 
+    /// With the chat switched off a chat's card has no `[Back to chat]` —
+    /// the balloon would not open — and a session's keeps its button.
+    func testSwitchedOffAChatsCardHasNoWayBack() throws {
+        let (controller, root) = try chatController()
+        defer { controller.closeChat(); controller.panel?.close(); controller.chatPanel?.close()
+                try? FileManager.default.removeItem(at: root) }
+        let entity = try XCTUnwrap(controller.sessionRows.rows.first).entity
+        controller.select(entity)
+        XCTAssertTrue(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+        controller.setChatEnabled(false)
+        let detail = try XCTUnwrap(controller.detail.detail)
+        XCTAssertFalse(DetailCard.showsButton(detail), "the open card loses it at once")
+        XCTAssertNil(DetailCard.go(detail))
+        controller.goToSession()
+        XCTAssertFalse(controller.isChatOpen)
+        XCTAssertEqual(activated, [])
+        controller.setChatEnabled(true)
+        XCTAssertTrue(DetailCard.showsButton(try XCTUnwrap(controller.detail.detail)))
+
+        let (sessions, _) = self.controller([signal("a")]) { .app(self.term) }
+        defer { sessions.panel?.close() }
+        sessions.setChatEnabled(false)
+        sessions.select("a")
+        XCTAssertTrue(DetailCard.showsButton(try XCTUnwrap(sessions.detail.detail)), "a session's card keeps it")
+    }
+
     /// `[Back to chat]` opens the balloon with that chat; the bar closes,
     /// nothing is activated, and the chat, now seen, goes passive and leaves
     /// the bar at its next close.

@@ -502,6 +502,8 @@
 "settings.sessions.branch.off.detail" = "Nie angezeigt.";
 "settings.sessions.branch.auto.detail" = "Auf der Karte. In der Leiste nur, wenn Sitzungen denselben Namen haben, aber auf verschiedenen Branches sind.";
 "settings.sessions.branch.on.detail" = "Auf der Karte und neben jeder Sitzung in einem Git-Repository.";
+"settings.chat.enabled" = "Chat aktivieren";
+"settings.chat.enabled.detail" = "Klicke auf das Maskottchen, drücke den Kurzbefehl oder lege eine Datei auf der Leiste ab, um zu chatten. Ausschalten stoppt einen laufenden Chat.";
 "settings.chat.open" = "Öffnen";
 "settings.chat.hotkey" = "Kurzbefehl";
 "settings.chat.hotkey.detail" = "Eine Taste, die das System nutzt, wird nicht angenommen. Ein Klick aufs Maskottchen öffnet ihn immer.";

@@ -502,6 +502,8 @@
 "settings.sessions.branch.off.detail" = "Nunca se muestra.";
 "settings.sessions.branch.auto.detail" = "En la tarjeta. En la barra solo cuando hay sesiones con el mismo nombre en ramas distintas.";
 "settings.sessions.branch.on.detail" = "En la tarjeta y junto a cada sesión que esté en un repositorio git.";
+"settings.chat.enabled" = "Activar el chat";
+"settings.chat.enabled.detail" = "Haz clic en la mascota, pulsa el atajo o suelta un archivo en la barra para chatear. Desactivarlo detiene un chat en curso.";
 "settings.chat.open" = "Apertura";
 "settings.chat.hotkey" = "Atajo";
 "settings.chat.hotkey.detail" = "No se acepta una tecla que use el sistema. Hacer clic en la mascota siempre lo abre.";

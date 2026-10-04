@@ -383,6 +383,16 @@ final class ChatStore {
         }
     }
 
+    /// The chat switched off: every running turn is stopped as its Stop
+    /// would be — its open cards denied at their own targets, then the
+    /// backend's `stopPlan` — so it ends as a stopped turn and its row
+    /// stays. Not `stopAll`'s SIGTERM, which is for quitting.
+    func stopRunning() {
+        for id in provider.chats.values.filter(\.isRunning).map(\.id) {
+            perform(.stop(chat: id))
+        }
+    }
+
     /// Evlat is quitting: every turn gets SIGTERM. Its record stays in the
     /// index, so the next launch marks the chat interrupted.
     func stopAll() {

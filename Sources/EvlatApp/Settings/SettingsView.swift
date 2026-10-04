@@ -604,6 +604,26 @@ private struct ChatSection: View {
     @ObservedObject var setup: SetupModel
 
     var body: some View {
+        // The switch, in a group of its own; off, everything under it is
+        // dim and takes no press.
+        SettingsRows {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.chat.enabled"), detail: model.t("settings.chat.enabled.detail"))
+                    Toggle("", isOn: Binding(get: { model.isChatEnabled }, set: { model.setChatEnabled($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.chat.enabled"))
+                }
+            }
+        }
+        Group { options }
+            .disabled(!model.isChatEnabled)
+            .opacity(model.isChatEnabled ? 1 : 0.45)
+    }
+
+    @ViewBuilder private var options: some View {
         SettingsGroup(title: model.t("settings.chat.open")) {
             RowBox {
                 HStack(spacing: 10) {

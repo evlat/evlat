@@ -569,6 +569,8 @@
 "settings.sessions.branch.off.detail" = "Never shown.";
 "settings.sessions.branch.auto.detail" = "On the card. On the bar only when sessions share a name but are on different branches.";
 "settings.sessions.branch.on.detail" = "On the card and beside every session in a git repository.";
+"settings.chat.enabled" = "Enable chat";
+"settings.chat.enabled.detail" = "Click the mascot, press the shortcut or drop a file on the bar to chat. Turning it off stops a running chat.";
 "settings.chat.open" = "Opening";
 "settings.chat.hotkey" = "Shortcut";
 "settings.chat.hotkey.detail" = "A key the system uses is not accepted. Clicking the mascot always opens it.";

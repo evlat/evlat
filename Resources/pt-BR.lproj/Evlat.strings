@@ -503,6 +503,8 @@
 "settings.sessions.branch.off.detail" = "Nunca aparece.";
 "settings.sessions.branch.auto.detail" = "No cartão. Na barra, só quando sessões têm o mesmo nome mas estão em branches diferentes.";
 "settings.sessions.branch.on.detail" = "No cartão e ao lado de cada sessão num repositório git.";
+"settings.chat.enabled" = "Ativar o chat";
+"settings.chat.enabled.detail" = "Clique no mascote, use o atalho ou solte um arquivo na barra para conversar. Desativar interrompe um chat em andamento.";
 "settings.chat.open" = "Abertura";
 "settings.chat.hotkey" = "Atalho";
 "settings.chat.hotkey.detail" = "Uma tecla usada pelo sistema não é aceita. Um clique no mascote sempre o abre.";

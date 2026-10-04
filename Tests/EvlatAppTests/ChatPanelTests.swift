@@ -662,6 +662,75 @@ final class ChatPanelTests: XCTestCase {
         XCTAssertEqual(controller.chatBackend.id, .claude)
     }
 
+    // MARK: - The chat switched off
+
+    /// Off, no way in opens the balloon: the calls, the shortcut, files
+    /// handed over, the mascot's click — taken, so it reaches nothing
+    /// under it — and a drag, which is not caught and not taken.
+    func testSwitchedOffNoWayOpensTheBalloon() throws {
+        let controller = controller(edge: .left)
+        defer { close(controller) }
+        let bar = try XCTUnwrap(controller.panel)
+        controller.setChatEnabled(false)
+        controller.openChat()
+        controller.toggleChat()
+        controller.hotKeyPressed()
+        XCTAssertFalse(controller.isChatOpen)
+        let items = [ChatFolder.Item(path: "/tmp/q3/rapor.pdf", isDirectory: false)]
+        controller.attach(items)
+        XCTAssertFalse(controller.isChatOpen)
+        XCTAssertEqual(controller.chatModel.attachments, [], "no chips for a balloon that cannot open")
+        let mascot = try onBar(controller, fromEdge: AppController.barWidth / 2, fromTop: mascotMiddle)
+        XCTAssertEqual(bar.onClick?(mascot), true, "the mascot's click is taken")
+        XCTAssertFalse(controller.isChatOpen, "and does nothing")
+        XCTAssertFalse(controller.drag(.over(point: mascot, screen: .zero)))
+        XCTAssertFalse(controller.mascot.catching, "no catching pose")
+        XCTAssertFalse(controller.drag(.drop(point: mascot, items: items)), "the drop is not taken")
+        XCTAssertFalse(controller.isChatOpen)
+
+        controller.setChatEnabled(true)
+        XCTAssertEqual(bar.onClick?(mascot), true)
+        XCTAssertTrue(controller.isChatOpen, "on again, the mascot opens it")
+    }
+
+    /// Turning the chat off with a turn running: the balloon closes and the
+    /// turn is stopped as Stop would — a finished turn, not a failure — and
+    /// its row stays on the bar.
+    func testTurningTheChatOffStopsTheTurnAndClosesTheBalloon() throws {
+        let controller = controller()
+        defer { close(controller) }
+        let fake = try fakeClaude()
+        let chats = ChatStore(root: directory, platform: .unknown,
+                              locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": fake]),
+                              environment: ["PATH": "/usr/bin:/bin", "FAKE_CLAUDE_SCENARIO": "slow"])
+        controller.chats = chats
+        controller.registry.register(chats.provider)
+        let listener = HookListener(port: 0) { _ in }
+        listener.start()
+        listener.awaitSettled(timeout: 5)
+        defer { listener.stop() }
+        chats.permissions = listener
+        controller.openChat()
+        XCTAssertTrue(controller.chatModel.submit("work"))
+        let id = try XCTUnwrap(controller.currentChat)
+        let streams = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated { chats.chat(id)?.messages.last == .reply("Working") }
+        }, object: nil)
+        wait(for: [streams], timeout: 10)
+        let pid = try XCTUnwrap(chats.processIdentifier(of: id))
+        controller.setChatEnabled(false)
+        XCTAssertFalse(controller.isChatOpen, "the balloon closes")
+        let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            MainActor.assumeIsolated { chats.chat(id)?.isRunning == false }
+        }, object: nil)
+        wait(for: [stopped], timeout: 10)
+        XCTAssertEqual(chats.chat(id)?.phase, .review)
+        XCTAssertNil(chats.chat(id)?.failure, "stopped, not failed")
+        XCTAssertFalse(AppController.isProcessAlive(pid), "the process is gone")
+        controller.refresh()
+        XCTAssertEqual(controller.sessionRows.rows.map(\.kind), [.job], "the row stays")
+    }
+
     private func textField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable { return field }
         return view.subviews.lazy.compactMap(textField(in:)).first

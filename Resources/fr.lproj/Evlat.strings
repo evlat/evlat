@@ -503,6 +503,8 @@
 "settings.sessions.branch.off.detail" = "Jamais affichée.";
 "settings.sessions.branch.auto.detail" = "Sur la carte. Sur la barre seulement quand des sessions portent le même nom mais sont sur des branches différentes.";
 "settings.sessions.branch.on.detail" = "Sur la carte et à côté de chaque session dans un dépôt git.";
+"settings.chat.enabled" = "Activer le chat";
+"settings.chat.enabled.detail" = "Cliquez sur la mascotte, utilisez le raccourci ou déposez un fichier sur la barre pour discuter. Le désactiver arrête un chat en cours.";
 "settings.chat.open" = "Ouverture";
 "settings.chat.hotkey" = "Raccourci";
 "settings.chat.hotkey.detail" = "Une touche utilisée par le système n’est pas acceptée. Un clic sur la mascotte l’ouvre toujours.";

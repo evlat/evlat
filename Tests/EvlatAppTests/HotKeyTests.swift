@@ -212,6 +212,30 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(lines(), [], "turned off, there is no failure to show")
     }
 
+    /// With the chat switched off the shortcut is let go, and its own
+    /// switch is left as stored; a refusal has nothing to be refused for.
+    /// On again, it is registered again.
+    func testSwitchedOffTheShortcutIsNotRegistered() throws {
+        let fake = FakeHotKey()
+        let controller = controller(fake)
+        defer { controller.panel?.close() }
+        func lines() -> [NSMenuItem] {
+            controller.makeMenu(diagnostics: false, in: "en").items.filter { $0.representedObject is SetupAttention }
+        }
+        XCTAssertEqual(fake.registered, .standard)
+        controller.setChatEnabled(false)
+        XCTAssertNil(fake.registered)
+        XCTAssertNil(defaults.object(forKey: AppController.hotKeyKey), "the shortcut's switch is not written")
+        XCTAssertTrue(controller.isHotKeyOn)
+        fake.status = OSStatus(eventHotKeyExistsErr)
+        controller.applyHotKey()
+        XCTAssertNil(fake.registered)
+        XCTAssertEqual(lines(), [], "nothing was asked for: no attention line")
+        fake.status = noErr
+        controller.setChatEnabled(true)
+        XCTAssertEqual(fake.registered, .standard)
+    }
+
     /// The press reaches the balloon: open, then closed.
     func testThePressTogglesTheBalloon() {
         let controller = AppController(defaults: defaults)

@@ -157,6 +157,23 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertFalse(rig.controller.isChatOpen, "an unseen mascot opens no balloon")
     }
 
+    /// With the chat switched off a file dragged to the strip brings no
+    /// body out and no catching pose; on, the same drag does both.
+    func testSwitchedOffADragBringsNoBody() throws {
+        let rig = rig(.smart)
+        defer { rig.panel.close() }
+        let bounds = try XCTUnwrap(rig.panel.contentView).bounds
+        let strip = CGPoint(x: bounds.maxX - 2, y: bounds.minY + AppController.headroom + 10)
+        rig.controller.setChatEnabled(false)
+        XCTAssertFalse(rig.controller.drag(.over(point: strip, screen: .zero)))
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver, "the hidden body stays in")
+        XCTAssertFalse(rig.controller.mascot.catching)
+        rig.controller.setChatEnabled(true)
+        XCTAssertTrue(rig.controller.drag(.over(point: strip, screen: .zero)))
+        XCTAssertEqual(rig.controller.barState.presence.level, .full, "on, the file brings it out")
+        _ = rig.controller.drag(.left)
+    }
+
     func testTheBalloonBringsTheWholeBody() throws {
         let rig = rig(.smart)
         defer {

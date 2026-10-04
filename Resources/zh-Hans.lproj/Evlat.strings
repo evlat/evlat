@@ -502,6 +502,8 @@
 "settings.sessions.branch.off.detail" = "从不显示。";
 "settings.sessions.branch.auto.detail" = "在卡片上显示。只有当会话同名但位于不同分支时，才在长条上显示。";
 "settings.sessions.branch.on.detail" = "在卡片上显示，并显示在每个位于 git 仓库中的会话旁。";
+"settings.chat.enabled" = "启用对话";
+"settings.chat.enabled.detail" = "点按吉祥物、按下快捷键或把文件拖到长条上即可对话。关闭后，正在进行的对话会停止。";
 "settings.chat.open" = "打开方式";
 "settings.chat.hotkey" = "快捷键";
 "settings.chat.hotkey.detail" = "不接受系统已占用的按键。点按吉祥物总能打开对话。";

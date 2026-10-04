@@ -116,6 +116,20 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(try edgeMenu(menu).items.map(\.state), [.on, .off])
     }
 
+    /// The chat switched off: the shortcut's line leaves both menus.
+    func testSwitchedOffTheChatHasNoShortcutLine() throws {
+        let controller = controller()
+        defer { controller.panel?.close() }
+        controller.setChatEnabled(false)
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
+                       ["Edge", "—", "Settings…", "Setup…", "Quit Evlat"])
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
+                       ["Edge", "Force state", "—", "Settings…", "Setup…", "Quit Evlat"])
+        controller.setChatEnabled(true)
+        XCTAssertEqual(titles(controller.makeMenu(diagnostics: false, in: "en")),
+                       ["Edge", "Shortcut: ⇧⌘Space", "—", "Settings…", "Setup…", "Quit Evlat"])
+    }
+
     func testTheTrayMenuAddsForceState() throws {
         let controller = controller()
         defer { controller.panel?.close() }

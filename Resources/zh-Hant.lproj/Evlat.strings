@@ -502,6 +502,8 @@
 "settings.sessions.branch.off.detail" = "一律不顯示。";
 "settings.sessions.branch.auto.detail" = "顯示在卡片上。只有在工作階段名稱相同但分支不同時，才顯示在長條上。";
 "settings.sessions.branch.on.detail" = "顯示在卡片上，以及每個位於 git 儲存庫中的工作階段旁邊。";
+"settings.chat.enabled" = "啟用對話";
+"settings.chat.enabled.detail" = "按一下吉祥物、按下快速鍵或把檔案拖到長條上即可對話。關閉後，正在進行的對話會停止。";
 "settings.chat.open" = "打開方式";
 "settings.chat.hotkey" = "快速鍵";
 "settings.chat.hotkey.detail" = "不接受系統已使用的按鍵。按一下吉祥物一律能打開對話。";

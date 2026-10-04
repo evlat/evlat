@@ -31,6 +31,10 @@ final class SettingsModel: ObservableObject {
         var isHotKeyOn: () -> Bool
         var setHotKey: (Bool) -> Void
         var hotKey: () -> HotKeyCombination
+        /// Chat's first switch (`AppController.setChatEnabled`); off, the
+        /// rest of the section is dim and takes no press.
+        var isChatEnabled: () -> Bool = { true }
+        var setChatEnabled: (Bool) -> Void = { _ in }
         /// Every backend a chat can run on, in the catalogue's order.
         var chatBackends: () -> [any ChatBackend] = { Agents.chatBackends }
         /// The new chats' backend: its modes and its program's name.
@@ -490,6 +494,18 @@ final class SettingsModel: ObservableObject {
 
     // MARK: - Chat
 
+    /// Off, the section's other groups are dim and take no press.
+    var isChatEnabled: Bool { host.isChatEnabled() }
+
+    func setChatEnabled(_ on: Bool) {
+        // A recording would end in a shortcut that is not registered.
+        if !on, recorder.isRecording { recorder.cancel() }
+        host.setChatEnabled(on)
+        // The shortcut's refusal, a dot on this section, goes with it.
+        setup.reload()
+        objectWillChange.send()
+    }
+
     var isHotKeyOn: Bool { host.isHotKeyOn() }
     var hotKey: HotKeyCombination { host.hotKey() }
 
@@ -863,6 +879,7 @@ final class SettingsModel: ObservableObject {
         "packs.note", "packs.done", "packs.error",
         "settings.agents.group", "settings.agents.note", "settings.usage.bar",
         "settings.usage.hideStale", "settings.usage.hideStale.detail",
+        "settings.chat.enabled", "settings.chat.enabled.detail",
         "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",
         "settings.chat.hotkey.change", "settings.chat.hotkey.cancel", "settings.chat.hotkey.recording",
         "settings.chat.hotkey.off",
