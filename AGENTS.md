@@ -618,7 +618,8 @@ is lost with the process.
   (`edgeClear`); the switches are shown under both. A stored `smart` is
   the new Smart hide, `tucked` is Tucked. Covered (`EdgeCover`): a window
   on screen, in layer 0, alpha above 0, not Evlat's pid, overlapping the
-  closed body — 54 pt × its closed length from the head — on the bar's own
+  closed body — 54 pt × its closed length from the head, never shorter
+  than the trigger strip (`BodyPresence.area`'s rule) — on the bar's own
   window, found in the same list by its number (no translation between
   the window server's and Cocoa's coordinates; no alpha threshold, so a
   near-clear layer-0 window keeps the edge covered — the quiet side). Only
@@ -627,12 +628,14 @@ is lost with the process.
   included. A new state takes two readings in a row that agree (every jump
   seen in use was one reading); a reading that cannot tell (`nil`: the
   bar's window not in the list) is not counted; the first reading since
-  Smart began — at launch, at the switch — is applied as it is. The body
-  does not come out under a still cursor on its place (it would open the
-  bar at the next move); that reading waits for the cursor to leave. The
+  Smart began — at launch, at the switch, after a move to another edge or
+  screen — is applied as it is. A body that is in does not come out under
+  a still cursor on its place (it would open the bar at the next move);
+  that reading waits for the cursor to leave. The
   live reader is set in `applicationDidFinishLaunching` only, so no test
   reads the user's windows (`edgeReader`, a fake in tests). Each state
-  applied is a line on stderr (`Evlat: edge …`). One pure rule, `BodyPresence`, turns the mode, its
+  applied, and the first reading since Smart began, is a line on stderr
+  (`Evlat: edge …`). One pure rule, `BodyPresence`, turns the mode, its
   three switches, the edge, the effective phase, the finish latch, the peek,
   the open bar, the balloon and a drag into a level — `none · sliver · peek
   · full` — and its hover and drop area; `AppController.applyPresence()` is the only writer of what

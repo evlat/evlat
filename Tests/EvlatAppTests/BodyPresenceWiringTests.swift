@@ -269,7 +269,9 @@ final class BodyPresenceWiringTests: XCTestCase {
     }
 
     /// What the reader is asked for: the bar's own window, its edge, and the
-    /// closed body's length now.
+    /// length the full body takes under Smart — the closed body's, never
+    /// shorter than the trigger strip, so no window lies under the
+    /// near-clear fill of an edge read clear.
     func testTheReaderIsAskedForTheBarsClosedBody() throws {
         let readings = EdgeReadings()
         let rig = edgeRig(.smart, readings, edge: .left)
@@ -281,8 +283,53 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertEqual(strip.edge, .left)
         XCTAssertEqual(strip.headroom, AppController.headroom)
         XCTAssertEqual(strip.width, AppController.barWidth)
-        XCTAssertEqual(strip.length, rig.controller.barState.length, accuracy: 0.5)
+        XCTAssertEqual(strip.length, max(rig.controller.barState.length, BodyPresence.triggerLength),
+                       accuracy: 0.5)
         XCTAssertEqual(strip.pid, ProcessInfo.processInfo.processIdentifier)
+    }
+
+    /// With no session the closed body is shorter than the trigger strip;
+    /// the strip is what is read, as it is what the full body covers.
+    func testAShortBodyIsReadOverTheTriggerStrip() throws {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        XCTAssertLessThan(rig.controller.barState.length, BodyPresence.triggerLength, "the premise")
+        poll(rig, readings, false)
+        let strip = try XCTUnwrap(readings.asked.last)
+        XCTAssertEqual(strip.length, BodyPresence.triggerLength, accuracy: 0.5)
+        XCTAssertEqual(try rig.bodyRect().height, BodyPresence.triggerLength, accuracy: 0.5)
+    }
+
+    /// The cursor holds nothing while the body is already out: the open bar
+    /// closes onto the clear edge it was read, not into the sliver.
+    func testTheOpenBarIsNotHeldByTheCursor() throws {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        let frame = rig.panel.frame
+        poll(rig, readings, true)
+        rig.controller.openBar()
+        rig.controller.mouseLocation = { CGPoint(x: frame.maxX - 10, y: frame.maxY - AppController.headroom - 20) }
+        poll(rig, readings, false, false)
+        XCTAssertTrue(rig.controller.edgeClear)
+        rig.controller.closeBar()
+        XCTAssertEqual(rig.controller.barState.presence.level, .full)
+    }
+
+    /// Docked to another edge, what was read was the old edge's: the next
+    /// reading is applied as it is, with no second to wait for.
+    func testAMoveToAnotherEdgeTakesTheNextReadingAtOnce() {
+        let readings = EdgeReadings()
+        let rig = edgeRig(.smart, readings)
+        defer { rig.panel.close() }
+        poll(rig, readings, false)
+        XCTAssertTrue(rig.controller.edgeClear)
+        rig.controller.dock(.left)
+        XCTAssertEqual(readings.asked.count, 1, "nothing is read at the move")
+        poll(rig, readings, true)
+        XCTAssertFalse(rig.controller.edgeClear)
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
     }
 
     /// A jump of one reading, seen in use, is swallowed; a reading that

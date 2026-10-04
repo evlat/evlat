@@ -189,12 +189,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var bodyMode: BodyPresence.Mode = .always {
         didSet {
             guard bodyMode != oldValue else { return }
-            // The edge is Smart's alone: leaving it forgets what was read
-            // (its `didSet` applies), and coming into it reads at once.
-            edgeCandidate = nil
-            edgeSettled = false
-            if bodyMode != .smart { edgeClear = false }
-            applyPresence()
+            // The edge is Smart's alone: leaving it forgets what was read,
+            // and coming into it reads at once. One apply either way.
+            edgeMoved()
+            if bodyMode != .smart && edgeClear {
+                edgeClear = false  // its `didSet` applies
+            } else {
+                applyPresence()
+            }
             if bodyMode == .smart { pollEdge() }
         }
     }
@@ -1412,6 +1414,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // moves under it would leave it pointing at nothing.
                 self?.closeChat()
                 panel?.reposition()
+                self?.edgeMoved()
                 // The screen row lists what is connected now.
                 self?.settings?.screensChanged()
             }
@@ -1482,6 +1485,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if barState.isOpen { closeBar() }
         panel?.edge = edge
         if barState.edge != edge { barState.edge = edge }
+        edgeMoved()
         applyPresence()
     }
 
@@ -3856,11 +3860,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// began is applied as it is. And the body does not come out under a
     /// still cursor: it would be under the cursor at its first move and
     /// open the bar unasked — that reading waits until the cursor leaves.
+    /// A body already out (the open bar, the balloon, a drag) does not grow
+    /// under the cursor, so it holds nothing.
     func pollEdge() {
         guard bodyMode == .smart, let panel else { return }
         let strip = EdgeCover.Strip(window: panel.windowNumber, edge: panel.edge,
                                     headroom: Self.headroom, width: Self.barWidth,
-                                    length: barState.length,
+                                    length: smartBodyLength,
                                     pid: ProcessInfo.processInfo.processIdentifier)
         guard let covered = edgeReader(strip) else { return }
         let clear = !covered
@@ -3874,7 +3880,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             edgeCandidate = clear
             return
         }
-        if clear, isCursorOnBody(panel) {
+        if clear, presence.level != .full, isCursorOnBody(panel) {
             edgeCandidate = clear
             return
         }
@@ -3892,15 +3898,31 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         NSLog("Evlat: edge %@", clear ? "clear" : "covered")
     }
 
+    /// The length, from the head, of the closed body Smart brings out: never
+    /// shorter than the strip that brings it out (`BodyPresence.area`'s
+    /// rule). The edge is read over all of it — a window under its lower end
+    /// would otherwise read clear and have the near-clear fill laid over it.
+    private var smartBodyLength: CGFloat {
+        max(barState.length, BodyPresence.triggerLength)
+    }
+
     /// The cursor over where the whole closed body would be — today's
-    /// 54 pt, from the head, never shorter than the strip that brings it out
-    /// (`BodyPresence.area`'s rule).
+    /// 54 pt × `smartBodyLength`, from the head.
     private func isCursorOnBody(_ panel: BarPanel) -> Bool {
         let point = mouseLocation()
         let fromEdge = panel.edge.inset(of: point.x, in: panel.frame)
         let fromTop = panel.frame.maxY - point.y - Self.headroom
         return fromEdge >= 0 && fromEdge < Self.barWidth
-            && fromTop >= 0 && fromTop < max(barState.length, BodyPresence.triggerLength)
+            && fromTop >= 0 && fromTop < smartBodyLength
+    }
+
+    /// The bar moved to another edge or screen: what was read was another
+    /// place's. Nothing is read here — the window list right after a move
+    /// is not known to have the new bounds — but the next tick's reading
+    /// is applied as it is, as at the switch into Smart.
+    private func edgeMoved() {
+        edgeCandidate = nil
+        edgeSettled = false
     }
 
     /// Settings → General → Body. Stored, then applied at once (`bodyMode`'s
@@ -4494,6 +4516,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         hover.closeNow()
         if barState.isOpen { closeBar() }
         panel?.display = id
+        edgeMoved()
         applyPresence()
     }
 
