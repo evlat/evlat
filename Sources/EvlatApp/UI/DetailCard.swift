@@ -470,8 +470,9 @@ struct DetailCard: View {
     /// question, how many may be picked, its options with their
     /// descriptions, "Other…" as the last one, and the way on. A
     /// single-select option answers with its press and moves on; one
-    /// answered before, come back to, has Next to keep its answer. A
-    /// multi-select one is ticked, then Next or Send. No press until armed.
+    /// answered before, come back to, has Next to keep its answer. On the
+    /// last question a press only picks, and Send sends. A multi-select one
+    /// is ticked, then Next or Send. No press until armed.
     private func questionSection(_ question: SessionDetail.QuestionCard, armed: Bool) -> some View {
         let options = question.question.options
         let multi = question.question.multiSelect
@@ -509,7 +510,9 @@ struct DetailCard: View {
                     backButton(live: armed)
                 }
                 approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false, live: armed)
-                if multi || question.canCommit {
+                // On the last question Send is always there, faint until
+                // something is picked: a press there picks, Send sends.
+                if multi || question.canCommit || question.isLast {
                     approvalButton(L10n.t(question.isLast ? Self.sendKey : Self.nextKey), button: .send,
                                    loud: true, live: armed, enabled: question.canCommit)
                 }

@@ -10,6 +10,11 @@ Markdown; keep it to a few bullets.
 
 ## Unreleased
 
+- **A question's answers go when you press Send.** When Claude asks you
+  something on the bar, picking an option on the last question no longer
+  sends your answers straight away: it marks your pick, and **Send** sends
+  them. Questions before the last still move on with one press, and Back
+  keeps everything you picked.
 - **Chat starts with what you have, and can be turned off.** If you
   haven't picked one in Settings → Chat, a new chat runs on whichever of
   Claude Code and Codex is installed — with only Codex, it's Codex. With

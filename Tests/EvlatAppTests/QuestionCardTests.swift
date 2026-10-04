@@ -26,11 +26,16 @@ final class QuestionCardTests: XCTestCase {
         XCTAssertTrue(card.takes(.option(1)))
         XCTAssertFalse(card.takes(.option(2)), "no such option")
         XCTAssertTrue(card.takes(.other))
-        XCTAssertFalse(card.takes(.send), "a single-select question has no Send")
+        XCTAssertFalse(card.takes(.send), "nothing picked: Send is faint")
+        XCTAssertEqual(card.question?.isLast, true, "the only question is the last: Send is drawn")
         let faint = SessionDetail.ApprovalCard(request([color]), draft: draft, armed: false)
         XCTAssertFalse([.deny, .option(0), .other].contains(where: faint.takes))
 
         draft.choose(0)
+        let picked = SessionDetail.ApprovalCard(request([color]), draft: draft, armed: true)
+        XCTAssertEqual(picked.question?.picked, [0], "the last question's press picks")
+        XCTAssertTrue(picked.takes(.send), "and Send sends")
+        draft.commit()
         XCTAssertNil(SessionDetail.ApprovalCard(request([color]), draft: draft, armed: true).question,
                      "an answered draft is no question")
     }

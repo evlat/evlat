@@ -36,9 +36,11 @@ public struct AgentQuestion: Equatable {
     /// and sent together once the last is answered.
     ///
     /// A single-select question is answered by one press: an option, or a
-    /// written answer. A multi-select one collects presses and a written
-    /// answer, and is answered by `commit`. `back` returns to the question
-    /// before, its answer still marked; what was picked further on is kept.
+    /// written answer — on the last question that press only picks, and
+    /// `commit` (Send) sends. A multi-select one collects presses and a
+    /// written answer, and is answered by `commit`. `back` returns to the
+    /// question before, its answer still marked; what was picked further on
+    /// is kept.
     public struct Draft: Equatable {
         /// One question's answer as picked: options by index, and a
         /// written answer.
@@ -79,8 +81,17 @@ public struct AgentQuestion: Equatable {
             return !picked.isEmpty || written != nil
         }
 
+        /// The question up is the last: its answer is the one that sends
+        /// them all.
+        public var isLast: Bool { current != nil && index == questions.count - 1 }
+
         /// An option pressed: the answer to a single-select question, one
         /// more (or one fewer) of a multi-select one's.
+        ///
+        /// A single-select question's press answers it and moves on —
+        /// except on the last question, where it only picks: sending is the
+        /// one step that cannot be taken back, so it waits for Send. A wrong
+        /// press there used to send every answer at once.
         public mutating func choose(_ option: Int) {
             guard let question = current, question.options.indices.contains(option) else { return }
             if question.multiSelect {
@@ -91,11 +102,12 @@ public struct AgentQuestion: Equatable {
                 }
             } else {
                 choices[index] = Choice(picked: [option])
-                index += 1
+                if !isLast { index += 1 }
             }
         }
 
-        /// A written answer: a single-select question's whole answer; a
+        /// A written answer: a single-select question's whole answer, moving
+        /// on as a press does (and, on the last question, only picked); a
         /// multi-select one's last part, after the pressed labels. Blank
         /// clears it.
         public mutating func write(_ text: String) {
@@ -105,7 +117,7 @@ public struct AgentQuestion: Equatable {
                 choices[index].written = text.isEmpty ? nil : text
             } else if !text.isEmpty {
                 choices[index] = Choice(written: text)
-                index += 1
+                if !isLast { index += 1 }
             }
         }
 

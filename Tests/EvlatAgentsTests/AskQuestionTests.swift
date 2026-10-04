@@ -58,22 +58,62 @@ final class AskQuestionTests: XCTestCase {
         XCTAssertEqual(AskQuestion.questions(in: ["questions": [["question": "Q", "options": [option]]]])?.count, 1)
     }
 
-    func testASingleSelectQuestionIsOnePress() {
+    /// The last question — here the only one — is picked by a press and
+    /// sent by Send: sending cannot be taken back, so a press never does it.
+    func testTheLastSingleSelectQuestionIsPickedThenSent() {
         var draft = AgentQuestion.Draft(questions: [color])
         XCTAssertEqual(draft.current, color)
-        XCTAssertNil(draft.answers)
+        XCTAssertTrue(draft.isLast)
+        XCTAssertFalse(draft.canCommit, "nothing to send yet")
         draft.choose(1)
+        XCTAssertEqual(draft.current, color, "picked, not sent")
+        XCTAssertEqual(draft.picked, [1])
+        XCTAssertNil(draft.answers)
+        draft.choose(0)
+        XCTAssertEqual(draft.picked, [0], "another press changes the pick")
+        XCTAssertTrue(draft.canCommit)
+        draft.commit()
         XCTAssertNil(draft.current)
-        XCTAssertEqual(draft.answers, ["Which color?": "Blue"])
+        XCTAssertEqual(draft.answers, ["Which color?": "Red"])
     }
 
-    /// Measured: text that is no label goes through as written.
+    /// Measured: text that is no label goes through as written. On the last
+    /// question it is picked like an option and sent by Send; a press after
+    /// it takes the pick back from the written answer.
     func testAWrittenAnswerIsTheWholeAnswerOfASingleSelect() {
         var draft = AgentQuestion.Draft(questions: [color])
         draft.write("   ")
         XCTAssertEqual(draft.index, 0, "a blank answer answers nothing")
+        XCTAssertFalse(draft.canCommit)
         draft.write(" Chartreuse ")
+        XCTAssertEqual(draft.written, "Chartreuse")
+        XCTAssertNil(draft.answers, "picked, not sent")
+        draft.choose(1)
+        XCTAssertNil(draft.written, "an option replaces the written answer")
+        draft.write("Chartreuse")
+        draft.commit()
         XCTAssertEqual(draft.answers, ["Which color?": "Chartreuse"])
+    }
+
+    /// A single-select question before the last is still one press: it
+    /// answers and moves on, as a written answer does.
+    func testASingleSelectQuestionBeforeTheLastIsOnePress() {
+        var draft = AgentQuestion.Draft(questions: [color, color2])
+        XCTAssertFalse(draft.isLast)
+        draft.choose(1)
+        XCTAssertEqual(draft.current, color2, "answered and moved on")
+        XCTAssertTrue(draft.isLast)
+        draft.back()
+        draft.write("Teal")
+        XCTAssertEqual(draft.current, color2, "a written answer moves on too")
+        draft.choose(0)
+        XCTAssertEqual(draft.current, color2, "the last one only picks")
+        draft.commit()
+        XCTAssertEqual(draft.answers, ["Which color?": "Teal", "Which shade?": "Light"])
+    }
+
+    private var color2: AgentQuestion {
+        .init(text: "Which shade?", header: "Shade", options: [.init(label: "Light"), .init(label: "Dark")])
     }
 
     /// Labels in the options' order, the written answer last, joined as
