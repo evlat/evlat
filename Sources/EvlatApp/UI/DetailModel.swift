@@ -209,6 +209,21 @@ public final class DetailModel: ObservableObject {
     /// The server's answer walked on this Mac (`SessionHost.resolve(remote:)`)
     /// for a machine id.
     var resolveRemote: (RemoteHost.Reply, String) -> SessionHost = { _, _ in .notFound }
+    /// Has the server select the session's herdr pane
+    /// (`RemoteHostLookup.select`); `false` when it cannot be asked, and
+    /// then `completion` is never called. The completion comes on the main
+    /// queue once the server answered, whatever it said. Injected like the
+    /// host; the default asks nobody.
+    var selectRemote: (RemoteQuery, @escaping () -> Void) -> Bool = { _, _ in false }
+    /// The longest the window waits for that selection: over a live master
+    /// the lookup took 0.19–0.25 s; a server slower than this still gets
+    /// its window, on whatever pane it shows.
+    static let selectWait: TimeInterval = 1
+    /// Runs the closure after the wait, on the main queue. Injected so a
+    /// test ends the wait by hand.
+    var waitForSelect: (TimeInterval, @escaping () -> Void) -> Void = { wait, then in
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: DispatchWorkItem(block: then))
+    }
     /// A sandbox session's terminal, from its sandbox's name, the session's
     /// start and the starts of that sandbox's sessions before it, whose
     /// clients are theirs (`Sandbox.resolve`). Injected like the host.
@@ -232,7 +247,7 @@ public final class DetailModel: ObservableObject {
     /// the remote fact, asked once and kept for the card's life: the click
     /// walks this Mac again from it, never asks the server again. A call
     /// that could not be made (no live master) is no answer and keeps no key.
-    private var remoteKey: (entity: String, machine: String)?
+    private var remoteKey: (entity: String, query: RemoteQuery)?
     private var remoteReply: RemoteHost.Reply?
     /// `nil` while the server is asked.
     private var remoteHost: SessionHost?
@@ -290,7 +305,7 @@ public final class DetailModel: ObservableObject {
             // per card, not per snapshot.
             hostKey = nil
             next.hasRemoteHost = true
-            if remoteKey?.entity != row.entity || remoteKey?.machine != query.machineID {
+            if remoteKey?.entity != row.entity || remoteKey?.query.machineID != query.machineID {
                 ask(query, entity: row.entity)
             }
             next.host = remoteHost ?? .notFound
@@ -333,7 +348,7 @@ public final class DetailModel: ObservableObject {
     private func ask(_ query: RemoteQuery, entity: String) {
         remoteGeneration += 1
         let generation = remoteGeneration
-        remoteKey = (entity, query.machineID)
+        remoteKey = (entity, query)
         remoteReply = nil
         remoteHost = nil
         let asked = findRemote(query) { [weak self] reply in
@@ -382,7 +397,10 @@ public final class DetailModel: ObservableObject {
     /// `true` when an app was activated (the caller closes the bar); if not,
     /// the card now says why. A remote session walks this Mac again from its
     /// server's kept answer; without one it goes nowhere, whatever reaches
-    /// this.
+    /// this. One in a herdr pane on its server is the exception to "asked
+    /// once": the server is asked to select the pane, found again there now,
+    /// and the window comes when it answers or after `selectWait`, whichever
+    /// is first — `true` then means the app was found and is on its way.
     @discardableResult
     func go() -> Bool {
         guard var current = detail else { return false }
@@ -398,8 +416,8 @@ public final class DetailModel: ObservableObject {
                 current.noTerminalOpen = found.noTerminalOpen
                 detail = current
             }
-        } else if current.hasRemoteHost, let reply = remoteReply, let machine = remoteKey?.machine {
-            host = resolveRemote(reply, machine)
+        } else if current.hasRemoteHost, let reply = remoteReply, let query = remoteKey?.query {
+            host = resolveRemote(reply, query.machineID)
             remoteHost = host
         } else {
             return false
@@ -409,7 +427,28 @@ public final class DetailModel: ObservableObject {
             detail = current
         }
         guard case .app(let app) = host else { return false }
+        // Only a pane the card promised: one herdr would not select is not
+        // waited for.
+        if app.serverPane == .selectable, let query = remoteKey?.query {
+            return selectThenActivate(app, query)
+        }
         return activate(app)
+    }
+
+    /// The server's pane first, then the window — once, whichever of the
+    /// answer and the wait comes first, and whatever the answer. Nothing
+    /// here reads the card: the caller closes it at once.
+    private func selectThenActivate(_ app: SessionHost.App, _ query: RemoteQuery) -> Bool {
+        let activate = self.activate
+        var done = false
+        let bring = {
+            guard !done else { return }
+            done = true
+            _ = activate(app)
+        }
+        guard selectRemote(query, bring) else { return activate(app) }
+        waitForSelect(Self.selectWait, bring)
+        return true
     }
 }
 

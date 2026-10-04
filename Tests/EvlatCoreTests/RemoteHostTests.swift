@@ -13,14 +13,19 @@ final class RemoteHostTests: XCTestCase {
                                                   startedAtKey: "startedAt")
 
     private var root: URL!
+    /// Outside `root`, which a script must leave as it was.
+    private var log: URL!
 
     override func setUp() {
         super.setUp()
         root = FileManager.default.temporaryDirectory.appendingPathComponent("remote-host-\(UUID().uuidString)")
+        log = FileManager.default.temporaryDirectory.appendingPathComponent("remote-host-log-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: log, withIntermediateDirectories: true)
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: log)
         super.tearDown()
     }
 
@@ -129,6 +134,25 @@ final class RemoteHostTests: XCTestCase {
                      "a value alone is no connection")
         XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n ssh 1 22 1 1 1\nn none\n".utf8), nonce: "n",
                                       arrivedAt: at), "two answers are none")
+    }
+
+    /// Whether a herdr pane on the server can be selected rides beside the
+    /// connection; with no such line the session is in no herdr pane there.
+    func testAHerdrPaneIsReadBesideTheConnection() throws {
+        let at = Date(timeIntervalSince1970: 0)
+        func pane(_ text: String) -> RemoteHost.Pane?? {
+            guard case .connection(let connection) = RemoteHost.reply(exitCode: 0, output: Data(text.utf8), nonce: "n",
+                                                                      arrivedAt: at) else { return nil }
+            return .some(connection.herdrPane)
+        }
+        XCTAssertEqual(pane("n herdr on\nn ssh 1 22 100 50 1.5\n"), .some(.selectable))
+        XCTAssertEqual(pane("n herdr off\nn env LC_A 1\nn ssh 1 22 100 50 1.5\n"), .some(.unselectable))
+        XCTAssertEqual(pane("n ssh 1 22 100 50 1.5\n"), .some(nil), "no line: no herdr pane")
+        XCTAssertEqual(pane("n herdr maybe\nn ssh 1 22 100 50 1.5\n"), .some(nil), "a word not known is no pane")
+        XCTAssertEqual(RemoteHost.reply(exitCode: 0, output: Data("n herdr on\nn none\n".utf8), nonce: "n",
+                                        arrivedAt: at), .noConnection)
+        XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n herdr on\n".utf8), nonce: "n", arrivedAt: at),
+                     "a pane alone is no connection")
     }
 
     /// Only an `LC_` word reaches the script, and only so many.
@@ -341,7 +365,7 @@ final class RemoteHostTests: XCTestCase {
     func testHerdrSaysTheNewestConnectedClientWithATerminal() throws {
         try herdrTree()
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25", shell)
         }
     }
 
@@ -375,8 +399,8 @@ final class RemoteHostTests: XCTestCase {
         }
         try herdrTree()
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]), "n env LC_TAB t://tab/612\nn ssh 2222 22 1000 610 2000.25",
-                           shell)
+            XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]),
+                           "n herdr on\nn env LC_TAB t://tab/612\nn ssh 2222 22 1000 610 2000.25", shell)
         }
         try muxTree(tmuxOutput: "$0\n", agentEnvironment: Self.tmuxPane + ["LC_TAB=t://tab/stale"])
         XCTAssertEqual(try run("/bin/sh", forwarded: ["LC_TAB"]), "n none", "no client, no value")
@@ -391,6 +415,113 @@ final class RemoteHostTests: XCTestCase {
         before = try listing()
         for shell in Self.shells { _ = try run(shell) }
         XCTAssertEqual(try listing(), before)
+    }
+
+    // MARK: - The server's herdr pane
+
+    /// The pane is found again from the process — the agent's
+    /// `HERDR_PANE_ID` (`w1:p2`) went stale when the pane moved, as
+    /// measured on herdr 0.9.3, and is asked about under the id herdr
+    /// answers with — and asked whether herdr takes it as an agent's:
+    /// read-only, `agent get`.
+    func testTheLookupSaysWhetherTheServersPaneCanBeSelected() throws {
+        try herdrTree()
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try herdrCalls(), ["pane process-info --pane w1:p2", "agent get w2:p3"],
+                           "\(shell): the agent's own id answered, so no list")
+        }
+        try herdrTree(agent: false)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n herdr off\nn ssh 2222 22 1000 610 2000.25", "\(shell): not an agent's")
+        }
+        try herdrTree(match: .foreground)
+        XCTAssertEqual(try run("/bin/sh"), "n herdr on\nn ssh 2222 22 1000 610 2000.25",
+                       "no pane's shell is the root: the pane running the agent")
+        try herdrTree(match: .none)
+        XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn ssh 2222 22 1000 610 2000.25", "no pane")
+        XCTAssertFalse(try herdrCalls().contains { $0.hasPrefix("agent") }, "no pane, nothing asked of it")
+        try herdrTree(exeName: "bash")
+        XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn ssh 2222 22 1000 610 2000.25",
+                       "the server's executable is not herdr: not run")
+        XCTAssertEqual(try herdrCalls(), [])
+    }
+
+    /// herdr is asked only under `timeout`: a stuck server must not cost
+    /// the lookup its connection. Without one, not asked; a call it cut
+    /// ends the asking.
+    func testHerdrIsAskedOnlyWithinABound() throws {
+        try herdrTree(timeout: false)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n herdr off\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try herdrCalls(), [], shell)
+            XCTAssertEqual(try runSelect(shell), "", shell)
+        }
+        try herdrTree(cut: true)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n herdr off\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try herdrCalls(), ["pane process-info --pane w1:p2"], "\(shell): cut once, no more")
+        }
+    }
+
+    /// The select script finds the session's pane at the click, as the
+    /// lookup does, and runs one command that changes anything: `agent
+    /// focus` on that pane, with the server's own executable and socket.
+    func testTheSelectScriptFocusesTheSessionsPaneAndNothingElse() throws {
+        for shell in Self.shells {
+            try herdrTree()
+            XCTAssertEqual(try runSelect(shell), "n focused", shell)
+            let calls = try herdrCalls()
+            XCTAssertEqual(calls.filter { !$0.hasPrefix("pane list") && !$0.hasPrefix("pane process-info ") },
+                           ["agent focus w2:p3"], shell)
+            XCTAssertTrue(try herdrSockets().allSatisfy { $0 == "/root/.config/herdr/herdr.sock" }, shell)
+        }
+        try herdrTree(match: .foreground)
+        XCTAssertEqual(try runSelect("/bin/sh"), "n focused")
+        XCTAssertEqual(try herdrCalls().last, "agent focus w2:p3")
+    }
+
+    /// No pane, no herdr, a server that is not herdr, a focus herdr
+    /// refused: nothing said, and nothing focused.
+    func testTheSelectScriptThatCannotSelectSaysNothing() throws {
+        try herdrTree(match: .none)
+        XCTAssertEqual(try runSelect("/bin/sh"), "")
+        XCTAssertFalse(try herdrCalls().contains { $0.hasPrefix("agent") }, "no pane")
+        try herdrTree(agent: false)
+        XCTAssertEqual(try runSelect("/bin/sh"), "", "herdr refused the focus")
+        try herdrTree(exeName: "bash")
+        XCTAssertEqual(try runSelect("/bin/sh"), "")
+        XCTAssertEqual(try herdrCalls(), [], "not herdr: not run")
+        try muxTree(tmuxOutput: "$0\n612 200 $0\n")
+        XCTAssertEqual(try runSelect("/bin/sh"), "", "a tmux pane is not selected")
+        try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 5), (800, "claude", 600, 7)],
+                 agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
+        XCTAssertEqual(try runSelect("/bin/sh"), "", "no pane at all")
+    }
+
+    /// Only a session id reaches a select script: anything else gives no
+    /// script, so nothing runs.
+    func testTheSelectScriptTakesOnlyASessionID() throws {
+        for bad in ["", "'; rm -rf ~; '", Self.session + "x", "w2:p3"] {
+            XCTAssertNil(RemoteHost.selectScript(sessionID: bad, records: Self.records, nonce: "n"), bad)
+        }
+        let script = try XCTUnwrap(RemoteHost.selectScript(sessionID: Self.session, records: Self.records, nonce: "n"))
+        XCTAssertTrue(script.contains("id='\(Self.session)'\n"))
+    }
+
+    func testTheSelectScriptWritesNothing() throws {
+        try herdrTree()
+        let before = try listing()
+        for shell in Self.shells { _ = try runSelect(shell) }
+        XCTAssertEqual(try listing(), before)
+    }
+
+    func testOnlyALineOfItsOwnSaysTheSelection() {
+        XCTAssertTrue(RemoteHost.selected(exitCode: 0, output: Data("Welcome\nn focused\n".utf8), nonce: "n"))
+        for text in ["", "n\n", "x focused\n", "n focused extra\n", "pre n focused\n"] {
+            XCTAssertFalse(RemoteHost.selected(exitCode: 0, output: Data(text.utf8), nonce: "n"), text)
+        }
+        XCTAssertFalse(RemoteHost.selected(exitCode: 255, output: Data("n focused\n".utf8), nonce: "n"))
     }
 
     // MARK: - Pane trees
@@ -431,8 +562,16 @@ final class RemoteHostTests: XCTestCase {
             """)
     }
 
+    /// How the fake herdr's panes hold the agent: the root (701) is a
+    /// pane's shell, only a foreground process is the agent, or neither.
+    private enum PaneMatch { case shell, foreground, none }
+
+    /// `timeout: false` leaves `timeout` off `PATH`; `cut` makes every call
+    /// one `timeout` ended (124).
     private func herdrTree(connected: [Int] = [602, 612, 632], ss: Bool = true,
-                           serverArguments: [String] = ["/usr/local/bin/herdr", "server"]) throws {
+                           serverArguments: [String] = ["/usr/local/bin/herdr", "server"],
+                           agent: Bool = true, match: PaneMatch = .shell, exeName: String = "herdr",
+                           timeout: Bool = true, cut: Bool = false) throws {
         // The server's ends of `herdr-client.sock`, and their peers in the
         // clients; 612's pair is above 2^31. 4010 is the API socket's
         // connection from the CLI call 642.
@@ -446,6 +585,7 @@ final class RemoteHostTests: XCTestCase {
         }
         procs += [Proc(642, "herdr", 611, 9000, sockets: [5010]),
                   Proc(700, "herdr", 1, 100, tty: 0, cmdline: serverArguments,
+                       exe: root.appendingPathComponent("opt/\(exeName)").path,
                        sockets: [4000, 4010] + connected.compactMap { ends[$0]?.server }),
                   Proc(701, "bash", 700, 101),
                   Proc(800, "claude", 701, 102, environment: ["HERDR_ENV=1", "HERDR_PANE_ID=w1:p2",
@@ -473,6 +613,8 @@ final class RemoteHostTests: XCTestCase {
         try FileManager.default.createDirectory(at: proc.appendingPathComponent("net"), withIntermediateDirectories: true)
         try (unix.joined(separator: "\n") + "\n").write(to: proc.appendingPathComponent("net/unix"),
                                                         atomically: true, encoding: .utf8)
+        try fakeHerdr(at: root.appendingPathComponent("opt/\(exeName)"), agent: agent, match: match, cut: cut)
+        if !timeout { try FileManager.default.removeItem(at: bin.appendingPathComponent("timeout")) }
         if ss {
             try executable(bin.appendingPathComponent("ss"), """
                 #!/bin/sh
@@ -483,6 +625,57 @@ final class RemoteHostTests: XCTestCase {
                 """)
         }
     }
+
+    /// herdr 0.9.3's CLI as measured, for the panes `w1:p1` (another
+    /// shell) and `w2:p3` (the agent's), which was `w1:p2` before it moved:
+    /// `process-info` still answers for the old id, by alias, with the
+    /// current one, and `agent` takes only the current one. Each
+    /// call is logged outside the tree — socket, then arguments — so the
+    /// tree stays the script's to leave unwritten.
+    private func fakeHerdr(at url: URL, agent: Bool, match: PaneMatch, cut: Bool = false) throws {
+        try? FileManager.default.removeItem(at: herdrLog)
+        let mine: String
+        switch match {
+        case .shell: mine = #""shell_pid":701,"foreground_processes":[{"name":"claude","pid":800}]"#
+        case .foreground: mine = #""shell_pid":650,"foreground_processes":[{"name":"x","pid":7},{"name":"claude","pid":800}]"#
+        case .none: mine = #""shell_pid":650"#
+        }
+        let list = #"{"id":"cli:pane:list","result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"},"#
+            + #"{"pane_id":"w2:p3","tab_id":"w2:t1"}],"type":"pane_list"}}"#
+        try executable(url, """
+            #!/bin/sh
+            printf '%s|%s\\n' "$HERDR_SOCKET_PATH" "$*" >> '\(herdrLog.path)'
+            \(cut ? "exit 124" : "")
+            case "$*" in
+              'pane list') printf '%s\\n' '\(list)' ;;
+              'pane process-info --pane w1:p1')
+                printf '%s\\n' '{"result":{"process_info":{"pane_id":"w1:p1","shell_pid":900},"type":"pane_process_info"}}' ;;
+              'pane process-info --pane w2:p3'|'pane process-info --pane w1:p2')
+                printf '%s\\n' '{"result":{"process_info":{"pane_id":"w2:p3",\(mine)},"type":"pane_process_info"}}' ;;
+              'agent get w2:p3'|'agent focus w2:p3') exit \(agent ? 0 : 1) ;;
+              *) printf '%s\\n' '{"error":{"code":"pane_not_found"}}' >&2; exit 1 ;;
+            esac
+            """)
+    }
+
+    private var herdrLog: URL { log.appendingPathComponent("herdr.log") }
+
+    private func herdrLines() throws -> [(socket: String, arguments: String)] {
+        guard let text = try? String(contentsOf: herdrLog, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").map { line in
+            let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            return (String(parts[0]), parts.count > 1 ? String(parts[1]) : "")
+        }
+    }
+
+    /// The fake herdr's calls since the tree was built, and empties the log.
+    private func herdrCalls() throws -> [String] {
+        let lines = try herdrLines()
+        try? FileManager.default.removeItem(at: herdrLog)
+        return lines.map(\.arguments)
+    }
+
+    private func herdrSockets() throws -> [String] { try herdrLines().map(\.socket) }
 
     /// How iproute2 6.1's `ss` prints an inode: as a signed 32-bit number.
     private static func ssInode(_ inode: UInt64) -> String {
@@ -594,11 +787,23 @@ final class RemoteHostTests: XCTestCase {
         let date = bin.appendingPathComponent("date")
         try "#!/bin/sh\necho 2000.25\n".write(to: date, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: date.path)
+        // This Mac has none; a server has GNU's or busybox's.
+        let timeout = bin.appendingPathComponent("timeout")
+        try "#!/bin/sh\nshift\nexec \"$@\"\n".write(to: timeout, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: timeout.path)
     }
 
     private func run(_ shell: String, forwarded: [String] = []) throws -> String {
-        let script = try XCTUnwrap(RemoteHost.script(sessionID: Self.session, records: Self.records, nonce: "n",
-                                                     forwarded: forwarded, proc: proc.path))
+        try execute(shell, try XCTUnwrap(RemoteHost.script(sessionID: Self.session, records: Self.records, nonce: "n",
+                                                           forwarded: forwarded, proc: proc.path)))
+    }
+
+    private func runSelect(_ shell: String) throws -> String {
+        try execute(shell, try XCTUnwrap(RemoteHost.selectScript(sessionID: Self.session, records: Self.records,
+                                                                 nonce: "n", proc: proc.path)))
+    }
+
+    private func execute(_ shell: String, _ script: String) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
         process.arguments = ["-s"]

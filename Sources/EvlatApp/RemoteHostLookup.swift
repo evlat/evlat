@@ -3,10 +3,13 @@ import EvlatCore
 
 /// Asks a server where a remote session's connection is (`RemoteHost`): one
 /// `ssh` over the machine's live tunnel master, on a queue of its own, its
-/// answer delivered on the main queue.
+/// answer delivered on the main queue. At a click it also has the server
+/// select the session's herdr pane (`select`), the one call that changes
+/// anything there.
 ///
-/// Not under `RemoteInstaller`'s per-machine lock: the call only reads, and
-/// a card must not wait for a settings write, nor make one wait. The caller
+/// Not under `RemoteInstaller`'s per-machine lock: the call only reads, or
+/// selects a pane, and a card must not wait for a settings write, nor make
+/// one wait. The caller
 /// asks once per card (`DetailModel`); a master that has gone is no call at
 /// all (`RemoteHost.arguments`), never a new login.
 final class RemoteHostLookup {
@@ -35,6 +38,45 @@ final class RemoteHostLookup {
             DispatchQueue.main.async { completion(reply) }
         }
         return true
+    }
+
+    /// The click's call: the server selects the session's herdr pane
+    /// (`RemoteHost.selectScript`), on the same queue as the questions.
+    /// `false`, and no `completion`, for an id that is not a session id.
+    /// `completion` comes on the main queue once it is over, selected or
+    /// not. A call still queued `startBy` after the click — behind another
+    /// card's slow question — is not made: the window has come meanwhile,
+    /// and a pane selected under the user's hands later would be a surprise.
+    @discardableResult
+    func select(sessionID: String, records: SessionRecords, target: String, controlPath: String,
+                startBy: TimeInterval, completion: @escaping () -> Void) -> Bool {
+        guard RemoteHost.isSessionID(sessionID) else { return false }
+        let sshPath = self.sshPath
+        let latest = DispatchTime.now() + startBy
+        queue.async {
+            if DispatchTime.now() < latest {
+                Self.selectPane(sessionID: sessionID, records: records, target: target,
+                                controlPath: controlPath, ssh: sshPath)
+            }
+            DispatchQueue.main.async { completion() }
+        }
+        return true
+    }
+
+    /// The longest one selection may take: it needs a few herdr calls,
+    /// each cut at 2 s; over a live master it took 37–112 ms.
+    static let selectDeadline: TimeInterval = 3
+
+    /// The selection, synchronously; over the master only, like `ask`.
+    /// Whether herdr took the pane.
+    @discardableResult
+    static func selectPane(sessionID: String, records: SessionRecords, target: String, controlPath: String,
+                           ssh: String, deadline: TimeInterval = selectDeadline) -> Bool {
+        let nonce = UUID().uuidString
+        guard let script = RemoteHost.selectScript(sessionID: sessionID, records: records, nonce: nonce),
+              let answer = try? RemoteInstaller.run(ssh, RemoteHost.arguments(target: target, controlPath: controlPath),
+                                                    script: script, deadline: deadline) else { return false }
+        return RemoteHost.selected(exitCode: answer.status, output: answer.output, nonce: nonce)
     }
 
     /// The call, synchronously.

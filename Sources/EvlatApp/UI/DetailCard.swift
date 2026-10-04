@@ -845,10 +845,12 @@ struct DetailCard: View {
     static func button(for host: SessionHost, in lang: String = L10n.language) -> ButtonState {
         switch host {
         // Named by where it goes: the app is data, not translated. Through
-        // herdr with no pane to select it says so, rather than promise the
+        // herdr with a pane that will not be selected — here, or on a
+        // remote session's server — it says so, rather than promise the
         // session (tmux never selects one, and keeps the plain words).
         case .app(let app):
-            let key = app.herdr.map { $0.selectsPane ? openKey : openHerdrKey } ?? openKey
+            let selects = (app.herdr?.selectsPane ?? true) && app.serverPane != .unselectable
+            let key = selects ? openKey : openHerdrKey
             return ButtonState(title: L10n.t(key, ["app": app.name], in: lang), enabled: true)
         case .closed(let name):
             return ButtonState(title: L10n.t(closedKey, ["app": name], in: lang), enabled: false)

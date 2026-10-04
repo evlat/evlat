@@ -523,9 +523,17 @@ is lost with the process.
   is one) once `TMUX` names an ancestor that is tmux; herdr's newest client
   with a terminal connected to its server's `herdr-client.sock` (the
   server's ends from `/proc/net/unix` and its `fd` links, their peers from
-  `ss -x`). No client attached is said as `none`, which is no button; a
-  pane it cannot ask says nothing, and never falls back to the pane's own,
-  stale `SSH_CONNECTION`. A terminal that also hands its tab link in an
+  `ss -x`). In a herdr pane it also finds the agent's pane by this Mac's
+  rule — the agent's `HERDR_PANE_ID` first, else `pane list`, each pane's
+  `pane process-info`, keeping the id herdr answers with — and says
+  whether herdr takes it as an agent's (`agent get`), with the server's
+  own executable and `HERDR_SOCKET_PATH`, each call under `timeout 2` and
+  none without it. Unlike this Mac's `pane.focus`, only an agent's pane
+  can be selected there: herdr's CLI focuses a pane by id only through
+  `agent focus`, and a raw socket client is not sure to be on a server.
+  The card's words follow it as they do here. No client attached is said as `none`, which is no
+  button; a pane it cannot ask says nothing, and never falls back to the
+  pane's own, stale `SSH_CONNECTION`. A terminal that also hands its tab link in an
   `LC_*` variable, which `ssh`'s default `SendEnv`/`AcceptEnv LANG LC_*`
   carries, lists the name in its `TabLink` entry (`forwarded`; Bateri's
   `LC_BATERI_TAB_URL`): the script gets the table's names as checked
@@ -543,8 +551,19 @@ is lost with the process.
   with other `ssh` riding it is the app alone too. From that
   `ssh` the walk is the local one. The card shows the button only once
   found, says nothing while searching, and keeps the answer for its life:
-  the click walks this Mac again, never asks again. A card that could not
-  ask (no live master) asks on the next snapshot. A Docker sandbox's
+  the click walks this Mac again and does not ask where again. The one
+  exception to "only reads": a session in a herdr pane on its server has
+  that pane selected at the click — another fixed script on stdin, never
+  installed, over the same live master only, on the same serial queue,
+  argument only the checked session id (`RemoteHost.selectScript`,
+  `RemoteHostLookup.select`). It finds the record, the process and the
+  pane again by the same rules, and its one command that changes anything
+  is `agent focus <pane>`; only a pane the lookup said herdr selects is
+  asked for. The window waits for its answer at most 1 s
+  (`DetailModel.selectWait`), off the main queue, and comes whether or not
+  herdr took the pane; a selection still queued then is not made, and one
+  running is ended at 3 s. Measured over the master, 37–112 ms. A card that
+  could not ask (no live master) asks on the next snapshot. A Docker sandbox's
   session has no pid here and no server to ask: its terminal is a live
   `sbx run` client on this Mac with a terminal that names the sandbox
   (`--name <name>`, or, unnamed, `<agent>-<last part of its folder>`), read
@@ -1066,6 +1085,13 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   is the server's, from the terminal the server was **first** started in —
   a cmux tab long closed, or Ghostty while the client is in cmux — so the
   tab link is read from the client.
+- **A moved herdr pane keeps its old id for some calls and not others**
+  (herdr 0.9.3, measured in a container). After `pane move --new-workspace`
+  the pane's `HERDR_PANE_ID` still names the old id; `pane process-info
+  --pane <old>` answers by alias, with the new `pane_id` in the reply,
+  while `agent get`/`agent focus <old>` say `agent_not_found`. The first
+  remote select passed the old id on and focused nothing; the id used is
+  the one herdr answers with (`RemoteHost.herdrFunctions`).
 - **A closed tab's herdr client lives on, attached** (herdr 0.9.3, Bateri).
   The tab closed, its `login` sat exiting, and the `herdr` client stayed with
   no terminal (`tty ??`), still connected to the server, ignoring `TERM`

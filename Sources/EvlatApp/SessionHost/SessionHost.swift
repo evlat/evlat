@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import EvlatCore
 
 /// Where a session runs: the app `[Go to session]` brings forward.
 ///
@@ -37,6 +38,12 @@ enum SessionHost: Equatable {
         /// picks the pane inside it (`.pane`). The one multiplexer whose pane
         /// is selected (`Multiplexer.finish`).
         var herdr: HerdrLookup? = nil
+        /// What a remote session's server said of the herdr pane the
+        /// session runs in there (`RemoteHost.Connection.herdrPane`); `nil`
+        /// on this Mac, and for a remote session in no herdr pane. The
+        /// click selects it on the server (`RemoteHostLookup.select`), not
+        /// here: this is only what the card may promise.
+        var serverPane: RemoteHost.Pane? = nil
     }
 
     /// The lookups the walk makes, injected so the walk has no Darwin in it.

@@ -40,14 +40,19 @@ public enum RemoteHost {
         /// checked here beyond their shape: what a value may be is the
         /// shell's rule.
         public let forwarded: [String]
+        /// The herdr pane the session runs in on the server, and whether
+        /// the click can select it (`selectScript`); `nil` when it runs in
+        /// no herdr pane there.
+        public let herdrPane: Pane?
 
         public init(clientPort: Int, serverPort: Int, startedAt: Date, offset: TimeInterval?,
-                    forwarded: [String] = []) {
+                    forwarded: [String] = [], herdrPane: Pane? = nil) {
             self.clientPort = clientPort
             self.serverPort = serverPort
             self.startedAt = startedAt
             self.offset = offset
             self.forwarded = forwarded
+            self.herdrPane = herdrPane
         }
 
         /// The connection's start on this Mac's clock; `nil` without an
@@ -55,6 +60,17 @@ public enum RemoteHost {
         public var localStart: Date? {
             offset.map { startedAt.addingTimeInterval(-$0) }
         }
+    }
+
+    /// A herdr pane on the server, as the lookup found it.
+    public enum Pane: Equatable {
+        /// herdr takes it as an agent's pane (`agent get`): `agent focus`
+        /// selects it.
+        case selectable
+        /// In herdr, but herdr would not select it — not taken as an
+        /// agent's, not found among the server's panes, or a server that
+        /// cannot be asked. The window still comes; the card says so.
+        case unselectable
     }
 
     // MARK: - The session
@@ -122,7 +138,9 @@ public enum RemoteHost {
     /// - in a herdr pane (`HERDR_ENV`), the newest client connected to the
     ///   server's `herdr-client.sock`, with a terminal: the server's ends of
     ///   that socket from `<proc>/net/unix` and its `fd` links, their peers
-    ///   from `ss -x` (`/proc` names no peer);
+    ///   from `ss -x` (`/proc` names no peer). The agent's pane is found
+    ///   too (`herdrFunctions`) and one more line says whether herdr would
+    ///   select it — `agent get`, which only reads;
     /// - otherwise the agent itself. A pane's environment is the server's
     ///   first client's, which may be long gone, so a pane never falls back
     ///   to it.
@@ -133,7 +151,8 @@ public enum RemoteHost {
     /// time. No such `sshd`, or a pane with no client attached: `none`.
     /// Not Linux (no `<proc>/self`), no record, no live process, a pane whose
     /// values do not check out or whose server cannot be asked: nothing.
-    /// Every process the script runs only reads: `tmux` lists, `ss` lists.
+    /// Every process the script runs only reads: `tmux` lists, `ss` lists,
+    /// herdr lists and gets.
     ///
     /// Before the connection's line, each of `forwarded` that process has is
     /// printed, its value cut one byte past `maxForwardedValue` — so a cut
@@ -145,56 +164,11 @@ public enum RemoteHost {
     /// names are the caller's: this script knows no terminal.
     public static func script(sessionID: String, records: SessionRecords, nonce: String,
                               forwarded: [String] = [], proc: String = "/proc") -> String? {
-        guard isSessionID(sessionID) else { return nil }
+        guard let prelude = prelude(sessionID: sessionID, records: records, nonce: nonce, proc: proc) else { return nil }
         let q = RemoteSettings.quoted
         let names = forwarded.filter(isForwardedName).prefix(maxForwarded).joined(separator: " ")
-        return #"""
-        n=\#(q(nonce))
+        return prelude + herdrFunctions + #"""
         fw=\#(q(names))
-        r=\#(q(proc))
-        d="$HOME"/\#(q(records.directory))
-        id=\#(q(sessionID))
-        ik=\#(q(records.idKey))
-        pk=\#(q(records.pidKey))
-        sk=\#(q(records.startedAtKey ?? ""))
-        [ -d "$r/self" ] || exit 0
-        st() {
-          s=$(cat "$r/$1/stat" 2>/dev/null) || return 1
-          C=${s#*\(}
-          C=${C%\)*}
-          set -f
-          set -- ${s##*\) }
-          set +f
-          [ $# -ge 20 ] || return 1
-          P=$2
-          Y=$5
-          shift 19
-          T=$1
-        }
-        val() {
-          printf '%s\n' "$e" | sed -n "s/^$1=//p" | head -n 1
-        }
-        num() {
-          case $1 in ''|*[!0-9]*) return 1 ;; esac
-        }
-        b=$(sed -n 's/^btime //p' "$r/stat" 2>/dev/null)
-        p=
-        for f in "$d"/*.json; do
-          [ -f "$f" ] || continue
-          grep -q "\"$ik\"[[:space:]]*:[[:space:]]*\"$id\"" "$f" 2>/dev/null || continue
-          x=$(sed -n "s/.*\"$pk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
-          [ -n "$x" ] && [ -d "$r/$x" ] || continue
-          m=
-          [ -z "$sk" ] || m=$(sed -n "s/.*\"$sk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
-          if num "$m" && [ ${#m} -le 15 ] && num "$b" && st "$x" && num "$T"; then
-            g=$(( (b * 100 + T) / 100 - m / 1000 ))
-            [ "$g" -lt 120 ] && [ "$g" -gt -120 ] || continue
-          fi
-          p=$x
-          break
-        done
-        [ -n "$p" ] || exit 0
-        e=$(tr '\000' '\n' < "$r/$p/environ" 2>/dev/null) || exit 0
         above() {
           x=$1
           k=0
@@ -242,10 +216,9 @@ public enum RemoteHost {
           printf '%s none\n' "$n"
           exit 0
         }
-        o=
-        if command -v timeout >/dev/null 2>&1; then o='timeout 2'; fi
         h=
         hs=-1
+        hd=
         if printf '%s\n' "$e" | grep -q '^TMUX='; then
           v=$(val TMUX)
           w=$(val TMUX_PANE)
@@ -257,9 +230,7 @@ public enum RemoteHost {
           case $w in %*) ;; *) exit 0 ;; esac
           num "${w#%}" && [ ${#w} -le 12 ] || exit 0
           above "$p" "$sv" || exit 0
-          x=$(readlink "$r/$sv/exe" 2>/dev/null) || exit 0
-          x=${x% (deleted)}
-          [ "${x##*/}" = tmux ] || exit 0
+          isexe "$sv" tmux || exit 0
           a=$($o "$r/$sv/exe" -S "$so" display-message -p -t "$w" '#{session_id}' \; \
             list-clients -F '#{client_pid} #{client_activity} #{session_id}' 2>/dev/null) || exit 0
           set -f
@@ -278,21 +249,8 @@ public enum RemoteHost {
             shift 3
           done
         elif printf '%s\n' "$e" | grep -q '^HERDR_ENV='; then
-          case $(val HERDR_SOCKET_PATH) in /*) ;; *) exit 0 ;; esac
-          sv=
-          x=$p
-          k=0
-          while [ $k -lt 64 ]; do
-            st "$x" || break
-            [ "$P" -gt 1 ] 2>/dev/null || break
-            x=$P
-            set -f
-            set -- $(tr '\000' ' ' < "$r/$x/cmdline" 2>/dev/null)
-            set +f
-            if [ "${1##*/}" = herdr ] && [ "$2" = server ]; then sv=$x; break; fi
-            k=$((k + 1))
-          done
-          [ -n "$sv" ] || exit 0
+          hserver || exit 0
+          hd=1
           i=" $(socks "$sv" | tr '\n' ' ') "
           [ "$i" != "  " ] || exit 0
           ac=
@@ -331,11 +289,192 @@ public enum RemoteHost {
           printf '%s none\n' "$n"
           exit 0
         fi
+        if [ -n "$hd" ]; then
+          if hexe && hpane && hcall agent get "$hp" >/dev/null; then hy=on; else hy=off; fi
+          printf '%s herdr %s\n' "$n" "$hy"
+        fi
         e=$(tr '\000' '\n' < "$r/$h/environ" 2>/dev/null) || exit 0
         say "$h"
 
         """#
     }
+
+    /// The click's script, or `nil` for an id that is not a session id: it
+    /// finds the session's process as `script` does, and in a herdr pane
+    /// finds that pane again — now, not as the lookup saw it, since a moved
+    /// pane takes another id — and selects it with the server's own
+    /// executable and socket: `agent focus`, herdr's CLI, the one command
+    /// either script runs that changes anything. herdr moves every attached
+    /// client to the pane. Says `<nonce> focused` once herdr took it, and
+    /// nothing otherwise — not in herdr, a server that is not herdr, no
+    /// pane, a pane herdr does not take as an agent's.
+    public static func selectScript(sessionID: String, records: SessionRecords, nonce: String,
+                                    proc: String = "/proc") -> String? {
+        guard let prelude = prelude(sessionID: sessionID, records: records, nonce: nonce, proc: proc) else { return nil }
+        return prelude + herdrFunctions + #"""
+        printf '%s\n' "$e" | grep -q '^HERDR_ENV=' || exit 0
+        hserver && hexe && hpane || exit 0
+        hcall agent focus "$hp" >/dev/null || exit 0
+        printf '%s focused\n' "$n"
+
+        """#
+    }
+
+    /// Whether the select script said herdr took the pane.
+    public static func selected(exitCode: Int32, output: Data, nonce: String) -> Bool {
+        exitCode == 0 && String(decoding: output, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true).contains { $0 == "\(nonce) focused" }
+    }
+
+    /// Both scripts' beginning: the session's record, its live process
+    /// (`p`), that process's environment (`e`), and the `stat` reader
+    /// (`st`: name `C`, parent `P`, terminal `Y`, start `T`). `nil` for an
+    /// id that is not a session id.
+    private static func prelude(sessionID: String, records: SessionRecords, nonce: String,
+                                proc: String) -> String? {
+        guard isSessionID(sessionID) else { return nil }
+        let q = RemoteSettings.quoted
+        return #"""
+        n=\#(q(nonce))
+        r=\#(q(proc))
+        d="$HOME"/\#(q(records.directory))
+        id=\#(q(sessionID))
+        ik=\#(q(records.idKey))
+        pk=\#(q(records.pidKey))
+        sk=\#(q(records.startedAtKey ?? ""))
+        [ -d "$r/self" ] || exit 0
+        st() {
+          s=$(cat "$r/$1/stat" 2>/dev/null) || return 1
+          C=${s#*\(}
+          C=${C%\)*}
+          set -f
+          set -- ${s##*\) }
+          set +f
+          [ $# -ge 20 ] || return 1
+          P=$2
+          Y=$5
+          shift 19
+          T=$1
+        }
+        val() {
+          printf '%s\n' "$e" | sed -n "s/^$1=//p" | head -n 1
+        }
+        num() {
+          case $1 in ''|*[!0-9]*) return 1 ;; esac
+        }
+        b=$(sed -n 's/^btime //p' "$r/stat" 2>/dev/null)
+        p=
+        for f in "$d"/*.json; do
+          [ -f "$f" ] || continue
+          grep -q "\"$ik\"[[:space:]]*:[[:space:]]*\"$id\"" "$f" 2>/dev/null || continue
+          x=$(sed -n "s/.*\"$pk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
+          [ -n "$x" ] && [ -d "$r/$x" ] || continue
+          m=
+          [ -z "$sk" ] || m=$(sed -n "s/.*\"$sk\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$f" | head -n 1)
+          if num "$m" && [ ${#m} -le 15 ] && num "$b" && st "$x" && num "$T"; then
+            g=$(( (b * 100 + T) / 100 - m / 1000 ))
+            [ "$g" -lt 120 ] && [ "$g" -gt -120 ] || continue
+          fi
+          p=$x
+          break
+        done
+        [ -n "$p" ] || exit 0
+        e=$(tr '\000' '\n' < "$r/$p/environ" 2>/dev/null) || exit 0
+        o=
+        if command -v timeout >/dev/null 2>&1; then o='timeout 2'; fi
+        isexe() {
+          x=$(readlink "$r/$1/exe" 2>/dev/null) || return 1
+          x=${x% (deleted)}
+          [ "${x##*/}" = "$2" ]
+        }
+
+        """#
+    }
+
+    /// The herdr pane, found from the process as this Mac finds it
+    /// (`Herdr.pane`), and so herdr's pane is found only as surely as it
+    /// is selected — by its id, and only an agent's (`agent get`, `agent
+    /// focus`: herdr's CLI focuses a pane by id no other way, and a raw
+    /// socket client is not sure to be on a server). `hserver` walks from
+    /// `p` to the `herdr server` above
+    /// it (`sv`), keeping the last process before it (`hr`, the pane's
+    /// root) and the pane's API socket (`hk`, `HERDR_SOCKET_PATH`); `hexe`
+    /// takes the server's own executable (`hx`, never `PATH`); `hpane`
+    /// asks it for the pane whose shell is the root, else the first whose
+    /// foreground processes hold the root or the agent (`hp`), trying the
+    /// agent's `HERDR_PANE_ID` first — its id at launch, stale once the pane
+    /// moved; the list is asked only when that id is not the root's. The id
+    /// kept is the one herdr answers with: it still answers `process-info`
+    /// for a moved pane's old id, by alias, while `agent` takes only the
+    /// current one (measured on herdr 0.9.3). Every call is cut at 2 s by
+    /// `timeout`, and without one herdr is not asked: a stuck server must
+    /// not cost the lookup its connection line. Past a cut call, no more
+    /// are made. Only reads.
+    private static let herdrFunctions = #"""
+        hserver() {
+          hk=$(val HERDR_SOCKET_PATH)
+          case $hk in /*) ;; *) return 1 ;; esac
+          sv=
+          x=$p
+          k=0
+          while [ $k -lt 64 ]; do
+            st "$x" || return 1
+            [ "$P" -gt 1 ] 2>/dev/null || return 1
+            hr=$x
+            x=$P
+            set -f
+            set -- $(tr '\000' ' ' < "$r/$x/cmdline" 2>/dev/null)
+            set +f
+            if [ "${1##*/}" = herdr ] && [ "$2" = server ]; then sv=$x; return 0; fi
+            k=$((k + 1))
+          done
+          return 1
+        }
+        hexe() {
+          isexe "$sv" herdr || return 1
+          hx="$r/$sv/exe"
+        }
+        hcall() {
+          [ -n "$o" ] || return 125
+          HERDR_SOCKET_PATH=$hk $o "$hx" "$@" 2>/dev/null
+        }
+        htry() {
+          case $1 in ''|-*|*[!a-zA-Z0-9:_-]*) return 1 ;; esac
+          [ ${#1} -le 64 ] || return 1
+          a=$(hcall pane process-info --pane "$1")
+          case $? in 0) ;; 1|2) return 1 ;; *) return 2 ;; esac
+          q=$(printf '%s\n' "$a" | sed -n 's/.*"pane_id":"\([^"]*\)".*/\1/p')
+          case $q in ''|-*|*[!a-zA-Z0-9:_-]*) return 1 ;; esac
+          [ ${#q} -le 64 ] || return 1
+          if [ "$(printf '%s\n' "$a" | sed -n 's/.*"shell_pid":\([0-9][0-9]*\).*/\1/p')" = "$hr" ]; then
+            hp=$q
+            return 0
+          fi
+          [ -z "$hf" ] || return 1
+          for y in $(printf '%s\n' "$a" | grep -o '"pid":[0-9][0-9]*' | sed 's/.*://'); do
+            if [ "$y" = "$hr" ] || [ "$y" = "$p" ]; then hf=$q; break; fi
+          done
+          return 1
+        }
+        hpane() {
+          hp=
+          hf=
+          htry "$(val HERDR_PANE_ID)"
+          case $? in 0) return 0 ;; 2) return 1 ;; esac
+          hl=$(hcall pane list)
+          case $? in 0) ;; 1|2) hl= ;; *) return 1 ;; esac
+          set -f
+          set -- $(printf '%s\n' "$hl" | grep -o '"pane_id":"[^"]*"' | sed 's/^"pane_id":"//; s/"$//')
+          set +f
+          for hv in "$@"; do
+            htry "$hv"
+            case $? in 0) return 0 ;; 2) return 1 ;; esac
+          done
+          hp=$hf
+          [ -n "$hp" ]
+        }
+
+        """#
 
     // MARK: - The answer
 
@@ -348,14 +487,21 @@ public enum RemoteHost {
     /// all of them "not known", never a guess. `arrivedAt` is when the
     /// answer reached this Mac: the clock offset is read against it. A
     /// forwarded variable whose line does not parse is left out; the
-    /// connection stands without it.
+    /// connection stands without it. So does the herdr pane's.
     public static func reply(exitCode: Int32, output: Data, nonce: String, arrivedAt: Date) -> Reply? {
         guard exitCode == 0 else { return nil }
         let text = String(decoding: output, as: UTF8.self)
         var forwarded: [String] = []
+        var herdrPane: Pane?
         var said: [Substring] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix(nonce + " ") {
             let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false)
+            if parts.count >= 2, parts[1] == "herdr" {
+                // A word not known is no pane: the card then promises nothing
+                // it would not keep, and the click selects nothing.
+                if parts.count == 3 { herdrPane = parts[2] == "on" ? .selectable : parts[2] == "off" ? .unselectable : nil }
+                continue
+            }
             if parts.count >= 2, parts[1] == "env" {
                 if parts.count == 4, isForwardedName(String(parts[2])), !parts[3].isEmpty,
                    parts[3].utf8.count <= maxForwardedValue,
@@ -378,6 +524,6 @@ public enum RemoteHost {
         // `date` without `%N` (busybox, BSD) prints a letter there: no offset.
         let offset = Double(words[6]).flatMap { $0.isFinite ? $0 : nil }.map { $0 - arrivedAt.timeIntervalSince1970 }
         return .connection(Connection(clientPort: client, serverPort: server, startedAt: started, offset: offset,
-                                      forwarded: forwarded))
+                                      forwarded: forwarded, herdrPane: herdrPane))
     }
 }

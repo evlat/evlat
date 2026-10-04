@@ -39,11 +39,28 @@ extension SessionHostTests {
     }
 
     func connection(port: Int = 19554, start: TimeInterval = SessionHostTests.tabStart + 0.11,
-                    offset: TimeInterval? = 0.24, forwarded: [String] = []) -> RemoteHost.Reply {
+                    offset: TimeInterval? = 0.24, forwarded: [String] = [],
+                    herdrPane: RemoteHost.Pane? = nil) -> RemoteHost.Reply {
         // The server's clock runs `offset` ahead: its start reads that much later.
         .connection(RemoteHost.Connection(clientPort: port, serverPort: 22,
                                           startedAt: Date(timeIntervalSince1970: start + (offset ?? 0)),
-                                          offset: offset, forwarded: forwarded))
+                                          offset: offset, forwarded: forwarded, herdrPane: herdrPane))
+    }
+
+    /// The server's herdr pane is the session's, whichever `ssh` here was
+    /// picked: it rides to the app, ambiguous picks in one app included.
+    func testTheServersHerdrPaneReachesTheApp() throws {
+        for pane in [RemoteHost.Pane.selectable, .unselectable] {
+            guard case .app(let one) = remote(connection(herdrPane: pane)) else { return XCTFail("\(pane)") }
+            XCTAssertEqual(one.serverPane, pane)
+            let started: [Int32: TimeInterval] = [1001: Self.tabStart, 1101: Self.tabStart + 5]
+            guard case .app(let either) = remote(connection(herdrPane: pane), table: twoTabs, sockets: twoTabSockets,
+                                                 started: started) else { return XCTFail("\(pane)") }
+            XCTAssertNil(either.tab, "ambiguous")
+            XCTAssertEqual(either.serverPane, pane)
+        }
+        guard case .app(let plain) = remote(connection()) else { return XCTFail() }
+        XCTAssertNil(plain.serverPane)
     }
 
     func remote(_ reply: RemoteHost.Reply, table: [Int32: Proc]? = nil,

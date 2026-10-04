@@ -1301,6 +1301,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         detail.findRemote = { [weak self] query, completion in
             self?.findRemoteHost(query, completion) ?? false
         }
+        detail.selectRemote = { [weak self] query, completion in
+            self?.selectRemotePane(query, completion) ?? false
+        }
         detail.resolveRemote = { [weak self] reply, machine in
             SessionHost.resolve(remote: reply, tunnel: self?.remote?.processIdentifier(of: machine))
         }
@@ -2708,13 +2711,31 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// call, otherwise (`DetailModel.findRemote`).
     private func findRemoteHost(_ query: DetailModel.RemoteQuery,
                                 _ completion: @escaping (RemoteHost.Reply?) -> Void) -> Bool {
-        guard let remote, case .connected = remote.state(of: query.machineID),
-              let controlPath = remote.controlPath(of: query.machineID),
-              let target = remote.machines.first(where: { $0.id == query.machineID })?.target else { return false }
+        guard let call = remoteHostCall(query.machineID) else { return false }
+        return call.lookup.find(sessionID: query.sessionID, records: query.records, target: call.target,
+                                controlPath: call.controlPath, completion: completion)
+    }
+
+    /// Has a remote session's server select its herdr pane, under the same
+    /// rule (`DetailModel.selectRemote`).
+    private func selectRemotePane(_ query: DetailModel.RemoteQuery,
+                                  _ completion: @escaping () -> Void) -> Bool {
+        guard let call = remoteHostCall(query.machineID) else { return false }
+        return call.lookup.select(sessionID: query.sessionID, records: query.records, target: call.target,
+                                  controlPath: call.controlPath, startBy: DetailModel.selectWait,
+                                  completion: completion)
+    }
+
+    /// The lookup and what a call to a machine rides on: only a connected
+    /// tunnel's master.
+    private func remoteHostCall(_ machineID: String)
+        -> (lookup: RemoteHostLookup, target: String, controlPath: String)? {
+        guard let remote, case .connected = remote.state(of: machineID),
+              let controlPath = remote.controlPath(of: machineID),
+              let target = remote.machines.first(where: { $0.id == machineID })?.target else { return nil }
         let lookup = remoteHostLookup ?? RemoteHostLookup(sshPath: remoteSSHPath)
         remoteHostLookup = lookup
-        return lookup.find(sessionID: query.sessionID, records: query.records, target: target,
-                           controlPath: controlPath, completion: completion)
+        return (lookup, target, controlPath)
     }
 
     /// The window's view of the machines (`RemoteMachinesModel.Host`).

@@ -117,21 +117,27 @@ extension SessionHost {
     /// is. `tunnel` is the machine's tunnel `ssh`, `nil` while it is down.
     /// Ambiguous candidates all in one app give that app, with no tab and
     /// no pane: it is right to bring forward, and nothing more is known.
+    /// The server's herdr pane is the session's whichever `ssh` was picked,
+    /// so it rides to the app either way.
     static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?, evlat: Int32,
                         _ probe: Probe) -> SessionHost {
         guard case .connection(let connection) = reply, let tunnel else { return .notFound }
         let forwarded = connection.forwarded
         let candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, probe)
+        let host: SessionHost
         switch Ssh.choose(candidates, for: connection, startedAt: probe.startedAt) {
         case .one(let pid):
             let riders = Ssh.muxClients(of: pid, probe)
-            guard riders.isEmpty else { return sameApp([pid] + riders, forwarded: forwarded, probe) }
-            return resolve(pid: pid, forwarded: forwarded, probe)
+            host = riders.isEmpty ? resolve(pid: pid, forwarded: forwarded, probe)
+                : sameApp([pid] + riders, forwarded: forwarded, probe)
         case .ambiguous(let pids):
-            return sameApp(pids, forwarded: forwarded, probe)
+            host = sameApp(pids, forwarded: forwarded, probe)
         case .none:
             return .notFound
         }
+        guard case .app(var app) = host else { return host }
+        app.serverPane = connection.herdrPane
+        return .app(app)
     }
 
     /// The one app every pid's walk reaches, else nothing. Its tab and its

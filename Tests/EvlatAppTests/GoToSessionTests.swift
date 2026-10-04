@@ -242,13 +242,118 @@ final class GoToSessionTests: XCTestCase {
     func testGoWalksAgainWithoutAskingTheServer() {
         let (controller, _) = remoteController([askable()])
         defer { controller.panel?.close() }
+        var selects = 0
+        controller.detail.selectRemote = { _, _ in selects += 1; return true }
         controller.select("remote:d:\(Self.session)")
         pending[0](found)
         controller.goToSession()
         XCTAssertEqual(asked.count, 1)
+        XCTAssertEqual(selects, 0, "in no herdr pane: nothing to select")
         XCTAssertEqual(walked.count, 2, "once on the answer, once on the click")
         XCTAssertEqual(activated, [term])
         XCTAssertFalse(controller.barState.isOpen)
+    }
+
+    // MARK: - A remote herdr pane
+
+    private var selects: [DetailModel.RemoteQuery] = []
+    private var selected: [() -> Void] = []
+    private var waits: [(TimeInterval, () -> Void)] = []
+
+    /// A remote card answered with a herdr pane, its select and its wait
+    /// held to answer by hand.
+    private func herdrController(asks: Bool = true, pane: RemoteHost.Pane = .selectable) -> AppController {
+        let (controller, _) = remoteController([askable()])
+        // The walk carries the server's pane to the app, as `Ssh` does.
+        controller.detail.resolveRemote = { [unowned self] reply, machine in
+            self.walked.append((reply, machine))
+            guard case .connection(let connection) = reply else { return .notFound }
+            var app = self.term
+            app.serverPane = connection.herdrPane
+            return .app(app)
+        }
+        selects = []
+        selected = []
+        waits = []
+        controller.detail.selectRemote = { [unowned self] query, completion in
+            guard asks else { return false }
+            self.selects.append(query)
+            self.selected.append(completion)
+            return true
+        }
+        controller.detail.waitForSelect = { [unowned self] wait, then in self.waits.append((wait, then)) }
+        controller.select("remote:d:\(Self.session)")
+        pending[0](.connection(RemoteHost.Connection(clientPort: 19554, serverPort: 22,
+                                                     startedAt: Date(timeIntervalSince1970: 0), offset: 0,
+                                                     herdrPane: pane)))
+        return controller
+    }
+
+    /// The app as the walk gives it, with the server's pane.
+    private var herdrTerm: SessionHost.App {
+        var app = term
+        app.serverPane = .selectable
+        return app
+    }
+
+    /// The click asks the server to select the pane, and the window waits
+    /// for it — not on the main queue, at most a second — so it comes up
+    /// on the pane. The bar closes at once.
+    func testARemoteHerdrPaneIsSelectedBeforeTheWindowComes() {
+        let controller = herdrController()
+        defer { controller.panel?.close() }
+        controller.goToSession()
+        XCTAssertEqual(selects, asked, "the same session, the same machine")
+        XCTAssertEqual(activated, [], "the window waits for the selection")
+        XCTAssertFalse(controller.barState.isOpen)
+        XCTAssertEqual(waits.map(\.0), [DetailModel.selectWait])
+        XCTAssertEqual(DetailModel.selectWait, 1)
+        selected[0]()
+        XCTAssertEqual(activated, [herdrTerm])
+        waits[0].1()
+        XCTAssertEqual(activated, [herdrTerm], "once")
+    }
+
+    /// A server slower than the wait: the window comes anyway, and the
+    /// late answer brings nothing more. One that could not select brings
+    /// the window just the same.
+    func testTheWindowComesWhenTheWaitIsOverOrTheSelectionFailed() {
+        var controller = herdrController()
+        controller.goToSession()
+        waits[0].1()
+        XCTAssertEqual(activated, [herdrTerm])
+        selected[0]()
+        XCTAssertEqual(activated, [herdrTerm], "a late answer does nothing")
+        controller.panel?.close()
+
+        activated = []
+        controller = herdrController()
+        defer { controller.panel?.close() }
+        controller.goToSession()
+        selected[0]()
+        XCTAssertEqual(activated, [herdrTerm], "answered, selected or not: the window comes")
+    }
+
+    /// No tunnel to select through: the window comes at once. A pane herdr
+    /// would not select is not waited for, nor asked about — the card did
+    /// not promise it; a remote session in no herdr pane asks nothing
+    /// (`testGoWalksAgainWithoutAskingTheServer`).
+    func testWithoutATunnelOrAPaneToSelectTheWindowComesAtOnce() {
+        var controller = herdrController(asks: false)
+        controller.goToSession()
+        XCTAssertEqual(activated, [herdrTerm])
+        XCTAssertEqual(waits.count, 0)
+        controller.panel?.close()
+
+        activated = []
+        controller = herdrController(pane: .unselectable)
+        defer { controller.panel?.close() }
+        controller.goToSession()
+        var unselectable = term
+        unselectable.serverPane = .unselectable
+        XCTAssertEqual(activated, [unselectable])
+        XCTAssertEqual(selects, [])
+        XCTAssertEqual(waits.count, 0)
     }
 
     /// Nothing found, no tunnel to ask through, an answer of no connection,
@@ -377,6 +482,26 @@ final class GoToSessionTests: XCTestCase {
             XCTAssertEqual(DetailCard.button(for: .app(app), in: "tr"),
                            .init(title: "herdr'ı Metalterm ile aç", enabled: true), "\(lookup)")
         }
+    }
+
+    /// A server's herdr pane follows the same rule: the button promises
+    /// the session only when every pane on the way will be selected — the
+    /// server's, and a local one the user's `ssh` runs in.
+    func testTheButtonNamesHerdrWhenTheServersPaneCannotBeSelected() {
+        var app = term
+        app.serverPane = .selectable
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"), .init(title: "Open in Metalterm", enabled: true))
+        app.serverPane = .unselectable
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"),
+                       .init(title: "Open herdr in Metalterm", enabled: true))
+        app.herdr = .pane(HerdrPane(socket: "/s", pane: "w1:p1"))
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"),
+                       .init(title: "Open herdr in Metalterm", enabled: true), "the local pane alone is not the session")
+        app.serverPane = .selectable
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"), .init(title: "Open in Metalterm", enabled: true))
+        app.herdr = .noMatch
+        XCTAssertEqual(DetailCard.button(for: .app(app), in: "en"),
+                       .init(title: "Open herdr in Metalterm", enabled: true))
     }
 
     func testTheFooterEndsWithTheTerminal() {
