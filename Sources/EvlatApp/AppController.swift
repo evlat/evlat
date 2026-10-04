@@ -4538,6 +4538,22 @@ enum BarMotion {
     static let cardContent = Animation.easeOut(duration: 0.16)
     static let cardTravel: CGFloat = 8
 
+    /// One question of a held request giving way to the next: the card's
+    /// height, its buttons and the lit tab move on this one curve.
+    static let questionStep = Animation.smooth(duration: 0.3)
+    /// How far the next question travels in: from the side it lies on.
+    static let questionTravel: CGFloat = 24
+
+    /// The question coming in slides from the side it lies on — ahead from
+    /// the trailing side, back from the leading one — and fades in; the one
+    /// leaving only fades, and quickly, so the two are never read together.
+    static func questionTransition(back: Bool) -> AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .offset(x: back ? -questionTravel : questionTravel))
+                .animation(questionStep),
+            removal: .opacity.animation(.easeOut(duration: 0.12)))
+    }
+
     /// The card's arrival and departure. Attached to the card itself, not to
     /// its placing, so the growth is anchored on the card's own edge beside
     /// the bar rather than on the screen edge, and it travels out of the bar

@@ -53,6 +53,10 @@ public struct SessionDetail: Equatable {
     /// A permission this session waits on, to answer from the card
     /// (`ApprovalHook`); `nil` on every other card.
     var approval: ApprovalCard?
+    /// The question up was reached by going back: the next one slides in
+    /// from the leading side (`BarMotion.questionTransition`). Read from the
+    /// step between two cards of the same request, kept while it stands.
+    var questionBack = false
     /// The chat is switched on: a chat's card has its `[Back to chat]`
     /// (`DetailCard.showsButton`). Off, the balloon would not open.
     var opensChat = true
@@ -317,6 +321,10 @@ public final class DetailModel: ObservableObject {
             // The row's, when it already read one: the two never disagree.
             next.branch = row.branch ?? signal?.detail.flatMap(resolveBranch)
             hostKey = (row.entity, pid)
+        }
+        if let before = detail?.approval, let now = next.approval, before.id == now.id,
+           let from = before.question?.index, let to = now.question?.index {
+            next.questionBack = to == from ? detail?.questionBack ?? false : to < from
         }
         if detail != next { detail = next }
     }

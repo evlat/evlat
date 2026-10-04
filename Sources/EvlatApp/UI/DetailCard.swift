@@ -24,6 +24,8 @@ import EvlatAgents
 /// session is selected: so is its minute tick.
 struct DetailCard: View {
     @ObservedObject var model: DetailModel
+    /// The question tabs' lit capsule, carried from one to the next.
+    @Namespace private var tabs
     /// The button's drawn rectangle, `nil` when it goes. The click is read
     /// from geometry by the panel (`AppController.click`), like the hovered row.
     var onButtonFrame: (CGRect?) -> Void = { _ in }
@@ -168,6 +170,9 @@ struct DetailCard: View {
                 // The body's hairline, so the card reads against a dark wall too.
                 .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
                 .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 2)
+                // One question giving way to another: the card's height, its
+                // buttons and the lit tab move together.
+                .animation(BarMotion.questionStep, value: detail.approval?.question?.index)
         }
     }
 
@@ -353,7 +358,7 @@ struct DetailCard: View {
         if let approval = detail.approval {
             Group {
                 if let question = approval.question {
-                    questionSection(question)
+                    questionSection(question, request: approval.id, back: detail.questionBack)
                 } else {
                     permissionSection(approval)
                 }
@@ -470,13 +475,43 @@ struct DetailCard: View {
     /// answered before, come back to, has Next to keep its answer. On the
     /// last question a press only picks, and Send sends. A multi-select one
     /// is ticked, then Next or Send.
-    private func questionSection(_ question: SessionDetail.QuestionCard) -> some View {
-        let options = question.question.options
-        let multi = question.question.multiSelect
-        return section(ask: true, gap: 10) {
+    ///
+    /// Going from one question to another, the question and its choices
+    /// give way whole: the next slides in from the side it lies on, the
+    /// last fades (`BarMotion.questionTransition`). They share one layer, so
+    /// the two never stand one above the other and push the buttons down.
+    private func questionSection(_ question: SessionDetail.QuestionCard, request: String,
+                                 back: Bool) -> some View {
+        section(ask: true, gap: 10) {
             if question.steps.count > 1 || question.steps.first?.header != nil {
                 steps(question)
             }
+            ZStack(alignment: .topLeading) {
+                questionBlock(question)
+                    .id("\(request)#\(question.index)")
+                    .transition(BarMotion.questionTransition(back: back))
+            }
+            HStack(spacing: 8) {
+                if question.canGoBack {
+                    backButton
+                }
+                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false)
+                // On the last question Send is always there, faint until
+                // something is picked: a press there picks, Send sends.
+                if question.question.multiSelect || question.canCommit || question.isLast {
+                    approvalButton(L10n.t(question.isLast ? Self.sendKey : Self.nextKey), button: .send,
+                                   loud: true, enabled: question.canCommit)
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// The question, how many may be picked, and its choices.
+    private func questionBlock(_ question: SessionDetail.QuestionCard) -> some View {
+        let options = question.question.options
+        let multi = question.question.multiSelect
+        return VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 // Claude's words: data.
                 Text(verbatim: question.question.text)
@@ -502,19 +537,6 @@ struct DetailCard: View {
             }
             .frame(maxHeight: Self.optionsMaxHeight)
             .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                if question.canGoBack {
-                    backButton
-                }
-                approvalButton(L10n.t(Self.denyKey), button: .deny, loud: false)
-                // On the last question Send is always there, faint until
-                // something is picked: a press there picks, Send sends.
-                if multi || question.canCommit || question.isLast {
-                    approvalButton(L10n.t(question.isLast ? Self.sendKey : Self.nextKey), button: .send,
-                                   loud: true, enabled: question.canCommit)
-                }
-            }
-            .padding(.top, 2)
         }
     }
 
@@ -540,7 +562,13 @@ struct DetailCard: View {
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 22)
-                .background(Capsule().fill(Color.white.opacity(now ? 0.12 : 0)))
+                .background {
+                    // One lit capsule, carried from tab to tab.
+                    if now {
+                        Capsule().fill(Color.white.opacity(0.12))
+                            .matchedGeometryEffect(id: "lit", in: tabs)
+                    }
+                }
             }
         }
     }

@@ -159,6 +159,33 @@ final class QuestionCardTests: XCTestCase {
         XCTAssertLessThanOrEqual(height, AppController.detailCardMaxHeight - 8, "clipped at the cap")
     }
 
+    /// The card knows which way the last step went, so the next question
+    /// slides in from the side it lies on: ahead from the trailing side,
+    /// back from the leading one; a pick on the same question keeps it.
+    func testTheCardKnowsWhichWayTheQuestionsWent() {
+        let model = DetailModel()
+        model.resolveHost = { _ in .notFound }
+        let row = SessionRow(entity: "s", label: "s", phase: .waiting, source: .claude, waitKind: .answer)
+        var draft = AgentQuestion.Draft(questions: [color, sizes])
+        func show() {
+            model.update(row: row, signal: nil, approval: SessionDetail.ApprovalCard(request([color, sizes]), draft: draft))
+        }
+        show()
+        XCTAssertEqual(model.detail?.questionBack, false)
+        draft.choose(0)
+        show()
+        XCTAssertEqual(model.detail?.questionBack, false, "on to the second")
+        draft.back()
+        show()
+        XCTAssertEqual(model.detail?.questionBack, true, "back to the first")
+        draft.choose(1)
+        show()
+        XCTAssertEqual(model.detail?.questionBack, false, "on again")
+        draft.choose(0)
+        show()
+        XCTAssertEqual(model.detail?.questionBack, false, "a tick on the same question keeps the way")
+    }
+
     /// The line written in goes where its row goes, and keeps the keyboard:
     /// laid once where it opened, it stood beside a row that had moved.
     func testTheAnswerLineFollowsItsRow() {
