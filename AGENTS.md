@@ -523,7 +523,9 @@ is lost with the process.
   is one) once `TMUX` names an ancestor that is tmux; herdr's newest client
   with a terminal connected to its server's `herdr-client.sock` (the
   server's ends from `/proc/net/unix` and its `fd` links, their peers from
-  `ss -x`). In a herdr pane it also finds the agent's pane by this Mac's
+  `ss -x`) — or herdr's own ssh bridge, which has none: exactly `herdr
+  [--session <name>] remote-client-bridge [--idle-timeout-v1]`, how
+  `herdr --remote` reaches the server. In a herdr pane it also finds the agent's pane by this Mac's
   rule — the agent's `HERDR_PANE_ID` first, else `pane list`, each pane's
   `pane process-info`, keeping the id herdr answers with — and says
   whether herdr takes it as an agent's (`agent get`), with the server's
@@ -548,7 +550,14 @@ is lost with the process.
   only one (unless its start is > 10 s off), else the start nearest the
   connection's (≤ 2 s, every other > 10 s), else the app alone if all are
   in one, else no button. A pick that is the user's own `ControlMaster`
-  with other `ssh` riding it is the app alone too. From that
+  with other `ssh` riding it is the app alone too. herdr's own master is
+  not: `herdr --remote` runs its `ssh` with `ControlPersist`, so the pick
+  is a master parented to launchd whose riders are children of the
+  `herdr --remote` in the tab, and that `herdr` is walked instead (its
+  environment can be read; several on one master give the app alone).
+  Saved machines (`herdr machine add`) start their bridge from another
+  path (`--idle-timeout-v1`, not under `--remote`) and were not measured:
+  this rule leaves them as the user's own master. From that
   `ssh` the walk is the local one. The card shows the button only once
   found, says nothing while searching, and keeps the answer for its life:
   the click walks this Mac again and does not ask where again. The one
@@ -1111,6 +1120,25 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   otherwise ended the process (signal 13, `HerdrSocketTests`). Calls took
   0.5–2.5 ms; finding one pane among six, 3–7 ms. `pane.process_info`'s
   `tty` was `null` on macOS; its `shell_pid` is the pane's root process.
+- **`herdr --remote`'s connection is a detached master's, and its bridge
+  has no terminal** (herdr 0.9.3, a Bateri tab to a Docker server,
+  2026-10-04). herdr runs `ssh -S /tmp/hssh-<uid>/… -o ControlMaster=auto
+  -o ControlPersist=600 -T`: its first `ssh` forked a master parented to
+  launchd, arguments rewritten to `ssh: <socket> [mux]`, holding the only
+  TCP connection; the bridge's `ssh`, a child of `herdr --remote`, held a
+  unix socket to it and nothing else. The connection's `sshd` started
+  0.85 s after the master. On the server `herdr remote-client-bridge` ran
+  under `sshd: dev@notty` with no terminal, with the connection's
+  `SSH_CONNECTION` and the tab's `LC_BATERI_TAB_URL`. A client counted only
+  with a terminal never saw it, and the master's walk reached no app: no
+  button, until both were followed. `herdr --remote`'s own environment
+  read whole (`BATERI_TAB_URL`); its `ssh`'s did not.
+- **A focus on the server moves the `--remote` view.** `herdr workspace
+  focus` there changed the Bateri window's title — herdr's
+  `{hostname}: {workspace}` of the client's view — from `~` to `plain`.
+  `agent focus` takes the same path in herdr's source (`agent.focus`,
+  then `focus_all_shell_clients_on_default_target`); it was not measured
+  itself on `--remote`.
 - **A home NAT rewrites the ssh client port.** The tunnel's
   `192.168.1.217:60070` reached the server as `31.223.75.17:19656`, a
   Bateri tab's `:63114` as `:19554` (OpenSSH 9.6p1, 2026-10-02): matching
@@ -1258,6 +1286,13 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   fixed one, and a bound on time leaves room for a loaded machine: a 2 s
   bound on a read that waited on nothing measured 2.5–2.9 s with the suite
   running beside it.
+
+- **A capture of a window not on screen is its last frame.** With Bateri
+  off screen, `screencapture -l` of one of its windows showed a progress
+  counter minutes old, while the window titles
+  (`CGWindowListCopyWindowInfo`) changed at once; a capture of the herdr
+  window could not say whether its view had moved. Read such a change
+  from the title, or bring the window on screen first.
 
 - **Measure a binary started by absolute path.** A relative path is invisible
   to `pgrep -f` and to the Makefile's guard.

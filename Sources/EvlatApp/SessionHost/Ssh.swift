@@ -32,7 +32,9 @@ import EvlatCore
 /// tab only when every one gives the same: riders of one `ControlMaster`
 /// whose session's value names it.
 /// A pick that is a `ControlMaster` with other `ssh` riding it is ambiguous
-/// too: the server sees all of them as one connection.
+/// too: the server sees all of them as one connection. Except herdr's own
+/// master, detached under `herdr --remote`: it stands for that `herdr`
+/// (`herdrRemoteClients`).
 /// Measured on an Ubuntu server (OpenSSH 9.6p1): the connection's `sshd`
 /// started 0.11 s and −0.19 s from its Mac `ssh`, and the clocks were
 /// within half a second.
@@ -96,6 +98,29 @@ enum Ssh {
         }
     }
 
+    /// The `herdr --remote` processes whose `ssh` rides `master`, when the
+    /// master is herdr's own; `nil` for any other. herdr runs its `ssh` with
+    /// `ControlMaster=auto` and `ControlPersist=600` on a control socket of
+    /// its own, so its first `ssh` detaches into a master parented to
+    /// launchd (its arguments rewritten to `ssh: <socket> [mux]`), which
+    /// holds the connection the server sees, and the bridge's `ssh` rides it
+    /// as a child of the `herdr --remote` in the tab (herdr 0.9.3, measured).
+    /// The master's walk reaches no app; the riders' `herdr` does, and its
+    /// environment can be read. Only that chain: a detached master every one
+    /// of whose riders is a child of a `herdr` run with `--remote`. Several
+    /// such `herdr` are several tabs on one master, told apart by nothing.
+    static func herdrRemoteClients(master: Int32, riders: [Int32], _ probe: SessionHost.Probe) -> [Int32]? {
+        guard probe.parent(master) == 1, !riders.isEmpty else { return nil }
+        var clients: [Int32] = []
+        for rider in riders {
+            guard let up = probe.parent(rider), up > 1, let path = probe.executablePath(up),
+                  (path as NSString).lastPathComponent == "herdr",
+                  probe.arguments(up).dropFirst().contains("--remote") else { return nil }
+            if !clients.contains(up) { clients.append(up) }
+        }
+        return clients
+    }
+
     private static func isSsh(_ pid: Int32, _ probe: SessionHost.Probe) -> Bool {
         probe.executablePath(pid).map { ($0 as NSString).lastPathComponent == "ssh" } ?? false
     }
@@ -128,8 +153,16 @@ extension SessionHost {
         switch Ssh.choose(candidates, for: connection, startedAt: probe.startedAt) {
         case .one(let pid):
             let riders = Ssh.muxClients(of: pid, probe)
-            host = riders.isEmpty ? resolve(pid: pid, forwarded: forwarded, probe)
-                : sameApp([pid] + riders, forwarded: forwarded, probe)
+            if riders.isEmpty {
+                host = resolve(pid: pid, forwarded: forwarded, probe)
+            } else if let clients = Ssh.herdrRemoteClients(master: pid, riders: riders, probe) {
+                // herdr's own master stands for the `herdr --remote` it
+                // serves: the session's tab is that one's.
+                host = clients.count == 1 ? resolve(pid: clients[0], forwarded: forwarded, probe)
+                    : sameApp(clients, forwarded: forwarded, probe)
+            } else {
+                host = sameApp([pid] + riders, forwarded: forwarded, probe)
+            }
         case .ambiguous(let pids):
             host = sameApp(pids, forwarded: forwarded, probe)
         case .none:

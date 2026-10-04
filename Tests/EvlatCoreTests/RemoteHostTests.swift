@@ -369,6 +369,39 @@ final class RemoteHostTests: XCTestCase {
         }
     }
 
+    /// `herdr --remote` reaches the server through its own bridge, run
+    /// under the connection's `sshd` with no terminal (herdr 0.9.3,
+    /// measured): a client all the same, newest here, and the one whose
+    /// connection and forwarded values are said. Only the bridge's exact
+    /// arguments, as herdr writes them, make one.
+    func testHerdrsSshBridgeIsAClientWithoutATerminal() throws {
+        let bridges = [["/usr/local/bin/herdr", "remote-client-bridge"],
+                       ["herdr", "remote-client-bridge", "--idle-timeout-v1"],
+                       ["/home/dev/.local/bin/herdr", "--session", "agents", "remote-client-bridge"],
+                       ["herdr", "--session", "agents", "remote-client-bridge", "--idle-timeout-v1"]]
+        for bridge in bridges {
+            try herdrTree(bridge: bridge)
+            for shell in Self.shells {
+                XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]),
+                               "n herdr on\nn env LC_TAB t://tab/bridge\nn ssh 4444 22 1000 9400 2000.25",
+                               "\(shell) \(bridge)")
+            }
+        }
+        let others = [["/usr/local/bin/herdr", "remote-api-bridge"],
+                      ["herdr", "remote-client-bridge", "--other"],
+                      ["herdr", "remote-client-bridge", "--idle-timeout-v1", "x"],
+                      ["herdr", "--session", "remote-client-bridge"],
+                      ["herdr"], ["herdr", "server"],
+                      ["/usr/bin/other", "remote-client-bridge"]]
+        for other in others {
+            try herdrTree(bridge: other)
+            for shell in Self.shells {
+                XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25",
+                               "\(shell) \(other): no terminal and not the bridge, so 612")
+            }
+        }
+    }
+
     func testHerdrWithNoClientIsNoConnection() throws {
         try herdrTree(connected: [])
         for shell in Self.shells {
@@ -571,13 +604,25 @@ final class RemoteHostTests: XCTestCase {
     private func herdrTree(connected: [Int] = [602, 612, 632], ss: Bool = true,
                            serverArguments: [String] = ["/usr/local/bin/herdr", "server"],
                            agent: Bool = true, match: PaneMatch = .shell, exeName: String = "herdr",
-                           timeout: Bool = true, cut: Bool = false) throws {
+                           timeout: Bool = true, cut: Bool = false, bridge: [String]? = nil) throws {
         // The server's ends of `herdr-client.sock`, and their peers in the
         // clients; 612's pair is above 2^31. 4010 is the API socket's
         // connection from the CLI call 642.
         let ends: [Int: (server: UInt64, client: UInt64)] = [602: (4001, 5001), 612: (4284371582, 4284213423),
-                                                             632: (4003, 5003)]
+                                                             632: (4003, 5003), 652: (4005, 5005)]
         var procs = clients(client: "herdr")
+        var connected = connected
+        if let bridge {
+            // `herdr --remote`'s bridge as measured: no terminal, run by the
+            // connection's `sshd: dev@notty` (650, started 9400), with that
+            // connection's environment and the tab's forwarded `LC_*`; the
+            // newest connected herdr.
+            procs += [Proc(650, "sshd", 500, 9400),
+                      Proc(652, "herdr", 650, 9500, tty: 0,
+                           environment: ["SSH_CONNECTION=1.1.1.1 4444 2.2.2.2 22", "LC_TAB=t://tab/bridge"],
+                           cmdline: bridge)]
+            connected.append(652)
+        }
         for index in procs.indices {
             if let pair = ends[procs[index].pid], connected.contains(procs[index].pid) {
                 procs[index].sockets = [7, pair.client]

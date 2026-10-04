@@ -274,4 +274,106 @@ extension SessionHostTests {
                        "bateri://tab/\(Self.newerTab)", "the port still decides")
         XCTAssertEqual(remote(.noConnection, running: running), .notFound)
     }
+
+    // MARK: - herdr --remote
+
+    /// The chain measured (2026-10-04, herdr 0.9.3, a Bateri tab running
+    /// `herdr --remote ssh://dev@127.0.0.1:2222` to a Docker server): herdr's
+    /// first `ssh` detached into a `ControlPersist` master parented to
+    /// launchd, which holds the connection; the bridge's `ssh` rides it from
+    /// under `herdr --remote`, whose environment names the tab. The server's
+    /// `sshd` started 0.85 s after the master, and Docker's NAT showed the
+    /// client port 48638.
+    static let remoteTab = "DF7C9ABB-5570-4B1E-AB50-DF41E11911A0"
+    static let container = SessionHost.Endpoint(address: "127.0.0.1", port: 2222)
+    static let masterStart: TimeInterval = 1_791_115_700
+
+    var herdrRemoteChain: [Int32: Proc] {
+        [
+            50: Proc(parent: 1, path: "/Applications/Evlat.app/Contents/MacOS/Evlat"),
+            51: Proc(parent: 50, path: Self.sshPath),
+            6679: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+            1575: Proc(parent: 6679, path: "/usr/bin/login"),
+            1576: Proc(parent: 1575, path: "/bin/zsh"),
+            2241: Proc(parent: 1576, path: "/Users/u/.local/bin/herdr"),
+            2250: Proc(parent: 2241, path: "/Users/u/.local/bin/herdr"),
+            2251: Proc(parent: 2241, path: Self.sshPath),
+            2245: Proc(parent: 1, path: Self.sshPath),
+        ]
+    }
+
+    func herdrRemote(_ reply: RemoteHost.Reply, table: [Int32: Proc]? = nil,
+                     environment: [Int32: [String]]? = nil,
+                     arguments: [Int32: [String]] = [2241: ["herdr", "--remote", "ssh://dev@127.0.0.1:2222"],
+                                                     2250: ["/Users/u/.local/bin/herdr", "client"]]) -> SessionHost {
+        // The master's accepted end (0xA2) is the rider's peer; 0xA1 is its
+        // listening socket.
+        let sockets: [Int32: [SessionHost.UnixSocket]] = [2245: [.init(pcb: 0xA1, peer: 0), .init(pcb: 0xA2, peer: 0)],
+                                                          2251: [.init(pcb: 0xB1, peer: 0xA2)]]
+        let tcp: [Int32: [SessionHost.TCPSocket]] = [
+            51: [.init(local: .init(address: "127.0.0.1", port: 49890), remote: Self.container)],
+            2245: [.init(local: .init(address: "127.0.0.1", port: 49567), remote: Self.container)]]
+        return SessionHost.resolve(remote: reply, tunnel: Self.tunnel, evlat: Self.evlat,
+                                   probe(table ?? herdrRemoteChain,
+                                         environment: environment ?? [2241: Self.bateriTab(Self.remoteTab)],
+                                         arguments: arguments, sockets: sockets,
+                                         started: [2245: Self.masterStart, 2251: Self.masterStart + 1], tcp: tcp))
+    }
+
+    var herdrBridge: RemoteHost.Reply {
+        .connection(RemoteHost.Connection(clientPort: 48638, serverPort: 22,
+                                          startedAt: Date(timeIntervalSince1970: Self.masterStart + 0.85), offset: 0,
+                                          forwarded: [Self.forwardedTab(Self.remoteTab)], herdrPane: .selectable))
+    }
+
+    func testHerdrsOwnMasterStandsForItsRemoteClient() {
+        guard case .app(let app) = herdrRemote(herdrBridge) else { return XCTFail("no app") }
+        XCTAssertEqual(app.bundleID, bateri.bundleID)
+        XCTAssertEqual(app.tab?.absoluteString, "bateri://tab/\(Self.remoteTab)")
+        XCTAssertEqual(app.serverPane, .selectable)
+        XCTAssertEqual(tab(of: herdrRemote(herdrBridge, environment: [:])), "bateri://tab/\(Self.remoteTab)",
+                       "herdr's environment unread: the forwarded value fills the tab")
+    }
+
+    /// Only that chain: a master that did not detach, a rider under a
+    /// shell (the user's own `ControlPersist`), or a `herdr` not run with
+    /// `--remote` leave the rule for riders as it was.
+    func testOnlyHerdrsDetachedMasterStandsForItsClient() {
+        var shell = herdrRemoteChain
+        shell[2251] = Proc(parent: 1576, path: Self.sshPath)
+        XCTAssertEqual(herdrRemote(herdrBridge, table: shell), .notFound, "the user's own detached master")
+        XCTAssertEqual(herdrRemote(herdrBridge, arguments: [2241: ["herdr"]]), .notFound, "not --remote")
+        var attached = herdrRemoteChain
+        attached[2245] = Proc(parent: 2241, path: Self.sshPath)
+        XCTAssertNil(Ssh.herdrRemoteClients(master: 2245, riders: [2251],
+                                            probe(attached, arguments: [2241: ["herdr", "--remote", "x"]])))
+        XCTAssertEqual(Ssh.herdrRemoteClients(master: 2245, riders: [2251],
+                                              probe(herdrRemoteChain, arguments: [2241: ["herdr", "--remote", "x"]])),
+                       [2241])
+    }
+
+    /// Two `herdr --remote` tabs on one master are one connection to the
+    /// server: the app comes forward, no tab is guessed.
+    func testTwoRemoteClientsOnOneMasterBringTheAppOnly() {
+        var table = herdrRemoteChain
+        table[3576] = Proc(parent: 1575, path: "/bin/zsh")
+        table[3241] = Proc(parent: 3576, path: "/Users/u/.local/bin/herdr")
+        table[3251] = Proc(parent: 3241, path: Self.sshPath)
+        let sockets: [Int32: [SessionHost.UnixSocket]] = [2245: [.init(pcb: 0xA1, peer: 0), .init(pcb: 0xA2, peer: 0),
+                                                                 .init(pcb: 0xA3, peer: 0)],
+                                                          2251: [.init(pcb: 0xB1, peer: 0xA2)],
+                                                          3251: [.init(pcb: 0xC1, peer: 0xA3)]]
+        let tcp: [Int32: [SessionHost.TCPSocket]] = [
+            51: [.init(local: .init(address: "127.0.0.1", port: 49890), remote: Self.container)],
+            2245: [.init(local: .init(address: "127.0.0.1", port: 49567), remote: Self.container)]]
+        let host = SessionHost.resolve(remote: herdrBridge, tunnel: Self.tunnel, evlat: Self.evlat,
+                                       probe(table, environment: [2241: Self.bateriTab(Self.remoteTab),
+                                                                  3241: Self.bateriTab(Self.olderTab)],
+                                             arguments: [2241: ["herdr", "--remote", "a"], 3241: ["herdr", "--remote", "a"]],
+                                             sockets: sockets, started: [2245: Self.masterStart], tcp: tcp))
+        guard case .app(let app) = host else { return XCTFail("no app") }
+        XCTAssertEqual(app.bundleID, bateri.bundleID)
+        XCTAssertNil(app.tab)
+        XCTAssertEqual(app.serverPane, .selectable)
+    }
 }

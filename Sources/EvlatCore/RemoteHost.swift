@@ -138,7 +138,12 @@ public enum RemoteHost {
     /// - in a herdr pane (`HERDR_ENV`), the newest client connected to the
     ///   server's `herdr-client.sock`, with a terminal: the server's ends of
     ///   that socket from `<proc>/net/unix` and its `fd` links, their peers
-    ///   from `ss -x` (`/proc` names no peer). The agent's pane is found
+    ///   from `ss -x` (`/proc` names no peer). herdr's own ssh bridge counts
+    ///   without one — `herdr [--session <name>] remote-client-bridge
+    ///   [--idle-timeout-v1]`, exactly, which `herdr --remote` runs under
+    ///   `sshd` with no terminal and the ssh connection's environment
+    ///   (herdr 0.9.3, measured); any other herdr with no terminal is a
+    ///   closed tab's ghost and still does not. The agent's pane is found
     ///   too (`herdrFunctions`) and one more line says whether herdr would
     ///   select it — `agent get`, which only reads;
     /// - otherwise the agent itself. A pane's environment is the server's
@@ -183,6 +188,17 @@ public enum RemoteHost {
         }
         socks() {
           ls -l "$r/$1/fd" 2>/dev/null | sed -n 's/.*socket:\[\([0-9][0-9]*\)\].*/\1/p'
+        }
+        hbridge() {
+          set -f
+          set -- $(tr '\000' ' ' < "$r/$1/cmdline" 2>/dev/null)
+          set +f
+          [ "${1##*/}" = herdr ] || return 1
+          shift
+          if [ "$1" = --session ] && [ $# -ge 3 ]; then shift 2; fi
+          [ "$1" = remote-client-bridge ] || return 1
+          shift
+          [ $# -eq 0 ] || { [ $# -eq 1 ] && [ "$1" = --idle-timeout-v1 ]; }
         }
         say() {
           x=$1
@@ -267,7 +283,7 @@ public enum RemoteHost {
             for f in $(grep -l '^[0-9][0-9]* (herdr) ' "$r"/[0-9]*/stat 2>/dev/null); do
               x=${f%/stat}
               x=${x##*/}
-              [ "$x" != "$sv" ] && st "$x" && [ "$Y" != 0 ] || continue
+              [ "$x" != "$sv" ] && st "$x" && { [ "$Y" != 0 ] || hbridge "$x"; } || continue
               z=$T
               for y in $(socks "$x"); do
                 case $pe in
