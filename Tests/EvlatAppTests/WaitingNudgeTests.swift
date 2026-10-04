@@ -44,6 +44,21 @@ final class WaitingNudgeTests: XCTestCase {
         XCTAssertEqual(nudge.update(waiting: ["a", "b"], now: t0 + 61, after: 60).due, [])
     }
 
+    /// At the tab when it came due: timed again from then, due once more
+    /// after the same minutes, and nothing to take back at its end.
+    func testARearmedWaitComesDueAgainAfterTheSameTime() {
+        var nudge = WaitingNudge()
+        _ = nudge.update(waiting: ["a"], now: t0, after: 60)
+        XCTAssertEqual(nudge.update(waiting: ["a"], now: t0 + 60, after: 60).due, ["a"])
+        nudge.rearm("a", at: t0 + 60)
+        XCTAssertEqual(nudge.update(waiting: ["a"], now: t0 + 119, after: 60), .init())
+        XCTAssertEqual(nudge.update(waiting: ["a"], now: t0 + 120, after: 60).due, ["a"])
+        nudge.rearm("a", at: t0 + 120)
+        XCTAssertEqual(nudge.update(waiting: [], now: t0 + 121, after: 60), .init(), "nothing was posted")
+        nudge.rearm("b", at: t0 + 121)
+        XCTAssertEqual(nudge.since, [:], "a wait not seen is not made up")
+    }
+
     func testTheStoredMinutesAreOnlyTheOffered() {
         let name = "evlat.tests.nudge.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!

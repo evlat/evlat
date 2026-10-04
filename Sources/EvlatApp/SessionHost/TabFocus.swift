@@ -184,10 +184,11 @@ enum TabFocus {
 }
 
 /// Whether the screen is locked, from the window server's session
-/// dictionary — no permission. Measured unlocked (macOS 26.4.1): the
-/// dictionary reads and has no `CGSSessionScreenIsLocked` at all, so a
-/// missing key is unlocked, not unknown. No dictionary, or a value that is
-/// not a number, is locked: the news is then told.
+/// dictionary — no permission. Measured (macOS 26.4.1): unlocked, the
+/// dictionary has no `CGSSessionScreenIsLocked` at all; locked, it is
+/// `true`; unlocked again, gone. So a missing key is unlocked, not
+/// unknown. No dictionary, or a value that is not a number, is locked: the
+/// news is then told.
 enum ScreenLock {
     static let key = "CGSSessionScreenIsLocked"
 

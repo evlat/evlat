@@ -263,6 +263,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private var waitingNudge = WaitingNudge()
     /// How a sound is made. A `var` so a test records it instead of hearing it.
     var playSound: (AlertSound) -> Void = { SoundPlayer.play($0) }
+    /// Whether the user is at a row's tab now (`TabFocus`), asked only as
+    /// news is about to be told: answered on the main queue, exactly once,
+    /// and at once with "no" for anything but a session on this Mac whose
+    /// terminal can be asked. At the tab the news is kept quiet; it is never
+    /// taken for seen. A `var` so a test answers it.
+    var isAtTab: (Signal, @escaping (Bool) -> Void) -> Void = { AppController.askIsAtTab($0, $1) }
     /// Waits seen at the first scan were already there: they make no sound,
     /// as the first scan's finishes do not.
     private var waitsScanned = false
@@ -3321,7 +3327,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The lengths, the width and the phase are all read now; the hover
         // area follows them from here. It writes nothing that did not change.
         applyPresence()
-        tellNews(snapshot.news)
+        tellNews(snapshot)
         remindOfWaits(snapshot)
         remindOfFinishes(snapshot)
         if isChatOpen { syncChat() }
@@ -4092,19 +4098,84 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         waitsScanned = true
         notifier?.remove(entities: change.ended)
         // The first row's kind for several at once: one sound, not a chord.
+        // Its sound waits for the tab's answer; the wait is timed meanwhile.
         if !first, !barState.isOpen, !isChatOpen,
            let began = rows.first(where: { change.began.contains($0.entity) }) {
-            speak(Self.waitMoment(began.activity?.waitKind))
+            let moment = Self.waitMoment(began.activity?.waitKind)
+            if soundOn[moment] == true {
+                unlessAtTab(began, stillDue: { [weak self] in
+                    guard let self else { return false }
+                    return self.isUnwatched && self.isWaiting(began.entity)
+                }) { [weak self] in
+                    self?.speak(moment)
+                }
+            }
         }
-        let due = rows.filter { change.due.contains($0.entity) }
-        guard !due.isEmpty else { return }
-        speak(Self.waitMoment(due[0].activity?.waitKind))
-        guard nudgeNotify, let notifier else { return }
-        for row in due {
-            let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
-            notifier.post(entity: row.entity,
-                          title: L10n.t("notify.waiting.title", ["name": name]),
-                          body: L10n.t("notify.waiting.body", ["n": String(nudgeMinutes)]))
+        // Each wait due asks its own tab. At it, the wait is timed again and
+        // comes due after the same minutes; otherwise it speaks — the first
+        // one's sound, the rest let go inside the gap — and notifies.
+        for row in rows where change.due.contains(row.entity) {
+            let moment = Self.waitMoment(row.activity?.waitKind)
+            let tell = { [weak self] in
+                guard let self else { return }
+                self.speak(moment)
+                guard self.nudgeNotify, let notifier = self.notifier else { return }
+                let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
+                notifier.post(entity: row.entity,
+                              title: L10n.t("notify.waiting.title", ["name": name]),
+                              body: L10n.t("notify.waiting.body", ["n": String(self.nudgeMinutes)]))
+            }
+            guard soundOn[moment] == true || (nudgeNotify && notifier != nil) else { tell(); continue }
+            unlessAtTab(row, atTab: { [weak self] in
+                guard let self else { return }
+                self.waitingNudge.rearm(row.entity, at: self.now())
+            }, stillDue: { [weak self] in self?.isWaiting(row.entity) == true }, tell: tell)
+        }
+    }
+
+    /// Whether the row waits now, read afresh: a late answer finds the wait
+    /// already answered.
+    private func isWaiting(_ entity: String) -> Bool {
+        registry.snapshot(seen: seen).layers[entity] == .waiting
+    }
+
+    /// News of `row` is told by `tell` unless the user is at its tab
+    /// (`isAtTab`); at it, `atTab` runs instead. Answered at once — the
+    /// usual "no", no terminal to ask — it is told within this call, as it
+    /// always was. Answered later, it is told only if `stillDue` says the
+    /// news still holds under the rule that let it be told — what the user
+    /// saw meanwhile is not told late. A late sound may still fall inside
+    /// `soundGap` of another and be let go, as any would. Every question
+    /// ends in exactly one of the two.
+    private func unlessAtTab(_ row: Signal, atTab: @escaping () -> Void = {},
+                             stillDue: @escaping () -> Bool, tell: @escaping () -> Void) {
+        var asking = true
+        isAtTab(row) { at in
+            if at { return atTab() }
+            if asking || stillDue() { tell() }
+        }
+        asking = false
+    }
+
+    /// Neither the bar nor the balloon is out: a finish or a wait that
+    /// begins is told only then.
+    private var isUnwatched: Bool { !barState.isOpen && !isChatOpen }
+
+    /// The live question (`isAtTab`): a session on this Mac whose walk
+    /// reaches a terminal that can say (`TabFocus.query`). The walk is the
+    /// shallow one, here on the main queue as the card's is: it runs no
+    /// multiplexer, and a session in a pane is not asked about, since the
+    /// client's tab may show another pane. Only the terminal's own program
+    /// runs, off the main queue. Under XCTest — `make test-desktop`
+    /// included — nothing is asked: a test never runs the user's terminal.
+    nonisolated static func askIsAtTab(_ row: Signal, _ answer: @escaping (Bool) -> Void) {
+        guard NSClassFromString("XCTestCase") == nil, row.kind == .session, row.machine == nil,
+              let pid = row.activity?.pid, case .app(let app) = SessionHost.resolveShallow(pid: pid),
+              let query = TabFocus.query(for: app) else { return answer(false) }
+        TabFocus.ask(query) { at in
+            // Why a finish made no sound, on stderr like the other traces.
+            NSLog("Evlat: at tab %@ %@", String(row.entity.prefix(8)), at ? "yes" : "no")
+            answer(at)
         }
     }
 
@@ -4147,7 +4218,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// the bar was open was seen coming and is not told late when it closes,
     /// and the first scan's is old. A row first seen already finished is news
     /// like any other.
-    private func tellNews(_ news: [Finish]) {
+    ///
+    /// A lone finish asks first whether the user is at its tab (`isAtTab`),
+    /// where its peek or its sound would show it: at it, it is told quietly
+    /// — still told, so "Remind again" times it — and never seen. Several
+    /// at once are told as they always were.
+    private func tellNews(_ snapshot: Registry.Snapshot) {
+        let news = snapshot.news
         let first = !scanned
         scanned = true
         // `news` is newest first.
@@ -4158,16 +4235,36 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let untold = isChatEnabled ? all : all.filter { ChatSession.chatID(fromEntity: $0.entity) == nil }
         guard let fresh = untold.first else { return }
         guard !first, !barState.isOpen, !isChatOpen else { return }
-        // An older peek's timer finds the generation moved and does nothing.
-        peekGeneration &+= 1
-        announce(fresh.phase)
-        applyPresence()
         let told = now()
         for finish in untold { toldFinishes[finish] = told }
-        // Told with the peek, and like it once. Whatever the body shows: the
-        // sound is its own switch. Finishes told together make one sound, a
-        // failure's if one failed.
-        speak(untold.contains { $0.phase == .failed } ? .failed : .done)
+        // Finishes told together make one sound, a failure's if one failed.
+        let moment: SoundMoment = untold.contains { $0.phase == .failed } ? .failed : .done
+        let tell = { [weak self] in
+            guard let self else { return }
+            // An older peek's timer finds the generation moved and does nothing.
+            self.peekGeneration &+= 1
+            self.announce(fresh.phase)
+            self.applyPresence()
+            // Told with the peek, and like it once. Whatever the body shows:
+            // the sound is its own switch.
+            self.speak(moment)
+        }
+        guard untold.count == 1, soundOn[moment] == true || showsFinish(fresh.phase),
+              let row = snapshot.ordered.first(where: { $0.entity == fresh.entity }) else { return tell() }
+        unlessAtTab(row, stillDue: { [weak self] in
+            guard let self else { return false }
+            return self.isUnwatched && self.registry.snapshot(seen: self.seen).news.contains(fresh)
+        }, tell: tell)
+    }
+
+    /// Whether the body would show a finish now: its peek, or the sliver's
+    /// dot in its colour — read off the rule itself, with and without it.
+    private func showsFinish(_ phase: Phase) -> Bool {
+        var with = presence
+        with.peekPhase = phase
+        var without = presence
+        without.peekPhase = nil
+        return with.level != without.level || with.dot != without.dot
     }
 
     /// "Remind again → Everything": a finish told and not looked at for the
@@ -4192,17 +4289,34 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             .map(\.key)
         guard !due.isEmpty else { return }
         remindedFinishes.formUnion(due)
-        speak(due.contains { $0.phase == .failed } ? .failed : .done)
-        guard nudgeNotify, let notifier else { return }
-        for finish in due {
+        // Each asks its own tab. At it, the finish is timed again from now;
+        // otherwise it speaks — failures first, so one failed makes the
+        // failure's sound and the rest are let go inside the gap — and
+        // notifies.
+        for finish in due.sorted(by: { $0.phase == .failed && $1.phase != .failed }) {
             let row = snapshot.ordered.first { $0.entity == finish.entity }
-            let name = row.map { $0.label.isEmpty ? L10n.t("notify.waiting.unnamed") : $0.label }
-                ?? L10n.t("notify.waiting.unnamed")
-            let failed = finish.phase == .failed
-            notifier.post(entity: finish.entity,
-                          title: L10n.t(failed ? "notify.failed.title" : "notify.finished.title", ["name": name]),
-                          body: L10n.t(failed ? "notify.failed.body" : "notify.finished.body",
-                                       ["n": String(nudgeMinutes)]))
+            let moment: SoundMoment = finish.phase == .failed ? .failed : .done
+            let tell = { [weak self] in
+                guard let self else { return }
+                self.speak(moment)
+                guard self.nudgeNotify, let notifier = self.notifier else { return }
+                let name = row.map { $0.label.isEmpty ? L10n.t("notify.waiting.unnamed") : $0.label }
+                    ?? L10n.t("notify.waiting.unnamed")
+                let failed = finish.phase == .failed
+                notifier.post(entity: finish.entity,
+                              title: L10n.t(failed ? "notify.failed.title" : "notify.finished.title", ["name": name]),
+                              body: L10n.t(failed ? "notify.failed.body" : "notify.finished.body",
+                                           ["n": String(self.nudgeMinutes)]))
+            }
+            guard let row, soundOn[moment] == true || (nudgeNotify && notifier != nil) else { tell(); continue }
+            unlessAtTab(row, atTab: { [weak self] in
+                guard let self, self.toldFinishes[finish] != nil else { return }
+                self.remindedFinishes.remove(finish)
+                self.toldFinishes[finish] = self.now()
+            }, stillDue: { [weak self] in
+                guard let self else { return false }
+                return self.registry.snapshot(seen: self.seen).news.contains(finish)
+            }, tell: tell)
         }
     }
 

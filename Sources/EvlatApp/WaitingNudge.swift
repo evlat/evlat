@@ -39,4 +39,13 @@ struct WaitingNudge {
         told.formUnion(change.due)
         return change
     }
+
+    /// The user was at the wait's tab when it came due (`TabFocus`): it is
+    /// timed again from `now`, and comes due once more after the same
+    /// minutes. Nothing was posted, so nothing is taken back at its end.
+    mutating func rearm(_ entity: String, at now: Date) {
+        guard since[entity] != nil else { return }
+        told.remove(entity)
+        since[entity] = now
+    }
 }
