@@ -13,6 +13,9 @@
 "status.waiting.answer" = "attend votre réponse";
 "row.unreachable" = "pas de connexion";
 "row.silent" = "silencieux";
+"row.waiting" = "vous attend";
+"row.waiting.approval" = "accord";
+"row.waiting.answer" = "question";
 
 "time.justNow" = "à l’instant";
 "time.minutes" = "{count} min";
@@ -33,6 +36,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 session";
 "summary.sessions" = "{count} sessions";
+"summary.waiting" = "{count} en attente";
 "summary.working" = "{count} en cours";
 
 "usage.unit.minutes" = "{count} min";

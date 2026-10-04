@@ -28,6 +28,13 @@ Markdown; keep it to a few bullets.
   takes both out of the running sandboxes. **Go to session** opens the tab
   of the `sbx run` that started the session, when it can tell which.
   Sandboxes in Docker's cloud can't reach your Mac.
+- **A roomier list.** Names on the open bar get more room, and a waiting
+  session says what it waits for in one word, **approval** or
+  **question**, so the word is never cut; the card still says it in full.
+  A remote machine is named by its own short name (`gpu-01` for
+  `gpu-01.eu-central.internal`, longer only when two machines would read
+  alike). The line under the list counts the waiting sessions too, in
+  amber, and a highlighted row no longer overlaps the one next to it.
 - **Updates on their own.** Evlat now looks for a new version every hour,
   downloads it in the background and installs it when Evlat quits. If
   Evlat stays open, it asks once a day to restart and install. Turn it

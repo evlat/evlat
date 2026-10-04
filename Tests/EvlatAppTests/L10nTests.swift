@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import EvlatCore
 @testable import EvlatApp
 
@@ -55,6 +56,9 @@ final class L10nTests: XCTestCase {
         }
         keys.append(StatusLine.statusKey(phase: .waiting, waitKind: .approval))
         keys.append(StatusLine.statusKey(phase: .waiting, waitKind: .answer))
+        keys.append(StatusLine.rowKey(phase: .waiting, waitKind: .approval))
+        keys.append(StatusLine.rowKey(phase: .waiting, waitKind: .answer))
+        keys.append(StatusLine.rowKey(phase: .waiting, waitKind: nil))
         keys += Signal.Machine.Reason.allCases.map(StatusLine.dimKey)
         for lang in Self.languages {
             for key in keys {
@@ -71,8 +75,8 @@ final class L10nTests: XCTestCase {
         }
     }
 
-    /// "{n} sessions · {k} working": with nothing working the second part is
-    /// gone, with no session the line is.
+    /// "{n} sessions · {w} waiting · {k} working": a count of none is gone,
+    /// with no session the line is.
     func testTheSummaryLine() {
         func rows(_ phases: [Phase]) -> [SessionRow] {
             phases.enumerated().map { SessionRow(entity: "e\($0.offset)", label: "x", phase: $0.element) }
@@ -81,7 +85,11 @@ final class L10nTests: XCTestCase {
         XCTAssertEqual(SummaryLine.text(rows: rows([.idle, .idle, .review]), in: "tr"), "3 oturum")
         XCTAssertEqual(SummaryLine.text(rows: rows([.idle]), in: "en"), "1 session")
         XCTAssertEqual(SummaryLine.text(rows: rows([.working, .waiting, .idle]), in: "en"),
-                       "3 sessions · 1 working", "waiting is not working")
+                       "3 sessions · 1 waiting · 1 working", "waiting is counted apart from working")
+        XCTAssertEqual(SummaryLine.text(rows: rows([.waiting, .waiting, .idle]), in: "tr"),
+                       "3 oturum · 2 bekliyor")
+        XCTAssertEqual(SummaryLine.text(rows: rows([.waiting, .working]), in: "ru"),
+                       "сессий: 2 · ждут: 1 · работают: 1")
         XCTAssertEqual(SummaryLine.text(rows: rows(Array(repeating: .idle, count: 17)
                                                    + [.working, .working, .working]), in: "tr"),
                        "20 oturum · 3 çalışıyor")
@@ -89,6 +97,25 @@ final class L10nTests: XCTestCase {
                                 dim: Signal.Machine.Dim(reason: .quiet, since: Date(timeIntervalSince1970: 0)))
         XCTAssertEqual(SummaryLine.text(rows: rows([.working]) + [dimmed], in: "en"),
                        "2 sessions · 1 working", "a dimmed row is listed, not counted as working")
+        let dimmedWait = SessionRow(entity: "far", label: "x", phase: .waiting, machine: "devbox",
+                                    dim: Signal.Machine.Dim(reason: .quiet, since: Date(timeIntervalSince1970: 0)))
+        XCTAssertEqual(SummaryLine.text(rows: rows([.idle]) + [dimmedWait], in: "en"), "2 sessions",
+                       "nor as waiting")
+    }
+
+    /// The counts are drawn bolder, waiting in amber and working in white;
+    /// the sessions' part stays grey.
+    func testTheSummaryColoursItsCounts() throws {
+        let rows = [Phase.waiting, .working, .idle].enumerated().map {
+            SessionRow(entity: "e\($0.offset)", label: "x", phase: $0.element)
+        }
+        let line = try XCTUnwrap(SummaryLine.attributed(rows: rows, in: "en"))
+        func colour(of part: String) -> Color? {
+            line.range(of: part).flatMap { line[$0].foregroundColor }
+        }
+        XCTAssertEqual(colour(of: "3 sessions"), BarPalette.textSecondary)
+        XCTAssertEqual(colour(of: "1 waiting"), SessionIndicator.amber)
+        XCTAssertEqual(colour(of: "1 working"), BarPalette.textPrimary)
     }
 
     /// Every table names itself, each differently: a table copied from
@@ -181,11 +208,19 @@ final class StatusLineTests: XCTestCase {
     }
 
     func testTheTwoWaitKindsAreTwoWords() {
-        XCTAssertEqual(line(.waiting, .approval, after: 120, in: "tr"), "onay bekliyor · 2 dk")
-        XCTAssertEqual(line(.waiting, .answer, after: 120, in: "tr"), "yanıt bekliyor · 2 dk")
+        XCTAssertEqual(line(.waiting, .approval, after: 120, in: "tr"), "onay · 2 dk")
+        XCTAssertEqual(line(.waiting, .answer, after: 120, in: "tr"), "soru · 2 dk")
         XCTAssertNotEqual(line(.waiting, .approval, after: nil), line(.waiting, .answer, after: nil))
         // A file row can wait with no hook having said on what.
         XCTAssertEqual(line(.waiting, nil, after: nil, in: "tr"), "bekliyor")
+    }
+
+    /// The row says the wait in one word; the card's title keeps the
+    /// sentence the row no longer has room for.
+    func testTheCardKeepsTheWholeSentence() {
+        XCTAssertEqual(DetailCard.title(phase: .waiting, waitKind: .approval, in: "en"), "Waiting for approval")
+        XCTAssertEqual(DetailCard.title(phase: .waiting, waitKind: .answer, in: "tr"), "Yanıt bekliyor")
+        XCTAssertEqual(line(.waiting, .answer, after: nil, in: "en"), "question")
     }
 
     /// The open body is fitted to the widest the line can get, so the body

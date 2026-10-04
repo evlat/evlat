@@ -12,6 +12,9 @@
 "status.waiting.answer" = "yanıt bekliyor";
 "row.unreachable" = "bağlantı yok";
 "row.silent" = "sessiz";
+"row.waiting" = "bekliyor";
+"row.waiting.approval" = "onay";
+"row.waiting.answer" = "soru";
 
 "time.justNow" = "az önce";
 "time.minutes" = "{count} dk";
@@ -32,6 +35,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 oturum";
 "summary.sessions" = "{count} oturum";
+"summary.waiting" = "{count} bekliyor";
 "summary.working" = "{count} çalışıyor";
 
 "usage.unit.minutes" = "{count}dk";

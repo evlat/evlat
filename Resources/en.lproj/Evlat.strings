@@ -21,6 +21,14 @@
 "row.unreachable" = "no connection";
 /* A remote row that was working and has said nothing for half an hour. */
 "row.silent" = "quiet";
+/* The row's word for a wait the source did not say the kind of (a session
+   file). Shorter than the card's where the language allows. */
+"row.waiting" = "waiting";
+/* The row's word for a wait, shorter than the card's: the amber ring
+   already says it waits, so the row says only on what. A yes/no on a tool. */
+"row.waiting.approval" = "approval";
+/* The same, for words: the agent asked a question. */
+"row.waiting.answer" = "question";
 
 /* How long the session has been in its phase. Under a minute: */
 "time.justNow" = "just now";
@@ -45,11 +53,13 @@
 "card.notFound" = "Terminal not found";
 "card.noTerminal" = "No terminal open";
 
-/* The line under the open list: how many sessions, and how many of them are
-   working. With none working it is the first part alone. */
+/* The line under the open list: how many sessions, how many of them are
+   waiting for you and how many working, joined two at a time by
+   "summary.line". A count of none is left out. */
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 session";
 "summary.sessions" = "{count} sessions";
+"summary.waiting" = "{count} waiting";
 "summary.working" = "{count} working";
 
 /* The usage block under the open list: one group per source, one line per

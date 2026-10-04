@@ -12,6 +12,9 @@
 "status.waiting.answer" = "응답 대기 중";
 "row.unreachable" = "연결 없음";
 "row.silent" = "응답 없음";
+"row.waiting" = "대기 중";
+"row.waiting.approval" = "승인";
+"row.waiting.answer" = "질문";
 
 "time.justNow" = "방금";
 "time.minutes" = "{count}분";
@@ -32,6 +35,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "세션 1개";
 "summary.sessions" = "세션 {count}개";
+"summary.waiting" = "{count}개 대기 중";
 "summary.working" = "{count}개 작업 중";
 
 "usage.unit.minutes" = "{count}분";

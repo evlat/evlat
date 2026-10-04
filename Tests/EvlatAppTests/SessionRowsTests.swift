@@ -618,7 +618,7 @@ final class SessionRowsTests: XCTestCase {
                         .size(withAttributes: [.font: SessionColumn.nameFont]).width)
                         + SessionColumn.machineGap + SessionColumn.branchWidth(long.branch!)),
                        "a long branch opens the body to its cap and no further")
-        XCTAssertEqual(AppController.expandedBarWidth, 229, "the widest body: 170 pt of names")
+        XCTAssertEqual(AppController.expandedBarWidth, 269, "the widest body: 210 pt of names")
     }
 
     /// A row's tag is measured on its status line, not beside its name: a
@@ -639,6 +639,66 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(SessionColumn.namesWidth([host], in: "en"),
                        SessionColumn.statusWidth(phase: .idle, waitKind: nil, in: "en")
                         + SessionColumn.machineGap + SessionColumn.tagMaxWidth, "a long host is held to its cap")
+    }
+
+    /// A waiting row's status line and the widest address fit the box
+    /// whole, in every language at its widest: the wait in one word, never
+    /// cut for its tag.
+    func testAWaitingRowWithAnAddressFitsUncut() {
+        for lang in L10nTests.languages {
+            for kind: Signal.Activity.WaitKind? in [.approval, .answer, nil] {
+                let line = SessionColumn.statusWidth(phase: .waiting, waitKind: kind, in: lang)
+                    + SessionColumn.machineGap + SessionColumn.machineWidth("255.255.255.255")
+                XCTAssertLessThanOrEqual(line, SessionColumn.nameMaxWidth, "\(lang) \(String(describing: kind))")
+            }
+        }
+    }
+
+    /// The summary with all three parts fits the widest body in every
+    /// language: the body is never stretched past its cap by it.
+    func testTheFullSummaryFitsTheBody() {
+        let rows = (0..<17).map { i in
+            SessionRow(entity: "e\(i)", label: "x", phase: i < 6 ? .waiting : i < 12 ? .working : .idle)
+        }
+        for lang in L10nTests.languages {
+            let text = SummaryLine.text(rows: rows, in: lang)!
+            let width = ceil((text as NSString).size(withAttributes: [.font: SummaryLine.boldFont]).width)
+            XCTAssertLessThanOrEqual(width + SessionColumn.ringLead + SessionColumn.nameInset,
+                                     AppController.expandedBarWidth, "\(lang): \(text)")
+        }
+    }
+
+    /// A host is tagged with its own name, its first label; two machines
+    /// that share it keep the label that tells them apart. An address, a
+    /// one-label alias and a Docker sandbox's name are never cut.
+    func testAMachineIsTaggedWithItsShortestDistinctName() {
+        func remote(_ id: String, _ host: String, machineID: String? = nil) -> Signal {
+            Signal(provider: "hooks", entity: "remote:\(host):\(id)", kind: .session, phase: .working,
+                   label: "api", source: .claude, fidelity: .official, updatedAt: Date(timeIntervalSince1970: 0),
+                   machine: Signal.Machine(name: host, id: machineID ?? host))
+        }
+        let tags = SessionRowsModel.machineTags([
+            remote("a", "gpu-01.eu-central.internal"), remote("b", "gpu-01.us-east.internal"),
+            remote("c", "build.example.com"), remote("d", "192.168.1.217"), remote("e", "devbox"),
+            remote("f", "proj.v2", machineID: SandboxListener.identity.id),
+        ])
+        XCTAssertEqual(tags["gpu-01.eu-central.internal"], "gpu-01.eu-central")
+        XCTAssertEqual(tags["gpu-01.us-east.internal"], "gpu-01.us-east")
+        XCTAssertEqual(tags["build.example.com"], "build")
+        XCTAssertEqual(tags["192.168.1.217"], "192.168.1.217")
+        XCTAssertEqual(tags["devbox"], "devbox")
+        XCTAssertNil(tags["proj.v2"], "a sandbox keeps its own name")
+        XCTAssertEqual(SessionRowsModel.shortName("gpu-01.eu", among: ["gpu-01.eu", "gpu-01"]), "gpu-01.eu",
+                       "a name that is another's beginning stays whole")
+        XCTAssertEqual(SessionRowsModel.shortName("fe80::1", among: ["fe80::1"]), "fe80::1")
+
+        let model = SessionRowsModel()
+        model.update(from: [remote("a", "gpu-01.eu-central.internal"),
+                            remote("f", "proj.v2", machineID: SandboxListener.identity.id)])
+        let row = model.rows.first { $0.machine == "gpu-01.eu-central.internal" }
+        XCTAssertEqual(row?.tag, "gpu-01", "alone, a host is its first label")
+        XCTAssertEqual(row?.machine, "gpu-01.eu-central.internal", "the card still has the whole name")
+        XCTAssertEqual(model.rows.first { $0.machine == "proj.v2" }?.tag, "proj.v2")
     }
 
     /// The commenter's waiting row fits the box whole at 9 pt.

@@ -145,6 +145,10 @@ public struct SessionRow: Equatable, Identifiable {
     /// The remote computer's name, drawn small beside the row's; `nil` on
     /// this Mac. A proper name, not catalogue text.
     public let machine: String?
+    /// The machine as the row's tag: its name cut to the labels that tell it
+    /// from the other machines listed (`SessionRowsModel.machineTags`) —
+    /// `gpu-01` for `gpu-01.eu-central.internal`. The card names it whole.
+    public let machineTag: String?
     /// Why a remote row cannot be heard and since when (`Signal.Machine.Dim`);
     /// `nil` while it can, and always on this Mac. Its moment is frozen while
     /// the row is dimmed, so it passes the deadband without writing.
@@ -174,7 +178,7 @@ public struct SessionRow: Equatable, Identifiable {
     /// The small caps beside the name: the machine's for a remote row,
     /// "EVLAT" for a chat, the sender's for an outside job on this Mac and
     /// the machine's for one elsewhere (`RowTraits.Tag.text`).
-    public var tag: String? { traits.tag.text(machine: machine, sender: sender) }
+    public var tag: String? { traits.tag.text(machine: machineTag, sender: sender) }
     public static let jobTag = "Evlat"
 
     /// A session on this Mac: its terminal is looked up here, and only its
@@ -191,7 +195,8 @@ public struct SessionRow: Equatable, Identifiable {
                 source: AgentID? = nil, duplicate: Int = 0, branch: String? = nil,
                 enteredAt: Date? = nil, waitKind: Signal.Activity.WaitKind? = nil,
                 machine: String? = nil, dim: Signal.Machine.Dim? = nil, kind: Signal.Kind = .session,
-                progress: Int? = nil, sender: String? = nil, passive: Bool = false) {
+                progress: Int? = nil, sender: String? = nil, passive: Bool = false,
+                machineTag: String? = nil) {
         self.entity = entity
         let finished = phase == .review || phase == .failed
         self.passive = passive
@@ -213,17 +218,18 @@ public struct SessionRow: Equatable, Identifiable {
         // that ever loosens.
         self.waitKind = phase == .waiting ? waitKind : nil
         self.machine = machine
+        self.machineTag = machine == nil ? nil : machineTag ?? machine
         self.dim = dim
     }
 
     public init(_ signal: Signal, duplicate: Int = 0, branch: String? = nil,
-                enteredAt: Date? = nil, passive: Bool = false) {
+                enteredAt: Date? = nil, passive: Bool = false, machineTag: String? = nil) {
         self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate, branch: branch,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
                   machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind,
                   progress: signal.progress.flatMap(Self.percent), sender: signal.sender,
-                  passive: passive)
+                  passive: passive, machineTag: machineTag)
     }
 
     /// 0…1 to whole percents. `SignalReport` already holds the value to a
@@ -427,6 +433,34 @@ public final class SessionRowsModel: ObservableObject {
         return result
     }
 
+    /// Each listed machine's tag: its name cut to as few leading labels as
+    /// tell it from every other machine listed. A host's own name is its
+    /// first label (`gpu-01.eu-central.internal` → `gpu-01`); two that share
+    /// it keep the next one too (`gpu-01.eu`, `gpu-01.us`), and a name that
+    /// is all of another's beginning stays whole. An address is a number,
+    /// not labels, and is never cut; nor is a Docker sandbox's name, which is
+    /// its own and may hold a dot. Only the drawn rows count: a machine with
+    /// nothing listed cannot be confused with.
+    nonisolated static func machineTags(_ signals: [Signal]) -> [String: String] {
+        let names = Set(signals.compactMap { signal -> String? in
+            guard let machine = signal.machine, machine.id != SandboxListener.identity.id else { return nil }
+            return machine.name
+        })
+        return Dictionary(uniqueKeysWithValues: names.map { ($0, shortName($0, among: names)) })
+    }
+
+    nonisolated static func shortName(_ name: String, among names: Set<String>) -> String {
+        let isAddress = name.contains(":") || name.allSatisfy { $0.isNumber || $0 == "." }
+        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
+        guard !isAddress, labels.count > 1, !labels.contains(where: \.isEmpty) else { return name }
+        let others = names.subtracting([name]).map { $0.split(separator: ".", omittingEmptySubsequences: false) }
+        for count in 1..<labels.count {
+            let head = labels.prefix(count)
+            if !others.contains(where: { $0.prefix(count) == head }) { return head.joined(separator: ".") }
+        }
+        return name
+    }
+
     /// The branch of a row, read through the cache. Only a session on this
     /// Mac has a folder here to read: a remote row's folder is on its server.
     private func branch(of signal: Signal) -> String? {
@@ -489,6 +523,7 @@ public final class SessionRowsModel: ObservableObject {
             return ea != eb ? ea > eb : a.entity < b.entity
         }
         let names = Self.names(signals, display: branchDisplay, branch: branch(of:))
+        let machineTags = Self.machineTags(signals)
         let folders = Set(signals.compactMap(\.detail))
         branches = branches.filter { folders.contains($0.key) }
         let next = ordered.map {
@@ -500,7 +535,8 @@ public final class SessionRowsModel: ObservableObject {
                        branch: names[$0.entity]?.branch,
                        enteredAt: enteredAt[$0.entity]
                            ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil),
-                       passive: layers[$0.entity] == .passive)
+                       passive: layers[$0.entity] == .passive,
+                       machineTag: $0.machine.flatMap { machineTags[$0.name] })
         }
         if rows != next { rows = next }
         setBeating(drawnRows.contains(where: \.beats))

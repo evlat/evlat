@@ -12,6 +12,9 @@
 "status.waiting.answer" = "回答待ち";
 "row.unreachable" = "接続なし";
 "row.silent" = "応答なし";
+"row.waiting" = "返答待ち";
+"row.waiting.approval" = "承認";
+"row.waiting.answer" = "質問";
 
 "time.justNow" = "たった今";
 "time.minutes" = "{count}分";
@@ -32,6 +35,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1セッション";
 "summary.sessions" = "{count}セッション";
+"summary.waiting" = "{count}件返答待ち";
 "summary.working" = "{count}件作業中";
 
 "usage.unit.minutes" = "{count}分";

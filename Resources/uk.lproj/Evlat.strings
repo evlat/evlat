@@ -12,6 +12,9 @@
 "status.waiting.answer" = "чекає на відповідь";
 "row.unreachable" = "немає з’єднання";
 "row.silent" = "тиша";
+"row.waiting" = "чекає";
+"row.waiting.approval" = "схвалення";
+"row.waiting.answer" = "питання";
 
 "time.justNow" = "щойно";
 "time.minutes" = "{count} хв";
@@ -32,6 +35,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 сесія";
 "summary.sessions" = "сесій: {count}";
+"summary.waiting" = "чекають: {count}";
 "summary.working" = "у роботі: {count}";
 
 "usage.unit.minutes" = "{count} хв";

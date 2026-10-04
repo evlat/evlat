@@ -38,6 +38,14 @@ struct SessionColumn: View {
 
     /// The selected row's ground: inside the open body by this much.
     static let groundInset: CGFloat = 5
+    /// The ground's height, centred on the ring. A row's hover slot is its
+    /// ring and half the gap each side (`AppController.slot`), one pitch,
+    /// 30 pt; the ground was the label and 3 pt each side, 32, so it
+    /// reached 1 pt into each neighbour's slot and the selected row's and
+    /// the hovered one's overlapped by 2 pt, drawn brighter. 28 stays 1 pt
+    /// inside its slot — 2 pt of body between two grounds — and still holds
+    /// the 26 pt label with 1 pt to spare, the pitch unchanged.
+    static let groundHeight: CGFloat = 28
 
     /// Between a name's end and its ring.
     static let nameGap: CGFloat = 8
@@ -46,15 +54,16 @@ struct SessionColumn: View {
     /// How far a name travels as it comes in: from under its ring's side.
     static let nameTravel: CGFloat = 10
     /// The widest a name is drawn; a longer one is cut with "…". It also caps
-    /// how far the body opens. 140 cut most real session names in their
-    /// first words ("Refactor the sandbox w…"); each point here is the
-    /// screen's edge, so it grew only by what a working or idle row's status
-    /// line and an address need: with `192.168.1.217` (67 pt) at their widest
-    /// forms en 152 / 133, tr 151 / 140, de 170 / 165, ru 171 / 167 pt —
-    /// Russian 1 pt over, and only at a hundred days. A waiting one does not
-    /// fit (en 204, de 222, ru 226 pt): its status is cut before its tag —
-    /// the amber ring says the rest.
-    static let nameMaxWidth: CGFloat = 170
+    /// how far the body opens. At 170 a waiting row's status line did not
+    /// fit — "waiting for approval · 00 d" and an address came to 200 pt —
+    /// and the amber word, the one the row is there to say, was the part
+    /// cut; a name beside a long branch kept 65 pt. Now the row says the
+    /// wait in one word (`StatusLine.rowKey`, widest en 73, de 75, ru 85 pt)
+    /// and the box is 210: a waiting row with `255.255.255.255` (84 pt) is
+    /// 174 pt at most, a name beside a capped branch keeps 105. Every point
+    /// here is the screen's edge: with the card up, body, gap and card are
+    /// 597 pt.
+    static let nameMaxWidth: CGFloat = 210
     /// The narrowest the open body gets, so a column of short names still
     /// reads as a panel rather than a ragged tab.
     static let minOpenWidth: CGFloat = 110
@@ -324,7 +333,7 @@ struct SessionColumn: View {
         RoundedRectangle(cornerRadius: 8)
             .fill(Color.white.opacity(0.09))
             .frame(width: max(0, openWidth - 2 * Self.groundInset),
-                   height: Self.labelHeight + 6)
+                   height: Self.groundHeight)
             .offset(x: -mirror * Self.groundInset)
             .opacity(selected ? 1 : hovered ? 0.5 : 0)
             .animation(BarMotion.namesOut, value: selected)
@@ -446,42 +455,55 @@ struct SessionColumn: View {
     }
 }
 
-/// The line under the open list: "20 sessions · 3 working". Working is the
-/// `working` phase alone, on live rows — a waiting row asks for the user and
-/// says so on its own line, a dimmed one is not known to be running. With nothing working the second part is gone; with no session
-/// there is no line.
+/// The line under the open list: "20 sessions · 2 waiting · 3 working".
+/// Waiting comes first, in amber: it is the count that asks for the user,
+/// and the list's own order. Each part counts its phase on live rows alone —
+/// a dimmed row's phase is the last thing a silent machine said, not
+/// something known now. A part with nothing to count is gone; with no
+/// session there is no line.
 ///
 /// **The keys are literals here**, listed in `keys`, so a test reaches all of
-/// them.
+/// them. The parts are joined two at a time with `lineKey`, which every
+/// table writes as "{sessions} · {working}".
 enum SummaryLine {
     static let lineKey = "summary.line"
     static let sessionsOneKey = "summary.sessions.one"
     static let sessionsKey = "summary.sessions"
+    static let waitingKey = "summary.waiting"
     static let workingKey = "summary.working"
-    static var keys: [String] { [lineKey, sessionsOneKey, sessionsKey, workingKey] }
+    static var keys: [String] { [lineKey, sessionsOneKey, sessionsKey, waitingKey, workingKey] }
 
     static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
     static let boldFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
 
-    static func parts(rows: [SessionRow], in lang: String) -> (sessions: String, working: String?)? {
+    struct Parts: Equatable {
+        let sessions: String
+        let waiting: String?
+        let working: String?
+    }
+
+    static func parts(rows: [SessionRow], in lang: String) -> Parts? {
         guard !rows.isEmpty else { return nil }
         let sessions = rows.count == 1
             ? L10n.t(sessionsOneKey, in: lang)
             : L10n.t(sessionsKey, ["count": String(rows.count)], in: lang)
-        // A dimmed row's `working` is the last thing a silent machine said,
-        // not something known to be running.
-        let working = rows.filter { $0.phase == .working && $0.isLive }.count
-        return (sessions, working == 0 ? nil : L10n.t(workingKey, ["count": String(working)], in: lang))
+        func count(_ phase: Phase, _ key: String) -> String? {
+            let n = rows.filter { $0.phase == phase && $0.isLive }.count
+            return n == 0 ? nil : L10n.t(key, ["count": String(n)], in: lang)
+        }
+        return Parts(sessions: sessions, waiting: count(.waiting, waitingKey),
+                     working: count(.working, workingKey))
     }
 
     static func text(rows: [SessionRow], in lang: String = L10n.language) -> String? {
         guard let parts = parts(rows: rows, in: lang) else { return nil }
-        guard let working = parts.working else { return parts.sessions }
-        return L10n.t(lineKey, ["sessions": parts.sessions, "working": working], in: lang)
+        return [parts.waiting, parts.working].compactMap { $0 }.reduce(parts.sessions) {
+            L10n.t(lineKey, ["sessions": $0, "working": $1], in: lang)
+        }
     }
 
-    /// The line as drawn: grey, the working part white and bolder — the
-    /// same split the names make.
+    /// The line as drawn: grey, the counts bolder — waiting amber, the ring's
+    /// colour, working white, the same split the names make.
     static func attributed(rows: [SessionRow], in lang: String = L10n.language) -> AttributedString? {
         guard let parts = parts(rows: rows, in: lang), let line = text(rows: rows, in: lang) else {
             return nil
@@ -489,9 +511,17 @@ enum SummaryLine {
         var out = AttributedString(line)
         out.font = Font(font)
         out.foregroundColor = BarPalette.textSecondary
+        // From the end: a count's words never come before the sessions' part.
         if let working = parts.working, let range = out.range(of: working, options: .backwards) {
             out[range].font = Font(boldFont)
             out[range].foregroundColor = BarPalette.textPrimary
+        }
+        if let waiting = parts.waiting {
+            let end = parts.working.flatMap { out.range(of: $0, options: .backwards)?.lowerBound } ?? out.endIndex
+            if let range = out[out.startIndex..<end].range(of: waiting, options: .backwards) {
+                out[range].font = Font(boldFont)
+                out[range].foregroundColor = SessionIndicator.amber
+            }
         }
         return out
     }
@@ -554,6 +584,21 @@ enum StatusLine {
         }
     }
 
+    /// The row's word, which is shorter than the card's: a waiting row says
+    /// what it waits for in one word ("approval", "question") — the amber
+    /// ring already says it waits, and the card's title keeps the whole
+    /// sentence (`statusKey`). A wait of no known kind is its own key too:
+    /// German's "wartet auf dich" and an address came to 219 pt. The full words with an address did not fit
+    /// the row (`SessionColumn.nameMaxWidth`).
+    static func rowKey(phase: Phase, waitKind: Signal.Activity.WaitKind?) -> String {
+        switch (phase, waitKind) {
+        case (.waiting, .approval): return "row.waiting.approval"
+        case (.waiting, .answer): return "row.waiting.answer"
+        case (.waiting, nil): return "row.waiting"
+        default: return statusKey(phase: phase, waitKind: waitKind)
+        }
+    }
+
     /// Under a minute is "just now"; then whole minutes, hours, days — always
     /// rounded down, so the line never runs ahead of the time.
     static func duration(_ seconds: TimeInterval, in lang: String) -> String {
@@ -586,7 +631,7 @@ enum StatusLine {
                                     "time": duration(now.timeIntervalSince(dim.since), in: lang)],
                           in: lang)
         }
-        let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        let status = L10n.t(rowKey(phase: phase, waitKind: waitKind), in: lang)
         if let progress {
             return L10n.t(lineKey, ["status": status, "time": percent(progress, in: lang)], in: lang)
         }
@@ -600,7 +645,7 @@ enum StatusLine {
     /// what the open body is fitted to.
     static func widestForms(phase: Phase, waitKind: Signal.Activity.WaitKind?,
                             progress: Bool = false, in lang: String) -> [String] {
-        let status = L10n.t(statusKey(phase: phase, waitKind: waitKind), in: lang)
+        let status = L10n.t(rowKey(phase: phase, waitKind: waitKind), in: lang)
         let percentForm = L10n.t(lineKey, ["status": status, "time": percent(100, in: lang)], in: lang)
         return forms(of: status, in: lang) + (progress ? [percentForm] : [])
     }

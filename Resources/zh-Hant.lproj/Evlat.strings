@@ -12,6 +12,9 @@
 "status.waiting.answer" = "等你回答";
 "row.unreachable" = "沒有連線";
 "row.silent" = "沒有動靜";
+"row.waiting" = "等你回覆";
+"row.waiting.approval" = "核准";
+"row.waiting.answer" = "提問";
 
 "time.justNow" = "剛剛";
 "time.minutes" = "{count} 分鐘";
@@ -32,6 +35,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 個工作階段";
 "summary.sessions" = "{count} 個工作階段";
+"summary.waiting" = "{count} 個等待中";
 "summary.working" = "{count} 個執行中";
 
 "usage.unit.minutes" = "{count}分鐘";

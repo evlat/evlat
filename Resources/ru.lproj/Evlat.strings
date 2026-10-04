@@ -13,6 +13,9 @@
 "status.waiting.answer" = "ждёт ответа";
 "row.unreachable" = "нет связи";
 "row.silent" = "молчит";
+"row.waiting" = "ждёт";
+"row.waiting.approval" = "одобрение";
+"row.waiting.answer" = "вопрос";
 
 "time.justNow" = "только что";
 "time.minutes" = "{count} мин";
@@ -33,6 +36,7 @@
 "summary.line" = "{sessions} · {working}";
 "summary.sessions.one" = "1 сессия";
 "summary.sessions" = "сессий: {count}";
+"summary.waiting" = "ждут: {count}";
 "summary.working" = "работают: {count}";
 
 "usage.unit.minutes" = "{count}м";
