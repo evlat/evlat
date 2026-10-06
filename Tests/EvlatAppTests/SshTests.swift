@@ -414,14 +414,20 @@ extension SessionHostTests {
                        "herdr's environment unread: the forwarded value fills the tab")
     }
 
-    /// Only that chain: a master that did not detach, a rider under a
-    /// shell (the user's own `ControlPersist`), or a `herdr` not run with
-    /// `--remote` leave the rule for riders as it was.
+    /// Only that chain stands for its `herdr`: not a master that did not
+    /// detach, a rider under a shell, or a `herdr` not run with `--remote`.
+    /// A rider under a shell is the user's own `ControlPersist`, which
+    /// stands for its riders like any detached master: the session's
+    /// forwarded value names the tab.
     func testOnlyHerdrsDetachedMasterStandsForItsClient() {
         var shell = herdrRemoteChain
         shell[2251] = Proc(parent: 1576, path: Self.sshPath)
-        XCTAssertEqual(herdrRemote(herdrBridge, table: shell), .notFound, "the user's own detached master")
-        XCTAssertEqual(herdrRemote(herdrBridge, arguments: [2241: ["herdr"]]), .notFound, "not --remote")
+        XCTAssertNil(Ssh.herdrRemoteClients(master: 2245, riders: [2251],
+                                            probe(shell, arguments: [2241: ["herdr", "--remote", "x"]])))
+        XCTAssertEqual(tab(of: herdrRemote(herdrBridge, table: shell)), "bateri://tab/\(Self.remoteTab)",
+                       "the user's own detached master: its rider's tab")
+        XCTAssertNil(Ssh.herdrRemoteClients(master: 2245, riders: [2251],
+                                            probe(herdrRemoteChain, arguments: [2241: ["herdr"]])), "not --remote")
         var attached = herdrRemoteChain
         attached[2245] = Proc(parent: 2241, path: Self.sshPath)
         XCTAssertNil(Ssh.herdrRemoteClients(master: 2245, riders: [2251],
@@ -454,5 +460,102 @@ extension SessionHostTests {
         XCTAssertEqual(app.bundleID, bateri.bundleID)
         XCTAssertNil(app.tab)
         XCTAssertEqual(app.serverPane, .selectable)
+    }
+
+    // MARK: - Bateri's own ssh
+
+    /// The chain measured (2026-10-06, Bateri 0.6.0, a Raspberry Pi as
+    /// `raspalfred.local`): the tab's shell ran `ssh -t -o ControlMaster=auto
+    /// -o ControlPersist=2` on a control socket of Bateri's, whose master
+    /// detached to launchd and held the one connection, over the name's
+    /// IPv4; Bateri's own `ssh -T -o ControlMaster=no`, a child of Bateri,
+    /// rode it too. Evlat's tunnel, started later, took the name's IPv6. On
+    /// the server `SSH_CONNECTION` named the IPv4 and the master's port, and
+    /// the session's environment the tab (`LC_BATERI_TAB_URL`).
+    static let piV4 = SessionHost.Endpoint(address: "192.168.1.241", port: 22)
+    static let piV6 = SessionHost.Endpoint(address: "2a02:ff0:3d06:1fbb:eea7:2685:7eb8:2b87", port: 22)
+    static let piTab = "26332B8E-5FF7-4426-B897-4FFF39F832FD"
+
+    var bateriSshChain: [Int32: Proc] {
+        [
+            50: Proc(parent: 1, path: "/Applications/Evlat.app/Contents/MacOS/Evlat"),
+            51: Proc(parent: 50, path: Self.sshPath),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+            43517: Proc(parent: 580, path: "/usr/bin/login"),
+            43518: Proc(parent: 43517, path: "/bin/zsh"),
+            85867: Proc(parent: 43518, path: Self.sshPath),
+            85883: Proc(parent: 580, path: Self.sshPath),
+            44733: Proc(parent: 1, path: Self.sshPath),
+        ]
+    }
+
+    var bateriSshTCP: [Int32: [SessionHost.TCPSocket]] {
+        [51: [.init(local: .init(address: "2a02:ff0:3d06:1fbb:5c29:3d0e:ec4f:b1a8", port: 62101), remote: Self.piV6)],
+         44733: [.init(local: .init(address: "192.168.1.217", port: 60130), remote: Self.piV4)]]
+    }
+
+    /// The master's accepted ends (0xA2, 0xA3) are the riders' peers; 0xA1
+    /// is its listening socket.
+    var bateriSshUnix: [Int32: [SessionHost.UnixSocket]] {
+        [44733: [.init(pcb: 0xA1, peer: 0), .init(pcb: 0xA2, peer: 0), .init(pcb: 0xA3, peer: 0)],
+         85867: [.init(pcb: 0xB1, peer: 0xA2)],
+         85883: [.init(pcb: 0xC1, peer: 0xA3)]]
+    }
+
+    func piReply(address: String? = "192.168.1.241",
+                 forwarded: [String] = [SessionHostTests.forwardedTab(SessionHostTests.piTab)]) -> RemoteHost.Reply {
+        .connection(RemoteHost.Connection(clientPort: 60130, serverPort: 22, serverAddress: address,
+                                          startedAt: Date(timeIntervalSince1970: Self.masterStart), offset: 0,
+                                          forwarded: forwarded, direct: true))
+    }
+
+    func bateriSsh(_ reply: RemoteHost.Reply, table: [Int32: Proc]? = nil, shallow: Bool = false) -> SessionHost {
+        SessionHost.resolve(remote: reply, tunnel: Self.tunnel, evlat: Self.evlat, shallow: shallow,
+                            probe(table ?? bateriSshChain, sockets: bateriSshUnix, tcp: bateriSshTCP))
+    }
+
+    /// The tunnel and the user's `ssh` reached one host by two addresses:
+    /// the one the server names finds the user's.
+    func testTheServersOwnAddressFindsAnSshOnAnotherOfItsAddresses() {
+        let probe = probe(bateriSshChain, tcp: bateriSshTCP)
+        XCTAssertEqual(Ssh.candidates(tunnel: Self.tunnel, evlat: Self.evlat, probe), [], "the tunnel's end alone")
+        XCTAssertEqual(Ssh.candidates(tunnel: Self.tunnel, evlat: Self.evlat, server: Self.piV4, probe),
+                       [Ssh.Candidate(pid: 44733, localPorts: [60130])])
+        XCTAssertEqual(bateriSsh(piReply(address: nil)), .notFound, "no address said: today's rule")
+    }
+
+    /// The address is written as this Mac writes the ends it reads; the
+    /// server's own loopback, or none, is no end here.
+    func testTheServersAddressIsWrittenAsThisMacWritesIt() {
+        func end(_ address: String?) -> SessionHost.Endpoint? {
+            Ssh.serverEnd(of: RemoteHost.Connection(clientPort: 1, serverPort: 22, serverAddress: address,
+                                                    startedAt: Date(), offset: nil))
+        }
+        XCTAssertEqual(end("192.168.1.241"), Self.piV4)
+        XCTAssertEqual(end("::ffff:192.168.1.241"), Self.piV4, "an IPv4 written as IPv6")
+        XCTAssertEqual(end("2A02:0FF0:3D06:1FBB:EEA7:2685:7EB8:2B87"), Self.piV6)
+        XCTAssertEqual(end("fe80::1%eth0"), SessionHost.Endpoint(address: "fe80::1", port: 22), "the server's zone")
+        for none in [nil, "127.0.0.1", "127.1.2.3", "0.0.0.0", "::1", "::", "::ffff:127.0.0.1", "1.2.3", "::g"] {
+            XCTAssertNil(end(none), none ?? "nil")
+        }
+    }
+
+    /// Bateri's own master is detached and in no app: its riders are, the
+    /// tab's and Bateri's own, and the session's forwarded value names the
+    /// tab.
+    func testBaterisOwnSshOpensTheSessionsTab() {
+        guard case .app(let app) = bateriSsh(piReply()) else { return XCTFail("no app") }
+        XCTAssertEqual(app.bundleID, bateri.bundleID)
+        XCTAssertEqual(app.tab?.absoluteString, "bateri://tab/\(Self.piTab)")
+        XCTAssertEqual(bateriSsh(piReply(forwarded: [])), .app(bateri), "no value forwarded: the app alone")
+        XCTAssertEqual(bateriSsh(piReply(), shallow: true), .notFound, "riders name no sure tab for the news")
+    }
+
+    /// A rider in another app says the session may be there: nothing.
+    func testADetachedMastersRidersInTwoAppsFindNothing() {
+        var table = bateriSshChain
+        table[85883] = Proc(parent: 600, path: Self.sshPath)
+        table[600] = Proc(parent: 1, path: "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", app: code)
+        XCTAssertEqual(bateriSsh(piReply(), table: table), .notFound)
     }
 }

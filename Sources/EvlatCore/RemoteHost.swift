@@ -28,6 +28,13 @@ public enum RemoteHost {
         public let clientPort: Int
         /// `SSH_CONNECTION`'s server port.
         public let serverPort: Int
+        /// `SSH_CONNECTION`'s server address: the end the connection reached,
+        /// as the server saw it. Without a NAT or a jump host on the way it
+        /// is the end the user's `ssh` holds, whatever address Evlat's own
+        /// tunnel took — a host with two (an IPv4 and an IPv6 for one
+        /// `.local` name) gives the two `ssh` either. Checked here only for
+        /// an address's shape (`isAddress`); `nil` without a line that has it.
+        public let serverAddress: String?
         /// When the connection's `sshd` started, on the server's clock: it
         /// starts on the accept, so it is within a moment of the Mac's `ssh`.
         public let startedAt: Date
@@ -51,10 +58,11 @@ public enum RemoteHost {
         /// about; without the line it is `false`.
         public let direct: Bool
 
-        public init(clientPort: Int, serverPort: Int, startedAt: Date, offset: TimeInterval?,
-                    forwarded: [String] = [], herdrPane: Pane? = nil, direct: Bool = false) {
+        public init(clientPort: Int, serverPort: Int, serverAddress: String? = nil, startedAt: Date,
+                    offset: TimeInterval?, forwarded: [String] = [], herdrPane: Pane? = nil, direct: Bool = false) {
             self.clientPort = clientPort
             self.serverPort = serverPort
+            self.serverAddress = serverAddress
             self.startedAt = startedAt
             self.offset = offset
             self.forwarded = forwarded
@@ -114,6 +122,25 @@ public enum RemoteHost {
             && tail.allSatisfy { (0x41...0x5A).contains($0) || (0x30...0x39).contains($0) || $0 == 0x5F }
     }
 
+    /// Whether `text` has an IP address's shape, as `SSH_CONNECTION` writes
+    /// one: hex digits, dots and colons, then an IPv6 zone after `%` if any.
+    /// Whether it is an address is the shell's to read.
+    public static func isAddress(_ text: Substring) -> Bool {
+        let parts = text.split(separator: "%", maxSplits: 1, omittingEmptySubsequences: false)
+        let head = parts[0].utf8
+        guard (2...45).contains(head.count),
+              head.allSatisfy({ $0 == 0x2E || $0 == 0x3A || isHexDigit($0) }) else { return false }
+        guard parts.count == 2 else { return true }
+        let zone = parts[1].utf8
+        return (1...32).contains(zone.count)
+            && zone.allSatisfy { (0x30...0x39).contains($0) || (0x41...0x5A).contains($0)
+                || (0x61...0x7A).contains($0) || $0 == 0x2E || $0 == 0x5F || $0 == 0x2D }
+    }
+
+    private static func isHexDigit(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte) || (0x41...0x46).contains(byte) || (0x61...0x66).contains(byte)
+    }
+
     // MARK: - The call
 
     /// `RemoteSettings.arguments` over the master, and **only** over it: if
@@ -162,7 +189,8 @@ public enum RemoteHost {
     /// `sshd` — the one whose parent is the listener (`sshd`, parent 1),
     /// whatever it is called (`sshd`, or `sshd-session` from 9.8) — and its
     /// start is printed with `SSH_CONNECTION`'s ports and the script's own
-    /// time. No such `sshd`, or a pane with no client attached: `none`.
+    /// time, after a line with its server address (`<nonce> addr`). No such
+    /// `sshd`, or a pane with no client attached: `none`.
     /// Not Linux (no `<proc>/self`), no record, no live process, a pane whose
     /// values do not check out or whose server cannot be asked: nothing.
     /// Every process the script runs only reads: `tmux` lists, `ss` lists,
@@ -229,6 +257,7 @@ public enum RemoteHost {
                     fv=$(val "$fn")
                     [ -z "$fv" ] || printf '%s env %s %.\#(maxForwardedValue + 1)s\n' "$n" "$fn" "$fv"
                   done
+                  printf '%s addr %s\n' "$n" "$3"
                   printf '%s ssh %s %s %s %s %s\n' "$n" "$2" "$4" "$b" "$t" "$(date +%s.%N)"
                   exit 0
                 fi
@@ -517,13 +546,15 @@ public enum RemoteHost {
     /// all of them "not known", never a guess. `arrivedAt` is when the
     /// answer reached this Mac: the clock offset is read against it. A
     /// forwarded variable whose line does not parse is left out; the
-    /// connection stands without it. So do the herdr pane's and `direct`'s.
+    /// connection stands without it. So do the herdr pane's, `direct`'s and
+    /// the server address's.
     public static func reply(exitCode: Int32, output: Data, nonce: String, arrivedAt: Date) -> Reply? {
         guard exitCode == 0 else { return nil }
         let text = String(decoding: output, as: UTF8.self)
         var forwarded: [String] = []
         var herdrPane: Pane?
         var direct = false
+        var serverAddress: String?
         var said: [Substring] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix(nonce + " ") {
             let parts = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false)
@@ -537,6 +568,10 @@ public enum RemoteHost {
                 // A word not known is no pane: the card then promises nothing
                 // it would not keep, and the click selects nothing.
                 if parts.count == 3 { herdrPane = parts[2] == "on" ? .selectable : parts[2] == "off" ? .unselectable : nil }
+                continue
+            }
+            if parts.count >= 2, parts[1] == "addr" {
+                if parts.count == 3, isAddress(parts[2]) { serverAddress = String(parts[2]) }
                 continue
             }
             if parts.count >= 2, parts[1] == "env" {
@@ -560,7 +595,8 @@ public enum RemoteHost {
         let started = Date(timeIntervalSince1970: Double(boot) + Double(ticks) / ticksPerSecond)
         // `date` without `%N` (busybox, BSD) prints a letter there: no offset.
         let offset = Double(words[6]).flatMap { $0.isFinite ? $0 : nil }.map { $0 - arrivedAt.timeIntervalSince1970 }
-        return .connection(Connection(clientPort: client, serverPort: server, startedAt: started, offset: offset,
-                                      forwarded: forwarded, herdrPane: herdrPane, direct: direct))
+        return .connection(Connection(clientPort: client, serverPort: server, serverAddress: serverAddress,
+                                      startedAt: started, offset: offset, forwarded: forwarded,
+                                      herdrPane: herdrPane, direct: direct))
     }
 }

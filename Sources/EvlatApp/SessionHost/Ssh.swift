@@ -8,10 +8,13 @@ import EvlatCore
 ///
 /// The candidates are the user's `ssh` processes connected to the **same
 /// end** as Evlat's own tunnel to that machine. Not to the address the
-/// server names: a NAT on either side, or a jump host, makes that address
-/// one no `ssh` here holds. The tunnel goes the way the user's `ssh` goes,
-/// so its end is theirs — DNS, NAT and `ProxyJump` included. No tunnel, no
-/// candidate.
+/// server names alone: a NAT on either side, or a jump host, makes that
+/// address one no `ssh` here holds. The tunnel goes the way the user's
+/// `ssh` goes, so its end is theirs — DNS, NAT and `ProxyJump` included.
+/// No tunnel, no candidate. The address the server names is an end too
+/// (`serverEnd`): a host with two addresses gives the tunnel one and the
+/// user's `ssh` the other — one `.local` name, an IPv6 for the tunnel and
+/// an IPv4 for Bateri's, measured.
 ///
 /// In order:
 ///  1. the candidate whose local port is the server's client port (no NAT);
@@ -32,9 +35,12 @@ import EvlatCore
 /// tab only when every one gives the same: riders of one `ControlMaster`
 /// whose session's value names it.
 /// A pick that is a `ControlMaster` with other `ssh` riding it is ambiguous
-/// too: the server sees all of them as one connection. Except herdr's own
-/// master, detached under `herdr --remote`: it stands for that `herdr`
-/// (`herdrRemoteClients`).
+/// too: the server sees all of them as one connection. herdr's own master,
+/// detached under `herdr --remote`, stands for that `herdr`
+/// (`herdrRemoteClients`); any other master detached by `ControlPersist`
+/// (parented to launchd: Bateri's own ssh, or the user's config) is in no
+/// app, and stands for its riders. The forwarded value, the session's
+/// own, then names the tab.
 /// Measured on an Ubuntu server (OpenSSH 9.6p1): the connection's `sshd`
 /// started 0.11 s and −0.19 s from its Mac `ssh`, and the clocks were
 /// within half a second.
@@ -52,20 +58,57 @@ enum Ssh {
     }
 
     /// The user's `ssh` processes connected where the tunnel `ssh` (`tunnel`)
-    /// is. Evlat's own are never one: the tunnel, the installer's calls and
-    /// a jump host's `ssh -W` under them all descend from `evlat`.
-    static func candidates(tunnel: Int32, evlat: Int32, _ probe: SessionHost.Probe) -> [Candidate] {
+    /// is, or to `server` (`serverEnd`). Evlat's own are never one: the
+    /// tunnel, the installer's calls and a jump host's `ssh -W` under them
+    /// all descend from `evlat`.
+    static func candidates(tunnel: Int32, evlat: Int32, server: SessionHost.Endpoint? = nil,
+                           _ probe: SessionHost.Probe) -> [Candidate] {
         let pids = probe.processes()
         // Through `ProxyJump` the socket is the tunnel's child's.
         let tunnelSide = [tunnel] + pids.filter { $0 != tunnel && probe.parent($0) == tunnel }
-        let ends = Set(tunnelSide.flatMap { probe.tcpSockets($0) ?? [] }.map(\.remote))
+        var ends = Set(tunnelSide.flatMap { probe.tcpSockets($0) ?? [] }.map(\.remote))
         guard !ends.isEmpty else { return [] }
+        if let server { ends.insert(server) }
         return pids.compactMap { pid in
             guard pid != tunnel, isSsh(pid, probe), !descends(pid, from: evlat, probe),
                   let sockets = probe.tcpSockets(pid) else { return nil }
             let ports = Set(sockets.filter { ends.contains($0.remote) }.map(\.local.port))
             return ports.isEmpty ? nil : Candidate(pid: pid, localPorts: ports)
         }
+    }
+
+    /// The end the server says the connection reached, written as this
+    /// Mac writes the ends it reads (`inet_ntop`); `nil` for none, for one
+    /// that is not an address, and for the server's loopback or an
+    /// unspecified one, which no `ssh` here reaches. An IPv6 zone is the
+    /// server's interface, not this Mac's, and is dropped; an IPv4 written
+    /// as IPv6 (`::ffff:a.b.c.d`) is its IPv4.
+    static func serverEnd(of connection: RemoteHost.Connection) -> SessionHost.Endpoint? {
+        guard let text = connection.serverAddress,
+              let bare = text.split(separator: "%", maxSplits: 1).first.map(String.init) else { return nil }
+        var four = in_addr()
+        var six = in6_addr()
+        var bytes: [UInt8]
+        if inet_pton(AF_INET, bare, &four) == 1 {
+            bytes = withUnsafeBytes(of: &four) { Array($0) }
+        } else if inet_pton(AF_INET6, bare, &six) == 1 {
+            bytes = withUnsafeBytes(of: &six) { Array($0) }
+            if bytes.prefix(10).allSatisfy({ $0 == 0 }), bytes[10] == 0xFF, bytes[11] == 0xFF {
+                bytes = Array(bytes.suffix(4))
+            }
+        } else {
+            return nil
+        }
+        if bytes.count == 4 {
+            guard bytes[0] != 127, bytes != [0, 0, 0, 0] else { return nil }
+            return SessionHost.Endpoint(address: bytes.map(String.init).joined(separator: "."),
+                                        port: connection.serverPort)
+        }
+        // `::` and `::1`.
+        if bytes.prefix(15).allSatisfy({ $0 == 0 }), bytes[15] <= 1 { return nil }
+        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        guard inet_ntop(AF_INET6, &six, &buffer, socklen_t(buffer.count)) != nil else { return nil }
+        return SessionHost.Endpoint(address: String(cString: buffer), port: connection.serverPort)
     }
 
     /// What the order above makes of the candidates (`StartMatch`).
@@ -156,7 +199,7 @@ extension SessionHost {
                         _ probe: Probe) -> SessionHost {
         guard case .connection(let connection) = reply, let tunnel else { return .notFound }
         let forwarded = connection.forwarded
-        let candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, probe)
+        let candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, server: Ssh.serverEnd(of: connection), probe)
         let host: SessionHost
         switch Ssh.choose(candidates, for: connection, startedAt: probe.startedAt) {
         case .one(let pid):
@@ -170,6 +213,10 @@ extension SessionHost {
                 // serves: the session's tab is that one's.
                 host = clients.count == 1 ? resolve(pid: clients[0], forwarded: forwarded, probe)
                     : sameApp(clients, forwarded: forwarded, probe)
+            } else if probe.parent(pid) == 1 {
+                // Detached by `ControlPersist`, the master is in no app: its
+                // riders are the tabs that use it.
+                host = sameApp(riders, forwarded: forwarded, probe)
             } else {
                 host = sameApp([pid] + riders, forwarded: forwarded, probe)
             }

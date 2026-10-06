@@ -178,6 +178,30 @@ final class RemoteHostTests: XCTestCase {
                        "not direct unless said")
     }
 
+    /// The server address rides beside the connection, on a line of its
+    /// own; one without an address's shape is left out and the connection
+    /// stands. The measured pair: one `.local` name, an IPv4 and an IPv6.
+    func testTheServerAddressIsReadFromItsOwnLine() {
+        let at = Date(timeIntervalSince1970: 0)
+        func address(_ text: String) -> String?? {
+            guard case .connection(let connection) = RemoteHost.reply(exitCode: 0, output: Data(text.utf8), nonce: "n",
+                                                                      arrivedAt: at) else { return nil }
+            return .some(connection.serverAddress)
+        }
+        XCTAssertEqual(address("n addr 192.168.1.241\nn ssh 60130 22 100 50 1.5\n"), .some("192.168.1.241"))
+        XCTAssertEqual(address("n addr 2a02:ff0:3d06:1fbb:eea7:2685:7eb8:2b87\nn ssh 1 22 100 50 1.5\n"),
+                       .some("2a02:ff0:3d06:1fbb:eea7:2685:7eb8:2b87"))
+        XCTAssertEqual(address("n addr fe80::1%eth0\nn ssh 1 22 100 50 1.5\n"), .some("fe80::1%eth0"))
+        XCTAssertEqual(address("n ssh 1 22 100 50 1.5\n"), .some(nil), "no line: no address")
+        for bad in ["host.example", "1.2.3.4 5", "", "1", "$(id)", "::1%", "::1%a b", "1.2.3.4%x/y"] {
+            XCTAssertEqual(address("n addr \(bad)\nn ssh 1 22 100 50 1.5\n"), .some(nil), bad)
+        }
+        XCTAssertEqual(RemoteHost.reply(exitCode: 0, output: Data("n addr 1.2.3.4\nn none\n".utf8), nonce: "n",
+                                        arrivedAt: at), .noConnection)
+        XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n addr 1.2.3.4\n".utf8), nonce: "n", arrivedAt: at),
+                     "an address alone is no connection")
+    }
+
     /// Only an `LC_` word reaches the script, and only so many.
     func testOnlyForwardedNamesReachTheScript() throws {
         let bad = ["LANG", "PATH", "LC_", "lc_tab", "LC_tab", "LC_A;rm -rf ~", "LC_A B", "LC_A'", "LC_$(id)",
@@ -204,7 +228,7 @@ final class RemoteHostTests: XCTestCase {
                          (700, "bash", 600, 12350), (800, "claude", 700, 12400)],
                  agent: 800, environment: ["TERM=xterm", "SSH_CONNECTION=31.223.75.17 19554 116.202.9.44 22"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn ssh 19554 22 1000 12345 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn addr 116.202.9.44\nn ssh 19554 22 1000 12345 2000.25", shell)
         }
     }
 
@@ -216,7 +240,7 @@ final class RemoteHostTests: XCTestCase {
                          (650, "sshd-session", 600, 230), (700, "bash", 650, 240), (800, "claude", 700, 250)],
                  agent: 800, environment: ["SSH_CONNECTION=10.0.0.1 50000 10.0.0.2 2222"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn ssh 50000 2222 1000 222 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn addr 10.0.0.2\nn ssh 50000 2222 1000 222 2000.25", shell)
         }
     }
 
@@ -225,7 +249,7 @@ final class RemoteHostTests: XCTestCase {
         try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 7),
                          (800, "my (odd) agent", 600, 9)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
-        XCTAssertEqual(try run("/bin/sh"), "n direct\nn ssh 1 22 1000 7 2000.25")
+        XCTAssertEqual(try run("/bin/sh"), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 7 2000.25")
     }
 
     func testNoSshdAboveIsSaidOutright() throws {
@@ -275,7 +299,7 @@ final class RemoteHostTests: XCTestCase {
 
         try tree(chain: chain, agent: 800, environment: environment, recordedStart: 1_124_000 + 90_000)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
+            XCTAssertEqual(try run(shell), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
         }
     }
 
@@ -289,7 +313,7 @@ final class RemoteHostTests: XCTestCase {
         try #"{"pid":700,"sessionId":"\#(Self.session)","startedAt":5000}"#
             .write(to: stale, atomically: true, encoding: .utf8)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn ssh 1 22 1000 5 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", shell)
         }
     }
 
@@ -308,6 +332,7 @@ final class RemoteHostTests: XCTestCase {
                 n env LC_SPACED a b
                 n env LC_TAB t://tab/1
                 n env LC_LONG \(long.prefix(RemoteHost.maxForwardedValue + 1))
+                n addr 116.202.9.44
                 n ssh 19554 22 1000 12345 2000.25
                 """, shell)
         }
@@ -330,7 +355,7 @@ final class RemoteHostTests: XCTestCase {
     func testTmuxSaysTheMostActiveClientOfThePanesSession() throws {
         try muxTree(tmuxOutput: "$0\n602 100 $0\n612 200 $0\n622 900 $1\n")
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
         }
     }
 
@@ -339,10 +364,10 @@ final class RemoteHostTests: XCTestCase {
     /// as on this Mac.
     func testTmuxSkipsOtherSessionsAndClientsWithoutATerminal() throws {
         try muxTree(tmuxOutput: "$0\n602 100 $0\n632 500 $0\n622 900 $1\n")
-        XCTAssertEqual(try run("/bin/sh"), "n ssh 1111 22 1000 600 2000.25", "632 has no terminal")
+        XCTAssertEqual(try run("/bin/sh"), "n addr 2.2.2.2\nn ssh 1111 22 1000 600 2000.25", "632 has no terminal")
         try muxTree(tmuxOutput: "$0\n602 300 $0\n612 300 $0\n")
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
         }
     }
 
@@ -389,7 +414,7 @@ final class RemoteHostTests: XCTestCase {
     func testHerdrSaysTheNewestConnectedClientWithATerminal() throws {
         try herdrTree()
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n herdr on\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
         }
     }
 
@@ -407,7 +432,7 @@ final class RemoteHostTests: XCTestCase {
             try herdrTree(bridge: bridge)
             for shell in Self.shells {
                 XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]),
-                               "n herdr on\nn env LC_TAB t://tab/bridge\nn ssh 4444 22 1000 9400 2000.25",
+                               "n herdr on\nn env LC_TAB t://tab/bridge\nn addr 2.2.2.2\nn ssh 4444 22 1000 9400 2000.25",
                                "\(shell) \(bridge)")
             }
         }
@@ -420,7 +445,7 @@ final class RemoteHostTests: XCTestCase {
         for other in others {
             try herdrTree(bridge: other)
             for shell in Self.shells {
-                XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25",
+                XCTAssertEqual(try run(shell), "n herdr on\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25",
                                "\(shell) \(other): no terminal and not the bridge, so 612")
             }
         }
@@ -451,13 +476,13 @@ final class RemoteHostTests: XCTestCase {
         try muxTree(tmuxOutput: "$0\n602 100 $0\n612 200 $0\n",
                     agentEnvironment: Self.tmuxPane + ["LC_TAB=t://tab/stale"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]), "n env LC_TAB t://tab/612\nn ssh 2222 22 1000 610 2000.25",
+            XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]), "n env LC_TAB t://tab/612\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25",
                            shell)
         }
         try herdrTree()
         for shell in Self.shells {
             XCTAssertEqual(try run(shell, forwarded: ["LC_TAB"]),
-                           "n herdr on\nn env LC_TAB t://tab/612\nn ssh 2222 22 1000 610 2000.25", shell)
+                           "n herdr on\nn env LC_TAB t://tab/612\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
         }
         try muxTree(tmuxOutput: "$0\n", agentEnvironment: Self.tmuxPane + ["LC_TAB=t://tab/stale"])
         XCTAssertEqual(try run("/bin/sh", forwarded: ["LC_TAB"]), "n none", "no client, no value")
@@ -473,17 +498,17 @@ final class RemoteHostTests: XCTestCase {
         }
         try muxTree(tmuxOutput: "$0\n612 200 $0\n")
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n ssh 2222 22 1000 610 2000.25", "\(shell) tmux")
+            XCTAssertEqual(try run(shell), "n addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", "\(shell) tmux")
         }
         try muxTree(tmuxOutput: "$0\n")
         XCTAssertEqual(try run("/bin/sh"), "n none", "tmux, nobody attached")
         try herdrTree()
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25", "\(shell) herdr")
+            XCTAssertEqual(try run(shell), "n herdr on\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", "\(shell) herdr")
         }
         try herdrTree(bridge: ["herdr", "remote-client-bridge"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 4444 22 1000 9400 2000.25", "\(shell) herdr's bridge")
+            XCTAssertEqual(try run(shell), "n herdr on\nn addr 2.2.2.2\nn ssh 4444 22 1000 9400 2000.25", "\(shell) herdr's bridge")
         }
     }
 
@@ -508,25 +533,25 @@ final class RemoteHostTests: XCTestCase {
     func testTheLookupSaysWhetherTheServersPaneCanBeSelected() throws {
         try herdrTree()
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr on\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n herdr on\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
             XCTAssertEqual(try herdrCalls(), ["pane process-info --pane w1:p2", "agent get w2:p3"],
                            "\(shell): the agent's own id answered, so no list")
         }
         try herdrTree(agent: false)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr off\nn ssh 2222 22 1000 610 2000.25", "\(shell): not an agent's")
+            XCTAssertEqual(try run(shell), "n herdr off\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", "\(shell): not an agent's")
         }
         try herdrTree(match: .foreground)
-        XCTAssertEqual(try run("/bin/sh"), "n herdr on\nn ssh 2222 22 1000 610 2000.25",
+        XCTAssertEqual(try run("/bin/sh"), "n herdr on\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25",
                        "no pane's shell is the root: the pane running the agent")
         XCTAssertEqual(try herdrCalls(), ["pane process-info --pane w1:p2", "pane list",
                                           "pane process-info --pane w1:p1", "agent get w2:p3"],
                        "the pane the agent's own id answered for is not asked again")
         try herdrTree(match: .none)
-        XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn ssh 2222 22 1000 610 2000.25", "no pane")
+        XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", "no pane")
         XCTAssertFalse(try herdrCalls().contains { $0.hasPrefix("agent") }, "no pane, nothing asked of it")
         try herdrTree(exeName: "bash")
-        XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn ssh 2222 22 1000 610 2000.25",
+        XCTAssertEqual(try run("/bin/sh"), "n herdr off\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25",
                        "the server's executable is not herdr: not run")
         XCTAssertEqual(try herdrCalls(), [])
     }
@@ -537,13 +562,13 @@ final class RemoteHostTests: XCTestCase {
     func testHerdrIsAskedOnlyWithinABound() throws {
         try herdrTree(timeout: false)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr off\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n herdr off\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
             XCTAssertEqual(try herdrCalls(), [], shell)
             XCTAssertEqual(try runSelect(shell), "", shell)
         }
         try herdrTree(cut: true)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n herdr off\nn ssh 2222 22 1000 610 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n herdr off\nn addr 2.2.2.2\nn ssh 2222 22 1000 610 2000.25", shell)
             XCTAssertEqual(try herdrCalls(), ["pane process-info --pane w1:p2"], "\(shell): cut once, no more")
         }
     }

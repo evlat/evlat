@@ -17,6 +17,11 @@ renames that heading to its version.
   session's finish sound, peek and reminders stay quiet while you're at its
   tab — on this Mac, or over ssh from a Bateri tab. The bar still shows what
   happened, and the finish stays new until you look at it.
+- **Go to session over Bateri's own ssh.** A session on a server you
+  reach through Bateri's ssh now has its **Go to session** button, and it
+  opens the tab the session runs in. The button also no longer goes
+  missing when your Mac reaches a server by two addresses, as a `.local`
+  name with both IPv4 and IPv6 does.
 
 ## 0.2.2
 

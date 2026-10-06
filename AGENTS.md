@@ -570,8 +570,9 @@ is lost with the process.
   UUID. The record's pid counts only if its process started within 120 s
   of the record's `startedAt` (pids are recycled). It walks the agent's
   parents to its connection's `sshd` (the one under the listener) and says
-  `SSH_CONNECTION`'s ports, that `sshd`'s start and its own clock, after
-  a line of its own, `direct`: the one answer the news walks. In a
+  `SSH_CONNECTION`'s ports and server address, that `sshd`'s start and its
+  own clock, after a line of its own, `direct`: the one answer the news
+  walks. In a
   tmux or herdr pane it walks from the client instead, by this Mac's rules:
   tmux's client of the pane's session that did something last, asked of
   the server's own executable (`<proc>/<pid>/exe`, `timeout 2` where there
@@ -601,18 +602,24 @@ is lost with the process.
   reached and not past a multiplexer's server; it never picks the app,
   since whatever a tab starts inherits it. The candidates are the
   user's `ssh` processes connected to the same end as Evlat's own tunnel
-  `ssh` (`Ssh`, `PROC_PIDFDSOCKETINFO`): the exact client port, else the
-  only one (unless its start is > 10 s off), else the start nearest the
-  connection's (≤ 2 s, every other > 10 s), else the app alone if all are
-  in one, else no button. A pick that is the user's own `ControlMaster`
-  with other `ssh` riding it is the app alone too. herdr's own master is
-  not: `herdr --remote` runs its `ssh` with `ControlPersist`, so the pick
-  is a master parented to launchd whose riders are children of the
-  `herdr --remote` in the tab, and that `herdr` is walked instead (its
-  environment can be read; several on one master give the app alone).
+  `ssh`, or to the server address the script said, never its loopback
+  (`Ssh`, `PROC_PIDFDSOCKETINFO`): one host can be two ends, and a
+  `.local` name gave the tunnel its IPv6 and Bateri's `ssh` its IPv4.
+  Then the exact client port, else the only one (unless its start is >
+  10 s off), else the start nearest the connection's (≤ 2 s, every
+  other > 10 s), else the app alone if all are in one, else no button. A
+  pick that is the user's own `ControlMaster` with other `ssh` riding it
+  is the app alone too, with the tab only where the session's forwarded
+  value fills the same one for every rider. A master detached by
+  `ControlPersist` (parented to launchd) is in no app and stands for its
+  riders alone: Bateri's own `ssh` is one, and the session's forwarded
+  value names its tab. herdr's own master is one too, but its riders are
+  children of the `herdr --remote` in the tab, and that `herdr` is walked
+  instead (its environment can be read; several on one master give the
+  app alone).
   Saved machines (`herdr machine add`) start their bridge from another
   path (`--idle-timeout-v1`, not under `--remote`) and were not measured:
-  this rule leaves them as the user's own master. From that
+  this rule leaves them to the detached master's riders. From that
   `ssh` the walk is the local one. The card shows the button only once
   found, says nothing while searching, and keeps the answer for its life:
   the click walks this Mac again and does not ask where again. The one
@@ -1252,6 +1259,18 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   are found by the tunnel's own end instead, and told apart by start: the
   connection's `sshd` started +0.11 s and −0.19 s from its Mac `ssh`, the
   clocks were within 0.5 s.
+- **One `.local` name is two ends, and Bateri's own `ssh` is a detached
+  master** (Bateri 0.6.0, a Raspberry Pi, 2026-10-06). `raspalfred.local`
+  resolved to an IPv6 and an IPv4: Evlat's tunnel, started later, held
+  the IPv6 and the Bateri tab's connection the IPv4, so no `ssh` here
+  shared the tunnel's end and the card had no button. The server's
+  `SSH_CONNECTION` named the IPv4 and the master's port. Bateri's tab ran
+  `ssh -t -o ControlMaster=auto -o ControlPath=~/Library/Caches/bateri/s/…
+  -o ControlPersist=2`: a master parented to launchd (`ssh: <socket>
+  [mux]`) held the one TCP connection, the tab's `ssh` and Bateri's own
+  `ssh -T -o BatchMode=yes -o ControlMaster=no` (a child of Bateri, no
+  terminal) rode it, and the master's walk reached no app. On the server
+  the session had `LC_BATERI_TAB_URL`.
 - **`ssh -S` with a gone master logs in by itself.** `ControlMaster=no`
   only stops it becoming a master; with no socket it connects directly.
   `-o ProxyCommand=/usr/bin/false` makes that fail at once (exit 255,
