@@ -101,18 +101,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     lazy var signals = SignalsProvider(now: { [unowned self] in
         MainActor.assumeIsolated { self.now() }
     })
-    private var hookListener: HookListener?
-    /// Evlat's socket (`EvlatSocket`), beside the port: Evlat's own clients
-    /// — a chat turn's hook, the askpass helper, `Evlat signal` — post
-    /// here. `nil` without a socket to bind (`socketPath`).
+    /// Evlat's socket (`EvlatSocket`): the installed hooks, relays and
+    /// approval hook, and Evlat's own clients — a chat turn's hook, the
+    /// askpass helper, `Evlat signal` — all post here. `nil` without a
+    /// socket to bind (`socketPath`). The chats are handed it
+    /// (`ChatStore.permissions`, held weakly).
     private var socketListener: HookListener?
-    /// What the chats are handed (`ChatStore.permissions`, held weakly).
-    private var permissionDesk: BothListeners?
     /// Docker sandboxes' listener (`SandboxListener`); `nil` in a process
     /// that has none (`SandboxListener.port`), and in every test.
     private(set) var sandbox: SandboxListener?
-    /// The key file this process wrote, removed on quit.
-    private let signalKeyWritten = SignalKey.Written()
     /// The chats and their `claude -p` turns; `nil` until launch.
     /// Registered in `registry` as the `evlat` provider. Internal so a test
     /// hands its own store (a fake `claude`, a temporary root).
@@ -152,7 +149,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The tunnels' password store (`passwordStore(underTests:environment:)`).
     private(set) var passwordStore: SSHPasswordStore?
     /// The machines came from `EVLAT_MACHINES` (or none, because of
-    /// `EVLAT_PORT`): then adding or removing one is not written back.
+    /// `EVLAT_SOCKET`): then adding or removing one is not written back.
     private var remoteFromEnvironment = true
     /// The `ssh` the tunnels run, which the window's installer runs too.
     private var remoteSSHPath = AppController.sshPath()
@@ -680,8 +677,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     ///
     /// It exists because the "nothing is live" state cannot be produced on a
     /// machine that has live sessions, and that state is exactly what the
-    /// idle-cost measurement needs. v1 uses the same pattern (`EVLAT_PORT`,
-    /// `EVLAT_PET`). Without it the records follow the resolved home, so
+    /// idle-cost measurement needs. v1 used the same pattern (`EVLAT_PET`). Without it the records follow the resolved home, so
     /// `EVLAT_HOME` moves them too.
     nonisolated static func sessionRecords(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
@@ -993,8 +989,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `Evlat --list`: print the signals and exit, opening no window.
     /// The stand-in for v1's `GET /status`, beside the local API.
     ///
-    /// With `capturingFor`, it also **binds** the hook port for that many
-    /// seconds and prints every event that arrives. Without it, the endpoint is
+    /// With `capturingFor`, it also **binds** Evlat's socket for that many
+    /// seconds and prints every event that arrives. Without it, the socket is
     /// only asked whether someone is already answering there.
     nonisolated public static func printSignalsAndExit(capturingFor window: TimeInterval? = nil) -> Never {
         let registry = Registry()
@@ -1024,7 +1020,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             print(usageLine(signal))
         }
         print(String(format: "usage reload: %.1f ms", reloadMs))
-        printHookEndpoint(capturingFor: window)
+        printSocketEndpoint(capturingFor: window)
         printRemoteMachines()
         exit(0)
     }
@@ -1043,9 +1039,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         var lines: [String] = []
         let origin = configuration.fromEnvironment ? "EVLAT_MACHINES" : RemoteMachine.storageKey
         if configuration.machines.isEmpty {
-            let port = environment["EVLAT_PORT"].map { !$0.isEmpty } ?? false
-            let reason = environment["EVLAT_MACHINES"] == nil && port
-                ? " (EVLAT_PORT is set without EVLAT_MACHINES: no tunnel is opened)" : ""
+            let reason = environment["EVLAT_MACHINES"] == nil && Isolation.hasOwnSocket(environment)
+                ? " (EVLAT_SOCKET is set without EVLAT_MACHINES: no tunnel is opened)" : ""
             lines.append("remote machines: none\(reason)")
         } else {
             lines.append("remote machines: \(configuration.machines.count) (from \(origin))")
@@ -1110,21 +1105,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         return "  usage    \(report.source.rawValue)  \(windows.isEmpty ? "no windows" : windows.joined(separator: ", "))\(unrecognized)"
     }
 
-    /// The hook endpoint's own diagnostics.
+    /// Evlat's socket's own diagnostics.
     ///
     /// Failing to bind is the way this feature breaks in the field and it
-    /// produces **no symptom at all**: v1 and v2 carry the same bundle id and
-    /// the same executable name, so a v1 left running holds 48151, v2 starts
-    /// fine, and no event ever arrives. That state is printed here.
-    private nonisolated static func printHookEndpoint(capturingFor window: TimeInterval?) {
-        let choice = HookListener.resolvePort()
-        if let rejected = choice.rejectedOverride {
-            print("EVLAT_PORT=\(rejected) ignored: not a usable port number")
+    /// produces **no symptom at all**: another Evlat holding the socket, and
+    /// no event ever arrives here. That state is printed here.
+    private nonisolated static func printSocketEndpoint(capturingFor window: TimeInterval?) {
+        guard let socket = socketPath(home: resolvedHome()) else {
+            print("socket: \(socketAbsence)")
+            return
         }
-        let socket = socketPath(home: resolvedHome())
         guard let window = window else {
-            print("hook endpoint: 127.0.0.1:\(choice.port)  ·  \(probeHookEndpoint(port: choice.port))")
-            printSignalEndpoint(port: choice.port)
             printSocket(socket)
             return
         }
@@ -1135,12 +1126,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // every line — the exact failure streaming was chosen to avoid.
         setvbuf(stdout, nil, _IOLBF, 0)
         let diagnostics = HookDiagnostics()
-        // The capture holds the port, so it is the one that writes the key:
-        // an outside program's `/signal` is printed here like a hook.
-        let written = SignalKey.Written()
-        // One printer for both ends: a hook to the port and a command to the
-        // socket are read the same way.
-        let printDelivery: (LocalAPI.Delivery) -> Void = { delivery in
+        let listener = HookListener(transport: .unix(socket)) { delivery in
             switch delivery {
             case .hook(let event):
                 // Streamed, not only summarised: under a `PostToolUse` burst a
@@ -1164,26 +1150,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 print(signalCaptureLine(report))
             }
         }
-        let listener = HookListener(port: choice.port,
-                                    signalKey: signalKeyWriter(home: resolvedHome(), written: written),
-                                    onDelivery: printDelivery)
         listener.start()
         let status = listener.awaitSettled()
-        print("hook endpoint: \(status.text)")
-        guard case .listening = status else {
-            // A busy port says "in use" but not WHO — and that is the whole
-            // question when the port is held by the other Evlat.
-            print("  ·  \(probeHookEndpoint(port: choice.port))")
+        print("socket: \(status.text)")
+        // A running Evlat holds it: said, and nothing is captured. Who
+        // answers there is the question a busy socket raises.
+        guard case .listeningAt = status else {
+            print("  ·  \(probeSocket(socket))")
             return
-        }
-        // The socket too, when there is one to take: a running Evlat holds
-        // it, and then the capture says so and hears the port alone.
-        let socketListener = socket.map { HookListener(transport: .unix($0), onDelivery: printDelivery) }
-        socketListener?.start()
-        if let socketListener {
-            print("socket: \(socketListener.awaitSettled().text)")
-        } else {
-            print("socket: \(socketAbsence)")
         }
         print("capturing for \(Int(window)) s …")
         // Events are delivered to the main queue; this is what runs it. The
@@ -1194,8 +1168,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         RunLoop.main.add(Timer(fire: deadline, interval: 0, repeats: false) { _ in }, forMode: .default)
         RunLoop.main.run(until: deadline)
         listener.stop()
-        socketListener?.stop()
-        written.remove()
         // Events cross on `DispatchQueue.main.async`, so the ones handed over
         // just before the deadline have not run yet. Without this drain they
         // are neither printed nor counted, and the totals a measurement is
@@ -1213,26 +1185,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             + (report.sender.map { "  from \($0)" } ?? "")
     }
 
-    /// `--list`'s word on `/signal`: the key file, and a keyed probe that
-    /// clears an id nobody uses (`ttl: 0`), so it leaves no row.
-    private nonisolated static func printSignalEndpoint(port: UInt16) {
-        let environment = ProcessInfo.processInfo.environment
-        guard let url = SignalKey.location(port: port, environment: environment) else {
-            print("signal key: none (EVLAT_PORT is set without EVLAT_HOME: an isolated process has no key)")
-            return
-        }
-        let key = SignalKey.read(from: url)
-        print("signal key: \(url.path)\(key == nil ? " (absent)" : "")")
-        print("signal: \(signalProbeText(key == nil ? nil : probeSignalEndpoint(port: port, key: key!)))")
-    }
-
     /// `--list`'s word on Evlat's socket: where it is, who answers there,
-    /// and an unkeyed `/signal` probe through it, as `Evlat signal` posts.
-    private nonisolated static func printSocket(_ path: String?) {
-        guard let path else {
-            print("socket: \(socketAbsence)")
-            return
-        }
+    /// and a `/signal` probe through it, as `Evlat signal` posts — one that
+    /// clears an id nobody uses (`ttl: 0`), so it leaves no row.
+    private nonisolated static func printSocket(_ path: String) {
         print("socket: \(path)  ·  \(probeSocket(path))")
         let probe = SignalCommand.Post(id: "_probe", word: nil, ttl: 0)
         let answer: SignalProbe
@@ -1241,24 +1197,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .notRunning: answer = .notRunning
         case .failed(let reason): answer = .failed(reason)
         }
-        print("signal (socket): \(signalProbeText(answer))")
+        print("signal: \(signalProbeText(answer))")
     }
 
-    /// Why there is no socket: an isolated process without one of its own,
-    /// or an `EVLAT_SOCKET` that cannot be one.
+    /// Why there is no socket: an `EVLAT_SOCKET` that cannot be one, or a
+    /// home too long for an address.
     private nonisolated static var socketAbsence: String {
         let environment = ProcessInfo.processInfo.environment
-        if !(environment[EvlatSocket.environmentKey] ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+        if Isolation.hasOwnSocket(environment) {
             return "none (EVLAT_SOCKET is not an absolute path that fits a socket's address)"
-        }
-        if !(environment["EVLAT_PORT"] ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
-            return "none (EVLAT_PORT is set without EVLAT_SOCKET: an isolated process has none)"
         }
         return "none (the home's path is too long for a socket's address)"
     }
 
-    /// Is anything answering on the socket, and is it Evlat? As
-    /// `probeHookEndpoint`: only "nobody listens" means free.
+    /// Is anything answering on the socket, and is it Evlat? **Only "nobody
+    /// listens" means free**: a process that accepts and never answers, or
+    /// speaks something that is not HTTP, still holds it — reading that as
+    /// free would print "nothing is listening" in precisely the situation
+    /// this diagnostic exists for.
     private nonisolated static func probeSocket(_ path: String, timeout: TimeInterval = 1) -> String {
         switch UnixHTTP.send("/health", method: "GET", socket: path, timeout: timeout) {
         case .notRunning: return "free — nothing is listening"
@@ -1272,16 +1228,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
     }
 
-    /// What a probe's answer means. `nil` is "there was no key to send".
-    nonisolated static func signalProbeText(_ answer: SignalProbe?) -> String {
+    /// What a probe's answer means.
+    nonisolated static func signalProbeText(_ answer: SignalProbe) -> String {
         switch answer {
-        case nil: return "no key file"
-        case .status(200)?: return "ok"
-        case .status(403)?: return "key mismatch (403)"
-        case .status(404)?: return "no /signal route (404: v1 or older v2)"
-        case .status(let code)?: return "answered \(code)"
-        case .notRunning?: return "not running"
-        case .failed(let reason)?: return "did not answer (\(reason))"
+        case .status(200): return "ok"
+        case .status(404): return "no /signal route (404)"
+        case .status(let code): return "answered \(code)"
+        case .notRunning: return "not running"
+        case .failed(let reason): return "did not answer (\(reason))"
         }
     }
 
@@ -1289,66 +1243,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case status(Int)
         case notRunning
         case failed(String)
-    }
-
-    /// `POST /signal` with the key, as `probeHookEndpoint` does `/health`:
-    /// the command's own client (`SignalClient`), so the probe and the
-    /// command cannot disagree about what a post looks like.
-    nonisolated static func probeSignalEndpoint(port: UInt16, key: String,
-                                                timeout: TimeInterval = 1) -> SignalProbe {
-        let probe = SignalCommand.Post(id: "_probe", word: nil, ttl: 0)
-        switch SignalClient.send(probe.body, port: port, key: key, timeout: timeout) {
-        case .status(let code, _): return .status(code)
-        case .notRunning: return .notRunning
-        case .failed(let reason): return .failed(reason)
-        }
-    }
-
-    /// Is anything answering there, and which Evlat is it?
-    ///
-    /// A `GET /health` rather than a trial bind: binding takes the port away
-    /// from the running app for as long as it is held, and a hook that arrived
-    /// in that window would be answered by a process about to exit. The body
-    /// tells the two apps apart — v1 answers the bare word `ok`, v2 answers
-    /// `{"ok":true}`.
-    ///
-    /// **Only "cannot connect" means free.** Every other failure — a process
-    /// that accepts the connection and never answers, or speaks something
-    /// that is not HTTP — means the port is taken. Reading those as free
-    /// would print "nothing is listening" in precisely the situation this
-    /// diagnostic exists for: a v1 holding 48151 while v2 failed to bind.
-    private nonisolated static func probeHookEndpoint(port: UInt16, timeout: TimeInterval = 1) -> String {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/health") else { return "unreadable address" }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = timeout
-        let semaphore = DispatchSemaphore(value: 0)
-        // Guarded: on the wait's own timeout this thread would otherwise write
-        // the same variable the session's callback thread is writing.
-        let lock = NSLock()
-        var answer: String?
-        // Invalidated when done: a session holds its delegate queue until then.
-        let session = URLSession(configuration: configuration)
-        defer { session.finishTasksAndInvalidate() }
-        session.dataTask(with: url) { data, _, error in
-            let result: String
-            if let error = error as? URLError, error.code == .cannotConnectToHost {
-                result = "free — nothing is listening"
-            } else if let error = error {
-                result = "in use — did not answer (\(error.localizedDescription))"
-            } else {
-                switch String(data: data ?? Data(), encoding: .utf8) ?? "" {
-                case "{\"ok\":true}": result = "in use — an Evlat v2 answers"
-                case "ok": result = "in use — an Evlat v1 answers"
-                case let body: result = "in use — answered \(body.prefix(40))"
-                }
-            }
-            lock.withLock { answer = result }
-            semaphore.signal()
-        }.resume()
-        // The request has its own timeout; this one only keeps a lost callback
-        // from hanging the diagnostics for ever.
-        _ = semaphore.wait(timeout: .now() + timeout + 2)
-        return lock.withLock { answer } ?? "no answer within \(timeout + 2) s"
     }
 
     public convenience init(defaults: UserDefaults? = nil, home: URL? = nil) {
@@ -2117,18 +2011,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     // MARK: - Agents switched on
 
-    /// Without storage — every test, and an isolated process
-    /// (`EVLAT_PORT`), which must not change the user's choice — the choice
+    /// Without storage — every test, and a second Evlat
+    /// (`EVLAT_SOCKET`), which must not change the user's choice — the choice
     /// is kept here; `nil` is never changed, as in the defaults.
     private var agentsUnstored: [String]?
     private var agentsDefaults: UserDefaults? {
         Self.keepsAgentsInMemory(ProcessInfo.processInfo.environment) ? nil : defaults
     }
 
-    /// A process on a port of its own is a measurement or a look by eye:
-    /// its switches are its own and leave the user's alone.
+    /// A second Evlat is a measurement or a look by eye: its switches are
+    /// its own and leave the user's alone.
     nonisolated static func keepsAgentsInMemory(_ environment: [String: String]) -> Bool {
-        !(environment["EVLAT_PORT"]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+        Isolation.hasOwnSocket(environment)
     }
 
     private var storedAgents: [String]? {
@@ -2316,7 +2210,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             .flatMap { $0.mayBeDefault ? $0 : nil } ?? backend.standardMode
     }
 
-    /// Without storage — every test, and an isolated process (`EVLAT_PORT`,
+    /// Without storage — every test, and an isolated process (`EVLAT_SOCKET`,
     /// `EVLAT_CHATS`), which must not change the user's default — kept here.
     /// Read once: `isChatEnabled` asks it on every drag event and click.
     private lazy var modeDefaults: UserDefaults? =
@@ -2517,92 +2411,51 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyHotKey()
     }
 
-    /// Binds the hook port and Evlat's socket. Every event that arrives goes
-    /// to `handleHookEvent`, which is where the seam starts. Both are this
-    /// Mac's (`.local`): the installed commands still speak to the port, and
-    /// Evlat's own clients to the socket.
+    /// Binds Evlat's socket. Every event that arrives goes to
+    /// `handleHookEvent`, which is where the seam starts. It is this Mac's
+    /// (`.local`): the installed commands and Evlat's own clients alike.
     private func startHookListener() {
-        let choice = HookListener.resolvePort()
-        if let rejected = choice.rejectedOverride {
-            NSLog("Evlat: EVLAT_PORT=%@ ignored, not a usable port number", rejected)
-        }
         // A finish with no reply in it is read from the agent's own
         // folders under this home, and from nowhere without one.
         let transcriptRoots = home.map { home in Agents.all.flatMap { $0.hooks.finishRoots(home) } } ?? []
-        // A chat turn's held permission request that went away unanswered,
-        // a terminal session's approval, or a tunnel's askpass prompt whose
-        // `ssh` gave up.
-        let abandoned: (String) -> Void = { [weak self] id in
-            MainActor.assumeIsolated {
-                self?.chats?.permissionAbandoned(id)
-                self?.approvals.abandoned(id)
-                self?.remote?.abandoned(id)
-            }
-        }
-        let deliver: (LocalAPI.Delivery) -> Void = { [weak self] delivery in
-            MainActor.assumeIsolated { self?.handleDelivery(delivery) }
-        }
-        let listener = HookListener(
-            port: choice.port,
-            transcriptRoots: transcriptRoots,
-            // Written once bound, under this controller's home: a controller
-            // built without one (every test) has no key and refuses `/signal`.
-            signalKey: Self.signalKeyWriter(home: home, written: signalKeyWritten),
-            // Binding is asynchronous, so the outcome cannot be returned from
-            // here. It is not swallowed either: `Evlat --list` reads the port
-            // back over `/health` and says who holds it.
-            onStatus: { status in
-                if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
-            },
-            onAbandoned: abandoned, onDelivery: deliver)
-        listener.start()
-        hookListener = listener
         if let path = Self.socketPath(home: home) {
             let socket = HookListener(
                 transport: .unix(path), transcriptRoots: transcriptRoots,
+                // Binding is asynchronous, so the outcome cannot be returned
+                // from here. It is not swallowed either: `Evlat --list` asks
+                // the socket over `/health` and says who holds it.
                 onStatus: { [weak self] status in
                     if case .unavailableAt = status { NSLog("Evlat: socket %@", status.text) }
                     // The tunnels' first tries waited for `/askpass` (bound)
                     // or for knowing there is none (refused).
                     if status != .stopped { MainActor.assumeIsolated { self?.remote?.askpassSettled() } }
                 },
-                onAbandoned: abandoned, onDelivery: deliver)
+                // A chat turn's held permission request that went away
+                // unanswered, a terminal session's approval, or a tunnel's
+                // askpass prompt whose `ssh` gave up.
+                onAbandoned: { [weak self] id in
+                    MainActor.assumeIsolated {
+                        self?.chats?.permissionAbandoned(id)
+                        self?.approvals.abandoned(id)
+                        self?.remote?.abandoned(id)
+                    }
+                },
+                onDelivery: { [weak self] delivery in
+                    MainActor.assumeIsolated { self?.handleDelivery(delivery) }
+                })
             socket.start()
             socketListener = socket
         }
-        // A chat's turns ask on the socket (`PermissionHook`); a request the
-        // port holds — no turn's, refused — is answered there too.
-        let desk = socketListener.map { BothListeners(socket: $0, port: listener) }
-        permissionDesk = desk
-        chats?.permissions = desk
+        chats?.permissions = socketListener
         approvals.respond = { [weak self] request, response in
             MainActor.assumeIsolated { self?.answerApproval(request, with: response) }
         }
         approvals.onChange = { [weak self] in self?.approvalsChanged() }
     }
 
-    /// The socket's listener as a chat sees it, with its answers also
-    /// written to the port's: a `/permission` posted to the port is held
-    /// there, and its refusal must reach it.
-    private final class BothListeners: PermissionDesk {
-        let socket: HookListener
-        let port: HookListener
-        init(socket: HookListener, port: HookListener) {
-            self.socket = socket
-            self.port = port
-        }
-        var status: HookListener.Status { socket.status }
-        var boundPath: String? { socket.boundPath }
-        func answer(_ id: String, with response: LocalAPI.Response) {
-            socket.answer(id, with: response)
-            port.answer(id, with: response)
-        }
-    }
-
-    /// Writes the answer to a held request, on whichever listener holds it:
-    /// a request's id is its own, and the other one lets it go unread.
+    /// Writes the answer to a request this Mac's socket holds; an id it no
+    /// longer holds is let go unread.
     private func answerHeld(_ id: String, with response: LocalAPI.Response) {
-        hookListener?.answer(id, with: response)
         socketListener?.answer(id, with: response)
     }
 
@@ -2659,8 +2512,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// Where the machines' passwords are remembered: the login keychain,
-    /// except in a test and in an isolated process (`EVLAT_PORT`), whose
-    /// store keeps nothing past the process — the `/signal` key's rule. A
+    /// except in a test and in a second Evlat (`Isolation.hasOwnSocket`),
+    /// whose store keeps nothing past the process. A
     /// test is told by XCTest's presence, not `WindowStage`: `make
     /// test-desktop` puts windows on the screen, never passwords in the
     /// keychain.
@@ -2668,8 +2521,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         underTests: Bool = NSClassFromString("XCTestCase") != nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> SSHPasswordStore {
-        let isolated = !(environment["EVLAT_PORT"] ?? "").isEmpty
-        return underTests || isolated ? MemoryPasswordStore() : KeychainPasswordStore()
+        underTests || Isolation.hasOwnSocket(environment) ? MemoryPasswordStore() : KeychainPasswordStore()
     }
 
     /// Internal so a test hands its own machines and the fake `ssh`; the
@@ -2688,9 +2540,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
         }
         remoteFromEnvironment = configuration.fromEnvironment
-        // The machines' `/signal` keys (`remote.signalKeys`) are not read:
-        // a machine's channel ends in a socket only this user can reach.
-        // The stored value is left where it is.
+        // The machines' old `/signal` keys (`remote.signalKeys`) are not
+        // read: a machine's channel ends in a socket only this user can
+        // reach. The stored value is left where it is.
         let installer = RemoteInstaller(sshPath: sshPath)
         remoteInstaller = installer
         let tunnels = RemoteTunnels(
@@ -3317,9 +3169,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     public func applicationWillTerminate(_ notification: Notification) {
         hotKey?.unregister()
-        hookListener?.stop()
         socketListener?.stop()
-        signalKeyWritten.remove()
         remote?.stopAll()
         chats?.stopAll()
         poller?.invalidate()
@@ -3385,25 +3235,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// is its own.
     nonisolated static func droppedSignalLine(id: String, limit: Int, machine: String? = nil) -> String {
         "Evlat: signal \(id)\(machine.map { " from \($0)" } ?? "") dropped: \(limit) rows\n"
-    }
-
-    /// What a local listener is given to make its `/signal` key once bound:
-    /// the key file for the bound port under `home` (`SignalKey`). No home,
-    /// or an isolated process, and it makes none.
-    ///
-    /// `written`, when given, keeps what was written so the process can take
-    /// it away when it ends (`SignalKey.remove`).
-    nonisolated static func signalKeyWriter(
-        home: URL?,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        written: SignalKey.Written? = nil
-    ) -> (UInt16) -> String? {
-        { port in
-            guard let url = SignalKey.location(port: port, home: home, environment: environment),
-                  let key = SignalKey.write(to: url) else { return nil }
-            written?.set(url, key)
-            return key
-        }
     }
 
     /// One event, from the listener's callback. Internal so the coalescing has

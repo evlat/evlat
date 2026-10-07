@@ -15,9 +15,9 @@ final class UpdaterTests: XCTestCase {
     }
 
     func testAnIsolatedLaunchChecksNothingUnlessAFeedIsNamed() {
-        XCTAssertNil(Updater.feed(info: [Updater.feedKey: feed], environment: ["EVLAT_PORT": "48999"]))
+        XCTAssertNil(Updater.feed(info: [Updater.feedKey: feed], environment: ["EVLAT_SOCKET": "/tmp/e.sock"]))
         XCTAssertEqual(Updater.feed(info: [Updater.feedKey: feed],
-                                    environment: ["EVLAT_PORT": "48999", "EVLAT_FEED": "http://localhost:8000/a.xml"]),
+                                    environment: ["EVLAT_SOCKET": "/tmp/e.sock", "EVLAT_FEED": "http://localhost:8000/a.xml"]),
                        "http://localhost:8000/a.xml")
         XCTAssertEqual(Updater.feed(info: [:], environment: ["EVLAT_FEED": "http://localhost:8000/a.xml"]),
                        "http://localhost:8000/a.xml")

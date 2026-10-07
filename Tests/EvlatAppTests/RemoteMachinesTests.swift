@@ -229,18 +229,19 @@ final class RemoteMachinesTests: XCTestCase {
 
     /// The machines' `/signal` keys of an earlier version are neither read
     /// nor written nor removed: the channel's end needs none, and a stored
-    /// value is left where it is.
+    /// value is left where it is. The key is spelled out: no code names it
+    /// any more, and the promise is about the user's stored value.
     func testTheMachinesKeysAreLeftAsTheyWere() throws {
         let ssh = try fakeSSH(.connect)
         let kept: [String: String] = ["old": String(repeating: "d", count: 64), "gone": String(repeating: "e", count: 64)]
-        defaults.set(kept, forKey: RemoteMachine.signalKeysStorageKey)
+        defaults.set(kept, forKey: "remote.signalKeys")
         let controller = controller(ssh: ssh, machines: [try XCTUnwrap(RemoteMachine(id: "old", target: "old"))])
         let model = model(controller, ssh: ssh)
         model.draft = "devbox"
         model.add()
         model.askToRemove()
         model.confirmRemoval()
-        XCTAssertEqual(defaults.dictionary(forKey: RemoteMachine.signalKeysStorageKey) as? [String: String], kept)
+        XCTAssertEqual(defaults.dictionary(forKey: "remote.signalKeys") as? [String: String], kept)
     }
 
     /// A machine's switches are stored on its entry with the list; the

@@ -19,16 +19,20 @@ final class EvlatSocketTests: XCTestCase {
     func testTheEnvironmentNamesIt() {
         XCTAssertEqual(EvlatSocket.path(environment: ["EVLAT_SOCKET": "/tmp/e/x.sock"], home: "/Users/a"),
                        "/tmp/e/x.sock")
-        XCTAssertEqual(EvlatSocket.path(environment: ["EVLAT_SOCKET": "/tmp/e/x.sock", "EVLAT_PORT": "48999"],
+        XCTAssertEqual(EvlatSocket.path(environment: ["EVLAT_SOCKET": "/tmp/e/x.sock", "EVLAT_HOME": "/tmp/h"],
                                         home: "/Users/a"), "/tmp/e/x.sock")
         XCTAssertNil(EvlatSocket.path(environment: ["EVLAT_SOCKET": "e/x.sock"], home: "/Users/a"))
     }
 
-    /// An isolated process (`EVLAT_PORT`) without a socket of its own has
-    /// none: a test or a measurement never takes the user's.
-    func testAnIsolatedProcessHasNone() {
-        XCTAssertNil(EvlatSocket.path(environment: ["EVLAT_PORT": "48999"], home: "/Users/a"))
-        XCTAssertNil(EvlatSocket.path(environment: ["EVLAT_PORT": "48999", "EVLAT_HOME": "/tmp/h"], home: "/Users/a"))
+    /// A second Evlat (`EVLAT_SOCKET` set) whose socket cannot be one has
+    /// none: a test or a measurement never takes the user's, nor its home's.
+    /// A blank one is not set.
+    func testASecondEvlatNeverFallsBackToTheUsers() {
+        XCTAssertNil(EvlatSocket.path(environment: ["EVLAT_SOCKET": "x.sock", "EVLAT_HOME": "/tmp/h"], home: "/Users/a"))
+        XCTAssertNil(EvlatSocket.path(environment: ["EVLAT_SOCKET": "/" + String(repeating: "s", count: 200)],
+                                      home: "/Users/a"))
+        XCTAssertEqual(EvlatSocket.path(environment: ["EVLAT_SOCKET": " "], home: "/Users/a"),
+                       "/Users/a/.config/evlat/run/evlat.sock")
     }
 
     /// A path no unix address holds is none: it could never be reached.

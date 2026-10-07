@@ -72,8 +72,8 @@ final class AgentSwitchTests: XCTestCase {
     }
 
     func testAnIsolatedProcessKeepsTheSwitchesInMemory() {
-        XCTAssertTrue(AppController.keepsAgentsInMemory(["EVLAT_PORT": "48999"]))
-        XCTAssertFalse(AppController.keepsAgentsInMemory(["EVLAT_PORT": " "]))
+        XCTAssertTrue(AppController.keepsAgentsInMemory(["EVLAT_SOCKET": "/tmp/e.sock"]))
+        XCTAssertFalse(AppController.keepsAgentsInMemory(["EVLAT_SOCKET": " "]))
         XCTAssertFalse(AppController.keepsAgentsInMemory(["EVLAT_HOME": "/tmp/x"]))
         XCTAssertFalse(AppController.keepsAgentsInMemory([:]))
     }

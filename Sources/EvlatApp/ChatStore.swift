@@ -137,20 +137,21 @@ final class ChatStore {
     /// The chat's backend; `nil` for a chat this store does not hold.
     func backend(of chat: String) -> (any ChatBackend)? { lane(of: chat)?.backend }
 
-    /// `EVLAT_CHATS` (tilde expanded, blank ignored); else nothing when
-    /// `EVLAT_PORT` is set — a measured process keeps no store, the rule
+    /// `EVLAT_CHATS` (tilde expanded, blank ignored); else nothing in a
+    /// second Evlat (`Isolation.hasOwnSocket`) — a measured process keeps
+    /// no store, the rule
     /// `remote.machines` follows — else `Application Support/Evlat` under
     /// the home; no home, no disk.
     static func root(environment: [String: String], home: URL?) -> URL? {
         if let raw = environment["EVLAT_CHATS"]?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
             return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath, isDirectory: true)
         }
-        if let port = environment["EVLAT_PORT"], !port.isEmpty { return nil }
+        if Isolation.hasOwnSocket(environment) { return nil }
         return home?.appendingPathComponent("Library/Application Support/Evlat", isDirectory: true)
     }
 
     /// How a pruned workspace leaves: the user's Trash, unless the store
-    /// is an isolated one (`EVLAT_CHATS` or `EVLAT_PORT` set — a test, a
+    /// is an isolated one (`EVLAT_CHATS` or `EVLAT_SOCKET` set — a test, a
     /// measurement, a look by eye). Then it is set aside under the store's
     /// own root, and the real Trash is never touched (a look by eye had once
     /// left a `chats/<UUID>` there).
@@ -158,12 +159,12 @@ final class ChatStore {
         isolated(environment) ? setAside : { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     }
 
-    /// Is this a store kept apart from the user's — `EVLAT_CHATS` or
-    /// `EVLAT_PORT` set? Then nothing of the user's is touched: not the
-    /// Trash, not the chats' default mode.
+    /// Is this a store kept apart from the user's — `EVLAT_CHATS` set, or
+    /// a second Evlat (`Isolation.hasOwnSocket`)? Then nothing of the
+    /// user's is touched: not the Trash, not the chats' default mode.
     static func isolated(_ environment: [String: String]) -> Bool {
-        [environment["EVLAT_CHATS"], environment["EVLAT_PORT"]]
-            .contains { !($0?.trimmingCharacters(in: .whitespaces).isEmpty ?? true) }
+        !(environment["EVLAT_CHATS"]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+            || Isolation.hasOwnSocket(environment)
     }
 
     /// `<root>/chats/<UUID>` → `<root>/trash/<UUID>[-n]`: recoverable like

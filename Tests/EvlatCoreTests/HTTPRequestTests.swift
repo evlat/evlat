@@ -38,18 +38,6 @@ final class HTTPRequestTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /hook HTTP/1.1\r\n\r\n"))).permissionToken)
     }
 
-    /// An outside program's key, in the `X-Evlat-*` family; empty
-    /// counts as absent, so it can never match an empty listener key.
-    func testReadsTheSignalKey() throws {
-        let request = try XCTUnwrap(HTTPRequest.parse(raw(
-            "POST /signal HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Evlat-Key: abc123\r\n\r\n")))
-        XCTAssertEqual(request.signalKey, "abc123")
-        XCTAssertEqual(SignalReport.keyHeader, "X-Evlat-Key")
-        XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /signal HTTP/1.1\r\nx-evlat-key: \r\n\r\n")))
-            .signalKey, "empty counts as absent")
-        XCTAssertNil(try XCTUnwrap(HTTPRequest.parse(raw("POST /signal HTTP/1.1\r\n\r\n"))).signalKey)
-    }
-
     /// A broken length leaves the request body-less. A **negative** one used to
     /// reverse the body slice and bring the process down: every local process
     /// could kill Evlat by sending one header.

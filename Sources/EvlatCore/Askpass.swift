@@ -48,9 +48,17 @@ public enum Askpass {
         "\(mark.token):\(mark.socket)"
     }
 
-    /// 64 lowercase hex digits, the shape of a machine's `/signal` key.
+    /// 64 lowercase hex digits (32 random bytes): a header value and an
+    /// environment value that need no escaping.
     public static func isToken(_ value: String) -> Bool {
-        RemoteMachine.isSignalKey(value)
+        value.utf8.count == 64 && value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+    }
+
+    /// A new token, in the shape `isToken` reads: one per tunnel try.
+    public static func makeToken() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }
+            .joined()
     }
 
     /// One prompt from one helper, held until it is answered.

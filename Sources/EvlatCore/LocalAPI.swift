@@ -5,12 +5,13 @@ import Foundation
 /// out — so the rules that matter can be tested without a socket. The
 /// listener (`EvlatApp`) adds transport and nothing else.
 public enum LocalAPI {
-    /// The port the installed hook commands carry as **plain text**. That is
-    /// the whole reason there is no stored setting for it: the command in the
-    /// user's settings file says `48151`, so an app listening anywhere else
-    /// would simply never be spoken to, and neither side would report an error.
-    /// An override exists for development only, and it is an
-    /// environment variable read on the app side (`EVLAT_PORT`).
+    /// No listener on this Mac binds it: Evlat is reached on its socket
+    /// (`EvlatSocket`). The number is kept as **text** — the host a request
+    /// over the socket names (`EvlatSocket.Curl.url`), which only fills
+    /// `Host:` and must stay what the installed commands already carry — and
+    /// as the root of the Docker sandboxes' port (`SandboxInstall.defaultPort`,
+    /// one past it), which every sandbox's file names. Neither is a setting:
+    /// a number written into commands and files cannot follow one.
     public static let defaultPort: UInt16 = 48151
 
     // MARK: - Routing
@@ -31,8 +32,8 @@ public enum LocalAPI {
         /// A terminal session's permission, to approve from the bar
         /// (`ApprovalHook`), on the agent's own path (`RouteTable.approvals`).
         case approval(AgentID)
-        /// An outside program's row (`SignalReport`). Keyed: the
-        /// listener's key decides, not the route (`Listener`).
+        /// An outside program's row (`SignalReport`). No key: only the
+        /// user's own processes reach the socket (`EvlatSocket`).
         case signal
         /// An `ssh` askpass helper's prompt (`Askpass`).
         case askpass
@@ -161,7 +162,7 @@ public enum LocalAPI {
         /// A terminal session's permission request, held like `permission`
         /// until the user answers on the card or it is answered elsewhere.
         case approval(HeldRequest)
-        /// An outside program's row, read and cleaned; the key has passed.
+        /// An outside program's row, read and cleaned.
         case signal(SignalReport)
         /// A tunnel's `ssh` asking for a password or a yes/no, held like
         /// `permission` until it is answered (`Askpass`).
@@ -184,8 +185,7 @@ public enum LocalAPI {
     /// Where a request came in. The listener knows and says so; what that
     /// means for the request is decided here, so the listener stays transport.
     public enum Origin: Equatable {
-        /// This Mac: its loopback port (`defaultPort`) or its socket
-        /// (`EvlatSocket`).
+        /// This Mac, on its socket (`EvlatSocket`).
         case local
         /// A remote machine, arriving on that machine's own listener. The
         /// request is the same bytes the local hook command sends — the
@@ -235,23 +235,10 @@ public enum LocalAPI {
     }
 
     /// Everything a listener says about itself that decides a request: where
-    /// it came in, and the key `/signal` asks for. One value rather than two
-    /// parameters, so a listener cannot be built with one half and not the
-    /// other.
-    ///
-    /// **The key belongs to the listener, not to the request.** The process
-    /// that holds the port writes it; a machine's listener is
-    /// given its machine's key, so a key names the machine and the
-    /// body never does. A local listener with no key — the file could not be
-    /// written, an isolated process — refuses every `/signal`; a machine's
-    /// listener with none does not have the route. The socket's listener
-    /// asks for none (`keylessSignal`): its directory is the user's alone.
+    /// it came in, where a finish may read from and which agent routes it
+    /// serves.
     public struct Listener: Equatable {
         public let origin: Origin
-        public let signalKey: String?
-        /// `/signal` takes no key: the socket's listener, which only the
-        /// user's own processes can reach.
-        public let keylessSignal: Bool
         /// Where an agent's finish may read its reply from
         /// (`HookChannel.finish`); none, and no reply is read.
         public let transcriptRoots: [URL]
@@ -259,17 +246,14 @@ public enum LocalAPI {
         /// answers.
         public let routes: RouteTable
 
-        public init(origin: Origin = .local, signalKey: String? = nil, keylessSignal: Bool = false,
-                    transcriptRoots: [URL] = [], routes: RouteTable = RouteTable()) {
+        public init(origin: Origin = .local, transcriptRoots: [URL] = [], routes: RouteTable = RouteTable()) {
             self.origin = origin
-            self.signalKey = signalKey
-            self.keylessSignal = keylessSignal
             self.transcriptRoots = transcriptRoots
             self.routes = routes
         }
     }
 
-    /// The default listener is local and has no key: `/signal` is refused.
+    /// The default listener is local.
     /// `agents` is what a dispatched route's id is looked up in: its
     /// translation, its status line and its approvals. The routes are the
     /// listener's (`Listener.routes`), made from the same catalog.
@@ -279,7 +263,7 @@ public enum LocalAPI {
         let dispatched = dispatch(method: request.method, target: request.target,
                                   origin: request.origin, host: request.host, routes: listener.routes)
         // The role first: a route this listener does not serve is not
-        // shown to exist, keyed or not.
+        // shown to exist.
         if let route = dispatched.route, !role.routes.contains(route) { return notFound }
         switch dispatched {
         case .forbidden:
@@ -319,7 +303,7 @@ public enum LocalAPI {
         case .askpass:
             // This Mac's own tunnels only (`Origin.role`): what a helper is
             // answered may be a password, and a remote machine must never be
-            // able to ask for one — keyed or not.
+            // able to ask for one.
             guard let token = request.askpassToken else {
                 return Outcome(response: Response(status: .forbidden,
                                                   body: error("forbidden", "an askpass token is expected")),
@@ -334,22 +318,11 @@ public enum LocalAPI {
             }
             return Outcome(response: nil, delivery: .askpass(Askpass.Request(token: token, prompt: prompt)))
         case .signal:
-            // A machine's listener with neither a key nor a socket does not
-            // have the route, and its existence is not shown to it (as
-            // `/permission`). Otherwise a machine is the local route exactly:
-            // the machine is the listener's, which the delivery's receiver
-            // knows. A machine's socket end is this user's alone, as the
-            // channel's end on the server is (`RemoteTunnel`).
-            if listener.origin == .machine, listener.signalKey == nil, !listener.keylessSignal { return notFound }
-            // The key before the body: a caller without it learns nothing
-            // about what a valid body looks like. The socket asks for none.
-            guard listener.keylessSignal
-                    || listener.signalKey.flatMap({ expected in
-                        request.signalKey.map { sameKey($0, expected) } }) == true else {
-                return Outcome(response: Response(status: .forbidden,
-                                                  body: error("forbidden", "a valid X-Evlat-Key is expected")),
-                               delivery: nil)
-            }
+            // No key, on this Mac's socket and on a machine's alike: both
+            // ends are in directories only this user can enter, as the
+            // channel's end on the server is (`RemoteTunnel`). A sandbox's
+            // role has no route (above). An `X-Evlat-Key` an older sender
+            // still adds is not read.
             guard let json = jsonObject(request.body) else { return badRequest }
             switch SignalReport.parse(json: json) {
             case .failure(let rejection):
@@ -443,22 +416,6 @@ public enum LocalAPI {
     private static var badRequest: Outcome {
         Outcome(response: Response(status: .badRequest, body: error("badRequest", "a JSON object is expected")),
                 delivery: nil)
-    }
-
-    /// Equal keys, in a time that does not depend on where they differ.
-    /// Foundation has no such comparison. Every byte of the **longer** one is
-    /// visited, with the missing side read as zero, and the length difference
-    /// is folded in as a whole `Int` — a byte-sized fold would wrap at 256 and
-    /// let a key followed by 256 zero bytes pass. An empty key is no key.
-    static func sameKey(_ sent: String, _ expected: String) -> Bool {
-        let a = Array(sent.utf8), b = Array(expected.utf8)
-        var difference = a.count ^ b.count
-        for index in 0..<max(a.count, b.count) {
-            let x = index < a.count ? a[index] : 0
-            let y = index < b.count ? b[index] : 0
-            difference |= Int(x ^ y)
-        }
-        return difference == 0 && !b.isEmpty
     }
 
     private static func jsonObject(_ body: Data) -> [String: Any]? {

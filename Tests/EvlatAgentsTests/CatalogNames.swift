@@ -26,8 +26,7 @@ extension LocalAPI {
     /// `handle` as the app's listener runs it: the catalog's routes and
     /// agents, whatever else the listener says.
     static func handleAsTheApp(_ request: HTTPRequest, listener: Listener = Listener()) -> Outcome {
-        handle(request, listener: Listener(origin: listener.origin, signalKey: listener.signalKey,
-                                           keylessSignal: listener.keylessSignal,
+        handle(request, listener: Listener(origin: listener.origin,
                                            transcriptRoots: listener.transcriptRoots, routes: Agents.routes),
                agents: Agents.all)
     }

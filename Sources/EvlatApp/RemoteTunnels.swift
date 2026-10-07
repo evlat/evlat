@@ -530,7 +530,7 @@ final class RemoteTunnels {
     /// — and `BatchMode=yes` — while this Mac's listener has no socket.
     private func askpassEnvironment(for link: Link, generation: Int) -> [String: String]? {
         guard let askpass, let socket = askpass.socket() else { return nil }
-        let token = SignalKey.generate()
+        let token = Askpass.makeToken()
         tokens[token] = (link.machine.id, generation)
         return ["SSH_ASKPASS": askpass.binary,
                 "SSH_ASKPASS_REQUIRE": "force",

@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The binary is two things — the bar, and a command-line tool
 /// (`watch`, `signal`, `--list`, `--capture`). The bar is the dangerous one to
-/// open by mistake: it holds the hook port and dials every stored machine over
+/// open by mistake: it holds Evlat's socket and dials every stored machine over
 /// `ssh`. `Evlat --help` used to fall through to it and open an
 /// unisolated second bar. So the
 /// app opens only on **no** arguments, or on arguments the system itself adds;
@@ -25,6 +25,10 @@ public enum LaunchMode: Equatable {
     /// `EVLAT_ASKPASS` mark (`Askpass`). Read **before** `argv`, which then
     /// holds only the prompt.
     case askpass(Askpass.Mark)
+    /// The environment names `Isolation.retiredPortKey`: the line to say
+    /// on stderr before exiting non-zero. Read before everything else, so
+    /// neither the bar nor a command runs on an old recipe.
+    case refused(String)
 
     /// The diagnostics' words, read from `argv[1]` only.
     public static let diagnosticsWords: Set<String> = ["--list", "--capture"]
@@ -36,10 +40,12 @@ public enum LaunchMode: Equatable {
     /// that inherits the terminal's Claude markers (`AGENTS.md` → Pitfalls).
     public static let linkName = "evlat"
 
-    /// `environment` is read for the askpass mark only. Without a valid
+    /// `environment` is read for the retired port and the askpass mark
+    /// only. Without a valid
     /// one, a prompt in `argv[1]` (`user@host's password: `) is an unknown
     /// word like any other: `ssh` must never open the bar by running Evlat.
     public static func of(_ argv: [String], environment: [String: String] = [:]) -> LaunchMode {
+        if Isolation.setsRetiredPort(environment) { return .refused(Isolation.retiredPortLine) }
         if let mark = Askpass.mark(in: environment) { return .askpass(mark) }
         let arguments = Array(argv.dropFirst())
         guard let first = arguments.first else {
@@ -85,9 +91,9 @@ public enum LaunchMode: Equatable {
 
 
         Evlat --list [--capture [SECONDS]]
-                prints the signals and the hook endpoint, then exits.
+                prints the signals and Evlat's socket, then exits.
         Evlat --capture [SECONDS]
-                holds the hook port for SECONDS (default 30) and prints what arrives.
+                holds Evlat's socket for SECONDS (default 30) and prints what arrives.
         Evlat   with no arguments opens the bar; `evlat` (the command link) prints this.
         """
 }

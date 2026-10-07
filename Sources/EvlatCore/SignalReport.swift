@@ -19,9 +19,6 @@ public struct SignalReport: Equatable {
     /// `Origin` check covers every browser that could reach this
     /// (`LocalAPI.dispatch`).
     public static let path = "/signal"
-    /// The listener's key travels in this header (`LocalAPI.Listener`), in the
-    /// `X-Evlat-*` family the hook command already speaks.
-    public static let keyHeader = "X-Evlat-Key"
     /// `Signal.provider` for every outside row.
     public static let provider = "signal"
 

@@ -5,11 +5,12 @@ import EvlatCore
 
 /// The listener against a **real socket**. Everything a request means is
 /// already pinned without one (`LocalAPITests`, `HTTPRequestTests`); what is
-/// left to check here is exactly what those cannot see — that the port is
+/// left to check here is exactly what those cannot see — that the socket is
 /// actually taken, that the answer comes back, and that it does not wait for
-/// the main queue.
+/// the main queue. Evlat's own socket is the one transport on this Mac; the
+/// one port left is the Docker sandboxes'.
 final class HookListenerTests: XCTestCase {
-    /// Port `0` asks the system for a free one. Binding 48151 in a test would
+    /// Port `0` asks the system for a free one. Binding 48152 in a test would
     /// fight the running app, and a fixed test port would fight a second copy
     /// of the test suite.
     private static let anyPort: UInt16 = 0
@@ -23,27 +24,61 @@ final class HookListenerTests: XCTestCase {
         return port
     }
 
+    /// A socket of its own in a short folder (a unix address holds 104
+    /// bytes), removed after the test.
+    private func socketPath() throws -> String {
+        let directory = try ShortDirectory.make()
+        addTeardownBlock { ShortDirectory.remove(directory) }
+        return directory + "/evlat.sock"
+    }
+
+    /// A socket's listener, bound — or failed — before it is returned.
+    private func bound(_ path: String, origin: LocalAPI.Origin = .local,
+                       onAbandoned: ((String) -> Void)? = nil,
+                       file: StaticString = #filePath, line: UInt = #line,
+                       onDelivery: @escaping (LocalAPI.Delivery) -> Void) -> HookListener {
+        let listener = HookListener(transport: .unix(path), origin: origin, onAbandoned: onAbandoned,
+                                    onDelivery: onDelivery)
+        listener.start()
+        if listener.awaitSettled(timeout: 5) != .listeningAt(path) {
+            XCTFail("socket did not come up: \(listener.status.text)", file: file, line: line)
+        }
+        return listener
+    }
+
+    private struct Answer: Equatable {
+        let status: Int
+        let body: String
+    }
+
+    /// One request to the socket, as Evlat's own clients send it.
+    private func send(_ route: String, method: String = "POST", socket: String, headers: [(String, String)] = [],
+                      body: String = "", timeout: TimeInterval = 5) -> Answer {
+        switch UnixHTTP.send(route, method: method, socket: socket, headers: headers, body: Data(body.utf8),
+                             timeout: timeout) {
+        case .status(let code, let data): return Answer(status: code, body: String(decoding: data, as: UTF8.self))
+        case let other: return Answer(status: -1, body: "\(other)")
+        }
+    }
+
     // MARK: - It listens, and it answers
 
     func testAHookPostIsAnsweredWithAnEmptyObjectAndProducesAnEvent() throws {
+        let path = try socketPath()
         let arrived = expectation(description: "event on the main queue")
         var received: HookEvent?
-        let listener = HookListener(port: Self.anyPort) { delivery in
+        let listener = bound(path) { delivery in
             XCTAssertTrue(Thread.isMainThread, "events are delivered on the main queue")
             if case .hook(let event) = delivery { received = event }
             arrived.fulfill()
         }
-        listener.start()
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
 
-        let answer = post(port: port, path: "/hook",
-                          body: #"{"hook_event_name":"PreToolUse","session_id":"s-1"}"#)
+        let answer = send("/hook", socket: path, body: #"{"hook_event_name":"PreToolUse","session_id":"s-1"}"#)
         // Exactly `{}`: the installed command throws the body away, but if it
         // ever reached Claude Code a stray JSON object would answer a
         // permission prompt on the user's behalf.
-        XCTAssertEqual(answer.body, "{}")
-        XCTAssertEqual(answer.status, 200)
+        XCTAssertEqual(answer, Answer(status: 200, body: "{}"))
 
         wait(for: [arrived], timeout: 5)
         XCTAssertEqual(received?.name, "PreToolUse")
@@ -54,21 +89,19 @@ final class HookListenerTests: XCTestCase {
     /// The status line's relay reaches the same socket and comes out as a usage
     /// report, never as a hook event.
     func testAUsagePostIsAnsweredWithAnEmptyObjectAndDeliversAReport() throws {
+        let path = try socketPath()
         let arrived = expectation(description: "report on the main queue")
         var received: UsageReport?
-        let listener = HookListener(port: Self.anyPort) { delivery in
+        let listener = bound(path) { delivery in
             XCTAssertTrue(Thread.isMainThread)
             if case .usage(let report) = delivery { received = report }
             arrived.fulfill()
         }
-        listener.start()
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
 
-        let answer = post(port: port, path: "/usage/claude",
+        let answer = send("/usage/claude", socket: path,
                           body: #"{"rate_limits":{"seven_day":{"used_percentage":41,"resets_at":1790772967}}}"#)
-        XCTAssertEqual(answer.body, "{}")
-        XCTAssertEqual(answer.status, 200)
+        XCTAssertEqual(answer, Answer(status: 200, body: "{}"))
 
         wait(for: [arrived], timeout: 5)
         XCTAssertEqual(received?.windows.map(\.minutes), [10080])
@@ -77,13 +110,12 @@ final class HookListenerTests: XCTestCase {
     /// The route table is `EvlatCore`'s, but the transport has to reach it: a
     /// listener that answered `{}` to everything would pass the test above.
     func testHealthAndUnknownPathsComeBackThroughTheSameSocket() throws {
-        let listener = HookListener(port: Self.anyPort) { _ in }
-        listener.start()
+        let path = try socketPath()
+        let listener = bound(path) { _ in }
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
 
-        XCTAssertEqual(get(port: port, path: "/health").body, "{\"ok\":true}")
-        XCTAssertEqual(get(port: port, path: "/nowhere").status, 404)
+        XCTAssertEqual(send("/health", method: "GET", socket: path).body, "{\"ok\":true}")
+        XCTAssertEqual(send("/nowhere", method: "GET", socket: path).status, 404)
     }
 
     /// The claim the whole answering design rests on: the installed command
@@ -91,15 +123,14 @@ final class HookListenerTests: XCTestCase {
     /// **waiting** on this write. Here the main queue is held for longer than
     /// the UI could plausibly hold it and the answer still has to come back.
     func testTheAnswerDoesNotWaitForTheMainQueue() throws {
-        let listener = HookListener(port: Self.anyPort) { _ in }
-        listener.start()
+        let path = try socketPath()
+        let listener = bound(path) { _ in }
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
 
         let done = DispatchSemaphore(value: 0)
         var body: String?
         DispatchQueue.global().async {
-            body = self.post(port: port, path: "/hook", body: "{}").body
+            body = self.send("/hook", socket: path, body: "{}").body
             done.signal()
         }
         // The test runs on the main thread, so sleeping here IS the blocked
@@ -111,22 +142,44 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(body, "{}")
     }
 
-    // MARK: - A busy port is visible
+    // MARK: - The sandbox port
+
+    /// The one port left is a Docker sandbox's, whatever its listener is
+    /// told: anything on this Mac can connect to a port, so it has `/hook`
+    /// and nothing else — no `/signal`, no `/health`, no held route.
+    func testAPortIsASandboxsWhateverItIsTold() throws {
+        let arrived = expectation(description: "hook delivered")
+        let listener = HookListener(transport: .sandboxPort(Self.anyPort), origin: .local) { delivery in
+            if case .hook = delivery { arrived.fulfill() } else { XCTFail("only hooks: \(delivery)") }
+        }
+        listener.start()
+        defer { listener.stop() }
+        let port = try XCTUnwrap(boundPort(listener))
+        XCTAssertNil(listener.boundPath)
+        XCTAssertEqual(listener.boundPort, port)
+
+        XCTAssertEqual(post(port: port, path: "/hook/claude",
+                            body: #"{"hook_event_name":"Stop","session_id":"s-1"}"#).status, 200)
+        wait(for: [arrived], timeout: 5)
+        XCTAssertEqual(post(port: port, path: "/signal", body: #"{"id":"x","ttl":60,"phase":"working"}"#).status, 404)
+        XCTAssertEqual(post(port: port, path: ChatRequest.path, body: "{}").status, 404)
+        XCTAssertEqual(get(port: port, path: "/health").status, 404)
+    }
 
     /// `allowLocalEndpointReuse` is SO_REUSEADDR — it lets a restart rebind a
     /// port still in TIME_WAIT. It must **not** be SO_REUSEPORT: two Evlats
-    /// sharing one port would split the hook events between them at random,
-    /// and every symptom would look like "some events go missing".
-    ///
-    /// This is also the phase's "a busy port is not silent" test: the second
-    /// listener has to come back with a reason, not with silence.
+    /// sharing the sandbox port would split its hook events between them at
+    /// random, and every symptom would look like "some events go missing".
+    /// A busy port is not silent either: the second listener comes back with
+    /// a reason. Evlat's socket has its own counterpart
+    /// (`testALiveSocketIsNeitherTakenNorDeleted`).
     func testASecondListenerCannotTakeTheSamePort() throws {
-        let first = HookListener(port: Self.anyPort) { _ in }
+        let first = HookListener(transport: .sandboxPort(Self.anyPort)) { _ in }
         first.start()
         defer { first.stop() }
         let port = try XCTUnwrap(boundPort(first))
 
-        let second = HookListener(port: port) { _ in }
+        let second = HookListener(transport: .sandboxPort(port)) { _ in }
         second.start()
         defer { second.stop() }
         guard case .unavailable(let reported, let reason) = second.awaitSettled(timeout: 5) else {
@@ -231,7 +284,9 @@ final class HookListenerTests: XCTestCase {
     }
 
     /// A live socket is another Evlat's: the second listener says so, and
-    /// neither takes nor deletes it — the first still answers.
+    /// neither takes nor deletes it — the first still answers. Two Evlats
+    /// sharing it would split the hooks between them; this is the socket's
+    /// `testASecondListenerCannotTakeTheSamePort`.
     func testALiveSocketIsNeitherTakenNorDeleted() throws {
         let directory = try ShortDirectory.make()
         defer { ShortDirectory.remove(directory) }
@@ -295,8 +350,7 @@ final class HookListenerTests: XCTestCase {
     }
 
     /// The socket asks no key for `/signal`: its folder is the user's alone.
-    /// The port's local listener still asks (above), and a sandbox's role has
-    /// no `/signal` at all.
+    /// A sandbox's role has no `/signal` at all.
     func testTheSocketTakesASignalWithoutAKey() throws {
         let directory = try ShortDirectory.make()
         defer { ShortDirectory.remove(directory) }
@@ -330,40 +384,17 @@ final class HookListenerTests: XCTestCase {
     }
 
     /// The app's socket is the rule's under its own home: a controller
-    /// without one — every test — binds none, and an isolated process
-    /// without `EVLAT_SOCKET` none either.
+    /// without one — every test — binds none; a second Evlat binds its own
+    /// `EVLAT_SOCKET`, never the user's.
     func testTheAppBindsTheRulesSocketOnlyWithAHome() {
         let home = URL(fileURLWithPath: "/Users/a", isDirectory: true)
         XCTAssertNil(AppController.socketPath(home: nil, environment: [:]))
         XCTAssertNil(AppController.socketPath(home: nil, environment: ["EVLAT_SOCKET": "/tmp/e/x.sock"]))
         XCTAssertEqual(AppController.socketPath(home: home, environment: [:]), "/Users/a/.config/evlat/run/evlat.sock")
-        XCTAssertNil(AppController.socketPath(home: home, environment: ["EVLAT_PORT": "48999"]))
-        XCTAssertEqual(AppController.socketPath(home: home, environment: ["EVLAT_PORT": "48999",
-                                                                          "EVLAT_SOCKET": "/tmp/e/x.sock"]),
+        XCTAssertEqual(AppController.socketPath(home: home, environment: ["EVLAT_SOCKET": "/tmp/e/x.sock"]),
                        "/tmp/e/x.sock")
-    }
-
-    // MARK: - Which port
-
-    func testThePortIsTheDefaultUnlessTheEnvironmentSaysOtherwise() {
-        XCTAssertEqual(HookListener.resolvePort([:]),
-                       HookListener.PortChoice(port: LocalAPI.defaultPort, rejectedOverride: nil))
-        XCTAssertEqual(HookListener.resolvePort(["EVLAT_PORT": "48999"]),
-                       HookListener.PortChoice(port: 48999, rejectedOverride: nil))
-    }
-
-    /// An override that cannot be used is **reported**, not silently ignored:
-    /// the app would otherwise listen on 48151 while the developer believed it
-    /// was somewhere else. `0` is a valid port to bind ("any free one") and is
-    /// still refused here, because an endpoint on a port nobody can guess is
-    /// the same silent failure the whole status enum exists for.
-    func testAnUnusableOverrideIsReportedAndTheDefaultStands() {
-        for raw in ["", "0", "-1", "70000", "48151x", "elli"] {
-            let choice = HookListener.resolvePort(["EVLAT_PORT": raw])
-            XCTAssertEqual(choice.port, LocalAPI.defaultPort, "EVLAT_PORT=\(raw)")
-            // The empty value is "not set", not "set to something unusable".
-            XCTAssertEqual(choice.rejectedOverride, raw.isEmpty ? nil : raw, "EVLAT_PORT=\(raw)")
-        }
+        XCTAssertNil(AppController.socketPath(home: home, environment: ["EVLAT_SOCKET": "relative.sock"]),
+                     "never quietly the user's")
     }
 
     // MARK: - The capture flag
@@ -473,38 +504,27 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(bucket.recent.first?.sessionID, "s")
     }
 
-    // MARK: - Helpers
-
     // MARK: - A held permission request
 
     private let permissionBody = #"{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"ls"}}"#
 
-    private func permissionRequest(port: UInt16, timeout: TimeInterval = 5) -> URLRequest {
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(ChatRequest.path)")!)
-        request.httpMethod = "POST"
-        request.httpBody = Data(permissionBody.utf8)
-        request.setValue("T-1", forHTTPHeaderField: ChatRequest.tokenHeader)
-        request.timeoutInterval = timeout
-        return request
-    }
-
     /// The answer is the user's: the connection stays open until `answer`,
     /// and what is written then is what the client reads.
     func testAPermissionRequestIsHeldUntilAnswered() throws {
+        let path = try socketPath()
         var asked: ChatRequest?
         let arrived = expectation(description: "request on the main queue")
-        let listener = HookListener(port: Self.anyPort, onAbandoned: { _ in }) { delivery in
+        let listener = bound(path, onAbandoned: { _ in }) { delivery in
             if case .permission(let request) = delivery { asked = request }
             arrived.fulfill()
         }
-        listener.start()
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
 
         var answer: Answer?
         let returned = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
-            answer = self.send(self.permissionRequest(port: port))
+            answer = self.send(ChatRequest.path, socket: path, headers: [(ChatRequest.tokenHeader, "T-1")],
+                               body: self.permissionBody)
             returned.signal()
         }
         wait(for: [arrived], timeout: 5)
@@ -514,8 +534,7 @@ final class HookListenerTests: XCTestCase {
 
         listener.answer(request.id, with: LocalAPI.Response(status: .ok, body: #"{"x":1}"#))
         XCTAssertEqual(returned.wait(timeout: .now() + 5), .success)
-        XCTAssertEqual(answer?.status, 200)
-        XCTAssertEqual(answer?.body, #"{"x":1}"#)
+        XCTAssertEqual(answer, Answer(status: 200, body: #"{"x":1}"#))
         // Answered once: a second answer finds nothing to write to.
         listener.answer(request.id, with: LocalAPI.Response(status: .ok, body: "{}"))
     }
@@ -523,24 +542,24 @@ final class HookListenerTests: XCTestCase {
     /// Claude's time runs out, or its turn ends: the far side closes and the
     /// card must go.
     func testAHeldRequestThatClosesIsAbandoned() throws {
+        let path = try socketPath()
         var asked: ChatRequest?
         var abandoned: String?
         let gone = expectation(description: "abandoned on the main queue")
-        let listener = HookListener(port: Self.anyPort, onAbandoned: { id in
+        let listener = bound(path, onAbandoned: { id in
             XCTAssertTrue(Thread.isMainThread)
             abandoned = id
             gone.fulfill()
         }) { delivery in
             if case .permission(let request) = delivery { asked = request }
         }
-        listener.start()
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
 
         let curl = Process()
         curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        curl.arguments = ["-s", "-m", "1", "-X", "POST", "-H", "\(ChatRequest.tokenHeader): T-1",
-                          "--data-binary", permissionBody, "http://127.0.0.1:\(port)\(ChatRequest.path)"]
+        curl.arguments = ["-q", "-s", "-m", "1", "--unix-socket", path, "-X", "POST",
+                          "-H", "\(ChatRequest.tokenHeader): T-1", "--data-binary", permissionBody,
+                          "http://127.0.0.1:48151\(ChatRequest.path)"]
         curl.standardOutput = FileHandle.nullDevice
         try curl.run()
         wait(for: [gone], timeout: 5)
@@ -548,163 +567,81 @@ final class HookListenerTests: XCTestCase {
         curl.waitUntilExit()
     }
 
-    /// A listener nobody answers permissions through (a tunnel's, the
-    /// capture's) refuses at once rather than holding for ever.
+    /// A listener nobody answers permissions through (the capture's)
+    /// refuses at once rather than holding for ever.
     func testWithoutAnAnswererAPermissionRequestIsRefused() throws {
-        let listener = HookListener(port: Self.anyPort) { _ in }
-        listener.start()
+        let path = try socketPath()
+        let listener = bound(path) { _ in }
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
-        XCTAssertEqual(send(permissionRequest(port: port)).status, 404)
+        XCTAssertEqual(send(ChatRequest.path, socket: path, headers: [(ChatRequest.tokenHeader, "T-1")],
+                            body: permissionBody).status, 404)
     }
 
-    // MARK: - `/signal` and its key
+    // MARK: - `/signal`
 
-    private func temporaryHome() throws -> URL {
-        let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("evlat-listener-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
-        return home
-    }
-
-    private func postSignal(port: UInt16, key: String?, body: String, origin: String? = nil) -> Answer {
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/signal")!)
-        request.httpMethod = "POST"
-        request.httpBody = Data(body.utf8)
-        if let key { request.setValue(key, forHTTPHeaderField: SignalReport.keyHeader) }
-        if let origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
-        return send(request)
-    }
-
-    /// End to end, as the app wires it: the key is written once the port is
-    /// bound, a POST carrying it becomes a row in the registry, and one
-    /// without it, with a wrong one or from a browser never reaches the app.
+    /// End to end, as the app wires it: an outside program's post on the
+    /// socket, with no key, becomes a row in the registry. A key an older
+    /// sender still adds changes nothing; a browser never reaches the app.
     @MainActor
-    func testASignalWithTheKeyFileBecomesARow() throws {
-        let home = try temporaryHome()
+    func testASignalOnTheSocketBecomesARow() throws {
+        let path = try socketPath()
         let controller = AppController()
         controller.registry.register(controller.signals)
         var deliveries = 0
-        let arrived = expectation(description: "signal on the main queue")
-        let listener = HookListener(port: Self.anyPort,
-                                    signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { delivery in
+        let arrived = expectation(description: "signals on the main queue")
+        arrived.expectedFulfillmentCount = 2
+        let listener = bound(path) { delivery in
             MainActor.assumeIsolated {
                 deliveries += 1
                 controller.handleDelivery(delivery)
                 arrived.fulfill()
             }
         }
-        listener.start()
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
-        let file = try XCTUnwrap(SignalKey.location(port: port, home: home, environment: [:]))
-        let key = try XCTUnwrap(SignalKey.read(from: file), "written by the time the port is reported bound")
 
         let body = #"{"id":"build","ttl":60,"phase":"working","label":"npm run build"}"#
-        let refused = DispatchQueue.global()
         var answers: [String: Int] = [:]
-        refused.sync {
-            answers["none"] = postSignal(port: port, key: nil, body: body).status
-            answers["wrong"] = postSignal(port: port, key: String(key.reversed()), body: body).status
-            answers["browser"] = postSignal(port: port, key: key, body: body, origin: "https://example.com").status
-            answers["right"] = postSignal(port: port, key: key, body: body).status
+        DispatchQueue.global().sync {
+            answers["none"] = send("/signal", socket: path, body: body).status
+            answers["stale key"] = send("/signal", socket: path, headers: [("X-Evlat-Key", "stale")],
+                                        body: body).status
+            answers["browser"] = send("/signal", socket: path, headers: [("Origin", "https://example.com")],
+                                      body: body).status
         }
-        XCTAssertEqual(answers, ["none": 403, "wrong": 403, "browser": 403, "right": 200])
+        XCTAssertEqual(answers, ["none": 200, "stale key": 200, "browser": 403])
         wait(for: [arrived], timeout: 5)
-        XCTAssertEqual(deliveries, 1, "only the keyed request reached the app")
+        XCTAssertEqual(deliveries, 2, "the browser's never reached the app")
         let row = try XCTUnwrap(controller.registry.snapshot().ordered.first { $0.entity == "signal:build" })
         XCTAssertEqual(row.phase, .working)
         XCTAssertEqual(row.kind, .custom)
     }
 
-    /// A tunnel's listener without its machine's key has no route: `404`,
-    /// whatever is sent.
-    func testAKeylessTunnelListenerAnswersSignalWithNotFound() throws {
-        let listener = HookListener(port: Self.anyPort, origin: .machine) { _ in
-            XCTFail("nothing is delivered")
-        }
-        listener.start()
-        defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
-        let body = #"{"id":"build","ttl":60,"phase":"working"}"#
-        XCTAssertEqual(postSignal(port: port, key: nil, body: body).status, 404)
-        XCTAssertEqual(postSignal(port: port, key: "anything", body: body).status, 404)
-    }
-
-    /// With its machine's key a tunnel's listener answers `/signal`
-    /// as the local one does, over the wire: the key decides, and only the
-    /// keyed request is delivered.
-    func testAKeyedTunnelListenerAnswersSignalLikeTheLocalOne() throws {
-        let key = String(repeating: "ab", count: 32)
-        var deliveries = 0
+    /// A machine's channel end takes `/signal` like this Mac's socket: no
+    /// key, and the report is delivered.
+    func testAMachinesSocketTakesASignalWithoutAKey() throws {
+        let path = try socketPath()
         let arrived = expectation(description: "signal delivered")
-        let listener = HookListener(port: Self.anyPort, origin: .machine, signalKey: { _ in key }) { delivery in
+        let listener = bound(path, origin: .machine) { delivery in
             guard case .signal(let report) = delivery else { return XCTFail("not a signal") }
             XCTAssertEqual(report.id, "build")
-            deliveries += 1
             arrived.fulfill()
         }
-        listener.start()
         defer { listener.stop() }
-        let port = try XCTUnwrap(boundPort(listener))
-        let body = #"{"id":"build","ttl":60,"phase":"working"}"#
-        var answers: [String: Int] = [:]
-        DispatchQueue.global().sync {
-            answers["none"] = postSignal(port: port, key: nil, body: body).status
-            answers["wrong"] = postSignal(port: port, key: String(key.reversed().dropFirst()), body: body).status
-            answers["right"] = postSignal(port: port, key: key, body: body).status
-        }
-        XCTAssertEqual(answers, ["none": 403, "wrong": 403, "right": 200])
+        XCTAssertEqual(send("/signal", socket: path, body: #"{"id":"build","ttl":60,"phase":"working"}"#),
+                       Answer(status: 200, body: "{}"))
         wait(for: [arrived], timeout: 5)
-        XCTAssertEqual(deliveries, 1)
     }
 
-    /// The listener that cannot bind never writes: the running Evlat's key
-    /// stays the one programs read.
-    func testAListenerThatCannotBindLeavesTheKeyFileAlone() throws {
-        let home = try temporaryHome()
-        let first = HookListener(port: Self.anyPort,
-                                 signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { _ in }
-        first.start()
-        defer { first.stop() }
-        let port = try XCTUnwrap(boundPort(first))
-        let file = try XCTUnwrap(SignalKey.location(port: port, home: home, environment: [:]))
-        let key = try XCTUnwrap(SignalKey.read(from: file))
-
-        var asked = false
-        let second = HookListener(port: port, signalKey: { _ in asked = true; return "other" }) { _ in }
-        second.start()
-        defer { second.stop() }
-        guard case .unavailable = second.awaitSettled(timeout: 5) else {
-            return XCTFail("two listeners bound the same port")
-        }
-        XCTAssertFalse(asked, "no key is made without the port")
-        XCTAssertEqual(SignalKey.read(from: file), key)
+    /// `--list`'s word for each answer its probe can get.
+    func testTheListProbeNamesEachAnswer() {
+        XCTAssertEqual(AppController.signalProbeText(.status(200)), "ok")
+        XCTAssertEqual(AppController.signalProbeText(.status(404)), "no /signal route (404)")
+        XCTAssertEqual(AppController.signalProbeText(.status(400)), "answered 400")
+        XCTAssertEqual(AppController.signalProbeText(.notRunning), "not running")
+        XCTAssertEqual(AppController.signalProbeText(.failed("x")), "did not answer (x)")
     }
 
-    /// `--list`'s probe against a real listener: each answer it can name.
-    func testTheListProbeReadsTheListener() throws {
-        let home = try temporaryHome()
-        let listener = HookListener(port: Self.anyPort,
-                                    signalKey: AppController.signalKeyWriter(home: home, environment: [:])) { _ in }
-        listener.start()
-        let port = try XCTUnwrap(boundPort(listener))
-        let key = try XCTUnwrap(SignalKey.read(from: SignalKey.location(port: port, home: home, environment: [:])!))
-        XCTAssertEqual(AppController.probeSignalEndpoint(port: port, key: key), .status(200))
-        XCTAssertEqual(AppController.probeSignalEndpoint(port: port, key: "stale"), .status(403))
-        listener.stop()
-        let keyless = HookListener(port: Self.anyPort) { _ in }
-        keyless.start()
-        defer { keyless.stop() }
-        let other = try XCTUnwrap(boundPort(keyless))
-        XCTAssertEqual(AppController.probeSignalEndpoint(port: other, key: key), .status(403))
-    }
-
-    private struct Answer {
-        let status: Int
-        let body: String
-    }
+    // MARK: - Helpers
 
     private func post(port: UInt16, path: String, body: String) -> Answer {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)

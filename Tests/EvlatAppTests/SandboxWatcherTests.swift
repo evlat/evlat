@@ -311,12 +311,12 @@ final class SandboxWatcherTests: XCTestCase {
                        SandboxWatcher.Source(sbx: nil, socket:
                         "/Users/u/Library/Application Support/com.docker.sandboxes/sandboxes/sandboxd/sandboxd.sock"))
         XCTAssertNil(SandboxWatcher.source(environment: [:], home: nil), "no home: never the real socket")
-        XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_PORT": "48999"], home: home),
+        XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_SOCKET": "/tmp/e.sock"], home: home),
                      "isolated: no sbx, no daemon")
-        XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_PORT": "48999", "EVLAT_SBX": "/x/sbx"], home: home))
-        XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_PORT": "48999", "EVLAT_SBX_SOCKET": "/x.sock"],
+        XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_SOCKET": "/tmp/e.sock", "EVLAT_SBX": "/x/sbx"], home: home))
+        XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_SOCKET": "/tmp/e.sock", "EVLAT_SBX_SOCKET": "/x.sock"],
                                            home: home))
-        XCTAssertEqual(SandboxWatcher.source(environment: ["EVLAT_PORT": "48999", "EVLAT_SBX": "/x/sbx",
+        XCTAssertEqual(SandboxWatcher.source(environment: ["EVLAT_SOCKET": "/tmp/e.sock", "EVLAT_SBX": "/x/sbx",
                                                            "EVLAT_SBX_SOCKET": "/x.sock"], home: home),
                        SandboxWatcher.Source(sbx: "/x/sbx", socket: "/x.sock"))
     }

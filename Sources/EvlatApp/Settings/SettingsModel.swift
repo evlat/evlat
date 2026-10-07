@@ -114,8 +114,8 @@ final class SettingsModel: ObservableObject {
     /// refresh and published only when it changed.
     struct Sandboxes: Equatable {
         enum Availability: Equatable {
-            /// This copy watches no sandboxes: it runs on a port of its own
-            /// (`EVLAT_PORT`) and was not handed `sbx` and its socket.
+            /// This copy watches no sandboxes: it is a second Evlat
+            /// (`EVLAT_SOCKET`) and was not handed `sbx` and its socket.
             case isolated
             /// `sbx` not looked for yet.
             case looking

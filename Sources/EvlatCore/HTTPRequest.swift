@@ -10,8 +10,7 @@ import Foundation
 /// `X-Evlat-Pid` are what the installed hook command sends, `Origin` and `Host`
 /// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`),
 /// `X-Evlat-Permission` is the token a chat's own permission hook carries
-/// (`ChatRequest.tokenHeader`), and `X-Evlat-Key` is an outside program's key
-/// for `/signal`, `X-Evlat-Askpass` the token an `ssh` askpass helper
+/// (`ChatRequest.tokenHeader`), `X-Evlat-Askpass` the token an `ssh` askpass helper
 /// carries (`Askpass`), and `X-Evlat-Sandbox` the sandbox a Docker sandbox's
 /// hook command was sent from (`SandboxInstall`).
 public struct HTTPRequest: Equatable {
@@ -34,10 +33,6 @@ public struct HTTPRequest: Equatable {
     /// to. Matched against the running turns on the main queue (`ChatStore`),
     /// never here — a token is state, this type is not.
     public let permissionToken: String?
-    /// `X-Evlat-Key`: the key `/signal` asks for (`SignalReport.keyHeader`).
-    /// Compared against the listener's own on the server queue
-    /// (`LocalAPI.Listener`); empty counts as absent, so it can never match.
-    public let signalKey: String?
     /// `X-Evlat-Event`: the hook's event name, for an agent whose body does
     /// not carry one (Antigravity). Used only where the body has none.
     public let event: String?
@@ -53,7 +48,7 @@ public struct HTTPRequest: Equatable {
     public init(method: String, target: String, body: Data = Data(),
                 taskID: String? = nil, pid: String? = nil,
                 origin: String? = nil, host: String? = nil, permissionToken: String? = nil,
-                signalKey: String? = nil, event: String? = nil, askpassToken: String? = nil,
+                event: String? = nil, askpassToken: String? = nil,
                 sandboxName: String? = nil) {
         self.method = method
         self.target = target
@@ -63,7 +58,6 @@ public struct HTTPRequest: Equatable {
         self.origin = origin
         self.host = host
         self.permissionToken = permissionToken
-        self.signalKey = signalKey
         self.event = event
         self.askpassToken = askpassToken
         self.sandboxName = sandboxName
@@ -99,7 +93,6 @@ public struct HTTPRequest: Equatable {
         var origin: String?
         var host: String?
         var permissionToken: String?
-        var signalKey: String?
         var event: String?
         var askpassToken: String?
         var sandboxName: String?
@@ -121,7 +114,6 @@ public struct HTTPRequest: Equatable {
             case "origin": origin = value
             case "host": host = value
             case "x-evlat-permission": permissionToken = value.isEmpty ? nil : value
-            case "x-evlat-key": signalKey = value.isEmpty ? nil : value
             case "x-evlat-event": event = value.isEmpty ? nil : value
             case "x-evlat-askpass": askpassToken = value.isEmpty ? nil : value
             case "x-evlat-sandbox": sandboxName = value.isEmpty ? nil : value
@@ -136,7 +128,7 @@ public struct HTTPRequest: Equatable {
                            // belongs to the next request on the connection.
                            body: data.subdata(in: bodyStart..<(bodyStart + contentLength)),
                            taskID: taskID, pid: pid, origin: origin, host: host,
-                           permissionToken: permissionToken, signalKey: signalKey, event: event,
+                           permissionToken: permissionToken, event: event,
                            askpassToken: askpassToken, sandboxName: sandboxName)
     }
 }

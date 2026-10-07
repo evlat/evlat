@@ -358,7 +358,7 @@ final class SetupFlowTests: XCTestCase {
     func testAnIsolatedOrStorelessLaunchNeverOpensIt() throws {
         let isolated = try controller(home: home)
         defer { isolated.panel?.close() }
-        for environment in [["EVLAT_HOME": home.path], ["EVLAT_EDGE": "left"], ["EVLAT_PORT": "48999"]] {
+        for environment in [["EVLAT_HOME": home.path], ["EVLAT_EDGE": "left"], ["EVLAT_SOCKET": "/tmp/e.sock"]] {
             isolated.openSetupAtLaunch(environment: environment)
             XCTAssertNil(isolated.setupWindow, "\(environment)")
         }

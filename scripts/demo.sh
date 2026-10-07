@@ -1,5 +1,5 @@
 #!/bin/sh
-# A full bar to look at: an isolated Evlat (its own port, home, sessions and
+# A full bar to look at: an isolated Evlat (its own socket, home, sessions and
 # chats; the user's Evlat and files untouched) filled with every kind of row —
 # local sessions in each phase, worktrees of one repository, Codex, three
 # remote machines through the fake ssh, Docker sandboxes, outside jobs and
@@ -17,7 +17,7 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DIR="${TMPDIR:-/tmp}"
 DIR="${DIR%/}/evlat-demo"
-PORT=48999
+SOCKET="$DIR/evlat.sock"
 SANDBOX_PORT=48998
 
 stop() {
@@ -42,6 +42,13 @@ for arg in "$@"; do
     esac
 done
 
+# A unix address holds 103 bytes: past that the demo's Evlat would bind
+# nothing and every row would be lost.
+if [ "$(printf %s "$SOCKET" | wc -c)" -gt 103 ]; then
+    echo "socket path too long ($SOCKET); run with a shorter TMPDIR, e.g. TMPDIR=/tmp" >&2
+    exit 1
+fi
+
 stop
 [ "$BUILD" = 1 ] && (cd "$ROOT" && swift build >/dev/null)
 mkdir -p "$DIR/home/.claude" "$DIR/home/.codex/sessions" "$DIR/home/.gemini/antigravity-cli" \
@@ -54,7 +61,7 @@ for _ in 1 2 3 4 5 6 7 8 9; do
     echo $! >> "$DIR/agents.pid"
 done
 
-EVLAT_PORT=$PORT EVLAT_HOME="$DIR/home" EVLAT_SESSIONS="$DIR/sessions" EVLAT_CHATS="$DIR/chats" \
+EVLAT_SOCKET="$SOCKET" EVLAT_HOME="$DIR/home" EVLAT_SESSIONS="$DIR/sessions" EVLAT_CHATS="$DIR/chats" \
 EVLAT_EDGE=$EDGE EVLAT_BODY=always \
 EVLAT_MACHINES="dev@10.0.4.21,ubuntu@192.168.1.217,deploy@gpu-01.eu-central.internal.example.com" \
 EVLAT_SSH="$ROOT/Tests/Fixtures/fake-ssh" FAKE_SSH_LOG="$DIR/ssh.log" FAKE_SSH_HOME="$DIR/server" \
@@ -65,12 +72,12 @@ echo $! > "$DIR/evlat.pid"
 # Ready once it answers; the machines' listeners are logged by then, and
 # their channels — master, probe over it in $DIR/server, forward — follow.
 tries=0
-until curl -s -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; do
+until curl -q -s -m 1 --unix-socket "$SOCKET" "http://127.0.0.1/health" >/dev/null 2>&1; do
     tries=$((tries + 1))
     [ "$tries" -lt 50 ] || { echo "Evlat did not come up; see $DIR/evlat.log" >&2; exit 1; }
     sleep 0.2
 done
 
-python3 "$ROOT/scripts/demo-seed.py" --dir "$DIR" --repo "$ROOT" --port $PORT \
+python3 "$ROOT/scripts/demo-seed.py" --dir "$DIR" --repo "$ROOT" --socket "$SOCKET" \
     --sandbox-port $SANDBOX_PORT
 echo "Demo up on the $EDGE edge. Stop it with: scripts/demo.sh stop"

@@ -232,12 +232,12 @@ which agent it is:
 | `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`StatusLineUsageProvider(source:)`); the format is undocumented | derived |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens (`Codex/CodexUsageProvider`, the agent's `providers`) | derived |
 | `evlat` | chat jobs | the chat bubble's turns, on any chat backend (`ChatsProvider`); a backend that answered with another version than the one measured is in its `diagnostics` and in Settings → Chat | official |
-| `signal` | external jobs | `POST /signal`, keyed on the port, keyless on a socket; sent by `Evlat watch` / `Evlat signal` | manual |
+| `signal` | external jobs | `POST /signal` on a socket, no key; sent by `Evlat watch` / `Evlat signal` | manual |
 
 An agent can be switched off (Settings → Agents, its card's switch; the
 setup's agent step). The set is `agents.enabled` (`EnabledAgents`): nothing
 stored is the agents found, asked live each time, and it is written only by
-the user's change — an isolated process (`EVLAT_PORT`) keeps it in memory.
+the user's change — a second Evlat (`EVLAT_SOCKET`) keeps it in memory.
 An agent off has no session row: `Registry.signals()` drops it **after**
 the merge, `kind == .session` only, by asking whether the row's `source` is
 in the set (a file row and a hook row go together; a remote machine's rows
@@ -780,8 +780,8 @@ caller); the `security` command is not used. It is not a permission, but an
 ad-hoc signed build (`make run`, a default `make install`) is asked for
 keychain access after every build; a Developer ID build is not after an
 update. An app thrown away without removing its machines leaves the entries
-behind. Tests (XCTest present, `make test-desktop` included) and an
-isolated process (`EVLAT_PORT`) keep passwords in memory
+behind. Tests (XCTest present, `make test-desktop` included) and a
+second Evlat (`EVLAT_SOCKET`) keep passwords in memory
 (`MemoryPasswordStore`) and never touch the keychain.
 
 ## Contracts
@@ -796,8 +796,9 @@ runs: `curl -q -s -m 2 --noproxy '*' --unix-socket
 The URL is text: it names no port that is dialled, and it is what makes a
 command Evlat's (`HookSettings.marker`), so the bytes before the socket —
 `curl -s -m 2 … http://127.0.0.1:48151/…`, every earlier version's — read
-as Evlat's older command, "needs update", and one press moves them. Until
-the port goes (028's phase-5), an older command still reaches this Mac. A
+as Evlat's older command, "needs update", and one press moves them. No
+port listens for them any more: an older command, relay or `http`
+approval hook stays silent until it is moved. A
 changed command must reach the agent: Claude Code took a changed
 `UserPromptSubmit` command from `settings.json` at an open session's next
 prompt (2.1.292, measured under a temporary `CLAUDE_CONFIG_DIR`, written in
@@ -888,13 +889,12 @@ anyway.
 
 ### Local API
 
-Loopback only (`requiredInterfaceType = .loopback`; `lsof` shows `*:48151`,
-but a POST to the LAN address is refused). Default port **48151**.
-
-Beside the port, the same routes on **Evlat's socket**,
-`$HOME/.config/evlat/run/evlat.sock` (`EvlatSocket`; `EVLAT_HOME` moves it,
-an absolute `EVLAT_SOCKET` names it, an `EVLAT_PORT` process without
-`EVLAT_SOCKET` has none). Its directory is made `0700` and refused when it
+No TCP port on this Mac but the Docker sandboxes' (48152, below). Every
+route is on **Evlat's socket**, `$HOME/.config/evlat/run/evlat.sock`
+(`EvlatSocket`; `EVLAT_HOME` moves it, an absolute `EVLAT_SOCKET` names
+it, a relative one is none). `48151` is left only as text: the host the
+requests name (`http://127.0.0.1:48151/<route>`, which fills `Host:`
+alone) and the root of the sandbox port (`LocalAPI.defaultPort`). Its directory is made `0700` and refused when it
 is a link or another user's: the file takes the umask's mode, so the
 directory is the guard (`UnixSocket.prepareDirectory`). A live socket is
 another Evlat's and is left alone; a file nobody answers on is cleared and
@@ -904,12 +904,12 @@ Evlat's own clients speak there: a chat turn's hook, the askpass helper,
 the installed hook commands and relay. A machine's listener is a socket
 too, its channel's end, and takes `/signal` without a key.
 
-Each listener has a role (`LocalAPI.Origin`): `.local` (this Mac, port or
+Each listener has a role (`LocalAPI.Origin`): `.local` (this Mac's
 socket) has every route and believes `X-Evlat-Pid`/`X-Evlat-Task`;
 `.machine` (a channel's end) has `/hook`, `/usage`, `/approval`, `/signal`
 and `/health`;
-`.sandbox` has `/hook` alone and is the one that believes
-`X-Evlat-Sandbox`. A route the role lacks is `404`, whatever the listener
+`.sandbox` (the one port, whatever its listener is told) has `/hook`
+alone and is the one that believes `X-Evlat-Sandbox`. A route the role lacks is `404`, whatever the listener
 holds (`Origin.role`, one `switch`).
 
 | route | notes |
@@ -919,7 +919,7 @@ holds (`Origin.role`, one `switch`).
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
 | `POST /approval`, `/approval/codex` | approval hook of terminal sessions (`ApprovalHook`), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
-| `POST /signal` | external jobs; requires `X-Evlat-Key` on the port, none on the socket |
+| `POST /signal` | external jobs; no key — an `X-Evlat-Key` an older sender adds is not read; `404` on the sandbox listener |
 | `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.sandbox`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped and every other route is `404`. The only listener that trusts `X-Evlat-Sandbox`, checked |
 | `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
 
@@ -932,13 +932,11 @@ The server writes the identity (`signal:<id>`, `.manual`), at most 32 rows.
 12 h after it finished, and counts against the 32 while it waits; `ttl: 0`
 still drops it at once. The "600 s" in `evlat signal`'s help is the value it
 sends, not the row's life.
-The key is written on every launch to
-`~/Library/Application Support/Evlat/signal-<port>.token` (`0600`) by the
-process that holds the port and removed on quit; wrong or missing key → `403`.
-On a socket — this Mac's, or a machine's channel end — it takes none: only
-the user's processes can reach it, and through a channel the machine is the
-listener's. A machine's stored keys (`remote.signalKeys`, from version 1 of
-the server's command) are no longer read; the value is left where it is.
+It takes no key: a socket — this Mac's, or a machine's channel end — is
+reached only by the user's processes, and through a channel the machine is
+the listener's. No key file is written; one an older version left is not
+read, and neither are a machine's stored keys (`remote.signalKeys`, from
+version 1 of the server's command) — the value is left where it is.
 
 ### Command line
 
@@ -986,8 +984,8 @@ be every sandbox's). Its hooks run the sandbox twin of the hook command
 task header, `X-Evlat-Sandbox` added; silent, nothing on stdout). The
 Mac's command bytes are unchanged. A running sandbox keeps the bytes it
 was given, so they are pinned (`SandboxInstallTests`, the argv in
-`SandboxInstallPlanTests`). The port is fixed (`LocalAPI.defaultPort + 1`),
-never `EVLAT_PORT`'s: it is written into every sandbox.
+`SandboxInstallPlanTests`). The port is fixed (`LocalAPI.defaultPort + 1`):
+it is written into every sandbox.
 
 The website documents these contracts for users: `../evlat-landing/docs-src`
 (the `evlat` command, `/signal`, remote servers) and
@@ -1027,7 +1025,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
-| a full bar to look at | `scripts/demo.sh [left\|right]` — isolated (port 48999, its own home under `$TMPDIR/evlat-demo`): local sessions in every phase, worktrees of one repository on two branches, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; approvals and questions, local and on a server, are held so their cards draw buttons, the sandboxed waits only heard; `scripts/demo.sh stop` ends it all |
+| a full bar to look at | `scripts/demo.sh [left\|right]` — isolated (its own socket and home under `$TMPDIR/evlat-demo`; a `$TMPDIR` too long for a socket's address is refused): local sessions in every phase, worktrees of one repository on two branches, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; approvals and questions, local and on a server, are held so their cards draw buttons, the sandboxed waits only heard; `scripts/demo.sh stop` ends it all |
 | window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
 | ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |
@@ -1035,8 +1033,8 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | publish | `make publish VERSION=x.y.z` — the user's call: tags the built commit, pushes the tag, creates the GitHub release with the disk image, the zip and `appcast.xml` — every installed copy updates from it |
 
 `make run` and `make install` stop **both** copies (`build/` and
-`/Applications/`) first: two Evlats race for port 48151 and the loser's hooks go
-nowhere. Processes are targeted **by path**, never by name.
+`/Applications/`) first: two Evlats race for the socket, and the one that
+finds it held hears nothing. Processes are targeted **by path**, never by name.
 
 Visual checks are not optional for UI changes: transparency, the right-edge
 dock, the hover opening, focus staying with the front app. Use a real session
@@ -1077,13 +1075,13 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no socket is bound unless `EVLAT_SOCKET` is given, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
-| `EVLAT_SOCKET` | Evlat's socket, an absolute path (`EvlatSocket`); the app binds it and `evlat signal`/`watch` post to it. A relative one is none, never the user's |
+| `EVLAT_SOCKET` | a second Evlat: its own socket, an absolute path (`EvlatSocket`; a relative one is none, never the user's) — the app binds it and `evlat signal`/`watch` post to it. Set, it is the one predicate of a second process (`Isolation.hasOwnSocket`): no tunnel opens unless `EVLAT_MACHINES` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
+| `EVLAT_PORT` | gone: a process with it set, blank included, says `EVLAT_PORT is gone; use EVLAT_SOCKET` on stderr and exits `2` — the bar, `watch`, `signal` and the diagnostics alike (`LaunchMode.refused`) |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their switches stay in memory |
-| `EVLAT_SANDBOX_PORT` | the Docker sandbox listener's port; with `EVLAT_PORT` set there is no sandbox listener unless this is given |
-| `EVLAT_SBX`, `EVLAT_SBX_SOCKET` | the `sbx` to run and the daemon's socket; with `EVLAT_PORT` set no sandbox is watched or set up unless both are given (a fake `sbx`: `Tests/Fixtures/fake-sbx`). With `EVLAT_PORT` the "Watch sandboxes" switch stays in memory |
+| `EVLAT_SANDBOX_PORT` | the Docker sandbox listener's port; with `EVLAT_SOCKET` set there is no sandbox listener unless this is given |
+| `EVLAT_SBX`, `EVLAT_SBX_SOCKET` | the `sbx` to run and the daemon's socket; with `EVLAT_SOCKET` set no sandbox is watched or set up unless both are given (a fake `sbx`: `Tests/Fixtures/fake-sbx`). With `EVLAT_SOCKET` the "Watch sandboxes" switch stays in memory |
 | `EVLAT_SANDBOXES` | `on`/`off` forces "Watch sandboxes" at launch; the stored switch is never written |
 | `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` (`Tests/Fixtures/fake-ssh` runs calls in `FAKE_SSH_HOME`, prints the master's mark, makes the forward) |
 | `EVLAT_CHATS` | temporary chat root |
@@ -1110,8 +1108,8 @@ awk -v a="$T0" -v b="$T1" 'BEGIN{ printf "%.2f%% CPU / 90 s\n", (b-a)/90*100 }'
 ```
 
 To measure one mascot state, fix the phase and empty the sessions:
-`EVLAT_PHASE=working EVLAT_SESSIONS=$(mktemp -d) EVLAT_PORT=48999`, binary
-started by absolute path.
+`EVLAT_PHASE=working EVLAT_SESSIONS=$(mktemp -d) EVLAT_SOCKET=/tmp/evlat-m.sock`,
+binary started by absolute path.
 
 CPU is read from the `cputime` **delta**, not `%cpu`; the window starts after
 the launch settles. Record mouse/keyboard idleness at both ends of the window:
@@ -1162,9 +1160,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   that does not start at zero crashes; the listener's buffer is exactly such a
   slice. Use `startIndex`/`endIndex`. A test built from a zero-based `Data`
   literal does not see it.
-- **`allowLocalEndpointReuse` is SO_REUSEADDR, not SO_REUSEPORT.** Two
-  processes cannot share the port (`testASecondListenerCannotTakeTheSamePort`);
-  if they could, hooks would silently split between two Evlats.
+- **A second Evlat must not take a live socket.** Two processes sharing
+  one door would split the hooks between them silently. A live socket is
+  left alone and said (`testALiveSocketIsNeitherTakenNorDeleted`); only a
+  file nobody answers on is cleared. The sandbox port's
+  `allowLocalEndpointReuse` is SO_REUSEADDR, not SO_REUSEPORT, for the same
+  reason (`testASecondListenerCannotTakeTheSamePort`).
 - **A `PermissionRequest` hook does not hold the terminal's dialog.** In an
   interactive session the dialog opens the same instant the hook fires
   (2.1.285); whichever answers first wins. "No" or Esc in the terminal
@@ -1593,9 +1594,9 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 
 - **Measure a binary started by absolute path.** A relative path is invisible
   to `pgrep -f` and to the Makefile's guard.
-- **An empty `EVLAT_SESSIONS` does not isolate; `EVLAT_PORT` is needed too.**
-  With the real Evlat closed, the measured process takes 48151 and live
-  sessions' hooks flow into it.
+- **An empty `EVLAT_SESSIONS` does not isolate; `EVLAT_SOCKET` is needed too.**
+  With the real Evlat closed, the measured process takes the user's socket
+  and live sessions' hooks flow into it.
 - **Idle CPU is mouse-sensitive** — the sleeping mascot still follows the
   gaze. The same build read 0.04% one day and 3.43% the next; the difference
   was the mouse. Record HID idleness around the window.

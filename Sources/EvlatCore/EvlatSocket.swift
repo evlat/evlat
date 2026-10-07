@@ -22,11 +22,11 @@ public enum EvlatSocket {
     /// The socket this environment points at, or `nil` for none.
     ///
     /// `EVLAT_SOCKET`, when set, is the answer: an absolute path, or none at
-    /// all — a relative one is not quietly replaced by the user's socket.
-    /// Otherwise an isolated process (`EVLAT_PORT`) has none, so a test or a
-    /// measurement never takes the user's. Otherwise it is under the home:
-    /// `EVLAT_HOME` (tilde expanded), else `home`. A path too long for an
-    /// address is none: it could never be bound or reached.
+    /// all — a relative one is not quietly replaced by the user's socket,
+    /// and a second Evlat (`Isolation.hasOwnSocket`) never takes the user's.
+    /// Otherwise it is under the home: `EVLAT_HOME` (tilde expanded), else
+    /// `home`. A path too long for an address is none: it could never be
+    /// bound or reached.
     public static func path(environment: [String: String], home: String?) -> String? {
         let value = { (name: String) -> String? in
             let raw = environment[name]?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -37,7 +37,6 @@ public enum EvlatSocket {
             guard given.hasPrefix("/") else { return nil }
             path = given
         } else {
-            if value("EVLAT_PORT") != nil { return nil }
             guard let root = value("EVLAT_HOME").map({ ($0 as NSString).expandingTildeInPath }) ?? home,
                   !root.isEmpty else { return nil }
             path = (root as NSString).appendingPathComponent(relativePath)

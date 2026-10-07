@@ -43,7 +43,7 @@ EVLAT_PROC = $(CURDIR)/build/Evlat[.]app/Contents/MacOS/Evlat
 # The installed copy. `install` puts the bundle here so the login item and the
 # `~/.local/bin/evlat` link point at a path that `make bundle` and
 # `make clean` never delete. Both targets stop BOTH copies first: two Evlats
-# race for port 48151 and the second one's hooks go nowhere.
+# race for the socket, and the one that finds it held hears no hook.
 APP_DIR = /Applications
 APP_PROC = $(APP_DIR)/Evlat[.]app/Contents/MacOS/Evlat
 

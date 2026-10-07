@@ -16,10 +16,11 @@ import Foundation
 /// `RemoteCommand.script`: a running sandbox keeps the bytes it was given,
 /// so they are pinned (`SandboxInstallTests`).
 public struct SandboxInstall: Equatable {
-    /// The sandbox listener's port. Fixed rather than following
-    /// `EVLAT_PORT`: it is written into every sandbox's file and rule, so a
-    /// run that moved it would leave them speaking to nothing — or to the
-    /// main port.
+    /// The sandbox listener's port, the one port Evlat still binds. Fixed
+    /// rather than following an environment variable: it is written into
+    /// every sandbox's file and rule, so a run that moved it would leave
+    /// them speaking to nothing. Only `EVLAT_SANDBOX_PORT` moves the
+    /// listener, for a test (`SandboxListener.port`).
     public static let defaultPort: UInt16 = LocalAPI.defaultPort + 1
     /// How the VM names this Mac. The sandbox's proxy takes it to
     /// `localhost`, which is why the rule says `localhost`.

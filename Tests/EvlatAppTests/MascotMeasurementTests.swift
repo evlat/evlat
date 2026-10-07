@@ -8,7 +8,7 @@ import EvlatCore
 /// two environment switches that let a script launch a measurement.
 ///
 /// Resolution is a pure function over a dictionary — the shape
-/// `HookListener.resolvePort` uses — so the fallbacks can be tested without
+/// `EvlatSocket.path` uses — so the fallbacks can be tested without
 /// launching anything.
 final class MascotMeasurementTests: XCTestCase {
     func testAnUnsetEnvironmentLeavesTheInstrumentOff() {

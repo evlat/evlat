@@ -399,8 +399,8 @@ final class SandboxWatcher {
     }
 
     /// Where `sbx` and the daemon are, or `nil` for none: `EVLAT_SBX` and
-    /// `EVLAT_SBX_SOCKET` when given. An isolated process (`EVLAT_PORT`)
-    /// gets them only when both are given — it must never change the
+    /// `EVLAT_SBX_SOCKET` when given. A second Evlat
+    /// (`Isolation.hasOwnSocket`) gets them only when both are given — it must never change the
     /// user's sandboxes by accident — and a controller with no home (every
     /// test) never falls through to the real socket.
     nonisolated static func source(environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -410,7 +410,7 @@ final class SandboxWatcher {
             return raw.isEmpty ? nil : (raw as NSString).expandingTildeInPath
         }
         let sbx = value("EVLAT_SBX"), socket = value("EVLAT_SBX_SOCKET")
-        if value("EVLAT_PORT") != nil {
+        if Isolation.hasOwnSocket(environment) {
             guard let sbx, let socket else { return nil }
             return Source(sbx: sbx, socket: socket)
         }

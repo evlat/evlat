@@ -249,43 +249,36 @@ final class LocalAPITests: XCTestCase {
     }
 
     /// A sandbox's listener is a tunnel for every other route: nothing that
-    /// grants or asks for anything, and no `/signal` without a key.
+    /// grants or asks for anything, and no `/signal`.
     func testASandboxListenerHasNoSensitiveRoute() {
         for path in [ChatRequest.path, ApprovalHook.path, Askpass.path, SignalReport.path] {
             let request = HTTPRequest(method: "POST", target: path, body: Data("{}".utf8),
-                                      host: "127.0.0.1:48152", permissionToken: "p", signalKey: "k",
-                                      askpassToken: "a")
+                                      host: "127.0.0.1:48152", permissionToken: "p", askpassToken: "a")
             XCTAssertEqual(handle(request, listener: Self.sandbox).response?.status, .notFound, path)
         }
     }
 
-    /// The role, not the key, closes a route: a sandbox's listener given a
-    /// key — or the socket's keyless `/signal` — still has nothing but
-    /// `/hook`, and a machine's listener with its key still has no held
-    /// route that grants or asks.
-    func testTheRoleClosesRoutesWhateverTheListenerHolds() {
-        let key = String(repeating: "ab", count: 32)
+    /// The role closes a route: a sandbox's listener has nothing but
+    /// `/hook`, and a machine's still has no held route that grants or asks.
+    func testTheRoleClosesRoutesWhateverTheRequestCarries() {
         let post = { (path: String) in
             HTTPRequest(method: "POST", target: path, body: Data(#"{"id":"x","ttl":60,"phase":"working"}"#.utf8),
-                        host: "127.0.0.1", permissionToken: "p", signalKey: key, askpassToken: "a")
+                        host: "127.0.0.1", permissionToken: "p", askpassToken: "a")
         }
-        for keyless in [false, true] {
-            let sandbox = LocalAPI.Listener(origin: .sandbox, signalKey: key, keylessSignal: keyless,
-                                            routes: Self.routes)
-            for path in [SignalReport.path, ApprovalHook.path, ChatRequest.path, Askpass.path, "/usage/claude"] {
-                let outcome = handle(post(path), listener: sandbox)
-                XCTAssertEqual(outcome.response?.status, .notFound, "sandbox \(path)")
-                XCTAssertNil(outcome.delivery, "sandbox \(path)")
-            }
-            XCTAssertEqual(handle(HTTPRequest(method: "GET", target: "/health", host: "127.0.0.1"),
-                                  listener: sandbox).response?.status, .notFound, "a sandbox has only /hook")
+        let sandbox = LocalAPI.Listener(origin: .sandbox, routes: Self.routes)
+        for path in [SignalReport.path, ApprovalHook.path, ChatRequest.path, Askpass.path, "/usage/claude"] {
+            let outcome = handle(post(path), listener: sandbox)
+            XCTAssertEqual(outcome.response?.status, .notFound, "sandbox \(path)")
+            XCTAssertNil(outcome.delivery, "sandbox \(path)")
         }
-        let machine = LocalAPI.Listener(origin: .machine, signalKey: key, keylessSignal: true, routes: Self.routes)
+        XCTAssertEqual(handle(HTTPRequest(method: "GET", target: "/health", host: "127.0.0.1"),
+                              listener: sandbox).response?.status, .notFound, "a sandbox has only /hook")
+        let machine = LocalAPI.Listener(origin: .machine, routes: Self.routes)
         for path in [ChatRequest.path, Askpass.path] {
             XCTAssertEqual(handle(post(path), listener: machine).response?.status, .notFound, "machine \(path)")
         }
         XCTAssertEqual(handle(post(SignalReport.path), listener: machine).response?.status, .ok,
-                       "a machine keeps its keyed /signal")
+                       "a machine keeps its /signal")
         XCTAssertEqual(LocalAPI.Origin.machine.role.routes, [.hook, .usage, .approval, .signal, .health])
         XCTAssertEqual(LocalAPI.Origin.sandbox.role.routes, [.hook])
         XCTAssertEqual(LocalAPI.Origin.local.role.routes, Set(LocalAPI.Route.allCases))
@@ -322,24 +315,6 @@ final class LocalAPITests: XCTestCase {
                                       agents: [Self.agent, asking])
         XCTAssertEqual(sandbox.response?.status, .notFound)
         XCTAssertNil(sandbox.delivery)
-    }
-
-    /// The socket's listener takes `/signal` with no key; the port's local
-    /// listener, with no key of its own, still refuses it.
-    func testTheSocketsSignalTakesNoKey() {
-        let request = HTTPRequest(method: "POST", target: SignalReport.path,
-                                  body: Data(#"{"id":"x","ttl":60,"phase":"working"}"#.utf8), host: "127.0.0.1")
-        let socket = handle(request, listener: LocalAPI.Listener(origin: .local, keylessSignal: true, routes: Self.routes))
-        XCTAssertEqual(socket.response?.status, .ok)
-        guard case .signal(let report)? = socket.delivery else { return XCTFail("not delivered") }
-        XCTAssertEqual(report.id, "x")
-        XCTAssertEqual(handle(request, listener: LocalAPI.Listener(origin: .local, routes: Self.routes)).response?.status,
-                       .forbidden)
-        let browser = HTTPRequest(method: "POST", target: SignalReport.path, body: Data("{}".utf8),
-                                  origin: "https://example.com", host: "127.0.0.1")
-        XCTAssertEqual(handle(browser, listener: LocalAPI.Listener(origin: .local, keylessSignal: true,
-                                                                    routes: Self.routes)).response?.status,
-                       .forbidden, "a browser is refused before the key is looked at")
     }
 
     /// The tunnel changes whose identity is trusted, not who may speak: the
@@ -421,12 +396,11 @@ final class LocalAPITests: XCTestCase {
     private let askpassToken = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 
     private func askpass(_ prompt: Data = Data("nobodyx@127.0.0.1's password: ".utf8), token: String? = nil,
-                         origin: LocalAPI.Origin = .local, browser: String? = nil,
-                         signalKey: String? = nil) -> LocalAPI.Outcome {
+                         origin: LocalAPI.Origin = .local, browser: String? = nil) -> LocalAPI.Outcome {
         handle(HTTPRequest(method: "POST", target: Askpass.path, body: prompt,
                                     origin: browser, host: "127.0.0.1:48151",
                                     askpassToken: token ?? askpassToken),
-                        listener: LocalAPI.Listener(origin: origin, signalKey: signalKey, routes: Self.routes))
+                        listener: LocalAPI.Listener(origin: origin, routes: Self.routes))
     }
 
     /// The prompt goes to the app with its token; the answer is held, the
@@ -444,13 +418,11 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(multi.prompt, "line one\nAre you sure (yes/no)? ")
     }
 
-    /// A remote machine never asks this Mac for a password, keyed or not.
+    /// A remote machine never asks this Mac for a password.
     func testATunneledAskpassIsNotFound() {
-        for listenerKey in [nil, key] {
-            let outcome = askpass(origin: .machine, signalKey: listenerKey)
-            XCTAssertEqual(outcome.response?.status, .notFound)
-            XCTAssertNil(outcome.delivery)
-        }
+        let outcome = askpass(origin: .machine)
+        XCTAssertEqual(outcome.response?.status, .notFound)
+        XCTAssertNil(outcome.delivery)
     }
 
     func testAnAskpassWithoutATokenIsForbidden() {
@@ -486,129 +458,94 @@ final class LocalAPITests: XCTestCase {
     // MARK: - /signal
 
     private let signalBody = #"{"id":"build","ttl":60,"phase":"working","label":"npm run build"}"#
-    private let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-    private func signal(_ body: String? = nil, sent: String? = nil, listenerKey: String? = nil,
-                        origin: LocalAPI.Origin = .local, target: String = "/signal") -> LocalAPI.Outcome {
-        handle(HTTPRequest(method: "POST", target: target, body: Data((body ?? signalBody).utf8),
-                                    host: "127.0.0.1:48151", signalKey: sent),
-                        listener: LocalAPI.Listener(origin: origin, signalKey: listenerKey, routes: Self.routes))
+    /// A `POST /signal` as it comes off the wire, with an `X-Evlat-Key` an
+    /// older sender may still add.
+    private func signalRequest(_ body: String? = nil, key: String? = nil, target: String = "/signal",
+                               headers: String = "") throws -> HTTPRequest {
+        let body = body ?? signalBody
+        let keyLine = key.map { "X-Evlat-Key: \($0)\r\n" } ?? ""
+        return try XCTUnwrap(HTTPRequest.parse(Data(
+            "POST \(target) HTTP/1.1\r\nHost: 127.0.0.1:48151\r\n\(keyLine)\(headers)Content-Length: \(body.utf8.count)\r\n\r\n\(body)".utf8)))
     }
 
-    /// The right key: the report is handed over and the answer is `{}`.
-    func testASignalWithTheRightKeyIsDelivered() {
-        let outcome = signal(sent: key, listenerKey: key)
-        XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"))
-        guard case .signal(let report)? = outcome.delivery else { return XCTFail("no report") }
-        XCTAssertEqual(report.id, "build")
-        XCTAssertEqual(report.label, "npm run build")
+    private func signal(_ body: String? = nil, key: String? = nil, origin: LocalAPI.Origin = .local,
+                        target: String = "/signal") throws -> LocalAPI.Outcome {
+        handle(try signalRequest(body, key: key, target: target),
+               listener: LocalAPI.Listener(origin: origin, routes: Self.routes))
     }
 
-    /// No key sent, a wrong one, or one of another length: `403`, and nothing
-    /// reaches the app.
-    func testASignalWithoutTheKeyIsForbidden() {
-        for sent in [nil, "wrong", String(key.dropLast()), key + "0", key.uppercased()] as [String?] {
-            let outcome = signal(sent: sent, listenerKey: key)
-            XCTAssertEqual(outcome.response?.status, .forbidden, sent ?? "nil")
-            XCTAssertNil(outcome.delivery, sent ?? "nil")
-        }
-    }
-
-    /// A listener without a key refuses every signal — whatever is sent,
-    /// even an empty header that "matches" an empty key.
-    func testAListenerWithoutAKeyRefusesEverySignal() {
-        XCTAssertEqual(signal(sent: key, listenerKey: nil).response?.status, .forbidden)
-        XCTAssertEqual(signal(sent: nil, listenerKey: nil).response?.status, .forbidden)
-        XCTAssertEqual(signal(sent: nil, listenerKey: "").response?.status, .forbidden)
-        XCTAssertEqual(signal(sent: "", listenerKey: "").response?.status, .forbidden)
-        // The default listener has none.
-        let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
-                                  host: "127.0.0.1:48151", signalKey: key)
-        XCTAssertEqual(handle(request).response?.status, .forbidden)
-    }
-
-    /// Through a tunnel whose listener has no key the route does not exist,
-    /// whatever is sent: a machine without a key learns nothing about it.
-    func testATunneledSignalWithoutAListenerKeyIsNotFound() {
-        for sent in [key, nil] as [String?] {
-            let outcome = signal(sent: sent, listenerKey: nil, origin: .machine)
-            XCTAssertEqual(outcome.response?.status, .notFound, sent ?? "nil")
-            XCTAssertNil(outcome.delivery)
-        }
-        let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
-                                  host: "127.0.0.1:48151", signalKey: key)
-        XCTAssertEqual(handle(request, listener: LocalAPI.Listener(origin: .machine, routes: Self.routes)).response?.status, .notFound)
-    }
-
-    /// A machine's listener at its channel's end — a socket only this user
-    /// can reach — takes `/signal` with no key, a key sent or not: the
-    /// machine is the listener's, never the body's.
-    func testAMachinesSocketTakesASignalWithoutAKey() {
-        for sent in [nil, "anything"] as [String?] {
-            let outcome = handle(HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
-                                             host: "127.0.0.1:48151", signalKey: sent),
-                                 listener: LocalAPI.Listener(origin: .machine, keylessSignal: true, routes: Self.routes))
-            XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"), sent ?? "nil")
-            guard case .signal(let report)? = outcome.delivery else { return XCTFail("no report") }
+    /// This Mac's socket and a machine's channel end take `/signal` with no
+    /// key: both are in directories only this user can enter. The report is
+    /// handed over and the answer is `{}`; the machine is the listener's,
+    /// never the body's.
+    func testASignalNeedsNoKeyOnThisMacOrAMachine() throws {
+        for origin in [LocalAPI.Origin.local, .machine] {
+            let outcome = try signal(origin: origin)
+            XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"), "\(origin)")
+            guard case .signal(let report)? = outcome.delivery else { return XCTFail("\(origin): no report") }
             XCTAssertEqual(report.id, "build")
+            XCTAssertEqual(report.label, "npm run build")
+        }
+        XCTAssertEqual(handle(try signalRequest()).response?.status, .ok, "the default listener is this Mac's")
+    }
+
+    /// An `X-Evlat-Key` is not read: any value, a stale one, an empty one,
+    /// and the answer is the same as without it.
+    func testAKeySentIsIgnored() throws {
+        for key in ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "wrong", ""] {
+            for origin in [LocalAPI.Origin.local, .machine] {
+                let outcome = try signal(key: key, origin: origin)
+                XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"), "\(origin) \(key)")
+                guard case .signal? = outcome.delivery else { return XCTFail("\(origin) \(key): no report") }
+            }
+            XCTAssertEqual(try signal(key: key, origin: .sandbox).response?.status, .notFound)
         }
     }
 
-    /// A tunnel's listener with its machine's key answers exactly as
-    /// the local one does: the key first, then the body.
-    func testATunneledSignalWithTheMachinesKeyIsTheLocalRoute() {
-        let delivered = signal(sent: key, listenerKey: key, origin: .machine)
-        XCTAssertEqual(delivered.response, LocalAPI.Response(status: .ok, body: "{}"))
-        guard case .signal(let report)? = delivered.delivery else { return XCTFail("no report") }
-        XCTAssertEqual(report.id, "build")
-        for sent in [nil, "wrong", String(key.dropLast()), key + "0"] as [String?] {
-            let outcome = signal(sent: sent, listenerKey: key, origin: .machine)
-            XCTAssertEqual(outcome.response?.status, .forbidden, sent ?? "nil")
-            XCTAssertNil(outcome.delivery, sent ?? "nil")
-        }
-        let broken = signal(#"{"id":"x","ttl":60,"phase":"idle"}"#, sent: key, listenerKey: key, origin: .machine)
-        XCTAssertEqual(broken.response?.status, .badRequest)
-        XCTAssertEqual(broken.response?.body.contains("\"code\":\"invalidPhase\""), true)
-        XCTAssertEqual(signal("[]", sent: nil, listenerKey: key, origin: .machine).response?.status, .forbidden,
-                       "the body is read only once the key has passed")
-    }
-
-    /// A key on the tunnel's listener opens `/signal` and nothing else:
-    /// `/permission` stays this Mac's own.
-    func testAKeyedTunnelStillHasNoPermissionRoute() {
-        let request = HTTPRequest(method: "POST", target: ChatRequest.path, body: Data(permissionBody.utf8),
-                                  host: "127.0.0.1:48151", permissionToken: "t", signalKey: key)
-        let outcome = handle(request, listener: LocalAPI.Listener(origin: .machine, signalKey: key, routes: Self.routes))
+    /// A sandbox's listener has no `/signal`: `404`, and nothing reaches the
+    /// app.
+    func testASandboxHasNoSignal() throws {
+        let outcome = try signal(origin: .sandbox)
         XCTAssertEqual(outcome.response?.status, .notFound)
         XCTAssertNil(outcome.delivery)
     }
 
-    /// A browser is refused before the key is looked at: the key never
-    /// decides for a request that carries an `Origin`.
-    func testABrowserIsRefusedBeforeTheKey() {
-        let request = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
-                                  origin: "https://example.com", host: "127.0.0.1:48151", signalKey: key)
-        let outcome = handle(request, listener: LocalAPI.Listener(origin: .local, signalKey: key, routes: Self.routes))
-        XCTAssertEqual(outcome.response?.status, .forbidden)
+    /// `/signal` opens nothing else on a machine: `/permission` stays this
+    /// Mac's own.
+    func testAMachineStillHasNoPermissionRoute() {
+        let request = HTTPRequest(method: "POST", target: ChatRequest.path, body: Data(permissionBody.utf8),
+                                  host: "127.0.0.1:48151", permissionToken: "t")
+        let outcome = handle(request, listener: LocalAPI.Listener(origin: .machine, routes: Self.routes))
+        XCTAssertEqual(outcome.response?.status, .notFound)
         XCTAssertNil(outcome.delivery)
+    }
+
+    /// A browser is refused: an `Origin`, or someone else's name in `Host`.
+    func testABrowserCannotPostASignal() throws {
+        for origin in [LocalAPI.Origin.local, .machine] {
+            let outcome = handle(try signalRequest(headers: "Origin: https://example.com\r\n"),
+                                 listener: LocalAPI.Listener(origin: origin, routes: Self.routes))
+            XCTAssertEqual(outcome.response?.status, .forbidden, "\(origin)")
+            XCTAssertNil(outcome.delivery)
+        }
         let rebound = HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
-                                  host: "evil.example:48151", signalKey: key)
-        XCTAssertEqual(handle(rebound, listener: LocalAPI.Listener(origin: .local, signalKey: key, routes: Self.routes))
+                                  host: "evil.example:48151")
+        XCTAssertEqual(handle(rebound, listener: LocalAPI.Listener(origin: .local, routes: Self.routes))
                         .response?.status, .forbidden)
     }
 
     /// Only the spelling in the table reaches the route.
-    func testTheSignalRouteHasOneSpelling() {
+    func testTheSignalRouteHasOneSpelling() throws {
         for target in ["/signal/", "/%73ignal", "/signal%2F..", "/hook/../signal", "/signal/..", "/./signal"] {
-            let outcome = signal(sent: key, listenerKey: key, target: target)
+            let outcome = try signal(target: target)
             XCTAssertEqual(outcome.response?.status, .notFound, target)
             XCTAssertNil(outcome.delivery, target)
         }
     }
 
-    /// A bad body is `400` with the rejection's own code, and only once the
-    /// key has passed: without it, the body is never read.
-    func testABadSignalBodyCarriesItsCode() {
+    /// A bad body is `400` with the rejection's own code.
+    func testABadSignalBodyCarriesItsCode() throws {
         let cases: [(String, String)] = [
             ("[]", "badRequest"),
             ("", "badRequest"),
@@ -618,26 +555,13 @@ final class LocalAPITests: XCTestCase {
             (#"{"id":"x","ttl":60,"phase":"working","progress":2}"#, "invalidProgress"),
         ]
         for (body, code) in cases {
-            let outcome = signal(body, sent: key, listenerKey: key)
-            XCTAssertEqual(outcome.response?.status, .badRequest, body)
-            XCTAssertEqual(outcome.response?.body.contains("\"code\":\"\(code)\""), true, body)
-            XCTAssertNil(outcome.delivery, body)
-            XCTAssertEqual(signal(body, sent: nil, listenerKey: key).response?.status, .forbidden, body)
+            for origin in [LocalAPI.Origin.local, .machine] {
+                let outcome = try signal(body, origin: origin)
+                XCTAssertEqual(outcome.response?.status, .badRequest, body)
+                XCTAssertEqual(outcome.response?.body.contains("\"code\":\"\(code)\""), true, body)
+                XCTAssertNil(outcome.delivery, body)
+            }
         }
-    }
-
-    /// The comparison walks every byte whatever the lengths, and still says
-    /// no to a prefix, an extension and an empty key.
-    func testTheKeyComparison() {
-        XCTAssertTrue(LocalAPI.sameKey("abc", "abc"))
-        XCTAssertFalse(LocalAPI.sameKey("abd", "abc"))
-        XCTAssertFalse(LocalAPI.sameKey("ab", "abc"))
-        XCTAssertFalse(LocalAPI.sameKey("abcd", "abc"))
-        XCTAssertFalse(LocalAPI.sameKey("", "abc"))
-        XCTAssertFalse(LocalAPI.sameKey("", ""), "an empty key is no key")
-        // 256 bytes apart: a length difference folded into a byte would wrap.
-        XCTAssertFalse(LocalAPI.sameKey(String(repeating: "a", count: 256), ""))
-        XCTAssertFalse(LocalAPI.sameKey("a" + String(repeating: "\0", count: 256), "a"))
     }
 }
 

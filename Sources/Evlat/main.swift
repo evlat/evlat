@@ -5,9 +5,14 @@ import Foundation
 // `argv` picks what this process is, from `argv[1]` (`LaunchMode`) — or, for
 // `ssh`'s askpass helper, from the mark in the environment.
 // The bar opens only on no arguments or on what the system adds
-// (`-psn_…`, `-AppleLanguages …`): it holds the hook port and dials every
+// (`-psn_…`, `-AppleLanguages …`): it holds Evlat's socket and dials every
 // stored machine, so `Evlat --help` or a typo must never reach it.
 switch LaunchMode.of(CommandLine.arguments, environment: ProcessInfo.processInfo.environment) {
+case .refused(let line):
+    // An old isolation recipe: it would run on the user's socket and state.
+    FileHandle.standardError.write(Data("Evlat: \(line)\n".utf8))
+    exit(SignalCommand.usageExitCode)
+
 case .askpass(let mark):
     // Run by a tunnel's `ssh` with the prompt in `argv[1]`: asks the Evlat
     // that started it and prints the answer, or exits non-zero silently.
@@ -22,7 +27,7 @@ case .command:
 
 case .diagnostics:
     // Diagnostics run before any window: `--list` draws nothing, it prints and
-    // exits. `--capture [SECONDS]` makes it hold the hook port for a bounded
+    // exits. `--capture [SECONDS]` makes it hold Evlat's socket for a bounded
     // window and print every event that arrives — the only way a separate
     // process ever sees those counters, since the running app keeps them in
     // memory and writes nothing. `--capture`'s number may follow anywhere

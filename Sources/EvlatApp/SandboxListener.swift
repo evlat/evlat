@@ -45,8 +45,7 @@ final class SandboxListener {
     /// no tunnel to lose, only the port (`HooksProvider.setLink`).
     func start() {
         let listener = HookListener(
-            port: port,
-            origin: .sandbox,
+            transport: .sandboxPort(port),
             onStatus: { [weak self] status in
                 MainActor.assumeIsolated { self?.listenerChanged(status) }
             },
@@ -85,9 +84,9 @@ final class SandboxListener {
 
     /// The port this process listens on for sandboxes, or `nil` for none.
     /// `EVLAT_SANDBOX_PORT` when given (a number that is no port: none);
-    /// otherwise none in an isolated process (`EVLAT_PORT`) — the port is
-    /// fixed, and a second Evlat must not take the user's sandboxes — else
-    /// the fixed one (`SandboxInstall.defaultPort`).
+    /// otherwise none in a second Evlat (`Isolation.hasOwnSocket`) — the
+    /// port is fixed, and a second Evlat must not take the user's
+    /// sandboxes — else the fixed one (`SandboxInstall.defaultPort`).
     nonisolated static func port(environment: [String: String] = ProcessInfo.processInfo.environment) -> UInt16? {
         let value = { (name: String) -> String? in
             let raw = environment[name]?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -97,6 +96,6 @@ final class SandboxListener {
             guard let port = UInt16(raw), port > 0 else { return nil }
             return port
         }
-        return value("EVLAT_PORT") == nil ? SandboxInstall.defaultPort : nil
+        return Isolation.hasOwnSocket(environment) ? nil : SandboxInstall.defaultPort
     }
 }

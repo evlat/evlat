@@ -18,13 +18,13 @@ import EvlatAgents
 public final class HookListener {
     /// Where the endpoint stands. A failure to bind is a **value**, not a log
     /// line that scrolls away: the one way this feature breaks in the field is
-    /// another Evlat (v1, same bundle id, same executable name) already holding
-    /// the port, and then nothing at all happens — no crash, no event, no
-    /// symptom. `--list` prints this.
+    /// another Evlat already holding the socket, and then nothing at all
+    /// happens — no crash, no event, no symptom. `--list` prints this.
     public enum Status: Equatable {
         case stopped
-        /// Bound. The port is the one actually bound, which is not always the
-        /// one asked for: `0` means "any free port" and is what tests use.
+        /// The sandbox port bound (`Transport.sandboxPort`). The port is the
+        /// one actually bound, which is not always the one asked for: `0`
+        /// means "any free port" and is what tests use.
         case listening(UInt16)
         case unavailable(UInt16, String)
         /// Bound on a unix socket (`Transport.unix`), at this path.
@@ -42,54 +42,37 @@ public final class HookListener {
         }
     }
 
-    /// What the listener binds: a loopback port, or a unix socket's path
-    /// (`EvlatSocket`) in a directory only the user can enter.
+    /// What the listener binds: a unix socket's path (`EvlatSocket`) in a
+    /// directory only the user can enter, this Mac's and each machine's —
+    /// or the one loopback port left, the Docker sandboxes', whose agents
+    /// reach this Mac through the sandbox's proxy and can name no file here
+    /// (`SandboxListener`). A port's listener is a sandbox's whatever
+    /// `origin` says: anything on this Mac can connect to a port.
     public enum Transport: Equatable {
-        case tcp(UInt16)
         case unix(String)
+        case sandboxPort(UInt16)
     }
 
     /// The reason a socket is not taken: another process answers there.
     static let heldByAnother = "another Evlat holds it"
 
-    /// Which port to listen on, and what was ignored to get there.
-    public struct PortChoice: Equatable {
-        public let port: UInt16
-        /// The `EVLAT_PORT` value that could not be used, if one was set. Kept
-        /// so a typo is **visible** instead of quietly falling back to 48151
-        /// and looking like a working endpoint.
-        public let rejectedOverride: String?
-    }
-
     private let transport: Transport
     private var requestedPort: UInt16 {
-        if case .tcp(let port) = transport { return port }
+        if case .sandboxPort(let port) = transport { return port }
         return 0
     }
     /// The socket file this listener made, once bound: `stop()` removes the
     /// file only while it is still this one — not one another Evlat bound
     /// at the same path after a stale one was cleared.
     private var boundFile: UnixSocket.Identity?
-    /// Where what arrives here comes from: this Mac, one remote machine's
-    /// tunnel (`RemoteTunnels`) or a Docker sandbox. Handed to `LocalAPI`,
-    /// which decides what that means; the listener only knows which one it is.
-    private let origin: LocalAPI.Origin
-    /// Makes the listener's `/signal` key once the port is bound:
-    /// given the bound port, the local one writes the key file and answers
-    /// the key, or `nil`; a tunnel's answers its machine's kept key
-    /// (`RemoteTunnels.add`). Called at most once, on `queue`, so a listener that never binds
-    /// never calls it — and never overwrites the key of the Evlat that holds
-    /// the port.
-    private let makeSignalKey: (UInt16) -> String?
-    /// Where an Antigravity transcript may be read (`LocalAPI.Listener`).
-    private let transcriptRoots: [URL]
     /// The agents a request's route is looked up in (`LocalAPI.handle`).
     private let agents: [any Agent]
-    /// What `LocalAPI` is told about this listener. The key is filled in when
-    /// the port is bound; until then `/signal` is refused (a socket's
-    /// listener asks for none). Touched on `queue` only.
-    private var identity: LocalAPI.Listener
-    private var keyMade = false
+    /// What `LocalAPI` is told about this listener: where what arrives here
+    /// comes from — this Mac, one remote machine's tunnel (`RemoteTunnels`)
+    /// or a Docker sandbox — and where an Antigravity transcript may be
+    /// read. `LocalAPI` decides what that means; the listener only knows
+    /// which one it is.
+    private let identity: LocalAPI.Listener
     private let onDelivery: (LocalAPI.Delivery) -> Void
     private let onStatus: ((Status) -> Void)?
     /// A held request went away before it was answered: Claude's time ran
@@ -128,80 +111,31 @@ public final class HookListener {
     /// with its connection **held** open; `answer(_:with:)` writes the
     /// user's decision to it, and `onAbandoned` reports one that closed first.
     ///
-    /// `signalKey` is asked once, after the bind, for the key `/signal`
-    /// accepts (`SignalKey`); the default has none. A tunnel's listener
-    /// without one has no `/signal` (`404`); with its machine's key it
-    /// answers as the local one does (`LocalAPI.handle`).
-    ///
-    /// `origin` is the listener's role (`LocalAPI.Origin.role`): `.sandbox`
-    /// makes it a Docker sandbox's listener, the one that believes
-    /// `X-Evlat-Sandbox` (`SandboxListener`).
-    ///
-    /// A unix socket's listener takes `/signal` without a key: only the
-    /// user's own processes can reach its directory.
+    /// `origin` is a socket's listener's role (`LocalAPI.Origin.role`):
+    /// this Mac's (`.local`), or one machine's channel end (`.machine`). A
+    /// sandbox port's is `.sandbox`, the one that believes `X-Evlat-Sandbox`
+    /// (`SandboxListener`).
     public init(transport: Transport,
-                origin: LocalAPI.Origin = .local,
+                origin asked: LocalAPI.Origin = .local,
                 transcriptRoots: [URL] = [],
                 agents: [any Agent] = Agents.all,
-                signalKey: @escaping (UInt16) -> String? = { _ in nil },
                 onStatus: ((Status) -> Void)? = nil,
                 onAbandoned: ((String) -> Void)? = nil,
                 onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
         self.transport = transport
-        self.origin = origin
-        self.makeSignalKey = signalKey
-        self.transcriptRoots = transcriptRoots
+        let origin: LocalAPI.Origin
+        if case .sandboxPort = transport { origin = .sandbox } else { origin = asked }
         self.agents = agents
-        // A socket's listener has no key to make: `/signal` is open to
-        // whoever can reach the socket, which is the user.
-        let keyless: Bool
-        if case .unix = transport { keyless = true } else { keyless = false }
-        self.keyMade = keyless
-        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, keylessSignal: keyless,
-                                          transcriptRoots: transcriptRoots, routes: RouteTable(agents))
+        self.identity = LocalAPI.Listener(origin: origin, transcriptRoots: transcriptRoots,
+                                          routes: RouteTable(agents))
         self.onStatus = onStatus
         self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
     }
 
-    /// A loopback port's listener (`Transport.tcp`).
-    public convenience init(port: UInt16,
-                            origin: LocalAPI.Origin = .local,
-                            transcriptRoots: [URL] = [],
-                            agents: [any Agent] = Agents.all,
-                            signalKey: @escaping (UInt16) -> String? = { _ in nil },
-                            onStatus: ((Status) -> Void)? = nil,
-                            onAbandoned: ((String) -> Void)? = nil,
-                            onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
-        self.init(transport: .tcp(port), origin: origin, transcriptRoots: transcriptRoots, agents: agents,
-                  signalKey: signalKey, onStatus: onStatus, onAbandoned: onAbandoned, onDelivery: onDelivery)
-    }
-
     public var status: Status {
         lock.lock(); defer { lock.unlock() }
         return currentStatus
-    }
-
-    /// The port to bind, from the environment.
-    ///
-    /// There is **no `UserDefaults` key** and there will not be one: v1 and v2
-    /// ship the same bundle id, so a stored `"port"` would follow v1 too, while
-    /// the number in the user's hook command is plain text. Both apps would
-    /// listen somewhere else, neither would receive anything, and neither would
-    /// report an error. The override is an environment
-    /// variable, the same shape `EVLAT_SESSIONS` already has.
-    ///
-    /// `0` is rejected as an override even though it is a valid port number to
-    /// bind: it means "any free port", and an app reachable on a port nobody
-    /// can guess is exactly the silent failure above.
-    public static func resolvePort(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> PortChoice {
-        guard let raw = environment["EVLAT_PORT"], !raw.isEmpty else {
-            return PortChoice(port: LocalAPI.defaultPort, rejectedOverride: nil)
-        }
-        guard let value = UInt16(raw), value > 0 else {
-            return PortChoice(port: LocalAPI.defaultPort, rejectedOverride: raw)
-        }
-        return PortChoice(port: value, rejectedOverride: nil)
     }
 
     /// Starts binding. It returns immediately; the result arrives through
@@ -212,7 +146,7 @@ public final class HookListener {
         let parameters = NWParameters.tcp
         // Only the loopback interface. The endpoint takes no identity and acts
         // on what it is told, so it must not be reachable from the network the
-        // machine is on. `lsof` still prints it as `*:48151`; that is the
+        // machine is on. `lsof` still prints it as `*:<port>`; that is the
         // socket's address family, not its reachability.
         parameters.requiredInterfaceType = .loopback
         // Rebinding right after a restart otherwise fails while the previous
@@ -241,16 +175,6 @@ public final class HookListener {
             case .ready:
                 // The bound port, not the requested one: `0` resolves here.
                 let port = listener?.port?.rawValue ?? self.requestedPort
-                // Before the status, so whoever waits for `.listening` finds
-                // the key file already written. Once: `.ready` comes again
-                // after a `.waiting`, and a second key would strand the
-                // programs that read the first.
-                if !self.keyMade {
-                    self.keyMade = true
-                    self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port),
-                                                      transcriptRoots: self.transcriptRoots,
-                                                      routes: self.identity.routes)
-                }
                 self.setStatus(.listening(port))
             case .failed(let error):
                 self.setStatus(.unavailable(self.requestedPort, Self.describe(error)))
@@ -353,7 +277,7 @@ public final class HookListener {
         }
     }
 
-    /// The port bound, while a port's listener is bound.
+    /// The sandbox port bound, while it is.
     public var boundPort: UInt16? {
         if case .listening(let port) = status { return port }
         return nil

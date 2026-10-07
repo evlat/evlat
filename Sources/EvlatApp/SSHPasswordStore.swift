@@ -35,7 +35,7 @@ struct StoredPassword: Equatable {
 }
 
 /// The store that keeps nothing past the process: what a test and an
-/// isolated process (`EVLAT_PORT`) use. Answers at once.
+/// second Evlat (`EVLAT_SOCKET`) use. Answers at once.
 final class MemoryPasswordStore: SSHPasswordStore {
     private var passwords: [String: StoredPassword] = [:]
 

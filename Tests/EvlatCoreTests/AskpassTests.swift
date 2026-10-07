@@ -25,6 +25,17 @@ final class AskpassTests: XCTestCase {
         XCTAssertEqual(mark.map(Askpass.value), "\(token):\(path)")
     }
 
+    /// A try's token: 64 lowercase hex digits, new each time.
+    func testATokenIsSixtyFourHexDigitsAndNewEachTime() {
+        XCTAssertTrue(Askpass.isToken(token))
+        XCTAssertFalse(Askpass.isToken(String(repeating: "g", count: 64)))
+        XCTAssertFalse(Askpass.isToken(String(repeating: "a", count: 63)))
+        XCTAssertFalse(Askpass.isToken(token.uppercased()))
+        let made = Askpass.makeToken()
+        XCTAssertTrue(Askpass.isToken(made), made)
+        XCTAssertNotEqual(made, Askpass.makeToken())
+    }
+
     func testABrokenMarkIsNoMark() {
         let socket = "/tmp/evlat-t/evlat.sock"
         let broken = [

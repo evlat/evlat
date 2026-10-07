@@ -163,28 +163,6 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertEqual(config.rejected, ["-x"])
     }
 
-    // MARK: - Signal keys
-
-    /// Every machine has a key: a stored one is kept, a missing or
-    /// unusable one is made, and a key whose machine is gone is dropped.
-    func testEveryMachineGetsAKeyAndOnlyTheListedOnesKeepOne() throws {
-        let kept = String(repeating: "a", count: 64)
-        let machines = try ["m-1", "m-2", "m-3"].map { try XCTUnwrap(RemoteMachine(id: $0, target: "t\($0)")) }
-        var made = 0
-        let keys = RemoteMachine.signalKeys(
-            for: machines,
-            stored: ["m-1": kept, "m-2": "short", "gone": String(repeating: "b", count: 64), "m-3": 7],
-            generate: { made += 1; return String(repeating: "\(made)", count: 64) })
-        XCTAssertEqual(keys, ["m-1": kept,
-                              "m-2": String(repeating: "1", count: 64),
-                              "m-3": String(repeating: "2", count: 64)])
-        XCTAssertEqual(RemoteMachine.signalKeys(for: [], stored: nil, generate: { "x" }), [:])
-        XCTAssertEqual(RemoteMachine.signalKeysStorageKey, "remote.signalKeys")
-        XCTAssertTrue(RemoteMachine.isSignalKey(kept))
-        XCTAssertFalse(RemoteMachine.isSignalKey(String(repeating: "g", count: 64)))
-        XCTAssertFalse(RemoteMachine.isSignalKey(String(repeating: "a", count: 63)))
-    }
-
     func testAnEmptyEnvironmentListMeansNoMachine() throws {
         let saved = try XCTUnwrap(RemoteMachine(id: "u-1", target: "saved"))
         let config = RemoteMachine.configuration(environment: ["EVLAT_MACHINES": ""], stored: stored([saved]))
@@ -192,15 +170,17 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertTrue(config.fromEnvironment)
     }
 
-    /// A process measured on another port must not open a second tunnel to
-    /// the user's servers.
-    func testAPortOverrideWithoutAMachineListOpensNoTunnel() throws {
+    /// A second Evlat must not open a second tunnel to the user's
+    /// servers; `EVLAT_HOME` alone moves files, not whose Evlat it is.
+    func testASecondEvlatWithoutAMachineListOpensNoTunnel() throws {
         let saved = try XCTUnwrap(RemoteMachine(id: "u-1", target: "saved"))
-        let config = RemoteMachine.configuration(environment: ["EVLAT_PORT": "48999"], stored: stored([saved]))
+        let config = RemoteMachine.configuration(environment: ["EVLAT_SOCKET": "/tmp/e.sock"], stored: stored([saved]))
         XCTAssertEqual(config.machines, [])
-        let both = RemoteMachine.configuration(environment: ["EVLAT_PORT": "48999", "EVLAT_MACHINES": "fake"],
+        let both = RemoteMachine.configuration(environment: ["EVLAT_SOCKET": "/tmp/e.sock", "EVLAT_MACHINES": "fake"],
                                                stored: stored([saved]))
         XCTAssertEqual(both.machines.map(\.target), ["fake"])
+        XCTAssertEqual(RemoteMachine.configuration(environment: ["EVLAT_HOME": "/tmp/h"], stored: stored([saved]))
+            .machines.map(\.target), ["saved"])
     }
 
     func testTheStoredListIsReadEntryByEntry() throws {

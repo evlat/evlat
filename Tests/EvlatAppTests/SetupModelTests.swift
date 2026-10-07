@@ -432,8 +432,8 @@ final class SetupWritersTests: XCTestCase {
         let controller = AppController(defaults: defaults, home: home)
         let plain: [String: String] = ["HOME": home.path]
         XCTAssertTrue(controller.shouldOpenSetup(environment: plain))
-        XCTAssertFalse(controller.shouldOpenSetup(environment: ["EVLAT_PORT": "48999"]))
-        controller.markSetupSeen(environment: ["EVLAT_PORT": "48999"])
+        XCTAssertFalse(controller.shouldOpenSetup(environment: ["EVLAT_SOCKET": "/tmp/e.sock"]))
+        controller.markSetupSeen(environment: ["EVLAT_SOCKET": "/tmp/e.sock"])
         XCTAssertNil(defaults.object(forKey: AppController.setupSeenKey), "an isolated process keeps nothing")
         controller.markSetupSeen(environment: plain)
         XCTAssertFalse(controller.shouldOpenSetup(environment: plain))

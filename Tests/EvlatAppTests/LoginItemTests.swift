@@ -38,7 +38,7 @@ final class LoginItemTests: XCTestCase {
 
     func testAnIsolatedLaunchNeverReachesTheRealService() throws {
         let real = Recorder()
-        for environment in [["EVLAT_PORT": "48999"], ["EVLAT_HOME": "/tmp/x"], ["EVLAT_FOO": ""]] {
+        for environment in [["EVLAT_SOCKET": "/tmp/e.sock"], ["EVLAT_HOME": "/tmp/x"], ["EVLAT_FOO": ""]] {
             let item = LoginItem(service: LoginItem.service(environment: environment, real: real.service))
             try item.set(true)
             XCTAssertEqual(item.status, .on, "kept in memory")

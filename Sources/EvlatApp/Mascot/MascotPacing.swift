@@ -18,10 +18,10 @@ import EvlatCore
 /// **Why the environment and not a menu item.** It is not a choice a user
 /// makes, and a menu entry would be user-visible text with no catalogue to live
 /// in — the catalogue arrives with the first job that needs user text.
-/// `EVLAT_SESSIONS` and `EVLAT_PORT` already have this shape:
+/// `EVLAT_SESSIONS` and `EVLAT_SOCKET` already have this shape:
 /// no `UserDefaults` key, no stored state, no effect when unset. Resolution is
 /// a pure function over a dictionary so it is testable — the shape
-/// `HookListener.resolvePort` uses.
+/// `EvlatSocket.path` uses.
 enum MascotPacing: String, CaseIterable {
     /// The clip as written: bursts with quiet in between.
     case normal

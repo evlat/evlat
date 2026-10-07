@@ -425,8 +425,8 @@ final class SandboxTests: XCTestCase {
 
     func testIsolation() {
         XCTAssertEqual(SandboxListener.port(environment: [:]), SandboxInstall.defaultPort)
-        XCTAssertNil(SandboxListener.port(environment: ["EVLAT_PORT": "48999"]), "isolated: no listener")
-        XCTAssertEqual(SandboxListener.port(environment: ["EVLAT_PORT": "48999", "EVLAT_SANDBOX_PORT": "48998"]),
+        XCTAssertNil(SandboxListener.port(environment: ["EVLAT_SOCKET": "/tmp/e.sock"]), "isolated: no listener")
+        XCTAssertEqual(SandboxListener.port(environment: ["EVLAT_SOCKET": "/tmp/e.sock", "EVLAT_SANDBOX_PORT": "48998"]),
                        48998)
         XCTAssertNil(SandboxListener.port(environment: ["EVLAT_SANDBOX_PORT": "0"]))
         XCTAssertNil(SandboxListener.port(environment: ["EVLAT_SANDBOX_PORT": "x"]))

@@ -192,7 +192,7 @@ final class RemoteCommandScriptTests: XCTestCase {
         XCTAssertTrue(text.contains(SignalReport.path))
         XCTAssertTrue(text.contains(EvlatSocket.relativePath))
         XCTAssertTrue(text.contains("--unix-socket"))
-        XCTAssertFalse(text.contains(SignalReport.keyHeader), "no key")
+        XCTAssertFalse(text.contains("X-Evlat-Key"), "no key")
         XCTAssertFalse(text.contains(RemoteCommand.keyPath))
         XCTAssertTrue(text.contains("sleep \(Int(SignalCommand.heartbeat))"))
         XCTAssertTrue(text.hasSuffix("\n"))

@@ -169,9 +169,9 @@ public struct ChatSession: Equatable {
         case result(subtype: String, text: String?)
         /// The turn was running when Evlat went away (found at launch).
         case interrupted
-        /// Evlat's loopback listener is not bound, so no permission request
-        /// could reach it: the turn is not started rather than having every
-        /// request silently denied (another Evlat holding the port).
+        /// Evlat's socket is not bound, so no permission request could
+        /// reach it: the turn is not started rather than having every
+        /// request silently denied (another Evlat holding the socket).
         case noListener(String)
     }
 

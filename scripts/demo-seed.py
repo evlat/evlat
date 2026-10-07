@@ -28,12 +28,12 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument("--dir", required=True)
 parser.add_argument("--repo", required=True)
-parser.add_argument("--port", type=int, required=True)
+parser.add_argument("--socket", required=True)
 parser.add_argument("--sandbox-port", type=int, required=True)
 args = parser.parse_args()
 
 D = args.dir
-PORT = args.port
+SOCKET = args.socket
 pids = [int(x) for x in open(os.path.join(D, "agents.pid")).read().split()]
 now_ms = int(time.time() * 1000)
 now_s = int(time.time())
@@ -142,7 +142,7 @@ time.sleep(2.5)  # the records are read every 1.5 s
 
 def event(index, name, **fields):
     sid, cwd = LOCAL[index][0], LOCAL[index][1]
-    return hook(PORT, "claude", pids[index], {"hook_event_name": name, "session_id": sid, "cwd": cwd, **fields})
+    return hook(SOCKET, "claude", pids[index], {"hook_event_name": name, "session_id": sid, "cwd": cwd, **fields})
 
 
 BASH = ('swift test --parallel --filter EvlatAppTests.SandboxWatcherTests 2>&1 | '
@@ -187,7 +187,7 @@ event(0, "PermissionRequest", tool_name="Bash", tool_input={"command": BASH})
 event(1, "UserPromptSubmit")
 event(1, "PreToolUse", tool_name="Edit",
       tool_input={"file_path": "/Users/demo/Projects/web/landing/docs-src/pages/remote-servers-and-docker-sandboxes.md"})
-hook(PORT, "claude", pids[1], {"hook_event_name": "PreToolUse", "session_id": LOCAL[1][0], "cwd": LOCAL[1][1],
+hook(SOCKET, "claude", pids[1], {"hook_event_name": "PreToolUse", "session_id": LOCAL[1][0], "cwd": LOCAL[1][1],
                                "agent_id": "sub-1", "tool_name": "Grep", "tool_input": {"pattern": "TabLink.known"}})
 event(2, "UserPromptSubmit")
 event(2, "Stop", last_assistant_message=(
@@ -211,8 +211,8 @@ event(8, "PreToolUse", tool_name="Edit",
 
 # A Codex session.
 codex = {"session_id": "019a0000-5555-7555-8555-555555555555", "cwd": "/Users/demo/Projects/terminal-app"}
-hook(PORT, "codex", pids[4], {"hook_event_name": "UserPromptSubmit", **codex})
-hook(PORT, "codex", pids[4], {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+hook(SOCKET, "codex", pids[4], {"hook_event_name": "UserPromptSubmit", **codex})
+hook(SOCKET, "codex", pids[4], {"hook_event_name": "PreToolUse", "tool_name": "Bash",
                               "tool_input": {"command": "cargo build --release --target aarch64-apple-darwin"}, **codex})
 
 # Remote machines, each on its own listener — its channel's end, a socket —
@@ -272,7 +272,7 @@ for sid, name, last, fields in SANDBOXES:
     hook(args.sandbox_port, "claude", None, {"hook_event_name": last, **body, **fields}, headers)
 
 # Usage: Claude's status line, Antigravity's, and a Codex rollout read from disk.
-post(PORT, "/usage/claude", {"rate_limits": {
+post(SOCKET, "/usage/claude", {"rate_limits": {
     "five_hour": {"used_percentage": 87, "resets_at": now_s + 5400},
     "seven_day": {"used_percentage": 63, "resets_at": now_s + 3 * 86400}}})
 
@@ -281,7 +281,7 @@ def iso(seconds):
     return dt.datetime.fromtimestamp(now_s + seconds, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-post(PORT, "/usage/antigravity", {"quota": {
+post(SOCKET, "/usage/antigravity", {"quota": {
     "gemini-5h": {"remaining_fraction": 0.35, "reset_time": iso(7200)},
     "gemini-weekly": {"remaining_fraction": 0.8, "reset_time": iso(5 * 86400)}}})
 today = dt.date.today()
@@ -294,8 +294,7 @@ with open(os.path.join(rollouts, "rollout-demo.jsonl"), "w") as f:
                             "secondary": {"used_percent": 41.0, "window_minutes": 10080,
                                           "resets_at": now_s + 4 * 86400}}}}) + "\n")
 
-# Outside jobs, with the key the demo's Evlat wrote.
-key = open(os.path.join(D, "home", "Library", "Application Support", "Evlat", f"signal-{PORT}.token")).read().strip()
+# Outside jobs: the socket asks for no key.
 JOBS = [
     {"id": "render", "ttl": 3600, "phase": "working", "progress": 0.42, "sender": "ffmpeg",
      "label": "Render final cut of the product launch video (4K, HDR)",
@@ -308,15 +307,15 @@ JOBS = [
      "detail": "EvlatAppTests.SandboxWatcherTests.testReconnectAfterDaemonRestart failed"},
 ]
 for job in JOBS:
-    post(PORT, "/signal", job, {"X-Evlat-Key": key})
+    post(SOCKET, "/signal", job)
 
 # Held requests: the connection stays open until the card's answer, so their
 # curls run on past this script; their pids go where `stop` finds them. A
 # server's goes to its machine's listener, as its channel would bring it.
 held = [
-    (PORT, "/approval", {"hook_event_name": "PermissionRequest", "session_id": LOCAL[0][0], "cwd": LOCAL[0][1],
+    (SOCKET, "/approval", {"hook_event_name": "PermissionRequest", "session_id": LOCAL[0][0], "cwd": LOCAL[0][1],
             "tool_name": "Bash", "tool_input": {"command": BASH, "description": "Run the sandbox watcher tests"}}),
-    (PORT, "/approval", {"hook_event_name": "PermissionRequest", "session_id": LOCAL[5][0], "cwd": LOCAL[5][1],
+    (SOCKET, "/approval", {"hook_event_name": "PermissionRequest", "session_id": LOCAL[5][0], "cwd": LOCAL[5][1],
             "tool_name": "AskUserQuestion", "tool_input": QUESTION}),
 ]
 for host, source, pid, sid, cwd, events in REMOTE:

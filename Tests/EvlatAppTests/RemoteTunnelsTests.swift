@@ -564,7 +564,7 @@ final class RemoteTunnelsTests: XCTestCase {
         let local = try endpoint(tunnels)
         let body = #"{"id":"x","ttl":60,"phase":"working","label":"build","sender":"npm"}"#
         XCTAssertEqual(post(SignalReport.path, to: local, body: body,
-                            headers: [(SignalReport.keyHeader, String(repeating: "c", count: 64))]), 200)
+                            headers: [("X-Evlat-Key", String(repeating: "c", count: 64))]), 200)
         waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "signal:fake:x" } }
         let row = try XCTUnwrap(registry.snapshot().ordered.first { $0.entity == "signal:fake:x" })
         XCTAssertEqual(row.kind, .custom)
@@ -958,9 +958,9 @@ final class RemoteTunnelsTests: XCTestCase {
     /// the Keychain; making the store touches nothing.
     func testTheKeychainIsOnlyForAProcessThatIsNotIsolated() {
         XCTAssertTrue(AppController.passwordStore(underTests: true, environment: [:]) is MemoryPasswordStore)
-        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: ["EVLAT_PORT": "48999"])
+        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: ["EVLAT_SOCKET": "/tmp/e.sock"])
                       is MemoryPasswordStore)
-        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: ["EVLAT_PORT": ""])
+        XCTAssertTrue(AppController.passwordStore(underTests: false, environment: ["EVLAT_SOCKET": ""])
                       is KeychainPasswordStore)
         XCTAssertTrue(AppController.passwordStore(underTests: false, environment: [:]) is KeychainPasswordStore)
     }
@@ -988,7 +988,7 @@ final class RemoteTunnelsTests: XCTestCase {
 
         XCTAssertEqual(AppController.remoteConfiguration(defaults: defaults, environment: [:]).machines, [machine])
         XCTAssertEqual(AppController.remoteConfiguration(defaults: defaults,
-                                                         environment: ["EVLAT_PORT": "48999"]).machines, [])
+                                                         environment: ["EVLAT_SOCKET": "/tmp/e.sock"]).machines, [])
     }
 
     func testTheSSHBinaryComesFromTheEnvironment() {
@@ -1009,9 +1009,9 @@ final class RemoteTunnelsTests: XCTestCase {
 
     func testTheListSaysWhyThereIsNoTunnel() {
         let none = AppController.remoteMachineLines(
-            RemoteMachine.configuration(environment: ["EVLAT_PORT": "48999"], stored: nil),
-            environment: ["EVLAT_PORT": "48999"])
-        XCTAssertEqual(none, ["remote machines: none (EVLAT_PORT is set without EVLAT_MACHINES: no tunnel is opened)"])
+            RemoteMachine.configuration(environment: ["EVLAT_SOCKET": "/tmp/e.sock"], stored: nil),
+            environment: ["EVLAT_SOCKET": "/tmp/e.sock"])
+        XCTAssertEqual(none, ["remote machines: none (EVLAT_SOCKET is set without EVLAT_MACHINES: no tunnel is opened)"])
         let env = ["EVLAT_MACHINES": "ben@devbox,-x"]
         let lines = AppController.remoteMachineLines(RemoteMachine.configuration(environment: env, stored: nil),
                                                      environment: env)

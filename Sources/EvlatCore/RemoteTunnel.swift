@@ -107,10 +107,10 @@ public struct RemoteMachine: Codable, Equatable {
     }
 
     /// `EVLAT_MACHINES` (comma separated; empty means none) over the stored
-    /// list. With `EVLAT_PORT` set and no `EVLAT_MACHINES`, no machine at
-    /// all: a process being measured on another port must not open a second
-    /// tunnel to the user's servers and find the running Evlat's channel
-    /// there.
+    /// list. In a second process (`Isolation.hasOwnSocket`) without
+    /// `EVLAT_MACHINES`, no machine at all: a process being measured must
+    /// not open a second tunnel to the user's servers and find the running
+    /// Evlat's channel there.
     ///
     /// An environment machine's id is its target: there is nowhere to keep a
     /// generated one, and the namespace only has to be stable for the run.
@@ -129,7 +129,7 @@ public struct RemoteMachine: Codable, Equatable {
             }
             return Configuration(machines: machines, fromEnvironment: true, rejected: rejected)
         }
-        if let port = environment["EVLAT_PORT"], !port.isEmpty {
+        if Isolation.hasOwnSocket(environment) {
             return Configuration(machines: [], fromEnvironment: true, rejected: [])
         }
         return Configuration(machines: decode(stored), fromEnvironment: false, rejected: [])
@@ -148,42 +148,6 @@ public struct RemoteMachine: Codable, Equatable {
 
     public static func encode(_ machines: [RemoteMachine]) -> Data? {
         try? JSONEncoder().encode(machines)
-    }
-
-    // MARK: - Signal keys
-
-    /// The `UserDefaults` key the machines' `/signal` keys live under:
-    /// `{machine id: key}`, next to the list. Renaming it loses the stored
-    /// keys silently.
-    ///
-    /// Unlike this Mac's own key (`signal-<port>.token`, new on every
-    /// launch), a machine's key is **kept**: a copy of it is on the server,
-    /// perhaps pasted there by hand. It is made when the machine is added and
-    /// dropped when it is removed; turning it over is removing the machine
-    /// and adding it again.
-    public static let signalKeysStorageKey = "remote.signalKeys"
-
-    /// What a key looks like: 64 lowercase hex digits (32 random bytes), a
-    /// header value that needs no escaping.
-    public static func isSignalKey(_ value: String) -> Bool {
-        value.utf8.count == 64 && value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
-    }
-
-    /// One key per listed machine: a stored one that still reads as a key is
-    /// kept, any other is made with `generate`, and a stored key whose
-    /// machine is no longer listed is left out. `stored` is read raw: the
-    /// value came from a file this process does not own (`UserDefaults`).
-    public static func signalKeys(for machines: [RemoteMachine], stored: [String: Any]?,
-                                  generate: () -> String) -> [String: String] {
-        var keys: [String: String] = [:]
-        for machine in machines {
-            if let key = stored?[machine.id] as? String, isSignalKey(key) {
-                keys[machine.id] = key
-            } else {
-                keys[machine.id] = generate()
-            }
-        }
-        return keys
     }
 }
 

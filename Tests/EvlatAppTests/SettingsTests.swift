@@ -232,9 +232,9 @@ final class SettingsTests: XCTestCase {
         controller.setChatEnabled(true)
         XCTAssertEqual(defaults.object(forKey: AppController.chatEnabledKey) as? Bool, true)
 
-        XCTAssertNil(AppController.chatDefaults(defaults, environment: ["EVLAT_PORT": "48999"]))
+        XCTAssertNil(AppController.chatDefaults(defaults, environment: ["EVLAT_SOCKET": "/tmp/e.sock"]))
         XCTAssertNil(AppController.chatDefaults(defaults, environment: ["EVLAT_CHATS": "/tmp/chats"]))
-        XCTAssertTrue(AppController.chatDefaults(defaults, environment: ["EVLAT_PORT": " "]) === defaults)
+        XCTAssertTrue(AppController.chatDefaults(defaults, environment: ["EVLAT_SOCKET": " "]) === defaults)
         XCTAssertTrue(AppController.chatDefaults(defaults, environment: [:]) === defaults)
 
         let unstored = AppController(defaults: nil)

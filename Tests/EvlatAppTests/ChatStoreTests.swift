@@ -26,9 +26,9 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertEqual(ChatStore.root(environment: [:], home: home)?.path,
                        "/Users/someone/Library/Application Support/Evlat")
         XCTAssertEqual(ChatStore.root(environment: ["EVLAT_CHATS": "/tmp/c"], home: home)?.path, "/tmp/c")
-        XCTAssertEqual(ChatStore.root(environment: ["EVLAT_CHATS": "/tmp/c", "EVLAT_PORT": "48999"], home: home)?.path,
+        XCTAssertEqual(ChatStore.root(environment: ["EVLAT_CHATS": "/tmp/c", "EVLAT_SOCKET": "/tmp/e.sock"], home: home)?.path,
                        "/tmp/c", "an explicit root wins over the measurement rule")
-        XCTAssertNil(ChatStore.root(environment: ["EVLAT_PORT": "48999"], home: home),
+        XCTAssertNil(ChatStore.root(environment: ["EVLAT_SOCKET": "/tmp/e.sock"], home: home),
                      "a measured process keeps no store (`remote.machines`' rule)")
         XCTAssertNil(ChatStore.root(environment: [:], home: nil), "no home, no disk")
         XCTAssertNil(ChatStore.root(environment: ["EVLAT_CHATS": "  "], home: nil))
@@ -176,14 +176,14 @@ final class ChatStoreTests: XCTestCase {
         return folder
     }
 
-    /// An isolated store (`EVLAT_CHATS`, `EVLAT_PORT`) sets a pruned
+    /// An isolated store (`EVLAT_CHATS`, `EVLAT_SOCKET`) sets a pruned
     /// workspace aside under its own root, never in the user's Trash; the
     /// store's default does the same, so a test that forgets cannot either.
     func testAnIsolatedStoreNeverReachesTheRealTrash() throws {
         let first = try makeWorkspace(ids[0])
         try ChatStore.trash(environment: ["EVLAT_CHATS": directory.path])(first)
         let second = try makeWorkspace(ids[0])
-        try ChatStore.trash(environment: ["EVLAT_PORT": "48999"])(second)
+        try ChatStore.trash(environment: ["EVLAT_SOCKET": "/tmp/e.sock"])(second)
         let bin = directory.appendingPathComponent("trash")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bin.path).sorted(),
                        [ids[0], "\(ids[0])-1"])
