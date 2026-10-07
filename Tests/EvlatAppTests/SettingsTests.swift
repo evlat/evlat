@@ -422,6 +422,22 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(SettingsModel.tilde("/Users/me/.local/bin/claude", home: "/Users/me"), "~/.local/bin/claude")
         XCTAssertEqual(SettingsModel.tilde("/opt/claude", home: "/Users/me"), "/opt/claude")
     }
+
+    /// An agent card's files: `~/` only before a path under the home. A
+    /// home under `/private/tmp` that exists once read `~//private/tmp/…`
+    /// for a file not written yet (standardizing drops `/private` only
+    /// from a path that exists).
+    func testAnAgentCardSpellsItsFilesFromTheHome() throws {
+        let home = URL(fileURLWithPath: "/private/tmp/claude-501/\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        XCTAssertEqual(SetupModel.displayFile(home.appendingPathComponent(".gemini/config/hooks.json"), home: home),
+                       "~/.gemini/config/hooks.json")
+        XCTAssertEqual(SetupModel.displayFile(URL(fileURLWithPath: "/Users/me/.claude/settings.json"),
+                                              home: URL(fileURLWithPath: "/Users/me")), "~/.claude/settings.json")
+        XCTAssertEqual(SetupModel.displayFile(URL(fileURLWithPath: "/opt/hooks.json"),
+                                              home: URL(fileURLWithPath: "/Users/me")), "/opt/hooks.json")
+    }
     // MARK: - Body
 
     /// The choice goes to the writer; the switches are offered only under

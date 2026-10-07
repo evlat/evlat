@@ -376,7 +376,7 @@ final class SetupModel: ObservableObject {
 
     private func readAgentRow(_ source: AgentID, home: URL, attention: inout [SetupAttention]) -> SetupRow {
         let item = SetupItem.agent(source)
-        let files = AgentIntegration.files(home: home, for: source.agent).map { "~/" + Self.relative($0, to: home) }
+        let files = AgentIntegration.files(home: home, for: source.agent).map { Self.displayFile($0, home: home) }
             .joined(separator: " · ")
         guard source.agent.isPresent(home: home) else {
             return row(item, .notFound, detail: files, failure: nil)
@@ -438,11 +438,17 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    /// `file` under `home`, as the catalogue's paths spell it.
-    private static func relative(_ file: URL, to home: URL) -> String {
-        let base = home.standardizedFileURL.path + "/"
-        let path = file.standardizedFileURL.path
-        return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
+    /// `~/…` for a file under `home`, as the catalogue's paths spell it;
+    /// any other file by its whole path, never behind a `~`. The two paths
+    /// are compared as built, not standardized: standardizing drops a
+    /// leading `/private` only from a path that exists, so a home under
+    /// `/private/tmp` lost it and a file not written yet kept it, and the
+    /// card read `~//private/tmp/…`.
+    nonisolated static func displayFile(_ file: URL, home: URL) -> String {
+        let root = home.path
+        let base = root.hasSuffix("/") ? root : root + "/"
+        let path = file.path
+        return path.hasPrefix(base) ? "~/" + path.dropFirst(base.count) : path
     }
 
     /// "Hooks: <reason>": the part a refused write stopped in.

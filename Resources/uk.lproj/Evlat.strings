@@ -71,7 +71,7 @@
 "remote.add.option" = "Назва не може починатися з «-».";
 "remote.add.invalidCharacter" = "Назва не може містити пробілів.";
 "remote.add.duplicate" = "{name} уже додано.";
-"remote.environment" = "Запущено з EVLAT_MACHINES або EVLAT_PORT: машини, додані чи видалені тут, буде забуто, коли Evlat завершить роботу.";
+"remote.environment" = "Запущено з EVLAT_MACHINES або EVLAT_SOCKET: машини, додані чи видалені тут, буде забуто, коли Evlat завершить роботу.";
 
 "remote.state.stopped" = "не підключено";
 "remote.state.connecting" = "підключення…";
@@ -204,7 +204,7 @@
 "chat.failure.exited" = "{agent} зупинився без відповіді.";
 "chat.failure.result" = "Хід завершився помилкою.";
 "chat.failure.interrupted" = "Evlat закрили, поки це виконувалося.";
-"chat.failure.noListener" = "Локальний порт Evlat не відкритий, тож {agent} не міг спитати, перш ніж діяти, — нічого не запущено.";
+"chat.failure.noListener" = "Evlat не слухає, тож {agent} не міг спитати, перш ніж діяти, — нічого не запущено.";
 "chat.stop" = "Зупинити";
 "chat.permission.title" = "Потрібен дозвіл";
 "chat.permission.tool" = "{agent} хоче використати {tool}.";
@@ -324,7 +324,7 @@
 "settings.sandboxes.watching" = "Спостереження";
 "settings.sandboxes.watch" = "Стежити за пісочницями";
 "settings.sandboxes.watch.detail" = "Уже запущені пісочниці налаштовуються одразу, нові — під час запуску. Нічого не перезапускається: сесія, що вже триває, з’явиться з наступного повідомлення.";
-"settings.sandboxes.status.isolated" = "Ця копія Evlat працює на власному порту (EVLAT_PORT), тож не стежить за пісочницями.";
+"settings.sandboxes.status.isolated" = "Ця копія Evlat слухає через власний файл (EVLAT_SOCKET), тож не стежить за пісочницями.";
 "settings.sandboxes.status.missing" = "Evlat не знаходить sbx на цьому Mac.";
 "settings.sandboxes.status.socket" = "Довжина шляху до сокета демона sbx у байтах — {length}, більше, ніж дозволяє macOS ({limit}), тож Evlat не чує запуску пісочниць. Пісочниці, що працювали, коли почалося спостереження, налаштовано.";
 "settings.sandboxes.status.taken" = "Порт {port} зайнятий іншою програмою, тож пісочниці не дістають до Evlat.";
@@ -554,7 +554,7 @@
 "settings.command.watch.detail" = "Запускає команду як є; поки вона триває, на панелі є рядок, а коли завершиться — зелений або червоний.";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "Ви керуєте рядком крок за кроком із власного скрипту.";
-"settings.command.note" = "Приймається лише з цього Mac (127.0.0.1); ключ лежить у ~/Library/Application Support/Evlat і доступний для читання лише вам.";
+"settings.command.note" = "Команда говорить з Evlat через приватний файл, який може відкрити лише ваш обліковий запис.";
 "settings.remote.machines" = "Машини";
 "settings.remote.note" = "Клацніть машину, щоб побачити, що налаштовано на тому сервері.";
 "settings.remote.open" = "відкрито";

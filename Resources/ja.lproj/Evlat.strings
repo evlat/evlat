@@ -71,7 +71,7 @@
 "remote.add.option" = "名前を「-」で始めることはできません。";
 "remote.add.invalidCharacter" = "名前にスペースは使えません。";
 "remote.add.duplicate" = "{name}はすでに追加されています。";
-"remote.environment" = "EVLAT_MACHINESまたはEVLAT_PORTで起動しています。ここで追加・削除したマシンは、Evlatを終了すると忘れられます。";
+"remote.environment" = "EVLAT_MACHINESまたはEVLAT_SOCKETで起動しています。ここで追加・削除したマシンは、Evlatを終了すると忘れられます。";
 
 "remote.state.stopped" = "未接続";
 "remote.state.connecting" = "接続中…";
@@ -204,7 +204,7 @@
 "chat.failure.exited" = "{agent}は返答せずに終了しました。";
 "chat.failure.result" = "ターンがエラーで終了しました。";
 "chat.failure.interrupted" = "実行中にEvlatが終了しました。";
-"chat.failure.noListener" = "Evlatのローカルポートが開いていないため、{agent}は実行前に確認できません。何も開始していません。";
+"chat.failure.noListener" = "Evlatが待ち受けていないため、{agent}は実行前に確認できません。何も開始していません。";
 "chat.stop" = "停止";
 "chat.permission.title" = "許可が必要です";
 "chat.permission.tool" = "{agent}が{tool}を使おうとしています。";
@@ -324,7 +324,7 @@
 "settings.sandboxes.watching" = "監視中";
 "settings.sandboxes.watch" = "サンドボックスを監視";
 "settings.sandboxes.watch.detail" = "実行中のサンドボックスはすぐに、新しいものは起動したときに設定されます。何も再起動されません。すでに実行中のセッションは、次のメッセージから表示されます。";
-"settings.sandboxes.status.isolated" = "このEvlatは専用のポートで動いているため（EVLAT_PORT）、サンドボックスを監視しません。";
+"settings.sandboxes.status.isolated" = "このEvlatは専用のファイルで待ち受けているため（EVLAT_SOCKET）、サンドボックスを監視しません。";
 "settings.sandboxes.status.missing" = "EvlatはこのMacでsbxを見つけられません。";
 "settings.sandboxes.status.socket" = "sbxデーモンのソケットのパスが{length}バイトで、macOSの上限（{limit}）を超えているため、Evlatはサンドボックスの起動を検知できません。監視を始めた時点で実行中だったサンドボックスは設定済みです。";
 "settings.sandboxes.status.taken" = "ポート{port}は別のプログラムが使用中のため、サンドボックスはEvlatに届きません。";
@@ -554,7 +554,7 @@
 "settings.command.watch.detail" = "コマンドをそのまま実行します。実行中はバーに行が表示され、終わると緑か赤になります。";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "自作のスクリプトから、行を一段階ずつ動かせます。";
-"settings.command.note" = "このMacからのみ受け付けます（127.0.0.1）。鍵は~/Library/Application Support/Evlatにあり、あなただけが読めます。";
+"settings.command.note" = "コマンドは、あなたのアカウントだけが開けるプライベートなファイルを通じてEvlatと話します。";
 "settings.remote.machines" = "マシン";
 "settings.remote.note" = "マシンをクリックすると、そのサーバーでセットアップされている内容が表示されます。";
 "settings.remote.open" = "展開";

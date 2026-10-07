@@ -72,7 +72,7 @@
 "remote.add.option" = "Имя не может начинаться с «-».";
 "remote.add.invalidCharacter" = "В имени не может быть пробелов.";
 "remote.add.duplicate" = "{name} уже добавлен.";
-"remote.environment" = "Запущено с EVLAT_MACHINES или EVLAT_PORT: машины, добавленные или удалённые здесь, забудутся, когда Evlat завершится.";
+"remote.environment" = "Запущено с EVLAT_MACHINES или EVLAT_SOCKET: машины, добавленные или удалённые здесь, забудутся, когда Evlat завершится.";
 
 "remote.state.stopped" = "не подключено";
 "remote.state.connecting" = "подключение…";
@@ -205,7 +205,7 @@
 "chat.failure.exited" = "{agent} остановился, не ответив.";
 "chat.failure.result" = "Ход завершился ошибкой.";
 "chat.failure.interrupted" = "Evlat закрыли, пока это выполнялось.";
-"chat.failure.noListener" = "Локальный порт Evlat не открыт, поэтому {agent} не смог бы спросить перед действием — ничего не запущено.";
+"chat.failure.noListener" = "Evlat не слушает, поэтому {agent} не смог бы спросить перед действием — ничего не запущено.";
 "chat.stop" = "Остановить";
 "chat.permission.title" = "Нужно разрешение";
 "chat.permission.tool" = "{agent} хочет использовать {tool}.";
@@ -325,7 +325,7 @@
 "settings.sandboxes.watching" = "Наблюдение";
 "settings.sandboxes.watch" = "Следить за песочницами";
 "settings.sandboxes.watch.detail" = "Уже запущенные песочницы настраиваются сразу, новые — при запуске. Ничего не перезапускается: уже идущая сессия появится со своего следующего сообщения.";
-"settings.sandboxes.status.isolated" = "Эта копия Evlat работает на своём порту (EVLAT_PORT), поэтому не следит за песочницами.";
+"settings.sandboxes.status.isolated" = "Эта копия Evlat слушает через свой файл (EVLAT_SOCKET), поэтому не следит за песочницами.";
 "settings.sandboxes.status.missing" = "Evlat не находит sbx на этом Mac.";
 "settings.sandboxes.status.socket" = "Длина пути к сокету демона sbx в байтах — {length}, больше, чем допускает macOS ({limit}), поэтому Evlat не слышит запуск песочниц. Песочницы, которые работали, когда началось наблюдение, настроены.";
 "settings.sandboxes.status.taken" = "Порт {port} занят другой программой, поэтому песочницы не достают до Evlat.";
@@ -555,7 +555,7 @@
 "settings.command.watch.detail" = "Запускает команду как есть; пока она идёт, на полосе есть её строка, по завершении — зелёная или красная.";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "Вы ведёте строку шаг за шагом из собственного скрипта.";
-"settings.command.note" = "Принимается только с этого Mac (127.0.0.1); ключ лежит в ~/Library/Application Support/Evlat и доступен для чтения только вам.";
+"settings.command.note" = "Команда говорит с Evlat через закрытый файл, который может открыть только ваша учётная запись.";
 "settings.remote.machines" = "Машины";
 "settings.remote.note" = "Нажмите на машину, чтобы увидеть, что настроено на этом сервере.";
 "settings.remote.open" = "открыт";

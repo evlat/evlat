@@ -71,7 +71,7 @@
 "remote.add.option" = "名称不能以“-”开头。";
 "remote.add.invalidCharacter" = "名称不能包含空格。";
 "remote.add.duplicate" = "{name} 已添加。";
-"remote.environment" = "以 EVLAT_MACHINES 或 EVLAT_PORT 启动：在此添加或移除的机器会在 Evlat 退出时被忘记。";
+"remote.environment" = "以 EVLAT_MACHINES 或 EVLAT_SOCKET 启动：在此添加或移除的机器会在 Evlat 退出时被忘记。";
 
 "remote.state.stopped" = "未连接";
 "remote.state.connecting" = "正在连接…";
@@ -204,7 +204,7 @@
 "chat.failure.exited" = "{agent} 未回答就停止了。";
 "chat.failure.result" = "本轮以错误结束。";
 "chat.failure.interrupted" = "运行期间 Evlat 被关闭了。";
-"chat.failure.noListener" = "Evlat 的本地端口未打开，{agent} 无法在执行前询问你，因此没有启动任何操作。";
+"chat.failure.noListener" = "Evlat 没有在接收消息，{agent} 无法在执行前询问你，因此没有启动任何操作。";
 "chat.stop" = "停止";
 "chat.permission.title" = "需要权限";
 "chat.permission.tool" = "{agent} 想要使用 {tool}。";
@@ -324,7 +324,7 @@
 "settings.sandboxes.watching" = "正在监视";
 "settings.sandboxes.watch" = "监视沙盒";
 "settings.sandboxes.watch.detail" = "正在运行的沙盒会立即设置，新沙盒在启动时设置。不会重启任何东西：已在运行的会话从下一条消息起显示。";
-"settings.sandboxes.status.isolated" = "这份 Evlat 运行在自己的端口上（EVLAT_PORT），因此不监视沙盒。";
+"settings.sandboxes.status.isolated" = "这份 Evlat 通过自己的文件接收消息（EVLAT_SOCKET），因此不监视沙盒。";
 "settings.sandboxes.status.missing" = "Evlat 在这台 Mac 上找不到 sbx。";
 "settings.sandboxes.status.socket" = "sbx 守护进程的套接字路径有 {length} 字节，超过了 macOS 允许的长度（{limit}），因此 Evlat 无法得知沙盒何时启动。开始监视时已在运行的沙盒已设置好。";
 "settings.sandboxes.status.taken" = "{port} 端口被其他程序占用，沙盒无法连到 Evlat。";
@@ -554,7 +554,7 @@
 "settings.command.watch.detail" = "原样运行命令；运行期间长条上有一行，结束时变绿或变红。";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "由你自己的脚本逐步驱动这一行。";
-"settings.command.note" = "只接受来自这台 Mac 的请求（127.0.0.1）；密钥在 ~/Library/Application Support/Evlat 中，只有你能读取。";
+"settings.command.note" = "该命令通过一个只有你的账户能打开的私有文件与 Evlat 通信。";
 "settings.remote.machines" = "机器";
 "settings.remote.note" = "点按一台机器，查看该服务器上设置了什么。";
 "settings.remote.open" = "展开";

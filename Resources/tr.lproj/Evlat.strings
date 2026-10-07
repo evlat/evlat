@@ -71,7 +71,7 @@
 "remote.add.option" = "Ad “-” ile başlayamaz.";
 "remote.add.invalidCharacter" = "Adda boşluk olamaz.";
 "remote.add.duplicate" = "{name} zaten ekli.";
-"remote.environment" = "EVLAT_MACHINES ya da EVLAT_PORT ile başlatıldı: burada eklenen ya da kaldırılan makineler Evlat kapanınca unutulur.";
+"remote.environment" = "EVLAT_MACHINES ya da EVLAT_SOCKET ile başlatıldı: burada eklenen ya da kaldırılan makineler Evlat kapanınca unutulur.";
 
 "remote.state.stopped" = "bağlı değil";
 "remote.state.connecting" = "bağlanıyor…";
@@ -207,7 +207,7 @@
 "chat.failure.exited" = "{agent} cevap vermeden durdu.";
 "chat.failure.result" = "Tur bir hatayla bitti.";
 "chat.failure.interrupted" = "Bu çalışırken Evlat kapandı.";
-"chat.failure.noListener" = "Evlat'ın yerel portu açık değil; {agent} bir şey yapmadan önce soramazdı — hiçbir şey başlatılmadı.";
+"chat.failure.noListener" = "Evlat dinlemiyor; {agent} bir şey yapmadan önce soramazdı — hiçbir şey başlatılmadı.";
 "chat.stop" = "Durdur";
 "chat.permission.title" = "İzin gerekiyor";
 "chat.permission.tool" = "{agent} {tool} kullanmak istiyor.";
@@ -333,7 +333,7 @@
 "settings.sandboxes.watching" = "İzleme";
 "settings.sandboxes.watch" = "Sandbox'ları izle";
 "settings.sandboxes.watch.detail" = "Şu an çalışan sandbox'lar hemen, yenileri açılır açılmaz hazırlanır. Hiçbir şey yeniden başlatılmaz: zaten çalışan bir oturum bir sonraki mesajından itibaren görünür.";
-"settings.sandboxes.status.isolated" = "Evlat'ın bu kopyası kendi portunda çalışıyor (EVLAT_PORT), bu yüzden sandbox'ları izlemiyor.";
+"settings.sandboxes.status.isolated" = "Evlat'ın bu kopyası kendi dosyasından dinliyor (EVLAT_SOCKET), bu yüzden sandbox'ları izlemiyor.";
 "settings.sandboxes.status.missing" = "Evlat bu Mac'te sbx'i bulamıyor.";
 "settings.sandboxes.status.socket" = "sbx servisinin soket yolu {length} bayt, macOS'in sınırı ise {limit}. Bu yüzden Evlat yeni açılan sandbox'ları fark edemiyor; izleme başladığında çalışmakta olanlar yine de hazırlandı.";
 "settings.sandboxes.status.taken" = "{port} portunu başka bir program tutuyor; sandbox'lar Evlat'a ulaşamaz.";
@@ -564,7 +564,7 @@
 "settings.command.watch.detail" = "Komutu olduğu gibi çalıştırır; sürerken barda satır, bitince yeşil ya da kırmızı.";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "Satırı kendi betiğinden adım adım sen sürersin.";
-"settings.command.note" = "Yalnız bu Mac'ten (127.0.0.1) kabul edilir; anahtar ~/Library/Application Support/Evlat içinde, yalnız sana açık.";
+"settings.command.note" = "Komut Evlat'la yalnızca senin hesabının açabildiği özel bir dosya üzerinden konuşur.";
 "settings.remote.machines" = "Makineler";
 "settings.remote.note" = "Bir makineye tıkla: o sunucuya neyin kurulu olduğu açılır.";
 "settings.remote.open" = "açık";

@@ -114,9 +114,9 @@
 "remote.add.option" = "A name can't start with “-”.";
 "remote.add.invalidCharacter" = "A name can't contain spaces.";
 "remote.add.duplicate" = "{name} is already added.";
-/* When Evlat was started with EVLAT_MACHINES or EVLAT_PORT (a test run):
+/* When Evlat was started with EVLAT_MACHINES or EVLAT_SOCKET (a test run):
    the list is not stored. */
-"remote.environment" = "Started with EVLAT_MACHINES or EVLAT_PORT: machines added or removed here are forgotten when Evlat quits.";
+"remote.environment" = "Started with EVLAT_MACHINES or EVLAT_SOCKET: machines added or removed here are forgotten when Evlat quits.";
 
 /* A machine's connection, under its name. {sessions} is summary.sessions*. */
 "remote.state.stopped" = "not connected";
@@ -269,7 +269,7 @@
 "chat.failure.exited" = "{agent} stopped without an answer.";
 "chat.failure.result" = "The turn ended with an error.";
 "chat.failure.interrupted" = "Evlat was closed while this was running.";
-"chat.failure.noListener" = "Evlat's local port is not open, so {agent} could not ask before acting — nothing was started.";
+"chat.failure.noListener" = "Evlat isn't listening, so {agent} could not ask before acting — nothing was started.";
 "chat.stop" = "Stop";
 "chat.permission.title" = "Permission needed";
 "chat.permission.tool" = "{agent} wants to use {tool}.";
@@ -397,7 +397,7 @@
 "settings.sandboxes.watching" = "Watching";
 "settings.sandboxes.watch" = "Watch sandboxes";
 "settings.sandboxes.watch.detail" = "Sandboxes running now are set up at once, new ones as they start. Nothing restarts: a session that is already running shows from its next message.";
-"settings.sandboxes.status.isolated" = "This copy of Evlat runs on a port of its own (EVLAT_PORT), so it doesn't watch sandboxes.";
+"settings.sandboxes.status.isolated" = "This copy of Evlat listens on a file of its own (EVLAT_SOCKET), so it doesn't watch sandboxes.";
 "settings.sandboxes.status.missing" = "Evlat can't find sbx on this Mac.";
 "settings.sandboxes.status.socket" = "The sbx daemon's socket path is {length} bytes, longer than macOS allows ({limit}), so Evlat can't hear sandboxes start. Sandboxes that were running when watching began are set up.";
 "settings.sandboxes.status.taken" = "Port {port} is taken by another program, so sandboxes can't reach Evlat.";
@@ -634,7 +634,7 @@
 "settings.command.watch.detail" = "Runs the command as it is; a row on the bar while it runs, green or red when it ends.";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "You drive the row step by step from a script of your own.";
-"settings.command.note" = "Accepted from this Mac only (127.0.0.1); the key is in ~/Library/Application Support/Evlat, readable by you alone.";
+"settings.command.note" = "The command talks to Evlat through a private file that only your account can open.";
 "settings.remote.machines" = "Machines";
 "settings.remote.note" = "Click a machine to see what is set up on that server.";
 "settings.remote.open" = "open";

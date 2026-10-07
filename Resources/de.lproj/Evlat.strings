@@ -71,7 +71,7 @@
 "remote.add.option" = "Ein Name darf nicht mit „-“ beginnen.";
 "remote.add.invalidCharacter" = "Ein Name darf keine Leerzeichen enthalten.";
 "remote.add.duplicate" = "{name} ist schon hinzugefügt.";
-"remote.environment" = "Mit EVLAT_MACHINES oder EVLAT_PORT gestartet: Hier hinzugefügte oder entfernte Maschinen werden vergessen, wenn Evlat beendet wird.";
+"remote.environment" = "Mit EVLAT_MACHINES oder EVLAT_SOCKET gestartet: Hier hinzugefügte oder entfernte Maschinen werden vergessen, wenn Evlat beendet wird.";
 
 "remote.state.stopped" = "nicht verbunden";
 "remote.state.connecting" = "verbinden …";
@@ -204,7 +204,7 @@
 "chat.failure.exited" = "{agent} hat ohne Antwort aufgehört.";
 "chat.failure.result" = "Der Durchgang endete mit einem Fehler.";
 "chat.failure.interrupted" = "Evlat wurde geschlossen, während das lief.";
-"chat.failure.noListener" = "Evlats lokaler Port ist nicht offen, also hätte {agent} vor dem Handeln nicht fragen können — nichts wurde gestartet.";
+"chat.failure.noListener" = "Evlat hört gerade nicht zu, also hätte {agent} vor dem Handeln nicht fragen können — nichts wurde gestartet.";
 "chat.stop" = "Stoppen";
 "chat.permission.title" = "Berechtigung nötig";
 "chat.permission.tool" = "{agent} möchte {tool} verwenden.";
@@ -324,7 +324,7 @@
 "settings.sandboxes.watching" = "Beobachtet";
 "settings.sandboxes.watch" = "Sandboxes beobachten";
 "settings.sandboxes.watch.detail" = "Laufende Sandboxes werden sofort eingerichtet, neue beim Start. Nichts wird neu gestartet: Eine schon laufende Sitzung erscheint ab ihrer nächsten Nachricht.";
-"settings.sandboxes.status.isolated" = "Diese Kopie von Evlat läuft auf einem eigenen Port (EVLAT_PORT) und beobachtet daher keine Sandboxes.";
+"settings.sandboxes.status.isolated" = "Diese Kopie von Evlat hört über eine eigene Datei (EVLAT_SOCKET) und beobachtet daher keine Sandboxes.";
 "settings.sandboxes.status.missing" = "Evlat findet sbx auf diesem Mac nicht.";
 "settings.sandboxes.status.socket" = "Der Socket-Pfad des sbx-Daemons ist {length} Bytes lang, länger als macOS erlaubt ({limit}), daher hört Evlat nicht, wenn Sandboxes starten. Sandboxes, die beim Beginn der Beobachtung liefen, sind eingerichtet.";
 "settings.sandboxes.status.taken" = "Port {port} ist von einem anderen Programm belegt, daher erreichen Sandboxes Evlat nicht.";
@@ -554,7 +554,7 @@
 "settings.command.watch.detail" = "Führt den Befehl aus, wie er ist; eine Zeile in der Leiste, solange er läuft, grün oder rot, wenn er endet.";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "Du steuerst die Zeile Schritt für Schritt aus einem eigenen Skript.";
-"settings.command.note" = "Nur von diesem Mac angenommen (127.0.0.1); der Schlüssel liegt in ~/Library/Application Support/Evlat, nur für dich lesbar.";
+"settings.command.note" = "Der Befehl spricht mit Evlat über eine private Datei, die nur dein Benutzerkonto öffnen kann.";
 "settings.remote.machines" = "Maschinen";
 "settings.remote.note" = "Klick auf eine Maschine, um zu sehen, was auf diesem Server eingerichtet ist.";
 "settings.remote.open" = "offen";

@@ -72,7 +72,7 @@
 "remote.add.option" = "O nome não pode começar com “-”.";
 "remote.add.invalidCharacter" = "O nome não pode conter espaços.";
 "remote.add.duplicate" = "{name} já foi adicionado.";
-"remote.environment" = "Iniciado com EVLAT_MACHINES ou EVLAT_PORT: as máquinas adicionadas ou removidas aqui são esquecidas quando o Evlat é encerrado.";
+"remote.environment" = "Iniciado com EVLAT_MACHINES ou EVLAT_SOCKET: as máquinas adicionadas ou removidas aqui são esquecidas quando o Evlat é encerrado.";
 
 "remote.state.stopped" = "desconectado";
 "remote.state.connecting" = "conectando…";
@@ -205,7 +205,7 @@
 "chat.failure.exited" = "{agent} parou sem responder.";
 "chat.failure.result" = "A rodada terminou com um erro.";
 "chat.failure.interrupted" = "O Evlat foi fechado enquanto isto rodava.";
-"chat.failure.noListener" = "A porta local do Evlat não está aberta, então {agent} não poderia perguntar antes de agir; nada foi iniciado.";
+"chat.failure.noListener" = "O Evlat não está escutando, então {agent} não poderia perguntar antes de agir; nada foi iniciado.";
 "chat.stop" = "Parar";
 "chat.permission.title" = "Permissão necessária";
 "chat.permission.tool" = "{agent} quer usar {tool}.";
@@ -325,7 +325,7 @@
 "settings.sandboxes.watching" = "Observando";
 "settings.sandboxes.watch" = "Observar sandboxes";
 "settings.sandboxes.watch.detail" = "As sandboxes rodando agora são preparadas na hora; as novas, quando iniciam. Nada reinicia: uma sessão que já está rodando aparece a partir da próxima mensagem.";
-"settings.sandboxes.status.isolated" = "Esta cópia do Evlat usa uma porta própria (EVLAT_PORT), então não observa sandboxes.";
+"settings.sandboxes.status.isolated" = "Esta cópia do Evlat escuta por um arquivo próprio (EVLAT_SOCKET), então não observa sandboxes.";
 "settings.sandboxes.status.missing" = "O Evlat não encontra o sbx neste Mac.";
 "settings.sandboxes.status.socket" = "O caminho do socket do daemon do sbx tem {length} bytes, mais do que o macOS permite ({limit}), então o Evlat não percebe quando as sandboxes iniciam. As que já rodavam quando a observação começou foram preparadas.";
 "settings.sandboxes.status.taken" = "Outro programa está usando a porta {port}, então as sandboxes não alcançam o Evlat.";
@@ -555,7 +555,7 @@
 "settings.command.watch.detail" = "Roda o comando como ele é; uma linha na barra enquanto ele roda, verde ou vermelha quando termina.";
 "settings.command.signal" = "evlat signal render-01 --progress 0.4";
 "settings.command.signal.detail" = "Você conduz a linha passo a passo a partir de um script seu.";
-"settings.command.note" = "Aceito só deste Mac (127.0.0.1); a chave fica em ~/Library/Application Support/Evlat, legível só por você.";
+"settings.command.note" = "O comando fala com o Evlat por um arquivo privado que só a sua conta pode abrir.";
 "settings.remote.machines" = "Máquinas";
 "settings.remote.note" = "Clique numa máquina para ver o que está configurado naquele servidor.";
 "settings.remote.open" = "aberto";
