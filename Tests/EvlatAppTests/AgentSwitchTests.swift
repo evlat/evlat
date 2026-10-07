@@ -163,11 +163,11 @@ final class AgentSwitchTests: XCTestCase {
     func testAnApprovalForAnAgentOffIsAnsweredAtOnceWithNoCard() {
         let controller = controller()
         var sent: [(String, LocalAPI.Response)] = []
-        controller.approvals.respond = { sent.append(($0, $1)) }
+        controller.approvals.respond = { sent.append(($0.id, $1)) }
         controller.setEnabled(.claude, false)
         controller.handleDelivery(.approval(HeldRequest(id: "r-1", token: nil, tool: "Bash",
                                                                    subject: "ls", command: "ls",
-                                                                   sessionID: "s-1")))
+                                                                   sessionID: "s-1", source: .claude)))
         XCTAssertEqual(controller.approvals.pending, [])
         XCTAssertEqual(sent.map(\.0), ["r-1"])
         XCTAssertEqual(sent.first?.1, ApprovalStore.released)
@@ -176,10 +176,10 @@ final class AgentSwitchTests: XCTestCase {
     func testTurningTheAgentOffLetsItsHeldApprovalsGo() {
         let controller = controller()
         var sent: [String] = []
-        controller.approvals.respond = { id, _ in sent.append(id) }
+        controller.approvals.respond = { request, _ in sent.append(request.id) }
         controller.handleDelivery(.approval(HeldRequest(id: "r-1", token: nil, tool: "Bash",
                                                                    subject: "ls", command: "ls",
-                                                                   sessionID: "s-1")))
+                                                                   sessionID: "s-1", source: .claude)))
         XCTAssertEqual(controller.approvals.pending.map(\.id), ["r-1"], "held while on")
         controller.setEnabled(.claude, false)
         XCTAssertEqual(controller.approvals.pending, [])

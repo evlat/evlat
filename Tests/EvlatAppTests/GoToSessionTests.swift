@@ -454,9 +454,10 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(controller.detail.detail).searching)
     }
 
-    /// A remote card answers no permission and names no branch: both are
-    /// this Mac's (`hasLocalHost`).
-    func testARemoteCardHasNoApprovalOrBranch() throws {
+    /// A remote card answers its server's permission like this Mac's does
+    /// (the caller asked by the row's machine) and names no branch: the
+    /// folder is on its server.
+    func testARemoteCardHasAnApprovalButNoBranch() throws {
         let model = DetailModel()
         model.findRemote = { _, _ in true }
         model.resolveBranch = { _ in "main" }
@@ -468,7 +469,7 @@ final class GoToSessionTests: XCTestCase {
         let detail = try XCTUnwrap(model.detail)
         XCTAssertTrue(detail.hasRemoteHost)
         XCTAssertFalse(detail.hasLocalHost)
-        XCTAssertNil(detail.approval)
+        XCTAssertEqual(detail.approval?.id, "p-1")
         XCTAssertNil(detail.branch)
     }
 

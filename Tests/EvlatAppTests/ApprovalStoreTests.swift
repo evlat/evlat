@@ -9,29 +9,38 @@ import EvlatCore
 @MainActor
 final class ApprovalStoreTests: XCTestCase {
     private var sent: [(String, LocalAPI.Response)] = []
+    /// Which listener each answer went to: the request's machine.
+    private var listeners: [String?] = []
 
     private func store() -> ApprovalStore {
-        let store = ApprovalStore(body: Claude().approvals!.body)
-        store.respond = { [weak self] id, response in self?.sent.append((id, response)) }
+        let store = ApprovalStore(agents: Agents.all)
+        store.respond = { [weak self] request, response in
+            self?.sent.append((request.id, response))
+            self?.listeners.append(request.machine)
+        }
         return store
     }
 
-    private func request(_ id: String, session: String = "s-1") -> HeldRequest {
+    private func request(_ id: String, session: String = "s-1", machine: String? = nil) -> HeldRequest {
         HeldRequest(id: id, token: nil, tool: "Bash", subject: "rm -r build",
-                               command: "rm -r build", sessionID: session)
+                    command: "rm -r build", sessionID: session, source: .claude, machine: machine)
+    }
+
+    private func stop(_ session: String = "s-1") -> HookEvent {
+        HookEvent(json: ["hook_event_name": "Stop", "session_id": session])
     }
 
     func testAllowIsOnceAndOnlyOnce() throws {
         let store = store()
         store.asked(request("r-1"))
-        XCTAssertEqual(store.request(forSession: "s-1")?.id, "r-1")
+        XCTAssertEqual(store.request(forSession: "s-1", machine: nil)?.id, "r-1")
         XCTAssertTrue(store.answer("r-1", allow: true))
         let body = try XCTUnwrap(sent.first?.1.body)
         XCTAssertTrue(body.contains(#""behavior":"allow""#))
         XCTAssertFalse(body.contains("updatedPermissions"), "no rule and no folder is kept from the bar")
         XCTAssertFalse(store.answer("r-1", allow: false), "a second press on the same card sends nothing")
         XCTAssertEqual(sent.count, 1)
-        XCTAssertNil(store.request(forSession: "s-1"))
+        XCTAssertNil(store.request(forSession: "s-1", machine: nil))
     }
 
     func testDenyDoesNotInterrupt() throws {
@@ -48,18 +57,18 @@ final class ApprovalStoreTests: XCTestCase {
         store.asked(request("r-1"))
         store.asked(request("r-9", session: "s-2"))
         store.heard(HookEvent(json: ["hook_event_name": "PostToolUse", "session_id": "s-1",
-                                     "tool_name": "Bash", "tool_input": ["command": "rm -r build"]]))
+                                     "tool_name": "Bash", "tool_input": ["command": "rm -r build"]]), machine: nil)
         XCTAssertEqual(sent.map(\.0), ["r-1"])
         XCTAssertEqual(sent.first?.1, ApprovalStore.released)
         XCTAssertFalse(store.answer("r-1", allow: true), "the card went stale")
-        XCTAssertEqual(store.request(forSession: "s-2")?.id, "r-9", "another session's stays")
+        XCTAssertEqual(store.request(forSession: "s-2", machine: nil)?.id, "r-9", "another session's stays")
     }
 
     func testAClosedConnectionTakesTheCardAndSendsNothing() {
         let store = store()
         store.asked(request("r-1"))
         store.abandoned("r-1")
-        XCTAssertNil(store.request(forSession: "s-1"))
+        XCTAssertNil(store.request(forSession: "s-1", machine: nil))
         XCTAssertTrue(sent.isEmpty)
     }
 
@@ -68,7 +77,77 @@ final class ApprovalStoreTests: XCTestCase {
         store.asked(request("r-1"))
         store.asked(request("r-2"))
         XCTAssertEqual(sent.map(\.0), ["r-1"])
-        XCTAssertEqual(store.request(forSession: "s-1")?.id, "r-2")
+        XCTAssertEqual(store.request(forSession: "s-1", machine: nil)?.id, "r-2")
+    }
+
+    // MARK: - Machines
+
+    /// A session id is the agent's and can come from any computer: an
+    /// event heard on machine A answers none of B's requests, nor this
+    /// Mac's, for the same id.
+    func testAMachinesEventResolvesOnlyItsOwnRequests() {
+        let store = store()
+        store.asked(request("local"))
+        store.asked(request("a", machine: "m-a"))
+        store.asked(request("b", machine: "m-b"))
+        store.heard(stop(), machine: "m-a")
+        XCTAssertEqual(sent.map(\.0), ["a"])
+        XCTAssertEqual(Set(store.pending.map(\.id)), ["local", "b"])
+        store.heard(stop(), machine: nil)
+        XCTAssertEqual(sent.map(\.0), ["a", "local"])
+        XCTAssertEqual(store.pending.map(\.id), ["b"])
+    }
+
+    /// The card asks by the row's machine: a server that sends this Mac's
+    /// session id finds no local card, and a local row none of a server's.
+    func testARemoteRequestNeverShowsOnALocalRow() {
+        let store = store()
+        store.asked(request("a", machine: "m-a"))
+        XCTAssertNil(store.request(forSession: "s-1", machine: nil))
+        XCTAssertNil(store.request(forSession: "s-1", machine: "m-b"))
+        XCTAssertEqual(store.request(forSession: "s-1", machine: "m-a")?.id, "a")
+        store.asked(request("local"))
+        XCTAssertEqual(store.request(forSession: "s-1", machine: nil)?.id, "local",
+                       "nor did the machine's replace this Mac's")
+        XCTAssertEqual(store.request(forSession: "s-1", machine: "m-a")?.id, "a")
+    }
+
+    /// The answer goes back to the listener that heard the request.
+    func testTheAnswerGoesToTheRequestsListener() throws {
+        let store = store()
+        store.asked(request("a", machine: "m-a"))
+        store.asked(request("local"))
+        XCTAssertTrue(store.answer("a", allow: true))
+        XCTAssertTrue(store.answer("local", allow: false))
+        XCTAssertEqual(sent.map(\.0), ["a", "local"])
+        XCTAssertEqual(listeners, ["m-a", nil])
+        XCTAssertTrue(try XCTUnwrap(sent.first?.1.body).contains(#""behavior":"allow""#),
+                      "in the format of the agent that asked")
+    }
+
+    /// A machine switching its agent off lets its own requests go, `{}`;
+    /// this Mac's and another machine's stay held.
+    func testAMachinesAgentOffLetsOnlyItsRequestsGo() {
+        let store = store()
+        store.asked(request("local"))
+        store.asked(request("a", machine: "m-a"))
+        store.asked(request("b", machine: "m-b"))
+        store.release { $0.machine == "m-a" && $0.source == .claude }
+        XCTAssertEqual(sent.map(\.0), ["a"])
+        XCTAssertEqual(sent.first?.1, ApprovalStore.released)
+        XCTAssertEqual(listeners, ["m-a"])
+        XCTAssertEqual(Set(store.pending.map(\.id)), ["local", "b"])
+    }
+
+    /// A request naming no agent this build knows is answered with no
+    /// decision.
+    func testARequestOfNoKnownAgentIsAnsweredWithNoDecision() {
+        let store = store()
+        var unknown = request("r-1")
+        unknown.source = nil
+        store.asked(unknown)
+        store.answer("r-1", allow: true)
+        XCTAssertEqual(sent.first?.1.body, "{}")
     }
 
     // MARK: - Questions
@@ -78,7 +157,7 @@ final class ApprovalStoreTests: XCTestCase {
                          AgentQuestion(text: "Which sizes?", options: [.init(label: "S"), .init(label: "L")],
                                               multiSelect: true)]
         return HeldRequest(id: id, token: nil, tool: AskQuestion.tool, subject: nil, sessionID: session,
-                                      questions: questions, input: Data(#"{"questions":[]}"#.utf8))
+                           questions: questions, input: Data(#"{"questions":[]}"#.utf8), source: .claude)
     }
 
     /// Nothing goes back until the last question is answered; then one
@@ -94,7 +173,7 @@ final class ApprovalStoreTests: XCTestCase {
         XCTAssertTrue(store.commit("q-1"))
         let body = try XCTUnwrap(sent.first?.1.body)
         XCTAssertTrue(body.contains(#""answers":{"Which color?":"Blue","Which sizes?":"L, XL"}"#), body)
-        XCTAssertNil(store.request(forSession: "s-1"))
+        XCTAssertNil(store.request(forSession: "s-1", machine: nil))
         XCTAssertNil(store.draft("q-1"))
         XCTAssertFalse(store.choose("q-1", option: 0), "the card went stale")
         XCTAssertEqual(sent.count, 1)
@@ -127,7 +206,7 @@ final class ApprovalStoreTests: XCTestCase {
         store.asked(question("q-1"))
         store.choose("q-1", option: 0)
         store.heard(HookEvent(json: ["hook_event_name": "PostToolUse", "session_id": "s-1",
-                                     "tool_name": AskQuestion.tool, "tool_input": ["questions": []]]))
+                                     "tool_name": AskQuestion.tool, "tool_input": ["questions": []]]), machine: nil)
         XCTAssertEqual(sent.first?.1, ApprovalStore.released)
         XCTAssertNil(store.draft("q-1"))
     }

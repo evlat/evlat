@@ -281,18 +281,47 @@ final class LocalAPITests: XCTestCase {
                                   listener: sandbox).response?.status, .notFound, "a sandbox has only /hook")
         }
         let machine = LocalAPI.Listener(origin: .machine, signalKey: key, keylessSignal: true, routes: Self.routes)
-        for path in [ChatRequest.path, Askpass.path, ApprovalHook.path] {
+        for path in [ChatRequest.path, Askpass.path] {
             XCTAssertEqual(handle(post(path), listener: machine).response?.status, .notFound, "machine \(path)")
         }
         XCTAssertEqual(handle(post(SignalReport.path), listener: machine).response?.status, .ok,
                        "a machine keeps its keyed /signal")
-        XCTAssertEqual(LocalAPI.Origin.machine.role.routes, [.hook, .usage, .signal, .health])
+        XCTAssertEqual(LocalAPI.Origin.machine.role.routes, [.hook, .usage, .approval, .signal, .health])
         XCTAssertEqual(LocalAPI.Origin.sandbox.role.routes, [.hook])
         XCTAssertEqual(LocalAPI.Origin.local.role.routes, Set(LocalAPI.Route.allCases))
         XCTAssertEqual(LocalAPI.Origin.allTrusting.map(\.role.trustsSandbox), [false, false, true],
                        "only the sandbox believes X-Evlat-Sandbox")
         XCTAssertEqual(LocalAPI.Origin.allTrusting.map(\.role.trustsProcess), [true, false, false],
                        "only this Mac's pid and task are processes here")
+    }
+
+    /// An agent's approval path is its own (`RouteTable.approvals`): this
+    /// Mac's listener and a machine's hold the request, stamped with the
+    /// route's agent; a sandbox's has no such route. The body never names
+    /// the agent, nor the machine.
+    func testAnApprovalIsHeldFromThisMacAndAMachineOnly() {
+        let asking = TestAgent("asking", approvals: TestApprovals(path: ApprovalHook.path + "/asking"))
+        let routes = RouteTable([Self.agent, asking])
+        XCTAssertEqual(routes.approvals, [ApprovalHook.path + "/asking": asking.id])
+        XCTAssertEqual(LocalAPI.dispatch(method: "POST", target: ApprovalHook.path + "/asking", origin: nil,
+                                         host: "127.0.0.1", routes: routes), .approval(asking.id))
+        XCTAssertEqual(LocalAPI.dispatch(method: "POST", target: ApprovalHook.path, origin: nil,
+                                         host: "127.0.0.1", routes: routes), .notFound, "no agent's path")
+        let request = HTTPRequest(method: "POST", target: ApprovalHook.path + "/asking",
+                                  body: Data(#"{"session_id":"s-1","source":"other","machine":"m"}"#.utf8),
+                                  host: "127.0.0.1")
+        for origin in [LocalAPI.Origin.local, .machine] {
+            let outcome = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: origin, routes: routes),
+                                          agents: [Self.agent, asking])
+            XCTAssertNil(outcome.response, "\(origin): held")
+            guard case .approval(let held)? = outcome.delivery else { return XCTFail("\(origin): no request") }
+            XCTAssertEqual(held.source, asking.id, "\(origin)")
+            XCTAssertNil(held.machine, "\(origin): the listener's holder stamps it")
+        }
+        let sandbox = LocalAPI.handle(request, listener: LocalAPI.Listener(origin: .sandbox, routes: routes),
+                                      agents: [Self.agent, asking])
+        XCTAssertEqual(sandbox.response?.status, .notFound)
+        XCTAssertNil(sandbox.delivery)
     }
 
     /// The socket's listener takes `/signal` with no key; the port's local

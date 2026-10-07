@@ -115,6 +115,15 @@ final class RemoteTunnels {
     var respond: (String, LocalAPI.Response) -> Void = { _, _ in }
     /// A machine was read by its channel's probe (`reading(of:)`).
     var onReading: (String) -> Void = { _ in }
+    /// A server's session asks for approval: the request, stamped with the
+    /// machine whose listener holds it. Answered with `answerApproval`.
+    var onApproval: (HeldRequest) -> Void = { _ in }
+    /// Every hook event a machine's listener heard, with the machine's id,
+    /// before its row is moved: what shows a held request answered there.
+    var onHeard: (HookEvent, String) -> Void = { _, _ in }
+    /// A held approval's connection closed first: Esc on the server, its
+    /// hook's time ran out, or the channel went.
+    var onAbandoned: (String) -> Void = { _ in }
 
     /// What `ssh` needs to ask Evlat: the helper (this binary) and the
     /// socket of the listener that holds `/askpass`. Without a socket, no
@@ -309,6 +318,7 @@ final class RemoteTunnels {
     /// The machine's listener at its channel's end.
     private func makeListener(for link: Link, at endpoint: String) -> HookListener {
         let onChange = self.onChange
+        let machineID = link.machine.id
         return HookListener(
             transport: .unix(endpoint),
             origin: .machine,
@@ -325,21 +335,30 @@ final class RemoteTunnels {
                     break
                 }
             },
-            onDelivery: { [weak link] delivery in
+            // Given, so an approval is held rather than refused at once.
+            onAbandoned: { [weak self] id in self?.onAbandoned(id) },
+            onDelivery: { [weak self, weak link] delivery in
                 guard let link else { return }
                 // Before the delivery: the row the event lands on is stamped
                 // after the link's mark, so it is not dimmed as "not heard
                 // since the tunnel came up" (`HooksProvider.dim`).
                 link.tunnel?.heard()
                 switch delivery {
-                case .hook(let event): link.hooks.handle(event)
+                case .hook(let event):
+                    self?.onHeard(event, machineID)
+                    link.hooks.handle(event)
                 // To the machine's provider for that agent; none (switched
                 // off, or no status line) drops it.
                 case .usage(let report): link.usage[report.source]?.handle(report)
+                // The machine's name is the listener's: the body never says
+                // which computer asked.
+                case .approval(var request):
+                    request.machine = machineID
+                    self?.onApproval(request)
                 // A tunnel answers `/permission` and `/askpass` with `404`
-                // (`LocalAPI`): a remote machine never puts a card in front
-                // of this user, nor asks for a password.
-                case .permission, .approval, .askpass: break
+                // (`LocalAPI`): a remote machine never puts a chat's card in
+                // front of this user, nor asks for a password.
+                case .permission, .askpass: break
                 // The machine's own outside row: the listener is the
                 // machine's. A dropped row is said on stderr like a local
                 // one, with the machine's name.
@@ -378,6 +397,12 @@ final class RemoteTunnels {
         syncUsage(link)
         registry.register(link.signals)
         store.password(for: machine.id) { [weak link] password in link?.hasStoredPassword = password != nil }
+    }
+
+    /// Answers a held approval on the listener of the machine that asked.
+    /// A machine gone took its connections with it: nothing to write.
+    func answerApproval(_ id: String, machine: String, with response: LocalAPI.Response) {
+        links[machine]?.listener?.answer(id, with: response)
     }
 
     /// Closes the machine's tunnel and listener and takes its rows away.

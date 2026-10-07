@@ -359,7 +359,7 @@ final class SetupModel: ObservableObject {
         case .outdated: status = .outdated
         case .missing: status = .missing
         }
-        var parts = [SetupPart(name: L10n.t(Self.hooksPartKey(source), in: lang), file: "~/" + source.agent.integration.hooksFile,
+        var parts = [SetupPart(name: L10n.t(Self.hooksPartKey(source, on: .mac), in: lang), file: "~/" + source.agent.integration.hooksFile,
                                status: Self.status(state.hooks))]
         if let relay = state.relay, let path = source.agent.integration.relay?.file {
             parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: "~/" + path,
@@ -371,8 +371,11 @@ final class SetupModel: ObservableObject {
         return result
     }
 
-    private static func hooksPartKey(_ source: AgentID) -> String {
-        source.agent.approvals != nil ? "setup.agent.part.hooksApprovals" : "setup.agent.part.hooks"
+    /// The hooks part's name: with the approval hook where the agent's
+    /// channel installs it on that target.
+    static func hooksPartKey(_ source: AgentID, on target: HookTarget) -> String {
+        LocalHooks.approvals(of: source.agent, on: target) != nil
+            ? "setup.agent.part.hooksApprovals" : "setup.agent.part.hooks"
     }
 
     private static func status(_ hooks: LocalHooks.State) -> SetupStatus {

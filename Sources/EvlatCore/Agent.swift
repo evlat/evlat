@@ -196,9 +196,11 @@ public struct StatusLineUsage: Equatable {
     }
 }
 
-/// An agent's permission requests, held until the user answers on the card
-/// (`ApprovalHook`'s route). The request and its answer are the agent's
-/// wire format; what the card draws is the shared `HeldRequest`.
+/// An agent's permission requests, held until the user answers on the card.
+/// The request and its answer are the agent's wire format; what the card
+/// draws is the shared `HeldRequest`. The hook that sends them is the
+/// core's one group (`ApprovalHook.installedHook(for:)`), made from this
+/// channel's path and timeout: no agent's bytes are in it.
 public protocol ApprovalChannel {
     /// Whether a tool, by its canonical name, asks the user a question
     /// rather than for permission: its wait is an answer.
@@ -207,11 +209,23 @@ public protocol ApprovalChannel {
     func request(json: [String: Any]) -> HeldRequest?
     /// The answer's body.
     func body(_ decision: ChatDecision) -> String
-    /// The hook that sends the requests, beside the command in the same
-    /// settings file (`LocalHooks`).
-    func state(of settings: [String: Any]) -> HookSettings.State
-    func installing(into settings: [String: Any]) -> [String: Any]
-    func removing(from settings: [String: Any]) -> [String: Any]
+    /// The route its hook posts to, under `ApprovalHook.path`: one per
+    /// agent, so the listener knows who asks without reading the body.
+    var path: String { get }
+    /// How long a request may be held, in seconds: the hook's `timeout` and
+    /// `curl`'s `-m` alike, written out so a change of default does not
+    /// change how long a card can wait.
+    var timeout: Int { get }
+    /// Where the core's group is installed. Empty: nowhere — an agent whose
+    /// requests come some other way brings its own install.
+    var installs: Set<HookTarget> { get }
+}
+
+/// Where an agent's hooks are written: this Mac's file, or a server's
+/// (`RemoteSettings`). What goes into one may differ, as the approval
+/// hook's place does (`ApprovalChannel.installs`).
+public enum HookTarget: Hashable, Sendable {
+    case mac, server
 }
 
 /// Where an agent writes one record per live session: a folder under the
@@ -288,17 +302,18 @@ public struct RouteTable: Equatable {
     public let hooks: [String: AgentID]
     /// Usage path → the agent whose status line posts there.
     public let usage: [String: AgentID]
-    /// The agent whose permission requests `/approval` holds.
-    public let approval: AgentID?
+    /// Approval path → the agent whose permission requests it holds
+    /// (`ApprovalChannel.path`).
+    public let approvals: [String: AgentID]
     /// The agent whose chat turns post their permission requests to
     /// `/permission` (`ChatRequest.path`): a one-way backend that asks.
     public let permission: AgentID?
 
-    public init(hooks: [String: AgentID] = [:], usage: [String: AgentID] = [:], approval: AgentID? = nil,
+    public init(hooks: [String: AgentID] = [:], usage: [String: AgentID] = [:], approvals: [String: AgentID] = [:],
                 permission: AgentID? = nil) {
         self.hooks = hooks
         self.usage = usage
-        self.approval = approval
+        self.approvals = approvals
         self.permission = permission
     }
 
@@ -307,11 +322,13 @@ public struct RouteTable: Equatable {
     public init(_ agents: [any Agent]) {
         var hooks: [String: AgentID] = [:]
         var usage: [String: AgentID] = [:]
+        var approvals: [String: AgentID] = [:]
         for agent in agents {
             for path in agent.hooks.paths where hooks[path] == nil { hooks[path] = agent.id }
             if let path = agent.statusLineUsage?.path, usage[path] == nil { usage[path] = agent.id }
+            if let path = agent.approvals?.path, approvals[path] == nil { approvals[path] = agent.id }
         }
-        self.init(hooks: hooks, usage: usage, approval: agents.first { $0.approvals != nil }?.id,
+        self.init(hooks: hooks, usage: usage, approvals: approvals,
                   permission: agents.first {
                       guard let caps = $0.chat?.caps else { return false }
                       return caps.asks && caps.transport == .oneWay

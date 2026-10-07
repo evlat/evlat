@@ -143,7 +143,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — der Befehl, so wie er ist (ersetzt ein vorhandenes evlat; prüfe das vorher mit command -v evlat):";
 "remote.command.manual.remove" = "Zum Entfernen: den Befehl, wenn er von Evlat ist, den Schlüssel und seinen Ordner, wenn er leer bleibt:";
 "remote.items.title" = "Eingerichtet auf {name}";
-"remote.items.body" = "Der Tunnel öffnet nur den Weg. Damit ein Agent auf dem Server dieser Leiste Bescheid gibt, wird das hier in die eigenen Dateien des Servers geschrieben — dieselben Karten wie auf diesem Mac, über ssh geschrieben, oder ein Block, den du selbst auf dem Server ausführst. Ein Server hat keinen Freigabe-Hook, und sein Antigravity bekommt nur Hooks.";
+"remote.items.body" = "Der Tunnel öffnet nur den Weg. Damit ein Agent auf dem Server dieser Leiste Bescheid gibt, wird das hier in die eigenen Dateien des Servers geschrieben — dieselben Karten wie auf diesem Mac, über ssh geschrieben, oder ein Block, den du selbst auf dem Server ausführst. Claude Code fragt auch dort diese Leiste um Freigabe; sein Antigravity bekommt nur Hooks.";
 "remote.item.command" = "evlat-Befehl";
 "remote.status.notFound" = "Nicht auf diesem Server";
 "remote.hint.install.codex" = "Öffne in Codex /hooks und vertraue Evlats Hooks: Bis dahin führt Codex sie nicht aus.";

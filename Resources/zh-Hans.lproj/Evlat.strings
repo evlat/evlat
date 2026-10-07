@@ -143,7 +143,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat：命令本身，原样写入（会替换已有的 evlat；请先用 command -v evlat 检查）：";
 "remote.command.manual.remove" = "如需移除：删除命令（如果它属于 Evlat）、密钥，以及变空的文件夹：";
 "remote.items.title" = "在 {name} 上设置";
-"remote.items.body" = "隧道只是打通了通道。服务器上的 Agent 要向这条长条报告，需要在服务器自己的文件中写入以下内容：可以用与这台 Mac 相同的卡片通过 ssh 写入，也可以在服务器上自己运行一段代码。服务器上没有批准 hook，其上的 Antigravity 只安装 hook。";
+"remote.items.body" = "隧道只是打通了通道。服务器上的 Agent 要向这条长条报告，需要在服务器自己的文件中写入以下内容：可以用与这台 Mac 相同的卡片通过 ssh 写入，也可以在服务器上自己运行一段代码。服务器上的 Claude Code 也会向这条长条请求批准；其上的 Antigravity 只安装 hook。";
 "remote.item.command" = "evlat 命令";
 "remote.status.notFound" = "不在此服务器上";
 "remote.hint.install.codex" = "在 Codex 中打开 /hooks 并信任 Evlat 的 hook：在此之前 Codex 不会运行它们。";

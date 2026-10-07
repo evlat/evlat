@@ -243,8 +243,9 @@ the merge, `kind == .session` only, by asking whether the row's `source` is
 in the set (a file row and a hook row go together; a remote machine's rows
 answer to that machine's set, `Registry.machineSources`, by
 `Signal.Machine.id`). Its usage provider is unregistered, so its windows
-go with it. An `/approval` request with no switched-on agent that takes
-approvals is answered `{}` at once and the held ones are let go. Its
+go with it. An approval request from an agent switched off where it runs
+(this Mac's set, or the machine's own) is answered `{}` at once, and that
+scope's held ones are let go. Its
 attention lines go quiet. Turning off an agent with Evlat's parts in its
 files asks whether they go too (the default) or stay.
 
@@ -290,7 +291,10 @@ address, `sbx` not running, a version other than the measured 0.46.0).
 A machine shows this Mac's agent cards (Settings → Remote Machines, the same
 `SetupRowView` with another `SetupCardDriver`), written over `ssh`: one
 press is one agent's unit (`RemoteSettings.Change.agent`), its one file in
-one write. A server has no approval hook, and only `RemoteSettings.relays`
+one write. Claude's unit there carries its approval hook, as on this Mac
+(the channel's `installs`): its requests are held under the machine's id,
+only that machine's events resolve them, its rows' cards show them, and
+the answer goes back to its listener. Only `RemoteSettings.relays`
 — Claude — gets the usage line there; Antigravity's remote relay is not
 measured and not installed. Its switches are the machine's own set,
 `remote.machines[].agents` (`decodeIfPresent`; none stored is every agent
@@ -695,7 +699,9 @@ is lost with the process.
   and the card says "No terminal open" — unless an `sbx run` client names
   no sandbox that can be read (an option not read whole, a folder no hook
   name could match), which says nothing.
-  Approvals and the branch stay with local rows.
+  The branch stays with local rows; a server's card answers its own
+  approvals (`ApprovalStore.request(forSession:machine:)`, by the row's
+  machine and the session's own id, never the namespaced entity).
 - **The body can hide** (Settings → General → Body: Always out, Smart hide,
   Tucked, Hidden). Tucked is in at rest: the sliver, a peek while waiting
   or at a finish (its three switches). Smart hide is Tucked while another
@@ -840,24 +846,36 @@ The card's details remove the relay alone. Every agent in the catalogue has
 a card; one not on this Mac is dim with nothing to press.
 
 The approval hook (`ApprovalHook`) is another installed contract: one
-`type: "http"` `PermissionRequest` group pointing at `/approval`
+`PermissionRequest` group, `{"type":"command","command":…,"timeout":T}`,
+the same bytes on this Mac and on a server: `curl -q -sf --noproxy '*'
+--unix-socket "$HOME/.config/evlat/run/evlat.sock" -m T … --data-binary @-
+http://127.0.0.1:48151<path> 2>/dev/null || true`
 (`EvlatAgentsTests.ApprovalHookTests.testTheInstalledHookIsUnchanged`).
-Its type is split: the route and the canonical rules that read an answer
-(`ApprovalHook.path`, `resolves`, `supersedes`) are the core's; the
-installed bytes are Claude's (`Claude/ApprovalHook.swift`, an extension of
-it). On this Mac it is
-part of the Claude Code card, installed and removed with the command as one
-(`LocalHooks`); the command alone reads outdated, which is how a copy from
-before it is offered the update. A server's hooks never include it
-(`RemoteSettings` calls `LocalHooks` with `approvals: false`). It is the one hook
+Unlike the hook command its stdout is the answer, and only the answer:
+`-f` writes no error body, and `|| true` makes every failure — no socket,
+a refusal, a channel gone, the time out — exit 0 with empty stdout, which
+is no decision. The timeout is one constant of the agent's channel in
+three places: the hook's `timeout`, `curl -m`, and so how long a card can
+wait (Claude: 600). The core writes the group and names no agent; an
+agent's `ApprovalChannel` gives the wire (`request`, `body`), its path
+under `/approval` (Claude's is `/approval` itself; `RouteTable.approvals`)
+and where it is installed (`installs`: Claude's on this Mac and on a
+server). It is Evlat's by the command with `127.0.0.1:48151<path>`, and
+the `type: "http"` hook earlier copies installed at that url is Evlat's
+older one: outdated, replaced in place, removed with it. It is part of
+the Claude Code card, here and on a server, installed and removed with
+the command as one (`LocalHooks`, by target); the command alone reads
+outdated, which is how a copy from before it is offered the update. It is the one hook
 whose answer reaches Claude Code, so Evlat answers it only with the user's
 press on the card — Allow once or Deny, never a rule, a folder or a mode —
 or `{}`, which is no decision. An `AskUserQuestion` comes through it too;
 its card offers the question's options, "Other…" (a line of its own,
 `AnswerPanel`, since the bar never takes keys) and Deny, never a bare
-Allow, and answers with `updatedInput` + `answers` (`AskQuestion`). It authenticates no server: while Evlat is
-closed, whoever holds the port could answer it. Accepted for now; the
-realistic case is another user's process on a shared Mac.
+Allow, and answers with `updatedInput` + `answers` (`AskQuestion`). It
+authenticates no server: whatever answers on the socket decides. The
+socket's folder is the user's alone (`0700`), here and on a server, so
+that is a process of the same user, which could write the settings file
+anyway.
 
 ### Local API
 
@@ -879,7 +897,8 @@ too, its channel's end, and takes `/signal` without a key.
 
 Each listener has a role (`LocalAPI.Origin`): `.local` (this Mac, port or
 socket) has every route and believes `X-Evlat-Pid`/`X-Evlat-Task`;
-`.machine` (a channel's end) has `/hook`, `/usage`, `/signal` and `/health`;
+`.machine` (a channel's end) has `/hook`, `/usage`, `/approval`, `/signal`
+and `/health`;
 `.sandbox` has `/hook` alone and is the one that believes
 `X-Evlat-Sandbox`. A route the role lacks is `404`, whatever the listener
 holds (`Origin.role`, one `switch`).
@@ -890,7 +909,7 @@ holds (`Origin.role`, one `switch`).
 | `GET /health` | |
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
-| `POST /approval` | opt-in hook of terminal sessions (`ApprovalHook`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; `404` through a tunnel |
+| `POST /approval` | approval hook of terminal sessions (`ApprovalHook`), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
 | `POST /signal` | external jobs; requires `X-Evlat-Key` on the port, none on the socket |
 | `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.sandbox`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped and every other route is `404`. The only listener that trusts `X-Evlat-Sandbox`, checked |
 | `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
@@ -999,7 +1018,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
-| a full bar to look at | `scripts/demo.sh [left\|right]` — isolated (port 48999, its own home under `$TMPDIR/evlat-demo`): local sessions in every phase, worktrees of one repository on two branches, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; a local approval and question are held so their cards draw buttons, the remote and sandboxed waits (a question among them) only heard; `scripts/demo.sh stop` ends it all |
+| a full bar to look at | `scripts/demo.sh [left\|right]` — isolated (port 48999, its own home under `$TMPDIR/evlat-demo`): local sessions in every phase, worktrees of one repository on two branches, Codex, three remote machines over the fake `ssh`, Docker sandboxes, outside jobs, usage; approvals and questions, local and on a server, are held so their cards draw buttons, the sandboxed waits only heard; `scripts/demo.sh stop` ends it all |
 | window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
 | ship a version | `make ship VERSION=x.y.z` — the user's call: `release`, `git push origin main`, `publish` in one go |

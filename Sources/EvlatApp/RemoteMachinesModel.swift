@@ -568,8 +568,9 @@ final class RemoteMachinesModel: ObservableObject {
         let note = state.relay == .modified ? L10n.t("setup.agent.usageModified", in: lang) : nil
         var card = SetupRow(item: .agent(source), status: status, name: L10n.t(source.agent.display.nameKey, in: lang),
                             detail: file, note: note, failure: nil)
-        // A server has no approval hook: the part is the hooks alone.
-        card.parts = [SetupPart(name: L10n.t("setup.agent.part.hooks", in: lang), file: file,
+        // The approval hook, where the agent's channel installs it on a
+        // server, is in the same file and part.
+        card.parts = [SetupPart(name: L10n.t(SetupModel.hooksPartKey(source, on: .server), in: lang), file: file,
                                 status: partStatus(state.hooks))]
         if let relay = state.relay {
             card.parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: file,
@@ -661,7 +662,7 @@ final class RemoteMachinesModel: ObservableObject {
     }
 
     /// The card's block to paste: the bytes the server's writer would
-    /// write into an empty file (no approval hook), and the usage line
+    /// write into an empty file (its approval hook among them), and the usage line
     /// where the server gets one.
     static func manual(_ source: AgentID, in lang: String) -> SetupManual {
         let manual = RemoteSettings.manual(agents: Agents.all)

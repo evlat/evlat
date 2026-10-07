@@ -29,8 +29,8 @@ public enum LocalAPI {
         /// A chat turn's permission request (`ChatRequest.path`).
         case permission
         /// A terminal session's permission, to approve from the bar
-        /// (`ApprovalHook`).
-        case approval
+        /// (`ApprovalHook`), on the agent's own path (`RouteTable.approvals`).
+        case approval(AgentID)
         /// An outside program's row (`SignalReport`). Keyed: the
         /// listener's key decides, not the route (`Listener`).
         case signal
@@ -89,7 +89,7 @@ public enum LocalAPI {
         case ("POST", let path) where routes.hooks[path] != nil: return .hook(routes.hooks[path]!)
         case ("POST", let path) where routes.usage[path] != nil: return .usage(routes.usage[path]!)
         case ("POST", ChatRequest.path): return .permission
-        case ("POST", ApprovalHook.path): return .approval
+        case ("POST", let path) where routes.approvals[path] != nil: return .approval(routes.approvals[path]!)
         case ("POST", SignalReport.path): return .signal
         case ("POST", Askpass.path): return .askpass
         case ("GET", "/health"): return .health
@@ -206,10 +206,13 @@ public enum LocalAPI {
             switch self {
             case .local:
                 return Role(routes: Set(Route.allCases), trustsProcess: true, trustsSandbox: false)
-            // No card in front of this user that grants anything, no
-            // password asked for: the held routes stay this Mac's.
+            // A server's sessions are approved from the bar like this
+            // Mac's: the request is held under the machine's name, and
+            // only that machine's events and rows reach it. A chat's
+            // permission and a password stay this Mac's.
             case .machine:
-                return Role(routes: [.hook, .usage, .signal, .health], trustsProcess: false, trustsSandbox: false)
+                return Role(routes: [.hook, .usage, .approval, .signal, .health], trustsProcess: false,
+                            trustsSandbox: false)
             // Hooks only, and the one listener whose sandbox header is read.
             case .sandbox:
                 return Role(routes: [.hook], trustsProcess: false, trustsSandbox: true)
@@ -300,15 +303,18 @@ public enum LocalAPI {
             guard let backend = listener.routes.permission.flatMap({ agents[id: $0]?.chat }),
                   let asked = backend.request(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
-        case .approval:
-            // This Mac's own sessions only (`Origin.role`), as `/permission`.
+        case .approval(let id):
+            // This Mac's sessions and a machine's (`Origin.role`); the
+            // machine is stamped by whoever holds that listener.
             // `{}` is no decision: the agent's own dialog stays and decides.
             guard let json = jsonObject(request.body),
-                  let channel = listener.routes.approval.flatMap({ agents[id: $0]?.approvals }),
-                  let asked = channel.request(json: json),
+                  let channel = agents[id: id]?.approvals,
+                  var asked = channel.request(json: json),
                   asked.sessionID != nil else {
                 return Outcome(response: Response(status: .ok, body: "{}"), delivery: nil)
             }
+            // The route's agent, as a hook's `source`: the body never names it.
+            asked.source = id
             return Outcome(response: nil, delivery: .approval(asked))
         case .askpass:
             // This Mac's own tunnels only (`Origin.role`): what a helper is

@@ -2176,8 +2176,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Brings the registry in line with the switches: a usage provider per
     /// agent on, none for an agent off — its windows go with it, the
     /// session filter leaves usage alone — and the sessions filtered
-    /// through the same set. With no agent left that answers approvals,
-    /// the held ones are let go.
+    /// through the same set. This Mac's held approvals of an agent now off
+    /// are let go; a machine's answer to its own switches.
     func applyEnabledAgents() {
         followsAgents = true
         let enabled = enabledAgents
@@ -2195,12 +2195,35 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 registeredUsage.remove(source)
             }
         }
-        if !holdsApprovals { approvals.releaseAll() }
+        let holds = approvalGate(machine: nil)
+        approvals.release { $0.machine == nil && !holds($0.source) }
     }
 
-    /// Whether a terminal's approval request is held for a card: some agent
-    /// switched on installs the approval hook.
-    var holdsApprovals: Bool { enabledAgents.contains { $0.agent.approvals != nil } }
+    /// Whether a terminal's approval request is held for a card, for the
+    /// requests of one place: the agent that asked has approvals and is
+    /// switched on where it runs — on this Mac (`nil`), or in that machine's
+    /// own set, read as its rows read it (`Registry.allows`: none stored is
+    /// every agent). The set is read once, for however many requests.
+    func approvalGate(machine: String?) -> (AgentID?) -> Bool {
+        let enabled: Set<AgentID>? = machine.map { id in
+            Self.machineSources(id, local: { enabledAgents }, remote: { remote?.enabledAgents(of: $0) })
+        } ?? enabledAgents
+        return { source in
+            guard let source, Agents.all[id: source]?.approvals != nil else { return false }
+            return Registry.allows(source, enabled: enabled)
+        }
+    }
+
+    /// A held request, from this Mac's listeners or a machine's: on a card
+    /// while its agent is on there, else `{}` at once and the terminal's own
+    /// dialog decides, as with Evlat closed.
+    private func approvalAsked(_ request: HeldRequest) {
+        if approvalGate(machine: request.machine)(request.source) {
+            approvals.asked(request)
+        } else {
+            approvals.respond(request, ApprovalStore.released)
+        }
+    }
 
     // MARK: - Chat switch
 
@@ -2552,8 +2575,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let desk = socketListener.map { BothListeners(socket: $0, port: listener) }
         permissionDesk = desk
         chats?.permissions = desk
-        approvals.respond = { [weak self] id, response in
-            MainActor.assumeIsolated { self?.answerHeld(id, with: response) }
+        approvals.respond = { [weak self] request, response in
+            MainActor.assumeIsolated { self?.answerApproval(request, with: response) }
         }
         approvals.onChange = { [weak self] in self?.approvalsChanged() }
     }
@@ -2581,6 +2604,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     private func answerHeld(_ id: String, with response: LocalAPI.Response) {
         hookListener?.answer(id, with: response)
         socketListener?.answer(id, with: response)
+    }
+
+    /// An approval's answer, on the listener that heard it: this Mac's, or
+    /// its machine's. A machine gone takes its connections with it.
+    private func answerApproval(_ request: HeldRequest, with response: LocalAPI.Response) {
+        if let machine = request.machine {
+            remote?.answerApproval(request.id, machine: machine, with: response)
+        } else {
+            answerHeld(request.id, with: response)
+        }
     }
 
     /// The socket this controller binds: the rule's (`EvlatSocket.path`)
@@ -2683,6 +2716,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             MainActor.assumeIsolated { self?.answerHeld(id, with: response) }
         }
         tunnels.onPromptsChanged = { [weak self] in MainActor.assumeIsolated { self?.promptsChanged() } }
+        // A server's sessions' approvals, held in the one store under the
+        // machine's name (`HeldRequest.machine`).
+        tunnels.onApproval = { [weak self] request in MainActor.assumeIsolated { self?.approvalAsked(request) } }
+        tunnels.onHeard = { [weak self] event, machine in
+            MainActor.assumeIsolated { self?.approvals.heard(event, machine: machine) }
+        }
+        tunnels.onAbandoned = { [weak self] id in MainActor.assumeIsolated { self?.approvals.abandoned(id) } }
         tunnels.onReading = { [weak self] id in
             MainActor.assumeIsolated { self?.settings?.remote.channelRead(id) }
         }
@@ -3260,6 +3300,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `EVLAT_MACHINES`.
     func setMachineAgents(id: String, _ agents: [String]?) {
         remote?.setAgents(agents, of: id)
+        // Only this machine's requests of an agent it switched off.
+        let holds = approvalGate(machine: id)
+        approvals.release { $0.machine == id && !holds($0.source) }
         storeMachines()
         scheduleRefresh()
     }
@@ -3311,13 +3354,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .hook(let event):
             handleHookEvent(event)
         case .approval(let request):
-            // An agent switched off shows no card: `{}` at once, and its
-            // terminal's own dialog decides, as with Evlat closed.
-            if holdsApprovals {
-                approvals.asked(request)
-            } else {
-                approvals.respond(request.id, ApprovalStore.released)
-            }
+            approvalAsked(request)
         case .usage(let report):
             // Not `hookDiagnostics`: that bucket is the hooks' and nothing of
             // the status line's body belongs in it.
@@ -3372,7 +3409,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// One event, from the listener's callback. Internal so the coalescing has
     /// a test; the listener is the only caller in the app.
     func handleHookEvent(_ event: HookEvent) {
-        approvals.heard(event)
+        approvals.heard(event, machine: nil)
         hookDiagnostics.record(event)
         hooks.handle(event)
         scheduleRefresh()
@@ -3511,9 +3548,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             return
         }
         if barState.selectedSlot != slot { barState.selectedSlot = slot }
+        let signal = signals.first { $0.entity == selected }
         detail.update(row: sessionRows.rows[slot],
-                      signal: signals.first { $0.entity == selected },
-                      approval: approvalCard(for: selected),
+                      signal: signal,
+                      approval: approvalCard(for: signal),
                       signals: signals, chatEnabled: isChatEnabled)
     }
 
@@ -3692,12 +3730,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     // MARK: - Approvals
 
-    /// Terminal sessions' held permissions (`ApprovalHook`).
-    /// Answered in the format of the agent `/approval` holds requests for
-    /// (`RouteTable.approval`).
-    let approvals = ApprovalStore { decision in
-        Agents.routes.approval.flatMap { $0.agent.approvals?.body(decision) } ?? "{}"
-    }
+    /// Terminal sessions' held permissions (`ApprovalHook`), this Mac's
+    /// and the machines'. Answered in the format of the agent that asked.
+    let approvals = ApprovalStore(agents: Agents.all)
 
     /// The held request's buttons' drawn rectangles, like `goButtonRect`.
     private var approvalRects: [DetailModel.Button: CGRect] = [:]
@@ -3829,9 +3864,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         hover.pointerExited()
     }
 
-    /// The selected session's card for its held request.
-    private func approvalCard(for entity: String) -> SessionDetail.ApprovalCard? {
-        approvals.request(forSession: entity).map {
+    /// The selected session's card for its held request: asked by the
+    /// row's machine and the session's own id, never by the namespaced
+    /// entity (`HooksProvider.sessionID`).
+    private func approvalCard(for signal: Signal?) -> SessionDetail.ApprovalCard? {
+        guard let signal, signal.kind == .session else { return nil }
+        let machine = signal.machine?.id
+        return approvals.request(forSession: HooksProvider.sessionID(entity: signal.entity, machine: machine),
+                                 machine: machine).map {
             SessionDetail.ApprovalCard($0, draft: approvals.draft($0.id))
         }
     }

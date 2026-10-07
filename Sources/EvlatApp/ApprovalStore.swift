@@ -3,7 +3,10 @@ import EvlatCore
 
 /// Terminal sessions' permission requests held for the bar
 /// (`ApprovalHook`): asked, answered on the card, or let go when the
-/// terminal answered first.
+/// terminal answered first. One store for this Mac and every machine: each
+/// request carries the agent that asked (`HeldRequest.source`) and the
+/// machine whose listener heard it (`HeldRequest.machine`), and those
+/// decide what answers it, which card shows it and where the answer goes.
 ///
 /// Letting go is `{}` — no decision — so a request Evlat drops is never an
 /// allow or a deny; the agent's own dialog decides. Main queue.
@@ -16,18 +19,25 @@ final class ApprovalStore {
     /// they go with the request, however it goes.
     private var drafts: [String: AgentQuestion.Draft] = [:]
 
-    /// Writes an answer to the held connection (`HookListener.answer`).
-    var respond: (String, LocalAPI.Response) -> Void = { _, _ in }
+    /// Writes an answer to the held connection, on the listener that heard
+    /// the request: this Mac's, or its machine's (`HookListener.answer`).
+    var respond: (HeldRequest, LocalAPI.Response) -> Void = { _, _ in }
     var onChange: () -> Void = {}
 
     static let released = LocalAPI.Response(status: .ok, body: "{}")
 
-    /// The answer's body, in the asking agent's format
+    /// Where an answer's body is looked up: the asking agent's channel
     /// (`ApprovalChannel.body`).
-    private let body: (ChatDecision) -> String
+    private let agents: [any Agent]
 
-    init(body: @escaping (ChatDecision) -> String) {
-        self.body = body
+    init(agents: [any Agent]) {
+        self.agents = agents
+    }
+
+    /// The answer, in the format of the agent that asked. One that names no
+    /// agent this build knows is answered `{}`: no decision.
+    private func body(_ decision: ChatDecision, for request: HeldRequest) -> String {
+        request.source.flatMap { agents[id: $0]?.approvals?.body(decision) } ?? "{}"
     }
 
     func asked(_ request: HeldRequest) {
@@ -37,9 +47,10 @@ final class ApprovalStore {
         onChange()
     }
 
-    /// Any hook event: a request it shows answered elsewhere is let go.
-    func heard(_ event: HookEvent) {
-        let answered = pending.filter { ApprovalHook.resolves($0, by: event) }
+    /// Any hook event, heard on `machine`'s listener (`nil`: this Mac's): a
+    /// request of that machine it shows answered elsewhere is let go.
+    func heard(_ event: HookEvent, machine: String?) {
+        let answered = pending.filter { ApprovalHook.resolves($0, by: event, machine: machine) }
         guard !answered.isEmpty else { return }
         answered.forEach { release($0.id) }
         onChange()
@@ -66,7 +77,7 @@ final class ApprovalStore {
         drafts[id] = nil
         // Allow once: no rule, no folder, no mode is ever kept from the bar.
         let decision: ChatDecision = allow ? .allow(rules: [], directories: []) : .deny(interrupt: false)
-        respond(id, LocalAPI.Response(status: .ok, body: body(decision)))
+        respond(request, LocalAPI.Response(status: .ok, body: body(decision, for: request)))
         onChange()
         return true
     }
@@ -99,8 +110,8 @@ final class ApprovalStore {
         if let answers = draft.answers {
             pending.removeAll { $0.id == id }
             drafts[id] = nil
-            respond(id, LocalAPI.Response(status: .ok,
-                                          body: body(.answer(input: input, answers: answers))))
+            respond(request, LocalAPI.Response(status: .ok,
+                                               body: body(.answer(input: input, answers: answers), for: request)))
         } else {
             drafts[id] = draft
         }
@@ -108,23 +119,27 @@ final class ApprovalStore {
         return true
     }
 
-    /// Every held request let go: the agent that asked was switched off,
-    /// so no card will answer it. `{}`, as for one answered elsewhere.
-    func releaseAll() {
-        guard !pending.isEmpty else { return }
-        pending.map(\.id).forEach(release)
+    /// The held requests `which` picks let go: the agent that asked was
+    /// switched off, on this Mac or on its machine, so no card will answer
+    /// them. `{}`, as for one answered elsewhere.
+    func release(where which: (HeldRequest) -> Bool) {
+        let going = pending.filter(which)
+        guard !going.isEmpty else { return }
+        going.map(\.id).forEach(release)
         onChange()
     }
 
-    /// The request a session's card speaks for: the oldest held.
-    func request(forSession session: String) -> HeldRequest? {
-        pending.first { $0.sessionID == session }
+    /// The request a session's card speaks for: the oldest held from that
+    /// session on that machine (`nil`: this Mac). A machine's request never
+    /// shows on this Mac's row of the same id, nor the other way round.
+    func request(forSession session: String, machine: String?) -> HeldRequest? {
+        pending.first { $0.sessionID == session && $0.machine == machine }
     }
 
     private func release(_ id: String) {
-        guard pending.contains(where: { $0.id == id }) else { return }
+        guard let request = pending.first(where: { $0.id == id }) else { return }
         pending.removeAll { $0.id == id }
         drafts[id] = nil
-        respond(id, Self.released)
+        respond(request, Self.released)
     }
 }

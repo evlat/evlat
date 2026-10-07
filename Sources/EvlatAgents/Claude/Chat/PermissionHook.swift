@@ -233,7 +233,7 @@ extension HeldRequest {
                   subject: HookEvent.subject(of: input), command: HookEvent.fullCommand(of: input),
                   rules: rules, directories: directories,
                   sessionID: json["session_id"] as? String, cwd: json["cwd"] as? String,
-                  agentID: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  subagent: (json["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                   questions: questions, input: kept)
     }
 }

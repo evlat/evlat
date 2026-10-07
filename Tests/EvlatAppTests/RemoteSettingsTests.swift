@@ -114,7 +114,7 @@ final class RemoteSettingsTests: XCTestCase {
                 let ssh = try setUp(shell: shell)
                 try seed(.claude, text)
                 XCTAssertEqual(apply(.hooks(.claude), .install, ssh: ssh), .success(.written), shell)
-                XCTAssertEqual(try HookSettings.install(at: claude(local), for: .claude), .written)
+                XCTAssertEqual(try LocalHooks.install(at: claude(local), for: .claude), .written)
                 XCTAssertEqual(bytes(claude(remote)), bytes(claude(local)), "\(shell): \(text ?? "no file")")
                 XCTAssertEqual(bytes(backup(claude(remote))), bytes(backup(claude(local))), "\(shell): backup")
 
@@ -340,7 +340,7 @@ final class RemoteSettingsTests: XCTestCase {
     }
 
     /// Claude's card on a server is one write of its one file: the hooks
-    /// (no approval hook) and the usage line, the user's status line
+    /// (the approval group among them) and the usage line, the user's status line
     /// wrapped and kept aside — the read then says the unit is current —
     /// and one removal takes both out, the status line back as it was.
     func testClaudesUnitIsOneWriteOfHooksAndUsageLine() throws {
@@ -354,14 +354,14 @@ final class RemoteSettingsTests: XCTestCase {
             let reading = try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get()
             XCTAssertEqual(reading.unit(.claude), .state(.init(hooks: .current, relay: .current)), shell)
             let settings = try SettingsFile.read(claude(remote))
-            XCTAssertEqual(LocalHooks.state(of: settings, for: .claude, approvals: true), .outdated,
-                           "\(shell): a server has no approval hook")
+            XCTAssertEqual(ApprovalHook.state(of: settings, for: Claude().approvals!), .current,
+                           "\(shell): the server's Claude asks the bar too")
             XCTAssertNotNil(bytes(statusBackup(claude(remote))), "\(shell): the status line it wrapped is kept")
             XCTAssertEqual(apply(.agent(.claude), .install, ssh: ssh), .success(.unchanged), shell)
 
             XCTAssertEqual(apply(.agent(.claude), .remove, ssh: ssh), .success(.written), shell)
             let removed = try SettingsFile.read(claude(remote))
-            XCTAssertEqual(LocalHooks.state(of: removed, for: .claude, approvals: false), .missing, shell)
+            XCTAssertEqual(LocalHooks.state(of: removed, for: .claude, target: .server), .missing, shell)
             XCTAssertEqual((removed["statusLine"] as? [String: Any])?["command"] as? String,
                            "bash ~/.claude/line.sh", "\(shell): the user's command is back")
         }
@@ -457,7 +457,7 @@ final class RemoteSettingsTests: XCTestCase {
             let ssh = try setUp(shell: shell, mode: .banner)
             try seed(.claude, existing)
             XCTAssertEqual(apply(.hooks(.claude), .install, ssh: ssh), .success(.written), shell)
-            XCTAssertEqual(try HookSettings.install(at: claude(local), for: .claude), .written)
+            XCTAssertEqual(try LocalHooks.install(at: claude(local), for: .claude), .written)
             XCTAssertEqual(bytes(claude(remote)), bytes(claude(local)), shell)
         }
     }
@@ -468,7 +468,7 @@ final class RemoteSettingsTests: XCTestCase {
         _ = try setUp(shell: "/bin/sh")
         try seed(.claude, nil)
         try seed(.codex, nil)
-        try HookSettings.install(at: claude(local), for: .claude)
+        try LocalHooks.install(at: claude(local), for: .claude)
         XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).hooks(for: .claude).utf8), bytes(claude(local)))
         try HookSettings.install(at: codex(local), for: .codex)
         XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).hooks(for: .codex).utf8), bytes(codex(local)))

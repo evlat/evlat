@@ -144,7 +144,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat : la commande, écrite telle quelle (remplace un evlat déjà présent ; vérifiez d’abord avec command -v evlat) :";
 "remote.command.manual.remove" = "Pour retirer : la commande si elle est celle d’Evlat, la clé, et son dossier s’il reste vide :";
 "remote.items.title" = "Configuré sur {name}";
-"remote.items.body" = "Le tunnel ne fait qu’ouvrir la voie. Pour qu’un agent du serveur prévienne cette barre, ces éléments sont écrits dans les fichiers du serveur : les mêmes cartes que sur ce Mac, écrites via ssh, ou un bloc que vous lancez vous-même sur le serveur. Un serveur n’a pas de hook d’approbation, et son Antigravity ne reçoit que les hooks.";
+"remote.items.body" = "Le tunnel ne fait qu’ouvrir la voie. Pour qu’un agent du serveur prévienne cette barre, ces éléments sont écrits dans les fichiers du serveur : les mêmes cartes que sur ce Mac, écrites via ssh, ou un bloc que vous lancez vous-même sur le serveur. Claude Code y demande aussi l’approbation à cette barre ; son Antigravity ne reçoit que les hooks.";
 "remote.item.command" = "Commande evlat";
 "remote.status.notFound" = "Absent de ce serveur";
 "remote.hint.install.codex" = "Dans Codex, ouvrez /hooks et faites confiance aux hooks d’Evlat : d’ici là, Codex ne les exécute pas.";

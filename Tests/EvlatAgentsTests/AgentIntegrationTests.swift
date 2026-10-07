@@ -54,7 +54,7 @@ final class AgentIntegrationTests: XCTestCase {
 
         try AgentIntegration.install(home: home, for: .claude)
         XCTAssertEqual(try LocalHooks.state(at: file, for: .claude), .current, "hooks and the approval hook")
-        XCTAssertEqual(try ApprovalHook.state(of: json(file)), .current)
+        XCTAssertEqual(try ApprovalHook.state(of: json(file), for: Claude().approvals!), .current)
         XCTAssertEqual(try StatusLineRelay.state(at: file, source: .claude), .current)
         XCTAssertEqual(try json(file)["model"] as? String, "opus")
         XCTAssertEqual(try Data(contentsOf: file.appendingPathExtension("evlat.bak")), original)

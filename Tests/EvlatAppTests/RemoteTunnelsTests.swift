@@ -383,6 +383,103 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertTrue(tunnels.state(of: "fake")?.isConnected == true)
     }
 
+    // MARK: - Approvals
+
+    /// The approval hook a server's Claude unit installs, run as the agent
+    /// runs it: `sh -c` with the request on stdin and the server's home,
+    /// whose socket reaches the machine's listener (here a link to it: the
+    /// fake makes no forward). Its stdout is the agent's decision.
+    private func runApprovalHook(home: String, body: String) throws -> (process: Process, output: () -> Data?) {
+        let write = try XCTUnwrap(try RemoteSettings.plan(.agent(.claude), .install, original: nil))
+        let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: write.contents) as? [String: Any])
+        let groups = (settings["hooks"] as? [String: Any])?["PermissionRequest"] as? [[String: Any]] ?? []
+        let command = try XCTUnwrap(groups.flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+            .compactMap { $0["command"] as? String }.first { $0.contains(ApprovalHook.path) },
+            "the server's unit carries the approval command")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ["HOME": home, "PATH": "/usr/bin:/bin"]
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        input.fileHandleForWriting.write(Data(body.utf8))
+        try input.fileHandleForWriting.close()
+        let lock = NSLock()
+        var printed: Data?
+        DispatchQueue.global().async {
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            lock.lock(); printed = data; lock.unlock()
+        }
+        return (process, { lock.lock(); defer { lock.unlock() }; return printed })
+    }
+
+    /// End to end: the installed server command waits on the card; Allow
+    /// once is the one line on its stdout, and only the asking machine's
+    /// row finds it. A channel that closes under a held request is no
+    /// decision: empty stdout, exit 0, and the card goes.
+    @MainActor
+    func testAServersApprovalIsAnsweredFromTheCardAndAClosedChannelIsNoDecision() throws {
+        let fake = try fakeSSH(.connect)
+        let tunnels = make(ssh: fake.path)
+        let store = ApprovalStore(agents: Agents.all)
+        tunnels.onApproval = { store.asked($0) }
+        tunnels.onHeard = { store.heard($0, machine: $1) }
+        tunnels.onAbandoned = { store.abandoned($0) }
+        store.respond = { request, response in
+            tunnels.answerApproval(request.id, machine: try! XCTUnwrap(request.machine), with: response)
+        }
+        tunnels.add(machine)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        let local = try endpoint(tunnels)
+        try FileManager.default.createDirectory(atPath: (serverSocket as NSString).deletingLastPathComponent,
+                                                withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(atPath: serverSocket)
+        try FileManager.default.createSymbolicLink(atPath: serverSocket, withDestinationPath: local)
+        let body = #"{"hook_event_name":"PermissionRequest","session_id":"s-1","tool_name":"Bash","tool_input":{"command":"rm -r build"}}"#
+
+        let allowed = try runApprovalHook(home: serverHome, body: body)
+        waitUntil("held") { !store.pending.isEmpty }
+        let request = try XCTUnwrap(store.pending.first)
+        XCTAssertEqual(request.machine, "fake", "the listener's machine, not the body's")
+        XCTAssertEqual(request.source, .claude)
+        XCTAssertNil(store.request(forSession: "s-1", machine: nil), "this Mac's row of the same id has no card")
+        XCTAssertEqual(store.request(forSession: "s-1", machine: "fake")?.id, request.id)
+        XCTAssertTrue(store.answer(request.id, allow: true))
+        waitUntil("answered") { !allowed.process.isRunning && allowed.output() != nil }
+        XCTAssertEqual(allowed.process.terminationStatus, 0)
+        let printed = String(decoding: try XCTUnwrap(allowed.output()), as: UTF8.self)
+        XCTAssertEqual(printed, Claude().approvals!.body(.allow(rules: [], directories: [])))
+        XCTAssertFalse(printed.contains("\n"), "one line: the decision alone")
+
+        let dropped = try runApprovalHook(home: serverHome, body: body)
+        waitUntil("held again") { !store.pending.isEmpty }
+        tunnels.remove(id: "fake")
+        waitUntil("ended") { !dropped.process.isRunning && dropped.output() != nil }
+        XCTAssertEqual(dropped.process.terminationStatus, 0)
+        XCTAssertEqual(dropped.output(), Data(), "no decision: the terminal's dialog decides")
+        waitUntil("the card goes") { store.pending.isEmpty }
+    }
+
+    /// An event heard on the machine resolves its held request as this
+    /// Mac's events do: the listener hands it over before the row moves.
+    @MainActor
+    func testAMachinesEventIsHeardWithItsName() throws {
+        let fake = try fakeSSH(.connect)
+        let tunnels = make(ssh: fake.path)
+        var heard: [(String, String)] = []
+        tunnels.onHeard = { heard.append(($0.name, $1)) }
+        tunnels.add(machine)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        let local = try endpoint(tunnels)
+        XCTAssertEqual(post("/hook", to: local, body: #"{"hook_event_name":"Stop","session_id":"s-1"}"#), 200)
+        waitUntil("heard") { !heard.isEmpty }
+        XCTAssertEqual(heard.first?.0, "Stop")
+        XCTAssertEqual(heard.first?.1, "fake")
+    }
+
     /// A usage report goes to the machine's provider for its own agent —
     /// no agent is singled out — and an agent switched off on the machine
     /// has no provider: its report is dropped and its windows go.

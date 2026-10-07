@@ -14,17 +14,22 @@ final class AgentCatalogTests: XCTestCase {
     func testNoRouteCollides() {
         let hooks = Agents.all.flatMap(\.hooks.paths)
         let usage = Agents.all.compactMap(\.statusLineUsage?.path)
-        let fixed = [ChatRequest.path, ApprovalHook.path, SignalReport.path, Askpass.path, "/health"]
-        XCTAssertEqual(Set(hooks + usage + fixed).count, hooks.count + usage.count + fixed.count)
+        let approvals = Agents.all.compactMap(\.approvals?.path)
+        let fixed = [ChatRequest.path, SignalReport.path, Askpass.path, "/health"]
+        XCTAssertEqual(Set(hooks + usage + approvals + fixed).count,
+                       hooks.count + usage.count + approvals.count + fixed.count)
         XCTAssertEqual(Agents.routes.hooks.count, hooks.count)
         XCTAssertEqual(Agents.routes.usage.count, usage.count)
+        XCTAssertEqual(Agents.routes.approvals.count, approvals.count)
+        for path in approvals { XCTAssertTrue(path.hasPrefix(ApprovalHook.path), path) }
         for agent in Agents.all {
             XCTAssertTrue(agent.hookPath.hasPrefix(RouteTable.installedPrefix), agent.id.rawValue)
             XCTAssertFalse(agent.hooks.events.isEmpty, agent.id.rawValue)
             XCTAssertFalse(agent.presence.isEmpty, agent.id.rawValue)
         }
-        XCTAssertEqual(Agents.all.filter { $0.approvals != nil }.count, 1,
-                       "`/approval` holds one agent's requests (`RouteTable.approval`)")
+        XCTAssertEqual(Agents.all.filter { $0.approvals != nil }.map(\.id), [.claude],
+                       "the agents whose requests a card answers, each on its own path")
+        XCTAssertEqual(Agents.routes.approvals, [ApprovalHook.path: .claude], "Claude's path cannot move")
     }
 
     /// Each agent's name is in both string tables.

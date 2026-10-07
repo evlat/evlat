@@ -206,19 +206,19 @@ public enum RemoteSettings {
             let settings = try SettingsFile.parse(original)
             switch (change, action) {
             case (.hooks(let source), .install):
-                // A server's hooks never include the approval hook: its
-                // route is `404` through a tunnel.
+                // A server's hooks include the approval group where the
+                // agent's channel installs it there (`LocalHooks`).
                 guard let data = try plan(original: original, {
-                    LocalHooks.installing(into: $0, for: source, approvals: false)
+                    LocalHooks.installing(into: $0, for: source, target: .server)
                 }) else {
-                    if LocalHooks.state(of: settings, for: source, approvals: false) != .current {
+                    if LocalHooks.state(of: settings, for: source, target: .server) != .current {
                         throw SettingsFile.Failure.malformed
                     }
                     return nil
                 }
                 return Write(contents: data, backup: nil)
             case (.hooks(let source), .remove):
-                return try plan(original: original, { LocalHooks.removing(from: $0, for: source, approvals: false) })
+                return try plan(original: original, { LocalHooks.removing(from: $0, for: source) })
                     .map { Write(contents: $0, backup: nil) }
             case (.statusLine(let source), .install):
                 guard let data = try plan(original: original, {
@@ -247,7 +247,7 @@ public enum RemoteSettings {
                 return try installUnit(source, settings: settings)
             case (.agent(let source), .remove):
                 return try plan(original: original, { settings in
-                    let hooks = LocalHooks.removing(from: settings, for: source, approvals: false)
+                    let hooks = LocalHooks.removing(from: settings, for: source)
                     guard relays(source) else { return hooks }
                     // Someone's own wrapper is left as it is (`nil`).
                     return StatusLineRelay.removing(from: hooks, source: source) ?? hooks
@@ -267,7 +267,7 @@ public enum RemoteSettings {
     /// (`AgentIntegration`). Nothing to write while a part that should be
     /// there is not: a shape not ours, refused.
     private static func installUnit(_ source: some Agent, settings: [String: Any]) throws -> Write? {
-        var next = LocalHooks.installing(into: settings, for: source, approvals: false)
+        var next = LocalHooks.installing(into: settings, for: source, target: .server)
         let relay = StatusLineRelay.state(of: settings, source: source)
         let wraps = relays(source) && relay == .missing
         if relays(source), relay == .missing || relay == .outdated,
@@ -275,7 +275,7 @@ public enum RemoteSettings {
         guard !NSDictionary(dictionary: next).isEqual(to: settings) else {
             let unit = AgentIntegration.relayState(of: settings, source: source)
             let relayShort = relays(source) && (unit == .missing || unit == .outdated)
-            if LocalHooks.state(of: settings, for: source, approvals: false) != .current || relayShort {
+            if LocalHooks.state(of: settings, for: source, target: .server) != .current || relayShort {
                 throw SettingsFile.Failure.malformed
             }
             return nil
@@ -366,7 +366,7 @@ public enum RemoteSettings {
 
         /// The local reader's state, from the bytes read.
         public func hooks(_ source: some Agent) -> Found<HookSettings.State> {
-            found(source) { LocalHooks.state(of: $0, for: source, approvals: false) }
+            found(source) { LocalHooks.state(of: $0, for: source, target: .server) }
         }
 
         /// The agent's usage line, read from its hooks file: meaningful for
@@ -381,7 +381,7 @@ public enum RemoteSettings {
         public func unit(_ source: some Agent) -> Found<AgentIntegration.State> {
             found(source) { settings in
                 AgentIntegration.State(
-                    hooks: LocalHooks.state(of: settings, for: source, approvals: false),
+                    hooks: LocalHooks.state(of: settings, for: source, target: .server),
                     relay: RemoteSettings.relays(source)
                         ? AgentIntegration.relayState(of: settings, source: source) : nil)
             }
@@ -632,7 +632,7 @@ public enum RemoteSettings {
         let statusLine = agents.first(where: { relays($0) }).flatMap { Manual.statusLine(for: $0) }
         return Manual(
             hooks: Dictionary(uniqueKeysWithValues: agents.map { source in
-                (source.id, Manual.text(LocalHooks.installing(into: [:], for: source, approvals: false)))
+                (source.id, Manual.text(LocalHooks.installing(into: [:], for: source, target: .server)))
             }),
             statusLine: statusLine?.text ?? "",
             wrapping: statusLine?.wrapping ?? "",

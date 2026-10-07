@@ -670,9 +670,9 @@ final class RemoteReadingTests: XCTestCase {
 extension RemoteReadingTests {
     /// Each agent is one card, by this Mac's unit rule: its hooks and —
     /// for the agent whose status line a server gets — the usage line,
-    /// read from its one file. No approval hook on a server.
+    /// read from its one file, the approval group among its hooks.
     func testEachAgentIsOneCard() throws {
-        let hooks = LocalHooks.installing(into: [:], for: .claude, approvals: false)
+        let hooks = LocalHooks.installing(into: [:], for: .claude, target: .server)
         let unit = try XCTUnwrap(StatusLineRelay.installing(into: hooks, source: .claude))
         func file(_ settings: [String: Any]?) throws -> Result<RemoteSettings.Snapshot, SettingsFile.Failure> {
             let bytes = try settings.map(SettingsFile.encode)
@@ -694,8 +694,10 @@ extension RemoteReadingTests {
         XCTAssertEqual(agents(try file(nil), try file(nil))[.codex], .missing)
         XCTAssertEqual(agents(try file(nil)), [.claude: .missing, .codex: .notFound, .antigravity: .notFound])
         XCTAssertEqual(agents(.success(.init(bytes: Data("{".utf8), checksum: "1 1")))[.claude], .unknown)
-        XCTAssertEqual(agents(try file(LocalHooks.installing(into: [:], for: .claude, approvals: true)))[.claude],
-                       .outdated, "this Mac's approval hook is not a server's")
+        let before = try XCTUnwrap(StatusLineRelay.installing(into: HookSettings.installing(into: [:], for: .claude),
+                                                              source: .claude))
+        XCTAssertEqual(agents(try file(before))[.claude], .outdated,
+                       "a server copy from before the approval group: one press completes it")
 
         // A usage line changed by hand is not a part: the card reads
         // installed and says why it leaves the line alone.

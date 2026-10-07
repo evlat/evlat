@@ -122,7 +122,7 @@ final class BoundaryTests: XCTestCase {
     }
 
     /// The top-level types `EvlatAgents` declares, but the catalog. An
-    /// `extension` declares nothing new: `ApprovalHook` there extends the
+    /// `extension` declares nothing new: `HeldRequest` there extends the
     /// core's own type.
     private static func agentTypes() throws -> Set<String> {
         let declaration = try NSRegularExpression(pattern:

@@ -204,7 +204,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
 "remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
 "remote.items.title" = "Set up on {name}";
-"remote.items.body" = "The tunnel only opens the way. For an agent on the server to tell this bar, these are written into the server's own files — the same cards as this Mac's, written over ssh, or a block you run on the server yourself. A server has no approval hook, and its Antigravity gets hooks only.";
+"remote.items.body" = "The tunnel only opens the way. For an agent on the server to tell this bar, these are written into the server's own files — the same cards as this Mac's, written over ssh, or a block you run on the server yourself. Claude Code there asks this bar for approval too; its Antigravity gets hooks only.";
 "remote.item.command" = "evlat command";
 /* An agent card on a server: the agent's folder is not there; and what
    the agent needs after a write there, where it has something to say

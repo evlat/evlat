@@ -287,7 +287,7 @@ public final class HooksProvider: Provider {
         // producer's space — a `/hook` body saying `signal:x` would replace
         // an outside program's row. Claude's and Codex's ids are UUIDs.
         guard machine != nil || !sessionID.contains(":") else { return }
-        let entity = machine.map { "remote:\($0.id):\(sessionID)" } ?? sessionID
+        let entity = Self.entity(sessionID: sessionID, machine: machine?.id)
         // A remote number means nothing on this Mac. `LocalAPI` already strips
         // it from a tunneled request; this is the second lock, so no remote
         // row can ever ask `processStartedAt` about a local stranger.
@@ -360,6 +360,22 @@ public final class HooksProvider: Provider {
         sessions[entity] = session
     }
 
+    /// A session's row: its own id on this Mac, namespaced by the machine
+    /// elsewhere (`Signal.entity`).
+    public static func entity(sessionID: String, machine: String?) -> String {
+        machine.map { "remote:\($0):\(sessionID)" } ?? sessionID
+    }
+
+    /// The session's own id back from its row's entity: what the agent and
+    /// its held requests call it. An entity not of that machine's shape is
+    /// returned as it is.
+    public static func sessionID(entity: String, machine: String?) -> String {
+        guard let machine else { return entity }
+        // The prefix `entity(sessionID:machine:)` writes, from the same code.
+        let prefix = Self.entity(sessionID: "", machine: machine)
+        return entity.hasPrefix(prefix) ? String(entity.dropFirst(prefix.count)) : entity
+    }
+
     public func currentSignals() -> [Signal] {
         let now = platform.now()
         // Dead rows are **removed**, not filtered out of the answer: this
@@ -377,9 +393,7 @@ public final class HooksProvider: Provider {
                 phase: phase,
                 // The fallback is the session's own id, not the namespaced
                 // key: a remote row without a `cwd` reads like a local one.
-                label: session.label(entity: machine.map {
-                    String(entity.dropFirst("remote:\($0.id):".count))
-                } ?? entity),
+                label: session.label(entity: Self.sessionID(entity: entity, machine: machine?.id)),
                 detail: session.cwd,
                 source: session.source,
                 fidelity: .official,

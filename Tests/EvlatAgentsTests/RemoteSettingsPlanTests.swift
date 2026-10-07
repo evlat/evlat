@@ -31,7 +31,7 @@ final class RemoteSettingsPlanTests: XCTestCase {
     }
 
     func testThePlanWritesNothingWhenNothingChanges() throws {
-        let installed = try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude))
+        let installed = try SettingsFile.encode(LocalHooks.installing(into: [:], for: .claude, target: .server))
         XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .install, original: installed))
         XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .remove, original: nil))
         XCTAssertNil(try RemoteSettings.plan(.statusLine(.claude), .remove, original: Data("{}".utf8)))
@@ -39,8 +39,6 @@ final class RemoteSettingsPlanTests: XCTestCase {
         XCTAssertEqual(write.backup, Data("null".utf8), "no statusLine before: the backup says so")
     }
 
-    /// A server's hooks are this Mac's transformation without the approval
-    /// hook: its route is `404` through a tunnel.
     /// A server's file from before the socket: its hooks and its usage line
     /// read as Evlat's older ones, and the unit's one press moves both in
     /// place — other tools' groups at their index, no new backup for the
@@ -65,7 +63,7 @@ final class RemoteSettingsPlanTests: XCTestCase {
         let write = try XCTUnwrap(try RemoteSettings.plan(.agent(.claude), .install, original: old))
         XCTAssertNil(write.backup, "moving the older line takes no backup")
         let settings = try SettingsFile.parse(write.contents)
-        XCTAssertEqual(LocalHooks.state(of: settings, for: .claude, approvals: false), .current)
+        XCTAssertEqual(LocalHooks.state(of: settings, for: .claude, target: .server), .current)
         XCTAssertEqual(StatusLineRelay.state(of: settings, source: .claude), .current)
         XCTAssertEqual((settings["statusLine"] as? [String: Any])?["command"] as? String,
                        StatusLineRelay.command(wrapping: "bash ~/s.sh", source: .claude))
@@ -75,14 +73,22 @@ final class RemoteSettingsPlanTests: XCTestCase {
         XCTAssertNil(try RemoteSettings.plan(.agent(.claude), .install, original: write.contents), "then current")
     }
 
-    func testAServersHooksNeverCarryTheApprovalHook() throws {
-        let write = try XCTUnwrap(try RemoteSettings.plan(.hooks(.claude), .install, original: nil))
-        XCTAssertFalse(String(decoding: write.contents, as: UTF8.self).contains("/approval"))
-        XCTAssertEqual(write.contents, try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude)))
-        let local = try SettingsFile.encode(LocalHooks.installing(into: [:], for: .claude, approvals: true))
-        XCTAssertTrue(String(decoding: local, as: UTF8.self).contains("/approval"), "this Mac's do")
-        // A file with the command alone is current on a server.
-        XCTAssertNil(try RemoteSettings.plan(.hooks(.claude), .install, original: write.contents))
+    /// A server's Claude unit carries the approval group, as this Mac's
+    /// does: one file, one write. A server copy from before it, the
+    /// command alone, reads outdated and the press completes it.
+    func testAServersClaudeUnitCarriesTheApprovalGroup() throws {
+        let write = try XCTUnwrap(try RemoteSettings.plan(.agent(.claude), .install, original: nil))
+        let settings = try SettingsFile.parse(write.contents)
+        XCTAssertEqual(ApprovalHook.state(of: settings, for: Claude().approvals!), .current)
+        XCTAssertEqual(LocalHooks.state(of: settings, for: .claude, target: .server), .current)
+        let commandAlone = try SettingsFile.encode(HookSettings.installing(into: [:], for: .claude))
+        XCTAssertEqual(LocalHooks.state(of: try SettingsFile.parse(commandAlone), for: .claude, target: .server),
+                       .outdated)
+        let completed = try XCTUnwrap(try RemoteSettings.plan(.hooks(.claude), .install, original: commandAlone))
+        XCTAssertEqual(ApprovalHook.state(of: try SettingsFile.parse(completed.contents), for: Claude().approvals!),
+                       .current)
+        let removed = try XCTUnwrap(try RemoteSettings.plan(.agent(.claude), .remove, original: write.contents))
+        XCTAssertFalse(String(decoding: removed.contents, as: UTF8.self).contains("/approval"), "both go")
     }
 
     /// An install that cannot reach current without overwriting someone

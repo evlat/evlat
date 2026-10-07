@@ -703,4 +703,34 @@ final class RemoteMachinesTests: XCTestCase {
         window.window?.cancelOperation(nil)
         XCTAssertFalse(window.isVisible)
     }
+
+    // MARK: - Approvals
+
+    /// A server's held approval answers to the machine's own switches, read
+    /// as its rows read them: none stored is every agent, so a machine left
+    /// at its default holds Claude's requests. Switching Claude off there
+    /// lets only that machine's go, `{}`.
+    func testAServersApprovalFollowsTheMachinesSwitches() throws {
+        let ssh = try fakeSSH(.connect)
+        let controller = controller(ssh: ssh, stored: false,
+                                    machines: [try XCTUnwrap(RemoteMachine(id: "m1", target: "devbox"))])
+        XCTAssertNil(controller.remote?.machines.first?.agents, "the default: nothing stored")
+        var sent: [String] = []
+        controller.approvals.respond = { request, _ in sent.append(request.id) }
+        func request(_ id: String, machine: String?) -> HeldRequest {
+            HeldRequest(id: id, token: nil, tool: "Bash", subject: "ls", command: "ls", sessionID: "s-1",
+                        source: .claude, machine: machine)
+        }
+        controller.handleDelivery(.approval(request("local", machine: nil)))
+        controller.handleDelivery(.approval(request("remote", machine: "m1")))
+        XCTAssertEqual(controller.approvals.pending.map(\.id), ["local", "remote"])
+        XCTAssertTrue(sent.isEmpty)
+        controller.setMachineAgents(id: "m1", nil)
+        XCTAssertEqual(controller.approvals.pending.map(\.id), ["local", "remote"], "back to the default keeps it")
+        controller.setMachineAgents(id: "m1", ["codex"])
+        XCTAssertEqual(controller.approvals.pending.map(\.id), ["local"])
+        XCTAssertEqual(sent, ["remote"])
+        controller.handleDelivery(.approval(request("later", machine: "m1")))
+        XCTAssertEqual(sent, ["remote", "later"], "off there: answered at once")
+    }
 }

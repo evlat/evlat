@@ -3,9 +3,9 @@
 # chats; the user's Evlat and files untouched) filled with every kind of row —
 # local sessions in each phase, worktrees of one repository, Codex, three
 # remote machines through the fake ssh, Docker sandboxes, outside jobs and
-# usage windows. A local approval and a local question are held, so their cards
-# draw their buttons (a press answers only the demo's own request); the remote
-# and sandboxed waits are only heard, as they are for real.
+# usage windows. Approvals and questions, local and on a server, are held, so
+# their cards draw their buttons (a press answers only the demo's own request);
+# the sandboxed waits are only heard, as they are for real.
 #
 #   scripts/demo.sh [left|right] [--no-build]
 #       --no-build  run the binary already built

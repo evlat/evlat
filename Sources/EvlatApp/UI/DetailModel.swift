@@ -101,7 +101,7 @@ public struct SessionDetail: Equatable {
             id = request.id
             tool = request.tool
             text = request.command ?? request.subject
-            fromSubagent = request.agentID != nil
+            fromSubagent = request.subagent != nil
             question = draft.flatMap(QuestionCard.init)
         }
 
@@ -274,7 +274,9 @@ public final class DetailModel: ObservableObject {
                                  activity: signal?.activity, machine: row.machine, dim: row.dim,
                                  kind: row.kind, folder: words.folder,
                                  sender: row.sender, note: words.note, progress: row.progress)
-        next.approval = row.hasLocalHost ? approval : nil
+        // A server's session is answered from its card like this Mac's: the
+        // caller found the request by the row's machine and session.
+        next.approval = approval
         next.opensChat = chatEnabled
         // A sandbox's row before the remote question: its agent keeps
         // session records, but they are in the VM, and there is no server

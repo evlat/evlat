@@ -33,6 +33,22 @@ struct TestAgent: Agent {
     func providers(_ context: ProviderContext) -> [Provider] { [] }
 }
 
+/// A stand-in approval channel: a request is any body with a session.
+struct TestApprovals: ApprovalChannel {
+    var path: String
+    var timeout = 30
+    var installs: Set<HookTarget> = [.mac]
+
+    func isQuestion(_ tool: String) -> Bool { false }
+
+    func request(json: [String: Any]) -> HeldRequest? {
+        HeldRequest(id: UUID().uuidString, token: nil, tool: "Bash", subject: nil,
+                    sessionID: json["session_id"] as? String)
+    }
+
+    func body(_ decision: ChatDecision) -> String { "{\"decided\":true}" }
+}
+
 extension AgentID {
     static let test = AgentID("test")
     static let other = AgentID("other")

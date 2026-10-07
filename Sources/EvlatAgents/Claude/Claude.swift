@@ -53,19 +53,3 @@ struct Claude: Agent {
                           platform: context.platform, source: id, excluding: context.excludingSessions)]
     }
 }
-
-/// Claude Code's `PermissionRequest`, held on the card: the request and the
-/// answer are its documented http hook's (`ApprovalHook`, `PermissionHook`).
-struct ClaudeApprovals: ApprovalChannel {
-    func isQuestion(_ tool: String) -> Bool { tool == AskQuestion.tool }
-
-    func request(json: [String: Any]) -> HeldRequest? { HeldRequest(json: json, token: nil) }
-
-    func body(_ decision: ChatDecision) -> String { PermissionHook.body(decision) }
-
-    func state(of settings: [String: Any]) -> HookSettings.State { ApprovalHook.state(of: settings) }
-
-    func installing(into settings: [String: Any]) -> [String: Any] { ApprovalHook.installing(into: settings) }
-
-    func removing(from settings: [String: Any]) -> [String: Any] { ApprovalHook.removing(from: settings) }
-}

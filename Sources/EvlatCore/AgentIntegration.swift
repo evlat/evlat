@@ -197,7 +197,7 @@ public enum AgentIntegration {
         if sameFile(relayFile, hooksFile) {
             try write(.hooks) {
                 try SettingsFile.apply(at: hooksFile) { settings in
-                    let hooks = LocalHooks.removing(from: settings, for: source, approvals: true)
+                    let hooks = LocalHooks.removing(from: settings, for: source)
                     return StatusLineRelay.removing(from: hooks, source: source) ?? hooks
                 }
             }
@@ -234,7 +234,7 @@ public enum AgentIntegration {
                 guard relayState(of: settings, source: source) == .missing else { return }
                 try SettingsFile.replace(backup, with: try StatusLineRelay.backupContents(of: settings), mode: mode)
             }) { settings in
-                let hooks = LocalHooks.installing(into: settings, for: source, approvals: true)
+                let hooks = LocalHooks.installing(into: settings, for: source, target: .mac)
                 return StatusLineRelay.installing(into: hooks, source: source) ?? hooks
             }
         } catch {
@@ -243,7 +243,7 @@ public enum AgentIntegration {
         // The writers' own check, part by part: what should now be there
         // and is not was refused — a shape not ours to overwrite.
         let settings = (try? SettingsFile.read(file)) ?? [:]
-        if LocalHooks.state(of: settings, for: source, approvals: true) != .current {
+        if LocalHooks.state(of: settings, for: source, target: .mac) != .current {
             throw Failure(part: .hooks, reason: .malformed)
         }
         let relay = relayState(of: settings, source: source)

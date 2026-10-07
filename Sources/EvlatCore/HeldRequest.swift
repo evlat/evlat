@@ -26,7 +26,8 @@ public struct HeldRequest: Equatable {
     public let cwd: String?
     /// `agent_id`: a subagent's request carries its parent's session, so
     /// what answers it is told apart by the actor (`ApprovalHook.resolves`).
-    public let agentID: String?
+    /// The asking agent itself is `source`.
+    public let subagent: String?
     /// An `AskUserQuestion`'s questions, when the card can answer them;
     /// `nil` for every other tool.
     public let questions: [AgentQuestion]?
@@ -34,11 +35,21 @@ public struct HeldRequest: Equatable {
     /// replaces the whole input, so the answer carries every field of
     /// it, modelled or not. Kept only beside `questions`.
     public let input: Data?
+    /// The agent whose route it came in on (`RouteTable.approvals`),
+    /// stamped by `LocalAPI.handle` — never read from the body. Its
+    /// channel writes the answer (`ApprovalChannel.body`).
+    public var source: AgentID?
+    /// The remote machine whose listener heard it (`RemoteTunnels`); `nil`
+    /// on this Mac's. The listener says it, never the body: only that
+    /// machine's events resolve it, only its rows' cards show it, and the
+    /// answer goes back to that listener.
+    public var machine: String?
 
     public init(id: String, token: String?, tool: String, subject: String?, command: String? = nil,
                 rules: [PermissionRule] = [], directories: [String] = [], sessionID: String? = nil,
-                cwd: String? = nil, agentID: String? = nil,
-                questions: [AgentQuestion]? = nil, input: Data? = nil) {
+                cwd: String? = nil, subagent: String? = nil,
+                questions: [AgentQuestion]? = nil, input: Data? = nil,
+                source: AgentID? = nil, machine: String? = nil) {
         self.id = id
         self.token = token
         self.tool = tool
@@ -48,7 +59,9 @@ public struct HeldRequest: Equatable {
         self.directories = directories
         self.sessionID = sessionID
         self.cwd = cwd
-        self.agentID = agentID
+        self.subagent = subagent
+        self.source = source
+        self.machine = machine
         self.questions = input == nil ? nil : questions
         self.input = questions == nil ? nil : input
     }

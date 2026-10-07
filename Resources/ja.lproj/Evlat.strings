@@ -143,7 +143,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — コマンド本体です。このまま書き込みます（既存のevlatは置き換わるので、先にcommand -v evlatで確認してください）：";
 "remote.command.manual.remove" = "削除するには：Evlatのものであればコマンド、鍵、そして空になったらそのフォルダを削除します：";
 "remote.items.title" = "{name}でのセットアップ";
-"remote.items.body" = "トンネルは道を開くだけです。サーバー上のエージェントがこのバーに伝えるには、サーバー自身のファイルに書き込む必要があります。このMacと同じカードを使ってsshで書き込むか、サーバーで自分で実行するブロックを使います。サーバーには承認フックはなく、Antigravityにはフックのみが入ります。";
+"remote.items.body" = "トンネルは道を開くだけです。サーバー上のエージェントがこのバーに伝えるには、サーバー自身のファイルに書き込む必要があります。このMacと同じカードを使ってsshで書き込むか、サーバーで自分で実行するブロックを使います。サーバー上のClaude Codeも承認をこのバーに求めます。Antigravityにはフックのみが入ります。";
 "remote.item.command" = "evlatコマンド";
 "remote.status.notFound" = "このサーバーにはありません";
 "remote.hint.install.codex" = "Codexで/hooksを開き、Evlatのフックを信頼してください。それまでCodexはフックを実行しません。";

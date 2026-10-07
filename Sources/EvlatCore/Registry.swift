@@ -121,18 +121,23 @@ public final class Registry {
     /// switch. A session with no agent named passes. A remote machine's
     /// is asked of that machine's set (`machineSources`), not this Mac's.
     static func shows(_ signal: Signal, enabled: Set<AgentID>?) -> Bool {
-        guard let enabled, signal.kind == .session, signal.machine == nil,
-              let source = signal.source else { return true }
-        return enabled.contains(source)
+        guard signal.kind == .session, signal.machine == nil, let source = signal.source else { return true }
+        return allows(source, enabled: enabled)
+    }
+
+    /// Whether `source` is switched on in `enabled`, where `nil` — no set
+    /// stored, or none to ask — is every agent. The one reading of a set,
+    /// for the rows and for what else follows the switches (held approvals).
+    public static func allows(_ source: AgentID, enabled: Set<AgentID>?) -> Bool {
+        enabled?.contains(source) ?? true
     }
 
     /// `shows`, with a machine's row asked of its own set. One with no id
     /// passes: there is no set to ask.
     private func shows(_ signal: Signal, enabled: Set<AgentID>?) -> Bool {
         guard let machine = signal.machine else { return Self.shows(signal, enabled: enabled) }
-        guard let id = machine.id, let own = machineSources(id), signal.kind == .session,
-              let source = signal.source else { return true }
-        return own.contains(source)
+        guard let id = machine.id, signal.kind == .session, let source = signal.source else { return true }
+        return Self.allows(source, enabled: machineSources(id))
     }
 
     /// Reduces one entity's rows to the single line the bar shows.
