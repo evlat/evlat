@@ -167,7 +167,7 @@ public enum AgentIntegration {
 
     /// Whether the agent's files still hold Evlat's bytes from before the
     /// socket (`EvlatSocket.predates`): its hooks, or a usage line an
-    /// earlier copy wrapped. What opens Settings → Agents once after the
+    /// earlier copy wrapped. What the update window's paragraph names after the
     /// cut. A file that cannot be read says nothing.
     public static func predatesSocket(home: URL, for source: some Agent) -> Bool {
         if hooksPredateSocket(home: home, for: source) { return true }
@@ -203,6 +203,30 @@ public enum AgentIntegration {
             guard relayState(of: try SettingsFile.read(relayFile), source: source) != .modified else { return }
             try StatusLineRelay.install(at: relayFile, source: source)
         }
+    }
+
+    /// What automatic updates write for an agent (Settings → General,
+    /// `updates.automatic`): only what an older copy wrote. Its hooks when
+    /// they are old — with the rest of the unit (`install`), unless the
+    /// usage line was taken out, which stays out. Nothing for an agent
+    /// switched off, a unit not installed, or a usage line alone.
+    public enum AutomaticScope: Equatable { case unit, hooks }
+
+    public static func automaticScope(_ state: State, enabled: Bool) -> AutomaticScope? {
+        guard enabled, state.hooks == .outdated else { return nil }
+        return state.relay == .missing ? .hooks : .unit
+    }
+
+    /// Automatic updates' write for this Mac: `automaticScope`, with the
+    /// card's writers. `false` when there was nothing to write.
+    @discardableResult
+    public static func keepCurrent(home: URL, for source: some Agent, enabled: Bool) throws -> Bool {
+        switch automaticScope(try state(home: home, for: source), enabled: enabled) {
+        case .unit?: try install(home: home, for: source)
+        case .hooks?: try write(.hooks) { _ = try LocalHooks.install(at: source.hooksFile(home: home), for: source) }
+        case nil: return false
+        }
+        return true
     }
 
     /// Every part taken out, the relay wherever Evlat's is found — also

@@ -21,6 +21,9 @@ final class UpdatesTests: XCTestCase {
         var log: [String] = []
         /// The machines' jobs not answered yet, in the order they started.
         var pending: [(id: String, done: (UpdatesModel.MachineResult) -> Void)] = []
+        /// `updates.automatic`: `nil` while never written.
+        var automatic: Bool?
+        var predatesSocket = false
 
         init(cards: [SetupRow], machines: [UpdatesModel.Machine]) {
             self.cards = cards
@@ -44,7 +47,24 @@ final class UpdatesTests: XCTestCase {
                     log.append("machine \(id)")
                     pending.append((id, done))
                     return true
-                })
+                },
+                automatic: { [unowned self] in automatic },
+                setAutomatic: { [unowned self] in automatic = $0 },
+                keepAgent: { [unowned self] source in
+                    log.append("keep \(source.rawValue)")
+                    guard let index = cards.firstIndex(where: { $0.item == .agent(source) }) else { return }
+                    let card = cards[index]
+                    let failure = refusals[source]
+                    cards[index] = UpdatesTests.card(source, failure == nil ? .installed : .outdated,
+                                                     enabled: card.enabled, failure: failure)
+                },
+                keepMachine: { [unowned self] id, done in
+                    guard !pending.contains(where: { $0.id == id }) else { return false }
+                    log.append("keep machine \(id)")
+                    pending.append((id, done))
+                    return true
+                },
+                predatesSocket: { [unowned self] in predatesSocket })
         }
 
         /// The oldest running job answers.
@@ -275,9 +295,154 @@ final class UpdatesTests: XCTestCase {
         XCTAssertTrue(RemoteMachinesModel.needsUpdate(reading, enabled: [.codex]), "the command alone")
     }
 
+    // MARK: - Automatic updates
+
+    /// The window's heading and paragraph: the general one, or the socket's
+    /// while an agent still holds the bytes from before it.
+    func testTheParagraphFollowsTheCause() {
+        let fake = mockup()
+        let model = model(fake)
+        XCTAssertEqual(model.title, "Evlat needs an update from you")
+        XCTAssertEqual(model.body, L10n.t("updates.body.general", in: "en"))
+        fake.predatesSocket = true
+        model.start()
+        XCTAssertEqual(model.body, L10n.t("updates.body", in: "en"))
+    }
+
+    /// The box comes checked; "Update all" with it checked turns automatic
+    /// updates on, unchecked it writes nothing, and Later never writes.
+    func testTheBoxAndUpdateAll() {
+        let later = mockup()
+        let first = model(later)
+        XCTAssertTrue(first.keepCurrent, "checked by default")
+        XCTAssertEqual(first.keepDetail, L10n.t("updates.keep.detail", in: "en"))
+        first.close()
+        XCTAssertNil(later.automatic, "Later writes nothing")
+
+        let checked = mockup()
+        let second = model(checked)
+        second.updateAll()
+        XCTAssertEqual(checked.automatic, true)
+        XCTAssertEqual(second.keepDetail, L10n.t("updates.keep.on", in: "en"), "now it is the setting")
+
+        let unchecked = mockup()
+        let third = model(unchecked)
+        third.setKeepCurrent(false)
+        XCTAssertNil(unchecked.automatic, "a choice, not yet a write")
+        third.updateAll()
+        XCTAssertNil(unchecked.automatic, "unchecked: nothing written")
+
+        // Turned off in Settings: the box comes unchecked, and "Update
+        // all" leaves the choice alone.
+        let off = mockup()
+        off.automatic = false
+        let fourth = model(off)
+        XCTAssertFalse(fourth.keepCurrent)
+        fourth.updateAll()
+        XCTAssertEqual(off.automatic, false)
+    }
+
+    /// While automatic updates are on, the box is their switch: unchecking
+    /// writes at once.
+    func testWithAutomaticOnTheBoxIsTheSwitch() {
+        let fake = mockup()
+        fake.automatic = true
+        let model = model(fake)
+        XCTAssertTrue(model.keepCurrent)
+        XCTAssertEqual(model.keepDetail, L10n.t("updates.keep.on", in: "en"))
+        model.setKeepCurrent(false)
+        XCTAssertEqual(fake.automatic, false)
+        model.setKeepCurrent(true)
+        XCTAssertEqual(fake.automatic, true)
+    }
+
+    /// At launch with automatic updates on: this Mac's old agents are
+    /// updated with the automatic write, and the window is asked for only
+    /// when something is left to the user.
+    func testAutomaticUpdatesAreSilentUnlessSomethingIsLeft() {
+        let quiet = Fake(cards: [Self.card(.claude, .outdated), Self.card(.antigravity, .outdated, enabled: false)],
+                         machines: [])
+        quiet.automatic = true
+        let model = UpdatesModel(host: quiet.host, lang: "en")
+        var asked = 0
+        model.onNeedsUser = { asked += 1 }
+        model.keepAgentsCurrent()
+        XCTAssertEqual(quiet.log, ["keep claude"], "only an agent switched on with old hooks")
+        XCTAssertEqual(asked, 0, "nothing left to the user: silent")
+
+        let step = Fake(cards: [Self.card(.claude, .outdated), Self.card(.codex, .outdated)], machines: [])
+        step.automatic = true
+        let stepModel = UpdatesModel(host: step.host, lang: "en")
+        stepModel.onNeedsUser = { asked += 1 }
+        stepModel.keepAgentsCurrent()
+        XCTAssertEqual(asked, 1, "Codex's /hooks")
+        stepModel.opened()
+        XCTAssertEqual(stepModel.agents.map(\.state), [.updated, .updated], "opened on its results, not afresh")
+        XCTAssertEqual(stepModel.title, "Evlat updated its parts")
+        XCTAssertEqual(stepModel.body, "Evlat kept its parts up to date, as you asked. One of them needs a step from you.")
+        XCTAssertTrue(stepModel.isDone)
+        XCTAssertEqual(stepModel.keepDetail, L10n.t("updates.keep.on", in: "en"))
+
+        let refused = Fake(cards: [Self.card(.claude, .outdated)], machines: [])
+        refused.refusals[.claude] = "Hooks: could not be written"
+        let refusedModel = UpdatesModel(host: refused.host, lang: "en")
+        asked = 0
+        refusedModel.onNeedsUser = { asked += 1 }
+        refusedModel.keepAgentsCurrent()
+        XCTAssertEqual(asked, 1, "a refused write")
+        XCTAssertEqual(refusedModel.body, L10n.t("updates.auto.body.failed", in: "en"))
+    }
+
+    /// A server is updated as it connects, with the automatic write; the
+    /// window is asked for only for a step there or a failure.
+    func testAServerIsUpdatedAsItConnects() {
+        let fake = Fake(cards: [], machines: [Self.machine("rasp", Self.connected, outdated: [.claude]),
+                                              Self.machine("box", Self.connected, outdated: [.codex])])
+        fake.automatic = true
+        let model = UpdatesModel(host: fake.host, lang: "en")
+        var asked = 0
+        model.onNeedsUser = { asked += 1 }
+        model.keepMachineCurrent("rasp")
+        XCTAssertEqual(fake.log, ["keep machine rasp"])
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.claude]))
+        XCTAssertEqual(asked, 0, "Claude's hooks went in: silent")
+
+        model.keepMachineCurrent("box")
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.codex]))
+        XCTAssertEqual(asked, 1, "Codex there wants its /hooks")
+        model.opened()
+        XCTAssertEqual(model.machines.map(\.name), ["box"], "this result alone")
+        XCTAssertEqual(model.machines.first?.state, .updated)
+    }
+
+    /// A server that joins results already told, and is refused, is told
+    /// too; one whose job cannot start says so to its caller.
+    func testAJoiningServerIsToldAndARefusedStartIsNotKept() {
+        let fake = Fake(cards: [Self.card(.codex, .outdated)],
+                        machines: [Self.machine("rasp", Self.connected, outdated: [.claude]),
+                                   Self.machine("box", Self.connected, outdated: [.claude])])
+        fake.automatic = true
+        let model = UpdatesModel(host: fake.host, lang: "en")
+        var asked = 0
+        model.onNeedsUser = { asked += 1 }
+        model.keepAgentsCurrent()
+        XCTAssertEqual(asked, 1, "Codex's step")
+        XCTAssertTrue(model.keepMachineCurrent("rasp"))
+        XCTAssertTrue(model.keepMachineCurrent("box"), "waits its turn")
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.claude]))
+        fake.answer(UpdatesModel.MachineResult(failure: "Claude Code: could not reach the server", agents: [.claude]))
+        XCTAssertEqual(asked, 2, "the refusal is told though the set was")
+
+        fake.pending.append(("other", { _ in }))
+        fake.machines.append(Self.machine("other", Self.connected, outdated: [.claude]))
+        XCTAssertFalse(model.keepMachineCurrent("other"), "another job runs there")
+        XCTAssertFalse(model.machines.map(\.name).contains("other"))
+    }
+
     func testEveryKeyIsInEveryTable() {
         for lang in L10nTests.languages {
-            for key in UpdatesModel.keys + ["menu.updates", "updates.after.claude", "updates.step.codex"] {
+            for key in UpdatesModel.keys + ["menu.updates", "updates.after.claude", "updates.step.codex",
+                                            "settings.general.keepParts", "settings.general.keepParts.detail"] {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }
         }
@@ -442,6 +607,58 @@ final class UpdatesTests: XCTestCase {
         whyModel.toggleWhy(.machine("build-01"))
         whyModel.toggleWhy(.machine("a-build-server-with-a-rather-long-name.internal.example.com"))
         try draw(whyModel, on: big, to: out.appendingPathComponent("4-why.png"))
+    }
+
+    /// `EVLAT_WINDOW_SHOTS=<folder> EVLAT_TEST_DESKTOP=1 swift test --filter
+    /// UpdatesTests/testTheRealWindow`: the mockups' states c and d in the
+    /// real window on the real screen, captured by `screencapture -l` — what
+    /// a picture drawn without a window cannot show (the title bar's safe
+    /// area, the footer's last points).
+    func testTheRealWindow() throws {
+        guard let folder = ProcessInfo.processInfo.environment["EVLAT_WINDOW_SHOTS"], !WindowStage.isOffstage else {
+            throw XCTSkip("EVLAT_WINDOW_SHOTS names no folder, or the windows are offstage")
+        }
+        let out = URL(fileURLWithPath: folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+
+        // c · automatic updates off: two agents and a server old, one not
+        // connected yet.
+        let open = Fake(cards: [Self.card(.claude, .outdated), Self.card(.codex, .outdated)],
+                        machines: [Self.machine("rasp", Self.connected, outdated: [.claude], command: true),
+                                   Self.machine("kararla_hetzner", .connecting)])
+        try capture(model(open), to: out.appendingPathComponent("c-automatic-off.png"))
+
+        // d · automatic updates on: what they did, Codex's step left.
+        let done = Fake(cards: [Self.card(.claude, .outdated), Self.card(.codex, .outdated)],
+                        machines: [Self.machine("rasp", Self.connected, outdated: [.claude])])
+        done.automatic = true
+        let results = UpdatesModel(host: done.host, lang: "en")
+        results.keepAgentsCurrent()
+        results.isShown = { true }
+        results.keepMachineCurrent("rasp")
+        done.answer(UpdatesModel.MachineResult(failure: nil, agents: [.claude]))
+        results.isShown = { false }
+        try capture(results, to: out.appendingPathComponent("d-results.png"))
+    }
+
+    private func capture(_ model: UpdatesModel, to url: URL) throws {
+        let window = UpdatesWindow.make(model: model)
+        defer { window.close() }
+        window.center()
+        window.orderFrontRegardless()
+        var last = CGRect.zero
+        for _ in 0..<40 {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            if window.frame == last, last.height > 0 { break }
+            last = window.frame
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", "-o", "-l", String(window.windowNumber), url.path]
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
     }
 
     /// The window's content as the rule sizes it on `screen`, at 2×.

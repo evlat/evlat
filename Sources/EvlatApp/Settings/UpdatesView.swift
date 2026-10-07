@@ -33,12 +33,12 @@ struct UpdatesView: View {
     /// Below the see-through title bar.
     var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(model.t("updates.title"))
+            Text(model.title)
                 .font(.system(size: 21, weight: .semibold))
                 .tracking(-0.2)
                 .foregroundStyle(SettingsPalette.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(model.t("updates.body"))
+            Text(model.body)
                 .font(.system(size: 13.5))
                 .lineSpacing(3.5)
                 .foregroundStyle(SettingsPalette.body)
@@ -155,11 +155,7 @@ struct UpdatesView: View {
 
     var footer: some View {
         HStack(alignment: .center, spacing: 16) {
-            Text(model.t("updates.note"))
-                .font(.system(size: 12))
-                .foregroundStyle(SettingsPalette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380, alignment: .leading)
+            keepBox
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 if model.isDone {
@@ -177,6 +173,28 @@ struct UpdatesView: View {
         .padding(.horizontal, 36)
         .padding(.bottom, 18)
         .overlay(alignment: .top) { Rectangle().fill(SettingsPalette.rowLine).frame(height: 1) }
+    }
+
+    /// "Keep these up to date automatically", and what it does or where it
+    /// is turned off. The whole block is the box's label: a click on the
+    /// words checks it too.
+    private var keepBox: some View {
+        Toggle(isOn: Binding(get: { model.keepCurrent }, set: { model.setKeepCurrent($0) })) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.t("updates.keep"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(SettingsPalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(model.keepDetail)
+                    .font(.system(size: 11.5))
+                    .lineSpacing(2)
+                    .foregroundStyle(SettingsPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, 3)
+        }
+        .toggleStyle(.checkbox)
+        .frame(maxWidth: 420, alignment: .leading)
     }
 
     // MARK: - Pieces

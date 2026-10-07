@@ -186,6 +186,63 @@ final class AgentIntegrationTests: XCTestCase {
         }
     }
 
+    // MARK: - Automatic updates
+
+    /// Automatic updates take only what an older copy wrote: old hooks, and
+    /// with them an earlier copy's usage line. A unit not installed, a usage
+    /// line taken out or changed by hand, an agent switched off: nothing.
+    func testAutomaticUpdatesTakeOnlyOldHooks() {
+        typealias State = AgentIntegration.State
+        func scope(_ hooks: LocalHooks.State, _ relay: StatusLineRelay.State?,
+                   enabled: Bool = true) -> AgentIntegration.AutomaticScope? {
+            AgentIntegration.automaticScope(State(hooks: hooks, relay: relay), enabled: enabled)
+        }
+        XCTAssertEqual(scope(.outdated, nil), .unit)
+        XCTAssertEqual(scope(.outdated, .current), .unit)
+        XCTAssertEqual(scope(.outdated, .outdated), .unit, "an earlier copy's line moves with them")
+        XCTAssertEqual(scope(.outdated, .modified), .unit, "the unit's write leaves a hand-edited line")
+        XCTAssertEqual(scope(.outdated, .missing), .hooks, "a line taken out is not put back")
+        XCTAssertNil(scope(.outdated, .current, enabled: false), "switched off")
+        XCTAssertNil(scope(.missing, nil), "not installed is not installed")
+        XCTAssertNil(scope(.missing, .missing))
+        XCTAssertNil(scope(.current, .outdated), "a usage line alone asks for nothing")
+        XCTAssertNil(scope(.current, .missing))
+    }
+
+    /// The write itself: old hooks updated with the card's writers; a
+    /// usage line taken out stays out, one changed by hand stays as it is.
+    func testKeepingCurrentWritesOnlyWhatIsOld() throws {
+        try directory(".claude")
+        let file = Claude().hooksFile(home: home)
+        let old = String(decoding: try JSONSerialization.data(withJSONObject: HookSettings.installing(into: [:], for: .claude)),
+                         as: UTF8.self).replacingOccurrences(of: "-m 2", with: "-m 1")
+        var settings = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(old.utf8)) as? [String: Any])
+        settings["statusLine"] = ["type": "command", "command": "bash ~/s.sh"]
+        try JSONSerialization.data(withJSONObject: settings).write(to: file)
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude),
+                       AgentIntegration.State(hooks: .outdated, relay: .missing))
+
+        XCTAssertTrue(try AgentIntegration.keepCurrent(home: home, for: .claude, enabled: true))
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude),
+                       AgentIntegration.State(hooks: .current, relay: .missing), "the line is not wrapped")
+        XCTAssertEqual((try json(file)["statusLine"] as? [String: Any])?["command"] as? String, "bash ~/s.sh")
+        XCTAssertFalse(try AgentIntegration.keepCurrent(home: home, for: .claude, enabled: true), "nothing old now")
+
+        let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
+        var withEdited = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(old.utf8)) as? [String: Any])
+        withEdited["statusLine"] = ["type": "command", "command": edited]
+        try JSONSerialization.data(withJSONObject: withEdited).write(to: file)
+        XCTAssertFalse(try AgentIntegration.keepCurrent(home: home, for: .claude, enabled: false), "switched off")
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).hooks, .outdated)
+        XCTAssertTrue(try AgentIntegration.keepCurrent(home: home, for: .claude, enabled: true))
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).hooks, .current)
+        XCTAssertEqual((try json(file)["statusLine"] as? [String: Any])?["command"] as? String, edited)
+
+        try directory(".codex")
+        XCTAssertFalse(try AgentIntegration.keepCurrent(home: home, for: .codex, enabled: true), "never installed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: home).path))
+    }
+
     // MARK: - The one cut to the socket
 
     private func write(_ settings: [String: Any], to file: URL) throws {

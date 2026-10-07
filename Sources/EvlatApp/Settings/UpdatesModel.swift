@@ -13,6 +13,13 @@ import EvlatAgents
 /// that say what is old are the cards' too; this model only keeps which rows
 /// it showed and what their presses left.
 ///
+/// Automatic updates (`updates.automatic`) run through it too, unseen: at
+/// launch this Mac's old agents (`keepAgentsCurrent`), and each server as it
+/// connects (`keepMachineCurrent`), with the automatic write
+/// (`AgentIntegration.automaticScope`). The window is asked for
+/// (`onNeedsUser`) only when something is left to the user
+/// (`SetupTrigger.opensResults`), and opens on those results.
+///
 /// **Main queue only**, like the models behind `Host`.
 @MainActor
 final class UpdatesModel: ObservableObject {
@@ -30,6 +37,20 @@ final class UpdatesModel: ObservableObject {
         /// Reads them again from their files: at each opening. A press reads
         /// its own row again.
         var reloadAgents: () -> Void = {}
+        /// `updates.automatic` as written, `nil` while never written; and
+        /// its writer.
+        var automatic: () -> Bool? = { nil }
+        var setAutomatic: (Bool) -> Void = { _ in }
+        /// Automatic updates' write for an agent here
+        /// (`AgentIntegration.keepCurrent`); its row is read again after.
+        var keepAgent: (AgentID) -> Void = { _ in }
+        /// Automatic updates' job for a machine: `updateMachine`'s, with
+        /// the automatic write for each agent.
+        var keepMachine: (String, @escaping (MachineResult) -> Void) -> Bool = { _, _ in false }
+        /// An agent switched on here still holds the bytes from before the
+        /// socket (`AgentIntegration.predatesSocket`): the paragraph says
+        /// why they went silent.
+        var predatesSocket: () -> Bool = { false }
     }
 
     /// A machine as the window reads it: its tunnel, and from its newest
@@ -119,6 +140,11 @@ final class UpdatesModel: ObservableObject {
     @Published private(set) var running: Kind?
     /// "Update all" was pressed: the footer says Done from then on.
     @Published private(set) var pressedAll = false
+    /// The footer's box, "Keep these up to date automatically": checked
+    /// when the window opens.
+    @Published private(set) var keepCurrent = true
+    /// The window shows what automatic updates did, not what is old.
+    @Published private(set) var results = false
 
     private let host: Host
     private(set) var lang: String
@@ -138,6 +164,24 @@ final class UpdatesModel: ObservableObject {
     /// "Update all"'s rows still to run, in order.
     private var queue: [Kind] = []
     private var pressedAny = false
+    /// The box is the setting itself (automatic updates were on when the
+    /// window opened, or "Update all" turned them on): it writes at once.
+    /// Otherwise it is a choice "Update all" writes.
+    private(set) var boxIsSwitch = false
+    /// The paragraph's cause, read at each opening.
+    private var socketCause = false
+    /// The rows automatic updates run, with their write.
+    private var automaticKinds: Set<Kind> = []
+    /// The rows already reported (`onNeedsUser`): each is told once.
+    private var reported: Set<Kind> = []
+    /// The next opening shows the results as they are (`opened`).
+    private var holdsResults = false
+    /// Automatic updates left something to the user: the window opens on
+    /// the results (`AppController`).
+    var onNeedsUser: () -> Void = {}
+    /// The window is on screen: a server's automatic update joins what it
+    /// shows rather than starting a set of its own.
+    var isShown: () -> Bool = { false }
 
     init(host: Host, lang: String = L10n.language) {
         self.host = host
@@ -158,10 +202,7 @@ final class UpdatesModel: ObservableObject {
     /// running, which keeps its row and holds the buttons until it answers.
     func start() {
         host.reloadAgents()
-        agentIDs = host.agentRows().compactMap { row in
-            guard let source = row.item.agent, row.enabled, row.hooksStatus == .outdated else { return nil }
-            return source
-        }
+        agentIDs = outdatedAgents()
         machineIDs = host.machines().filter { machine in
             Self.state(of: machine, in: lang) != .current || running == .machine(machine.id)
         }.map(\.id)
@@ -171,8 +212,146 @@ final class UpdatesModel: ObservableObject {
         expanded = []
         pressedAll = false
         pressedAny = false
+        results = false
+        holdsResults = false
+        reported = []
+        automaticKinds = []
+        // Checked unless the user turned automatic updates off.
+        let stored = host.automatic()
+        boxIsSwitch = stored == true
+        keepCurrent = stored ?? true
+        socketCause = host.predatesSocket()
         refresh()
         onStart()
+    }
+
+    /// The window's opening: afresh, or on automatic updates' results when
+    /// they asked for it.
+    func opened() {
+        guard holdsResults else { return start() }
+        holdsResults = false
+        refresh()
+        onStart()
+    }
+
+    /// This Mac's agents switched on whose hooks an older copy wrote (the
+    /// `hooksOutdated` rule: a usage line alone is not asked for).
+    private func outdatedAgents() -> [AgentID] {
+        host.agentRows().compactMap { row in
+            guard let source = row.item.agent, row.enabled, row.hooksStatus == .outdated else { return nil }
+            return source
+        }
+    }
+
+    // MARK: - Automatic updates
+
+    /// A new set of results, nothing in it yet but a machine's job still
+    /// running, which joins it and reports when it answers.
+    private func beginResults() {
+        agentIDs = []
+        machineIDs = []
+        if case .machine(let id)? = running { machineIDs = [id] }
+        pressed = running.map { [$0: .updating] } ?? [:]
+        updatedAgents = [:]
+        queue = []
+        expanded = []
+        automaticKinds = []
+        results = true
+        pressedAll = true
+        pressedAny = true
+        reported = []
+        holdsResults = false
+        boxIsSwitch = true
+        keepCurrent = host.automatic() ?? false
+    }
+
+    /// At launch: this Mac's old agents, each with the automatic write.
+    func keepAgentsCurrent() {
+        guard running == nil else { return }
+        host.reloadAgents()
+        beginResults()
+        agentIDs = outdatedAgents()
+        let kinds = agentIDs.map(Kind.agent)
+        automaticKinds.formUnion(kinds)
+        queue = kinds
+        refresh()
+        next()
+        report()
+    }
+
+    /// A server connected and read old: its automatic update, into the
+    /// window's rows while it is shown, into the results being made, else
+    /// a set of its own. `true` when its job runs or waits its turn.
+    @discardableResult
+    func keepMachineCurrent(_ id: String) -> Bool {
+        let kind = Kind.machine(id)
+        guard running != kind, !queue.contains(kind) else { return true }
+        if !isShown(), !results || (running == nil && queue.isEmpty) { beginResults() }
+        if !machineIDs.contains(id) { machineIDs.append(id) }
+        automaticKinds.insert(kind)
+        pressed[kind] = nil
+        queue.append(kind)
+        refresh()
+        next()
+        let going = running == kind || queue.contains(kind)
+        if !going, pressed[kind] == nil { machineIDs.removeAll { $0 == id } }
+        refresh()
+        report()
+        return going
+    }
+
+    /// What automatic updates left to the user, asked for once nothing
+    /// runs: each row needing the user is told once.
+    private func report() {
+        guard results, running == nil, queue.isEmpty, !isShown() else { return }
+        let left = rows.filter { row in
+            if case .failed = row.state { return true }
+            return row.lines.contains { $0.tone == .step }
+        }.map(\.kind)
+        let failed = rows.contains { if case .failed = $0.state { return true } else { return false } }
+        guard SetupTrigger.opensResults(failed: failed, stepLeft: stepCount > 0),
+              !Set(left).isSubset(of: reported) else { return }
+        reported.formUnion(left)
+        holdsResults = true
+        onNeedsUser()
+    }
+
+    /// The setting changed elsewhere (Settings) while the window is shown:
+    /// the box follows it, and on it is the switch.
+    func automaticChanged(_ on: Bool) {
+        keepCurrent = on
+        if on { boxIsSwitch = true }
+        objectWillChange.send()
+    }
+
+    /// The rows that leave a step to the user.
+    private var stepCount: Int {
+        rows.filter { $0.lines.contains { $0.tone == .step } }.count
+    }
+
+    // MARK: - Words
+
+    var title: String { t(results ? "updates.auto.title" : "updates.title") }
+
+    var body: String {
+        guard results else { return t(socketCause ? "updates.body" : "updates.body.general") }
+        if rows.contains(where: { if case .failed = $0.state { return true } else { return false } }) {
+            return t("updates.auto.body.failed")
+        }
+        switch stepCount {
+        case 0: return t("updates.auto.body")
+        case 1: return t("updates.auto.body.step")
+        default: return t("updates.auto.body.steps")
+        }
+    }
+
+    /// The box's second line: what it will do, or where it is turned off.
+    var keepDetail: String { t(boxIsSwitch ? "updates.keep.on" : "updates.keep.detail") }
+
+    /// The box pressed: the setting at once while it is the switch.
+    func setKeepCurrent(_ on: Bool) {
+        keepCurrent = on
+        if boxIsSwitch { host.setAutomatic(on) }
     }
 
     /// This Mac's files were written (Settings' press or this window's):
@@ -318,6 +497,10 @@ final class UpdatesModel: ObservableObject {
     /// for before the next starts.
     func updateAll() {
         guard canUpdateAll else { return }
+        if !boxIsSwitch, keepCurrent {
+            host.setAutomatic(true)
+            boxIsSwitch = true
+        }
         pressedAll = true
         pressedAny = true
         queue = rows.filter { $0.action != nil }.map(\.kind)
@@ -340,7 +523,7 @@ final class UpdatesModel: ObservableObject {
         switch kind {
         case .agent(let source):
             pressed[kind] = .updating
-            host.updateAgent(source)
+            if automaticKinds.contains(kind) { host.keepAgent(source) } else { host.updateAgent(source) }
             let card = host.agentRows().first { $0.item == .agent(source) }
             if let failure = card?.failure {
                 pressed[kind] = .failed(failure)
@@ -354,7 +537,8 @@ final class UpdatesModel: ObservableObject {
         case .machine(let id):
             running = kind
             pressed[kind] = .updating
-            let started = host.updateMachine(id) { [weak self] result in
+            let update = automaticKinds.contains(kind) ? host.keepMachine : host.updateMachine
+            let started = update(id) { [weak self] result in
                 guard let self else { return }
                 // A reopening in between kept this job as running; anything
                 // else running is not this one's to end.
@@ -367,6 +551,7 @@ final class UpdatesModel: ObservableObject {
                 }
                 self.refresh()
                 self.next()
+                self.report()
             }
             if !started {
                 if running == kind { running = nil }
@@ -397,8 +582,10 @@ final class UpdatesModel: ObservableObject {
     /// (`remote.*`, `setup.*`, the agents' names) and an agent's own lines
     /// (`updates.step.<agent>`, `updates.after.<agent>`), asked for only when
     /// the catalogue has them.
-    static let keys = ["updates.window.title", "updates.title", "updates.body", "updates.section.mac",
-                       "updates.section.servers", "updates.note", "updates.later", "updates.all", "updates.done",
+    static let keys = ["updates.window.title", "updates.title", "updates.body", "updates.body.general",
+                       "updates.auto.title", "updates.auto.body", "updates.auto.body.step", "updates.auto.body.steps",
+                       "updates.auto.body.failed", "updates.keep", "updates.keep.detail", "updates.keep.on",
+                       "updates.section.mac", "updates.section.servers", "updates.later", "updates.all", "updates.done",
                        "updates.updating", "updates.updated", "updates.current", "updates.retry", "updates.why",
                        "updates.checking", "updates.machine.notConnected", "updates.machine.approvals",
                        "updates.commandNotRun"]

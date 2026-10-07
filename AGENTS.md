@@ -823,11 +823,24 @@ naming Evlat's url and not the socket — the TCP command, its relay, the
 `http` approval hook — in any file shape; `AgentIntegration.predatesSocket`
 per agent). With them, an old hook's menu line says what it costs
 (`setup.attention.hooksOutdated`: Evlat can't hear its sessions; an old
-hook still on the socket is only "old", `hooksStale`), and the update
-window opens once by itself (`SetupTrigger.opensAgents`, flag
-`setup.socketCutShown`): for an agent switched on, never in an isolated
-process (`Isolation.isIsolated`), never when the setup opens at that
-launch. A server's old parts are a machine line (below). The window
+hook still on the socket is only "old", `hooksStale`), and the paragraph
+of the update window names the cut. That window opens by itself at every
+launch while an agent switched on here has old hooks
+(`SetupTrigger.updatesAtLaunch`; `setup.socketCutShown`, its once-only
+mark before, is no longer read), never in an isolated process
+(`Isolation.isIsolated`), never when the setup opens at that launch; a
+server connecting does not open it. Its footer's box, "Keep these up to
+date automatically" (checked unless turned off; "Update all" writes it, Later does not),
+is `updates.automatic`, also Settings → General → Updates (in memory when
+isolated, off when nothing is stored). On, Evlat updates its parts
+itself — this Mac's at launch and when it is turned on, a server's as it
+connects (once per process, once its job started) — through the same model and writers, but only what an older
+copy wrote (`AgentIntegration.automaticScope`: old hooks; a usage line
+taken out stays out, one changed by hand is left; nothing for an agent
+switched off or not installed), and opens the window on its results only
+when something is left to the user: a step (Codex's `/hooks`) or a
+refused write (`SetupTrigger.opensResults`). A server's old parts are a
+machine line (below). The window
 (`UpdatesModel`, `UpdatesWindow`) lists this Mac's agents switched on with
 old hooks and every server not known to be current — not connected yet
 ("checked once it connects", read again as it connects), its channel
@@ -1113,7 +1126,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_SOCKET` | a second Evlat: its own socket, an absolute path (`EvlatSocket`; a relative one is none, never the user's) — the app binds it and `evlat signal`/`watch` post to it. Set, it is the one predicate of a second process (`Isolation.hasOwnSocket`): no tunnel opens unless `EVLAT_MACHINES` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
+| `EVLAT_SOCKET` | a second Evlat: its own socket, an absolute path (`EvlatSocket`; a relative one is none, never the user's) — the app binds it and `evlat signal`/`watch` post to it. Set, it is the one predicate of a second process (`Isolation.hasOwnSocket`): no tunnel opens unless `EVLAT_MACHINES` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings, the update reminder's last showing and automatic updates of Evlat's parts (`updates.automatic`; the row is still offered); with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
 | `EVLAT_PORT` | gone: a process with it set, blank included, says `EVLAT_PORT is gone; use EVLAT_SOCKET` on stderr and exits `2` — the bar, the diagnostics, help and the askpass helper alike (`LaunchMode.refused`). `watch` and `signal` still run but post nothing, as if Evlat refused (`SignalClient.post`): `watch` runs the command unchanged and prints nothing, `signal` says the one line and exits `1` |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |

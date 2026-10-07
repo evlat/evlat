@@ -494,6 +494,8 @@
 "settings.general.updates" = "Updates";
 "settings.general.autoUpdate" = "Install updates automatically";
 "settings.general.autoUpdate.detail" = "New versions download in the background and install when Evlat quits. If Evlat stays open, it asks once a day to restart and install.";
+"settings.general.keepParts" = "Keep Evlat’s parts up to date";
+"settings.general.keepParts.detail" = "When what Evlat wrote into your agents’ and servers’ files goes out of date, Evlat updates it and asks you only when you need to act.";
 "settings.general.body" = "Body";
 "settings.general.body.detail" = "How the bar sits on the edge of the screen.";
 "settings.general.body.always" = "Always out";
@@ -729,11 +731,19 @@
 /* The update window: what an older copy left, each with its one press. */
 "menu.updates" = "Review updates…";
 "updates.window.title" = "Updates";
-"updates.title" = "Evlat needs one update from you";
+"updates.title" = "Evlat needs an update from you";
 "updates.body" = "Evlat now listens through a private file that only your account can open, instead of a network port. Your agents and servers still talk the old way, so Evlat can’t hear them until they’re updated. One press updates each one; nothing else in their files changes.";
+"updates.body.general" = "Some of what Evlat wrote into your agents’ files is out of date, so Evlat may miss their sessions. One press updates each one; nothing else in their files changes.";
+"updates.auto.title" = "Evlat updated its parts";
+"updates.auto.body" = "Evlat kept its parts up to date, as you asked.";
+"updates.auto.body.step" = "Evlat kept its parts up to date, as you asked. One of them needs a step from you.";
+"updates.auto.body.steps" = "Evlat kept its parts up to date, as you asked. Some of them need a step from you.";
+"updates.auto.body.failed" = "Evlat tried to keep its parts up to date, as you asked, but some could not be updated. Their rows say why.";
+"updates.keep" = "Keep these up to date automatically";
+"updates.keep.detail" = "From now on Evlat updates its parts when they go out of date, and opens this window only when you need to act. Off in Settings → General.";
+"updates.keep.on" = "Off in Settings → General.";
 "updates.section.mac" = "On this Mac";
 "updates.section.servers" = "On your servers";
-"updates.note" = "Settings → Agents and Remote Machines show the same, any time.";
 "updates.later" = "Later";
 "updates.all" = "Update all";
 "updates.done" = "Done";

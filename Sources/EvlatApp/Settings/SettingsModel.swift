@@ -93,6 +93,10 @@ final class SettingsModel: ObservableObject {
         var hasUpdater: () -> Bool = { false }
         var automaticallyUpdates: () -> Bool = { false }
         var setAutomaticallyUpdates: (Bool) -> Void = { _ in }
+        /// General's "Keep Evlat's parts up to date" (`updates.automatic`):
+        /// every copy has it, an isolated one in memory.
+        var keepsPartsCurrent: () -> Bool = { false }
+        var setKeepsPartsCurrent: (Bool) -> Void = { _ in }
         /// Usage's switch: leave out what was not seen for the hour.
         var hidesStaleUsage: () -> Bool = { false }
         var setHidesStaleUsage: (Bool) -> Void = { _ in }
@@ -448,6 +452,14 @@ final class SettingsModel: ObservableObject {
     func setAutomaticallyUpdates(_ on: Bool) {
         guard on != host.automaticallyUpdates() else { return }
         host.setAutomaticallyUpdates(on)
+        objectWillChange.send()
+    }
+
+    var keepsPartsCurrent: Bool { host.keepsPartsCurrent() }
+
+    func setKeepsPartsCurrent(_ on: Bool) {
+        guard on != host.keepsPartsCurrent() else { return }
+        host.setKeepsPartsCurrent(on)
         objectWillChange.send()
     }
 
@@ -871,6 +883,7 @@ final class SettingsModel: ObservableObject {
         "settings.general.bar", "settings.general.edge", "settings.general.edge.detail",
         "settings.general.edge.left", "settings.general.edge.right", "settings.general.start",
         "settings.general.updates", "settings.general.autoUpdate", "settings.general.autoUpdate.detail",
+        "settings.general.keepParts", "settings.general.keepParts.detail",
         "settings.general.display", "settings.general.display.detail", "settings.general.display.main",
         "settings.general.display.missing", "settings.general.display.seam",
         "settings.general.body", "settings.general.body.detail", "settings.general.body.always",

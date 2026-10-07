@@ -22,11 +22,18 @@ renames that heading to its version.
 - **Update your hooks once after this update.** Evlat now listens only on
   a socket in `~/.config/evlat/run`, a folder only you can enter, and no
   longer on port 48151. Hooks set up by earlier versions go silent until
-  you update them: a window opens once listing them, this Mac's agents
-  and your servers, with **Update all**; the menu's **Review updates…**
-  opens it again, and Settings → Agents and Remote Machines show the same.
-  Open Claude Code sessions take the change with their next message; in
-  Codex, open `/hooks` and trust Evlat's new hooks.
+  you update them: a window opens at launch listing them, this Mac's
+  agents and your servers, with **Update all**; the menu's **Review
+  updates…** opens it again, and Settings → Agents and Remote Machines
+  show the same. Open Claude Code sessions take the change with their
+  next message; in Codex, open `/hooks` and trust Evlat's new hooks.
+- **Evlat keeps its parts up to date.** Leave **Keep these up to date
+  automatically** checked when you press **Update all**, and from then on
+  Evlat updates the hooks it wrote into your agents' and servers' files
+  when they go out of date — this Mac's at launch, a server's when it
+  connects — and opens the window only when you need to act, such as
+  Codex's `/hooks`. A usage line you took out or edited is left as it is.
+  Turn it off in Settings → General → Updates.
 - **Several Macs on one server: update Evlat on every Mac first,** then
   the server. An older Evlat can undo a newer one's setup there. A server
   talks to one Mac at a time; the other says “another Evlat answers this

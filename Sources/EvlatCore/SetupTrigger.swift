@@ -21,17 +21,31 @@ public enum SetupTrigger {
             && !Isolation.isIsolated(environment)
     }
 
-    /// Whether the update window opens by itself at launch, once, after the
-    /// cut to the socket: an agent switched on still holds the bytes from
-    /// before it (`AgentIntegration.predatesSocket`), which are silent now,
-    /// and its row's one press moves them.
-    ///
-    /// - Parameters:
-    ///   - shown: it was opened for this before (`setup.socketCutShown`).
-    ///   - opensSetup: the setup opens at this launch (`shouldOpen`); it
-    ///     shows the same cards.
-    public static func opensAgents(hasStorage: Bool, shown: Bool, predatesSocket: Bool, opensSetup: Bool,
-                                   environment: [String: String]) -> Bool {
-        hasStorage && !shown && predatesSocket && !opensSetup && !Isolation.isIsolated(environment)
+    /// What the update window does at launch.
+    public enum UpdatesAtLaunch: Equatable {
+        case nothing
+        /// It opens: automatic updates are off.
+        case window
+        /// Evlat updates its old parts itself, and opens the window only
+        /// for what is left to the user (`opensResults`).
+        case automatic
+    }
+
+    /// At every launch while an agent switched on here holds parts an
+    /// older copy wrote (its hooks `.outdated`): the window, or with
+    /// automatic updates on (`updates.automatic`) the update itself. Never
+    /// while the setup opens — it shows the same cards — and never in an
+    /// isolated process, which writes nothing of the user's.
+    public static func updatesAtLaunch(hasStorage: Bool, automatic: Bool, outdated: Bool, opensSetup: Bool,
+                                       environment: [String: String]) -> UpdatesAtLaunch {
+        guard hasStorage, outdated, !opensSetup, !Isolation.isIsolated(environment) else { return .nothing }
+        return automatic ? .automatic : .window
+    }
+
+    /// Whether automatic updates open the window with what they did: only
+    /// when something is left to the user — a step to take (Codex's
+    /// `/hooks`), or a write that was refused. Otherwise they are silent.
+    public static func opensResults(failed: Bool, stepLeft: Bool) -> Bool {
+        failed || stepLeft
     }
 }

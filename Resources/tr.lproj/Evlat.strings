@@ -430,6 +430,8 @@
 "settings.general.updates" = "Güncellemeler";
 "settings.general.autoUpdate" = "Güncellemeleri otomatik kur";
 "settings.general.autoUpdate.detail" = "Yeni sürümler arka planda indirilir ve Evlat kapanırken kurulur. Evlat açık kalırsa, yeniden başlatıp kurmak için günde bir kez sorar.";
+"settings.general.keepParts" = "Evlat'ın parçalarını güncel tut";
+"settings.general.keepParts.detail" = "Evlat'ın ajanlarının ve sunucularının dosyalarına yazdıkları eskidiğinde Evlat onları günceller ve sana yalnızca yapman gereken bir şey olduğunda sorar.";
 "settings.general.body" = "Gövde";
 "settings.general.body.detail" = "Bar ekran kenarında nasıl dursun.";
 "settings.general.body.always" = "Hep açık";
@@ -659,9 +661,17 @@
 "updates.window.title" = "Güncellemeler";
 "updates.title" = "Evlat senden bir güncelleme bekliyor";
 "updates.body" = "Evlat artık bir ağ portu yerine yalnızca senin hesabının açabildiği özel bir dosyadan dinliyor. Ajanların ve sunucuların hâlâ eski yoldan konuşuyor; güncellenene dek Evlat onları duyamaz. Her birini tek basış günceller; dosyalarında başka hiçbir şey değişmez.";
+"updates.body.general" = "Evlat'ın ajanlarının dosyalarına yazdıklarının bir kısmı eskidi; Evlat onların oturumlarını kaçırabilir. Her birini tek basış günceller; dosyalarında başka hiçbir şey değişmez.";
+"updates.auto.title" = "Evlat parçalarını güncelledi";
+"updates.auto.body" = "Evlat, istediğin gibi parçalarını güncel tuttu.";
+"updates.auto.body.step" = "Evlat, istediğin gibi parçalarını güncel tuttu. Birinde senin atman gereken bir adım var.";
+"updates.auto.body.steps" = "Evlat, istediğin gibi parçalarını güncel tuttu. Bazılarında senin atman gereken bir adım var.";
+"updates.auto.body.failed" = "Evlat, istediğin gibi parçalarını güncel tutmaya çalıştı ama bazılarını güncelleyemedi. Nedeni satırlarında yazıyor.";
+"updates.keep" = "Bunları otomatik olarak güncel tut";
+"updates.keep.detail" = "Bundan sonra Evlat parçaları eskidikçe kendisi günceller ve bu pencereyi yalnızca senin yapman gereken bir şey olduğunda açar. Ayarlar → Genel'den kapatılır.";
+"updates.keep.on" = "Ayarlar → Genel'den kapatılır.";
 "updates.section.mac" = "Bu Mac'te";
 "updates.section.servers" = "Sunucularında";
-"updates.note" = "Ayarlar → Ajanlar ve Uzak makineler aynısını her zaman gösterir.";
 "updates.later" = "Sonra";
 "updates.all" = "Hepsini güncelle";
 "updates.done" = "Bitti";

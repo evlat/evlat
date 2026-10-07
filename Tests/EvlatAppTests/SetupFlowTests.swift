@@ -382,8 +382,9 @@ final class SetupFlowTests: XCTestCase {
     }
 
     /// An agent still on the bytes from before the socket is silent: the
-    /// update window opens once, by itself, with its row, and marks it shown.
-    func testTheUpdateWindowOpensOnceForBytesFromBeforeTheSocket() throws {
+    /// update window opens by itself at each launch, with its row, until
+    /// it is updated; the box comes checked.
+    func testTheUpdateWindowOpensAtEachLaunchWhileSomethingIsOld() throws {
         let plain = ["HOME": home.path]
         defaults.set("right", forKey: AppController.edgeKey)
         try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]]])
@@ -396,18 +397,55 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(first.updatesWindow?.isVisible, true)
         XCTAssertEqual(first.updates?.agents.map(\.kind), [.agent(.claude)])
         XCTAssertEqual(first.updates?.agents.first?.state, .needsUpdate)
-        XCTAssertEqual(defaults.object(forKey: AppController.socketCutShownKey) as? Bool, true)
-
-        // Its one press moves the hooks to the socket.
-        first.updates?.updateAll()
-        XCTAssertEqual(first.updates?.agents.first?.state, .updated)
-        XCTAssertEqual(try AgentIntegration.state(home: home, for: Claude()).hooks, .current)
+        XCTAssertEqual(first.updates?.title, "Evlat needs an update from you")
+        XCTAssertEqual(first.updates?.keepCurrent, true)
+        first.updatesWindow?.close()
 
         let second = try controller(home: home)
         second.updatesActivation = { }
         defer { second.updatesWindow?.close(); second.panel?.close() }
         second.openSetupAtLaunch(environment: plain)
-        XCTAssertNil(second.updatesWindow, "once")
+        XCTAssertEqual(second.updatesWindow?.isVisible, true, "not once: still old")
+        XCTAssertNil(defaults.object(forKey: AppController.updatesAutomaticKey), "opening writes nothing")
+
+        // Its one press moves the hooks to the socket and, the box checked,
+        // turns automatic updates on.
+        second.updates?.updateAll()
+        XCTAssertEqual(second.updates?.agents.first?.state, .updated)
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: Claude()).hooks, .current)
+        XCTAssertEqual(defaults.object(forKey: AppController.updatesAutomaticKey) as? Bool, true)
+
+        let third = try controller(home: home)
+        third.updatesActivation = { }
+        defer { third.updatesWindow?.close(); third.panel?.close() }
+        third.openSetupAtLaunch(environment: plain)
+        XCTAssertNil(third.updatesWindow, "nothing old")
+    }
+
+    /// With automatic updates on, a launch updates the old hooks itself and
+    /// stays silent; a usage line taken out stays out.
+    func testAutomaticUpdatesAtLaunchAreSilent() throws {
+        let plain = ["HOME": home.path]
+        defaults.set("right", forKey: AppController.edgeKey)
+        defaults.set(true, forKey: AppController.updatesAutomaticKey)
+        try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]],
+                         "statusLine": ["type": "command", "command": "bash ~/s.sh"]])
+        let controller = try controller(home: home)
+        controller.updatesActivation = { }
+        defer { controller.updatesWindow?.close(); controller.panel?.close() }
+        controller.openSetupAtLaunch(environment: plain)
+        XCTAssertNotEqual(controller.updatesWindow?.isVisible, true, "nothing left to the user")
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: Claude()),
+                       AgentIntegration.State(hooks: .current, relay: .missing), "its own line is not wrapped")
+
+        // An isolated launch writes nothing of the user's.
+        try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]]])
+        let isolated = try self.controller(home: home)
+        isolated.updatesActivation = { }
+        defer { isolated.updatesWindow?.close(); isolated.panel?.close() }
+        isolated.openSetupAtLaunch(environment: ["EVLAT_SOCKET": "/tmp/e.sock"])
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: Claude()).hooks, .outdated)
+        XCTAssertNil(isolated.updatesWindow)
     }
 
     func testTheUpdateWindowStaysShutForTodaysBytesAnIsolatedLaunchOrTheSetup() throws {
@@ -426,7 +464,6 @@ final class SetupFlowTests: XCTestCase {
         defer { isolated.updatesWindow?.close(); isolated.panel?.close() }
         isolated.openSetupAtLaunch(environment: ["EVLAT_SOCKET": "/tmp/e.sock"])
         XCTAssertNil(isolated.updatesWindow, "a second Evlat")
-        XCTAssertNil(defaults.object(forKey: AppController.socketCutShownKey), "nothing kept")
 
         // A usage line from before the socket and no hooks: a new user by
         // the setup's rule, and the setup shows the same cards.

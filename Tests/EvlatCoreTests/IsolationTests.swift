@@ -97,26 +97,42 @@ final class SetupTriggerTests: XCTestCase {
     }
 }
 
-/// Settings → Agents opens once by itself after the cut to the socket, for
-/// someone whose agents still hold the bytes from before it.
-final class AgentsAfterTheSocketTests: XCTestCase {
-    private func opens(storage: Bool = true, shown: Bool = false, old: Bool = true, setup: Bool = false,
-                       environment: [String: String] = [:]) -> Bool {
-        SetupTrigger.opensAgents(hasStorage: storage, shown: shown, predatesSocket: old,
-                                 opensSetup: setup, environment: environment)
+/// What the update window does at launch: with automatic updates off it
+/// opens while an agent switched on here holds Evlat's old parts; with them
+/// on, Evlat updates them itself instead. Never beside the setup, never in
+/// an isolated process.
+final class UpdatesAtLaunchTests: XCTestCase {
+    private func launch(storage: Bool = true, automatic: Bool = false, outdated: Bool = true, setup: Bool = false,
+                        environment: [String: String] = [:]) -> SetupTrigger.UpdatesAtLaunch {
+        SetupTrigger.updatesAtLaunch(hasStorage: storage, automatic: automatic, outdated: outdated,
+                                     opensSetup: setup, environment: environment)
     }
 
-    func testOldBytesOpenItOnce() {
-        XCTAssertTrue(opens())
-        XCTAssertFalse(opens(shown: true), "shown before")
-        XCTAssertFalse(opens(old: false), "nothing from before the socket")
+    func testOldPartsOpenTheWindowAtEveryLaunchWhileAutomaticIsOff() {
+        XCTAssertEqual(launch(), .window, "not once: each launch with something old")
+        XCTAssertEqual(launch(outdated: false), .nothing, "nothing old")
+    }
+
+    func testAutomaticUpdatesInsteadOfOpening() {
+        XCTAssertEqual(launch(automatic: true), .automatic)
+        XCTAssertEqual(launch(automatic: true, outdated: false), .nothing)
     }
 
     func testEachArmKeepsItShut() {
-        XCTAssertFalse(opens(storage: false), "nothing would remember it was shown")
-        XCTAssertFalse(opens(setup: true), "the setup opens instead")
-        XCTAssertFalse(opens(environment: ["EVLAT_SOCKET": "/tmp/e.sock"]), "a second Evlat")
-        XCTAssertFalse(opens(environment: ["EVLAT_HOME": "/tmp/h"]))
-        XCTAssertTrue(opens(environment: ["EVLAT_TASK": "t"]))
+        for automatic in [false, true] {
+            XCTAssertEqual(launch(storage: false, automatic: automatic), .nothing, "every test's controller")
+            XCTAssertEqual(launch(automatic: automatic, setup: true), .nothing, "the setup shows the same cards")
+            XCTAssertEqual(launch(automatic: automatic, environment: ["EVLAT_SOCKET": "/tmp/e.sock"]), .nothing,
+                           "a second Evlat writes nothing of the user's")
+            XCTAssertEqual(launch(automatic: automatic, environment: ["EVLAT_HOME": "/tmp/h"]), .nothing)
+        }
+        XCTAssertEqual(launch(environment: ["EVLAT_TASK": "t"]), .window)
+    }
+
+    /// Automatic updates open the window only for what is left to the user.
+    func testTheResultsOpenOnlyForAStepOrAFailure() {
+        XCTAssertFalse(SetupTrigger.opensResults(failed: false, stepLeft: false), "silent")
+        XCTAssertTrue(SetupTrigger.opensResults(failed: false, stepLeft: true), "Codex's /hooks")
+        XCTAssertTrue(SetupTrigger.opensResults(failed: true, stepLeft: false), "a write refused")
     }
 }

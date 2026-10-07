@@ -420,6 +420,8 @@
 "settings.general.updates" = "Updates";
 "settings.general.autoUpdate" = "Updates automatisch installieren";
 "settings.general.autoUpdate.detail" = "Neue Versionen werden im Hintergrund geladen und beim Beenden von Evlat installiert. Bleibt Evlat geöffnet, fragt es einmal am Tag, ob es zum Installieren neu starten soll.";
+"settings.general.keepParts" = "Evlats Teile aktuell halten";
+"settings.general.keepParts.detail" = "Wenn veraltet, was Evlat in die Dateien deiner Agenten und Server geschrieben hat, aktualisiert Evlat es und fragt dich nur, wenn du etwas tun musst.";
 "settings.general.body" = "Körper";
 "settings.general.body.detail" = "Wie die Leiste am Bildschirmrand sitzt.";
 "settings.general.body.always" = "Immer draußen";
@@ -647,9 +649,17 @@
 "updates.window.title" = "Updates";
 "updates.title" = "Evlat braucht ein Update von dir";
 "updates.body" = "Evlat hört jetzt über eine private Datei, die nur dein Benutzerkonto öffnen kann, statt über einen Netzwerkport. Deine Agenten und Server sprechen noch auf dem alten Weg, deshalb hört Evlat sie erst nach dem Update. Ein Klick aktualisiert jeden einzeln; sonst ändert sich nichts in ihren Dateien.";
+"updates.body.general" = "Ein Teil dessen, was Evlat in die Dateien deiner Agenten geschrieben hat, ist veraltet, sodass Evlat ihre Sitzungen verpassen kann. Ein Klick aktualisiert jeweils einen; sonst ändert sich nichts in ihren Dateien.";
+"updates.auto.title" = "Evlat hat seine Teile aktualisiert";
+"updates.auto.body" = "Evlat hat seine Teile wie gewünscht aktuell gehalten.";
+"updates.auto.body.step" = "Evlat hat seine Teile wie gewünscht aktuell gehalten. Bei einem ist noch ein Schritt von dir nötig.";
+"updates.auto.body.steps" = "Evlat hat seine Teile wie gewünscht aktuell gehalten. Bei einigen ist noch ein Schritt von dir nötig.";
+"updates.auto.body.failed" = "Evlat hat versucht, seine Teile wie gewünscht aktuell zu halten, konnte aber einige nicht aktualisieren. Ihre Zeilen sagen, warum.";
+"updates.keep" = "Diese automatisch aktuell halten";
+"updates.keep.detail" = "Ab jetzt aktualisiert Evlat seine Teile, sobald sie veralten, und öffnet dieses Fenster nur, wenn du etwas tun musst. Abschalten unter Einstellungen → Allgemein.";
+"updates.keep.on" = "Abschalten unter Einstellungen → Allgemein.";
 "updates.section.mac" = "Auf diesem Mac";
 "updates.section.servers" = "Auf deinen Servern";
-"updates.note" = "Einstellungen → Agenten und Entfernte Maschinen zeigen jederzeit dasselbe.";
 "updates.later" = "Später";
 "updates.all" = "Alle aktualisieren";
 "updates.done" = "Fertig";

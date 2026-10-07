@@ -496,8 +496,13 @@ final class RemoteMachinesModel: ObservableObject {
     /// channel read. `false` when nothing started: no reading, nothing old,
     /// or a job running there. `done` hears the refused part's line, or
     /// `nil`.
+    ///
+    /// `automatic`: automatic updates' job — each agent by
+    /// `AgentIntegration.automaticScope` on the reading, so a usage line
+    /// taken out there is not put back (its hooks alone, `Change.hooks`).
     @discardableResult
-    func update(_ id: String, done: @escaping (_ failure: String?, _ agents: [AgentID]) -> Void) -> Bool {
+    func update(_ id: String, automatic: Bool = false,
+                done: @escaping (_ failure: String?, _ agents: [AgentID]) -> Void) -> Bool {
         guard let reading = lastReading(id) ?? host.channelReading(id), canRun(id) else { return false }
         let agents = Self.outdatedAgents(reading, enabled: enabledAgents(of: id))
         let command = Self.commandIsOld(reading)
@@ -515,7 +520,12 @@ final class RemoteMachinesModel: ObservableObject {
             return started
         }
         guard let first = agents.first else { return installCommand(after: nil) }
-        let started = run(agents.map { .agent($0.agent) }, .install, machine: id) { [weak self] outcome in
+        let changes: [RemoteSettings.Change] = agents.map { source in
+            guard automatic, case .state(let state) = reading.unit(source.agent),
+                  AgentIntegration.automaticScope(state, enabled: true) == .hooks else { return .agent(source.agent) }
+            return .hooks(source.agent)
+        }
+        let started = run(changes, .install, machine: id) { [weak self] outcome in
             let failure = line(outcome)
             guard command else { return done(failure, agents) }
             // The hooks went in; only the command is left for a next press.

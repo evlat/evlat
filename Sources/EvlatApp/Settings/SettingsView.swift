@@ -135,8 +135,10 @@ private struct GeneralSection: View {
                 LoginRow(row: row, setup: setup)
             }
         }
-        if model.hasUpdater {
-            SettingsGroup(title: model.t("settings.general.updates")) {
+        // Sparkle's row only where its updater offers it; Evlat's own parts
+        // in every copy.
+        SettingsGroup(title: model.t("settings.general.updates")) {
+            if model.hasUpdater {
                 RowBox {
                     HStack(spacing: 10) {
                         RowTitle(name: model.t("settings.general.autoUpdate"),
@@ -148,6 +150,18 @@ private struct GeneralSection: View {
                             .labelsHidden()
                             .accessibilityLabel(model.t("settings.general.autoUpdate"))
                     }
+                }
+            }
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.general.keepParts"),
+                             detail: model.t("settings.general.keepParts.detail"))
+                    Toggle("", isOn: Binding(get: { model.keepsPartsCurrent },
+                                             set: { model.setKeepsPartsCurrent($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.general.keepParts"))
                 }
             }
         }

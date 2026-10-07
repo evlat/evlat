@@ -421,6 +421,8 @@
 "settings.general.updates" = "Mises à jour";
 "settings.general.autoUpdate" = "Installer les mises à jour automatiquement";
 "settings.general.autoUpdate.detail" = "Les nouvelles versions se téléchargent en arrière-plan et s’installent quand vous quittez Evlat. Si Evlat reste ouvert, il propose une fois par jour de redémarrer pour l’installer.";
+"settings.general.keepParts" = "Tenir à jour les éléments d’Evlat";
+"settings.general.keepParts.detail" = "Quand ce qu’Evlat a écrit dans les fichiers de vos agents et serveurs est dépassé, Evlat le met à jour et ne vous sollicite que si vous devez agir.";
 "settings.general.body" = "Corps";
 "settings.general.body.detail" = "La façon dont la barre se tient au bord de l’écran.";
 "settings.general.body.always" = "Toujours visible";
@@ -648,9 +650,17 @@
 "updates.window.title" = "Mises à jour";
 "updates.title" = "Evlat a besoin d’une mise à jour de votre part";
 "updates.body" = "Evlat écoute désormais via un fichier privé que seul votre compte peut ouvrir, au lieu d’un port réseau. Vos agents et serveurs parlent encore à l’ancienne : Evlat ne les entend pas tant qu’ils ne sont pas mis à jour. Un clic met à jour chacun ; rien d’autre ne change dans leurs fichiers.";
+"updates.body.general" = "Une partie de ce qu’Evlat a écrit dans les fichiers de vos agents est dépassée, si bien qu’Evlat peut manquer leurs sessions. Un clic met à jour chacun ; rien d’autre ne change dans leurs fichiers.";
+"updates.auto.title" = "Evlat a mis à jour ses éléments";
+"updates.auto.body" = "Evlat a tenu ses éléments à jour, comme vous l’avez demandé.";
+"updates.auto.body.step" = "Evlat a tenu ses éléments à jour, comme vous l’avez demandé. L’un d’eux attend une étape de votre part.";
+"updates.auto.body.steps" = "Evlat a tenu ses éléments à jour, comme vous l’avez demandé. Certains attendent une étape de votre part.";
+"updates.auto.body.failed" = "Evlat a essayé de tenir ses éléments à jour, comme vous l’avez demandé, mais certains n’ont pas pu être mis à jour. Leurs lignes disent pourquoi.";
+"updates.keep" = "Les tenir à jour automatiquement";
+"updates.keep.detail" = "Désormais, Evlat met à jour ses éléments quand ils sont dépassés et n’ouvre cette fenêtre que si vous devez agir. Se désactive dans Réglages → Général.";
+"updates.keep.on" = "Se désactive dans Réglages → Général.";
 "updates.section.mac" = "Sur ce Mac";
 "updates.section.servers" = "Sur vos serveurs";
-"updates.note" = "Réglages → Agents et Machines distantes montrent la même chose, à tout moment.";
 "updates.later" = "Plus tard";
 "updates.all" = "Tout mettre à jour";
 "updates.done" = "Terminé";

@@ -819,10 +819,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// opens by itself once. Written only by a process that is not isolated.
     nonisolated static let setupSeenKey = "setup.seen"
 
-    /// The update window was opened by itself once after the cut to the
-    /// socket (`SetupTrigger.opensAgents`). Written only by a process that
-    /// is not isolated.
-    nonisolated static let socketCutShownKey = "setup.socketCutShown"
+    /// Automatic updates of Evlat's parts (Settings → General, the update
+    /// window's box); none stored is off, so one coming from an update sees
+    /// the window first. An isolated process keeps it in memory
+    /// (`agentsDefaults`). `setup.socketCutShown`, the window's once-only
+    /// mark before it, is no longer read.
+    nonisolated static let updatesAutomaticKey = "updates.automatic"
 
     /// Whether the setup opens by itself at this launch (`SetupTrigger`):
     /// storage and a home, never shown, no edge ever stored, no switched-on
@@ -839,18 +841,45 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                        hookStates: states, environment: environment)
     }
 
-    /// Whether the update window opens by itself at this launch, once, after
-    /// the cut to the socket: an agent switched on here still holds the
-    /// bytes from before it (`AgentIntegration.predatesSocket`). Reads,
-    /// writes nothing.
-    func shouldOpenUpdatesAfterSocket(opensSetup: Bool,
-                                     environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    /// What the update window does at this launch (`SetupTrigger`): opens
+    /// while an agent switched on here has old hooks, or with automatic
+    /// updates on updates them instead. Reads, writes nothing.
+    func updatesAtLaunch(opensSetup: Bool,
+                         environment: [String: String] = ProcessInfo.processInfo.environment) -> SetupTrigger.UpdatesAtLaunch {
         let old = home.map { home in
-            Agents.all.contains { enabledAgents.contains($0.id) && AgentIntegration.predatesSocket(home: home, for: $0) }
+            Agents.all.contains { agent in
+                enabledAgents.contains(agent.id)
+                    && (try? LocalHooks.state(at: agent.hooksFile(home: home), for: agent)) == .outdated
+            }
         } ?? false
-        return SetupTrigger.opensAgents(hasStorage: defaults != nil && home != nil,
-                                        shown: defaults?.bool(forKey: Self.socketCutShownKey) ?? false,
-                                        predatesSocket: old, opensSetup: opensSetup, environment: environment)
+        return SetupTrigger.updatesAtLaunch(hasStorage: defaults != nil && home != nil, automatic: updatesAutomatic,
+                                            outdated: old, opensSetup: opensSetup, environment: environment)
+    }
+
+    /// Without storage — every test, and a second Evlat — kept here.
+    private var updatesAutomaticUnstored: Bool?
+
+    /// `updates.automatic` as written; `nil` while never written.
+    var updatesAutomaticStored: Bool? {
+        guard let agentsDefaults else { return updatesAutomaticUnstored }
+        return agentsDefaults.object(forKey: Self.updatesAutomaticKey) as? Bool
+    }
+
+    /// `updates.automatic`; none stored is off.
+    var updatesAutomatic: Bool { updatesAutomaticStored ?? false }
+
+    /// The setting's one writer: Settings → General's switch, the update
+    /// window's box. Turned on, what is old now is updated now — not at the
+    /// next launch — unless the window is on screen with its own rows.
+    func setUpdatesAutomatic(_ on: Bool) {
+        if let agentsDefaults { agentsDefaults.set(on, forKey: Self.updatesAutomaticKey) } else { updatesAutomaticUnstored = on }
+        if settingsWindow?.isVisible == true { settings?.objectWillChange.send() }
+        if updatesWindow?.isVisible == true {
+            updates?.automaticChanged(on)
+        } else if on, mayKeepPartsCurrent() {
+            if updatesAtLaunch(opensSetup: false) == .automatic { keepPartsCurrent() }
+            keepMachinesCurrent()
+        }
     }
 
     /// Marks the setup shown; an isolated process keeps nothing.
@@ -2599,7 +2628,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             store: passwords,
             installer: installer,
-            onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
+            onChange: { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.scheduleRefresh()
+                    // A tunnel that just connected: its reading came in
+                    // before it was connected (`onReading`).
+                    self?.keepMachinesCurrent()
+                }
+            })
         tunnels.respond = { [weak self] id, response in
             MainActor.assumeIsolated { self?.answerHeld(id, with: response) }
         }
@@ -2615,6 +2651,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             MainActor.assumeIsolated {
                 self?.remoteMachines?.channelRead(id)
                 if self?.updatesWindow?.isVisible == true { self?.updates?.refresh() }
+                self?.keepMachineCurrent(id)
             }
         }
         for machine in configuration.machines {
@@ -3023,6 +3060,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             hasUpdater: { [weak self] in self?.updater?.offersAutomaticUpdates == true },
             automaticallyUpdates: { [weak self] in self?.updater?.automaticallyUpdates() ?? false },
             setAutomaticallyUpdates: { [weak self] in self?.updater?.setAutomaticallyUpdates($0) },
+            keepsPartsCurrent: { [weak self] in self?.updatesAutomatic ?? false },
+            setKeepsPartsCurrent: { [weak self] in self?.setUpdatesAutomatic($0) },
             hidesStaleUsage: { [weak self] in self?.hidesStaleUsage ?? false },
             setHidesStaleUsage: { [weak self] in self?.setHidesStaleUsage($0) },
             nudgeNotify: { [weak self] in self?.nudgeNotify ?? false },
@@ -3156,7 +3195,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func openUpdates() {
         hover.closeNow()
         if barState.isOpen { closeBar() }
-        let window = updatesWindow ?? makeUpdatesWindow()
+        let window = updatesWindowOrNew()
         window.show()
         // Activation is a request the app in front may refuse (cooperative
         // activation): opened at launch while the user typed in a terminal,
@@ -3166,16 +3205,58 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if !WindowStage.isOffstage { window.window?.orderFrontRegardless() }
     }
 
-    private func makeUpdatesWindow() -> AppWindow {
+    /// The window and its model, made once; the window itself is built on
+    /// its first showing, so automatic updates can run the model unseen.
+    @discardableResult
+    private func updatesWindowOrNew() -> AppWindow {
+        if let updatesWindow { return updatesWindow }
         let model = UpdatesModel(host: updatesHost)
         let window = AppWindow(make: { UpdatesWindow.make(model: model) },
                                activate: { [weak self] in self?.updatesActivation() })
-        window.onOpen = { model.start() }
+        window.onOpen = { model.opened() }
         model.close = { [weak window] in window?.close() }
+        model.isShown = { [weak window] in window?.isVisible == true }
+        // Something is left to the user: the window opens on the results.
+        model.onNeedsUser = { [weak self] in self?.openUpdates() }
         updates = model
         updatesWindow = window
         return window
     }
+
+    /// Automatic updates, at launch: this Mac's old agents.
+    func keepPartsCurrent() {
+        updatesWindowOrNew()
+        updates?.keepAgentsCurrent()
+    }
+
+    /// A server connected and read: with automatic updates on, its old
+    /// parts are updated — once per server in this process once the job
+    /// has started, so a server that refused is not asked again at each
+    /// reconnect; its row says so. Old by the job's own rule
+    /// (`RemoteMachinesModel.update`: its reading, its switches).
+    private func keepMachineCurrent(_ id: String) {
+        guard updatesAutomatic, mayKeepPartsCurrent(), !machinesKeptCurrent.contains(id), let remote,
+              remote.state(of: id)?.isConnected == true else { return }
+        let machines = remoteMachinesModel()
+        guard let reading = machines.reading(of: id) ?? remote.reading(of: id),
+              RemoteMachinesModel.needsUpdate(reading, enabled: machines.enabledAgents(of: id)) else { return }
+        updatesWindowOrNew()
+        if updates?.keepMachineCurrent(id) == true { machinesKeptCurrent.insert(id) }
+    }
+
+    /// Every machine, as the tunnels move.
+    private func keepMachinesCurrent() {
+        guard updatesAutomatic, let remote else { return }
+        for machine in remote.machines { keepMachineCurrent(machine.id) }
+    }
+
+    /// Automatic updates write the user's files: only a process that keeps
+    /// what it is told and is not isolated (the launch rule's arms).
+    private func mayKeepPartsCurrent(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        defaults != nil && home != nil && !Isolation.isIsolated(environment)
+    }
+
+    private var machinesKeptCurrent: Set<String> = []
 
     /// The menu's "Review updates…".
     @objc func openUpdatesFromMenu(_ sender: Any?) { openUpdates() }
@@ -3213,6 +3294,24 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             reloadAgents: {
                 if setup.lang != L10n.language { setup.languageChanged(to: L10n.language) } else { setup.reload() }
+            },
+            automatic: { [weak self] in self?.updatesAutomaticStored },
+            setAutomatic: { [weak self] in self?.setUpdatesAutomatic($0) },
+            keepAgent: { [weak self] source in
+                self?.keepAgentCurrent(source)
+                setup.reload()
+            },
+            keepMachine: { [weak self] id, done in
+                guard let self else { return false }
+                return self.remoteMachinesModel().update(id, automatic: true) { failure, agents in
+                    done(UpdatesModel.MachineResult(failure: failure, agents: agents))
+                }
+            },
+            predatesSocket: { [weak self] in
+                guard let self, let home = self.home else { return false }
+                return Agents.all.contains {
+                    self.enabledAgents.contains($0.id) && AgentIntegration.predatesSocket(home: home, for: $0)
+                }
             })
     }
 
@@ -3230,19 +3329,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// At launch: `EVLAT_SETUP` opens the setup at its step for looking,
     /// writing nothing; otherwise it opens once, by itself, for someone who
     /// has set nothing up (`SetupTrigger`) — and is marked shown as it
-    /// opens: closing it is having seen it. Otherwise the update window
-    /// opens once, for one whose agents still hold the bytes from before
-    /// the socket (`shouldOpenUpdatesAfterSocket`).
+    /// opens: closing it is having seen it. Otherwise, while an agent has
+    /// old hooks, the update window opens, or with automatic updates on
+    /// Evlat updates them itself (`updatesAtLaunch`).
     func openSetupAtLaunch(environment: [String: String] = ProcessInfo.processInfo.environment) {
         if let step = Self.forcedSetup(environment) {
             openSetup(step: step)
             return
         }
         let opensSetup = shouldOpenSetup(environment: environment)
-        if shouldOpenUpdatesAfterSocket(opensSetup: opensSetup, environment: environment) {
+        switch updatesAtLaunch(opensSetup: opensSetup, environment: environment) {
+        case .window:
             // Its rows say "Needs update", and one press moves them all.
             openUpdates()
-            defaults?.set(true, forKey: Self.socketCutShownKey)
+        case .automatic:
+            keepPartsCurrent()
+        case .nothing:
+            break
         }
         guard opensSetup else { return }
         openSetup()
@@ -4738,6 +4841,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     // and — for the edge and the shortcut — the menus only call these; the
     // failure each leaves is kept here, read by the windows and the menus'
     // attention lines. Without a home (every test) none writes.
+
+    /// Automatic updates' write for an agent here: only what an older copy
+    /// wrote (`AgentIntegration.keepCurrent`), recorded as a card's press.
+    func keepAgentCurrent(_ source: AgentID) {
+        guard let home else { return }
+        let enabled = enabledAgents.contains(source)
+        record(source) { try AgentIntegration.keepCurrent(home: home, for: source.agent, enabled: enabled) }
+    }
 
     /// An agent's parts — hooks, approval hook, usage line — installed or
     /// removed as one (`AgentIntegration`); the outcome is kept for the
