@@ -335,7 +335,8 @@
 "settings.sandboxes.watch.detail" = "Şu an çalışan sandbox'lar hemen, yenileri açılır açılmaz hazırlanır. Hiçbir şey yeniden başlatılmaz: zaten çalışan bir oturum bir sonraki mesajından itibaren görünür.";
 "settings.sandboxes.status.isolated" = "Evlat'ın bu kopyası kendi dosyasından dinliyor (EVLAT_SOCKET), bu yüzden sandbox'ları izlemiyor.";
 "settings.sandboxes.status.missing" = "Evlat bu Mac'te sbx'i bulamıyor.";
-"settings.sandboxes.status.socket" = "sbx servisinin soket yolu {length} bayt, macOS'in sınırı ise {limit}. Bu yüzden Evlat yeni açılan sandbox'ları fark edemiyor; izleme başladığında çalışmakta olanlar yine de hazırlandı.";
+"settings.sandboxes.status.socket" = "sbx servisinin soket yolu {length} bayt, Evlat'ın bağlanabildiği sınır ise {limit}. Bu yüzden Evlat yeni açılan sandbox'ları fark edemiyor; izleme başladığında çalışmakta olanlar yine de hazırlandı.";
+"settings.sandboxes.status.socketUnsaid" = "sbx, servisinin soketinin nerede olduğunu söylemedi; varsayılan yol {length} bayt, Evlat'ın bağlanabildiği sınır ise {limit}. Bu yüzden Evlat yeni açılan sandbox'ları fark edemiyor; izleme başladığında çalışmakta olanlar yine de hazırlandı.";
 "settings.sandboxes.status.taken" = "{port} portunu başka bir program tutuyor; sandbox'lar Evlat'a ulaşamaz.";
 "settings.sandboxes.status.starting" = "Başlıyor…";
 "settings.sandboxes.status.connecting" = "sbx'e bağlanıyor…";

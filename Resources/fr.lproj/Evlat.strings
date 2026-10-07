@@ -327,7 +327,8 @@
 "settings.sandboxes.watch.detail" = "Les sandboxes en cours sont préparées tout de suite, les nouvelles à leur démarrage. Rien ne redémarre : une session déjà en cours s’affiche à partir de son prochain message.";
 "settings.sandboxes.status.isolated" = "Cette copie d’Evlat écoute via un fichier à elle (EVLAT_SOCKET), elle ne surveille donc pas les sandboxes.";
 "settings.sandboxes.status.missing" = "Evlat ne trouve pas sbx sur ce Mac.";
-"settings.sandboxes.status.socket" = "Le chemin du socket du daemon sbx fait {length} octets, plus que ce que macOS autorise ({limit}) : Evlat ne peut pas entendre les sandboxes démarrer. Celles qui tournaient au début de la surveillance sont préparées.";
+"settings.sandboxes.status.socket" = "Le chemin du socket du daemon sbx fait {length} octets, plus que les {limit} auxquels Evlat peut se connecter : Evlat ne peut pas entendre les sandboxes démarrer. Celles qui tournaient au début de la surveillance sont préparées.";
+"settings.sandboxes.status.socketUnsaid" = "sbx n'a pas dit où se trouve le socket de son daemon, et le chemin par défaut fait {length} octets, plus que les {limit} auxquels Evlat peut se connecter : Evlat ne peut pas entendre les sandboxes démarrer. Celles qui tournaient au début de la surveillance sont préparées.";
 "settings.sandboxes.status.taken" = "Le port {port} est pris par un autre programme : les sandboxes n’atteignent pas Evlat.";
 "settings.sandboxes.status.starting" = "Démarrage…";
 "settings.sandboxes.status.connecting" = "Connexion à sbx…";

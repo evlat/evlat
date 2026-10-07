@@ -326,7 +326,8 @@
 "settings.sandboxes.watch.detail" = "正在執行的沙盒會立即設定，新的沙盒在啟動時設定。不會重新啟動任何東西：已在執行的工作階段會從下一則訊息起顯示。";
 "settings.sandboxes.status.isolated" = "這份 Evlat 透過自己的檔案接收訊息（EVLAT_SOCKET），因此不會監看沙盒。";
 "settings.sandboxes.status.missing" = "Evlat 在這台 Mac 上找不到 sbx。";
-"settings.sandboxes.status.socket" = "sbx 背景程式的 socket 路徑有 {length} 位元組，超過 macOS 允許的長度（{limit}），因此 Evlat 無法得知沙盒何時啟動。開始監看時已在執行的沙盒已設定好。";
+"settings.sandboxes.status.socket" = "sbx 背景程式的 socket 路徑有 {length} 位元組，超過 Evlat 能連線的長度（{limit}），因此 Evlat 無法得知沙盒何時啟動。開始監看時已在執行的沙盒已設定好。";
+"settings.sandboxes.status.socketUnsaid" = "sbx 沒有說明其背景程式的 socket 在哪裡，而預設路徑有 {length} 位元組，超過 Evlat 能連線的長度（{limit}），因此 Evlat 無法得知沙盒何時啟動。開始監看時已在執行的沙盒已設定好。";
 "settings.sandboxes.status.taken" = "{port} 埠被其他程式佔用，沙盒無法連到 Evlat。";
 "settings.sandboxes.status.starting" = "正在啟動…";
 "settings.sandboxes.status.connecting" = "正在連線到 sbx…";

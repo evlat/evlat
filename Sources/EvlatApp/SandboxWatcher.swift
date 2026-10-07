@@ -28,6 +28,10 @@ final class SandboxWatcher {
     struct Source: Equatable {
         let sbx: String?
         let socket: String
+        /// `socket` is only the default: `sbx` is asked where the socket is
+        /// (`sbx daemon status --json`), and `socket` is tried when it
+        /// cannot say. A path given by hand is never asked about.
+        var asksDaemon = false
     }
 
     enum Daemon: Equatable {
@@ -71,6 +75,12 @@ final class SandboxWatcher {
 
     struct Status: Equatable {
         var daemon: Daemon = .off
+        /// The daemon's socket the stream is opened on, once known: where
+        /// `sbx` said, or the source's.
+        var socket: String?
+        /// `sbx` was asked where the socket is and did not say: `socket` is
+        /// the default.
+        var daemonUnsaid = false
         /// The daemon's socket path does not fit a unix socket's address
         /// (`socketPathLimit`): no stream is opened, and the sandboxes
         /// running now are set up once.
@@ -86,10 +96,14 @@ final class SandboxWatcher {
     private(set) var status = Status()
 
     private let runner: SandboxRunner
+    private let socketPath: String
+    private let asksDaemon: Bool
     private let plan: SandboxInstall
     private let agent: String
+    private let delay: (Int) -> TimeInterval
     private let forget: (String) -> Void
     private let onChange: () -> Void
+    /// Made once the socket's path is known (`hear`).
     private var link: SandboxDaemonLink?
     /// Set up at the next list whatever their state: every running one on a
     /// connection (`everything`), one that just started (`started`).
@@ -113,33 +127,46 @@ final class SandboxWatcher {
     static let removalAttempts = 3
 
     /// `runner` may be shared with an earlier watcher, so a removal still
-    /// running holds its sandbox against this one's install. `delay` is the
-    /// test's reconnect schedule.
-    init(runner: SandboxRunner, socketPath: String, plan: SandboxInstall,
+    /// running holds its sandbox against this one's install. `socketPath`
+    /// is the daemon's socket, or with `asksDaemon` only where it is when
+    /// `sbx` cannot say (`Source.asksDaemon`). `delay` is the test's
+    /// reconnect schedule.
+    init(runner: SandboxRunner, socketPath: String, asksDaemon: Bool = false, plan: SandboxInstall,
          agent: String = Agents.sandboxAgent.rawValue,
          delay: @escaping (Int) -> TimeInterval = SandboxDaemon.delay(afterFailures:),
          forget: @escaping (String) -> Void, onChange: @escaping () -> Void) {
         self.runner = runner
+        self.socketPath = socketPath
+        self.asksDaemon = asksDaemon
         self.plan = plan
         self.agent = agent
+        self.delay = delay
         self.forget = forget
         self.onChange = onChange
-        link = SandboxDaemonLink(
-            socketPath: socketPath, delay: delay,
-            onState: { [weak self] state in MainActor.assumeIsolated { self?.daemonChanged(state) } },
-            onEvent: { [weak self] event in MainActor.assumeIsolated { self?.heard(event) } })
     }
 
-    /// A unix socket's address holds 104 bytes, the last a NUL
-    /// (`UnixSocket.pathLimit`). The real one measured 97.
+    /// The paths Evlat dials (`UnixSocket.pathLimit`). `sbx` keeps its own
+    /// under it: a home that would make the default longer moves the socket.
     static let socketPathLimit = UnixSocket.pathLimit
 
     func start() {
-        guard let link else { return }
-        if UnixSocket.address(link.socketPath) == nil {
+        guard asksDaemon else { return hear(socketPath) }
+        runner.daemonSocket { [weak self] socket in
+            guard let self, !self.stopped else { return }
+            if socket == nil {
+                NSLog("Evlat: sbx did not say where its daemon is; trying %@", self.socketPath)
+                self.status.daemonUnsaid = true
+            }
+            self.hear(socket ?? self.socketPath)
+        }
+    }
+
+    /// Opens the stream on the daemon's socket at `path`.
+    private func hear(_ path: String) {
+        status.socket = path
+        if UnixSocket.address(path) == nil {
             // `NWConnection` would fail on every try, and the line would say
             // `sbx` is not running. Said as it is; what runs now is set up.
-            self.link = nil
             status.socketTooLong = true
             everything = true
             askVersion()
@@ -147,6 +174,11 @@ final class SandboxWatcher {
             onChange()
             return
         }
+        let link = SandboxDaemonLink(
+            socketPath: path, delay: delay,
+            onState: { [weak self] state in MainActor.assumeIsolated { self?.daemonChanged(state) } },
+            onEvent: { [weak self] event in MainActor.assumeIsolated { self?.heard(event) } })
+        self.link = link
         link.start()
     }
 
@@ -393,13 +425,16 @@ final class SandboxWatcher {
     // MARK: - Where
 
     /// The daemon's socket under `home`, where `sbx daemon status` says it
-    /// is (0.46.0).
+    /// is for a short home (0.46.0). `sbx` moves it where this would be too
+    /// long for a socket's address (`~/.sbx/run/d`, then `/tmp`), so it is
+    /// only tried when `sbx` cannot say.
     nonisolated static func defaultSocket(home: URL) -> String {
         home.appendingPathComponent("Library/Application Support/com.docker.sandboxes/sandboxes/sandboxd/sandboxd.sock").path
     }
 
     /// Where `sbx` and the daemon are, or `nil` for none: `EVLAT_SBX` and
-    /// `EVLAT_SBX_SOCKET` when given. A second Evlat
+    /// `EVLAT_SBX_SOCKET` when given; with no socket given, `sbx` is asked
+    /// (`Source.asksDaemon`). A second Evlat
     /// (`Isolation.hasOwnSocket`) gets them only when both are given — it must never change the
     /// user's sandboxes by accident — and a controller with no home (every
     /// test) never falls through to the real socket.
@@ -414,7 +449,8 @@ final class SandboxWatcher {
             guard let sbx, let socket else { return nil }
             return Source(sbx: sbx, socket: socket)
         }
-        guard let socket = socket ?? home.map(defaultSocket) else { return nil }
-        return Source(sbx: sbx, socket: socket)
+        if let socket { return Source(sbx: sbx, socket: socket) }
+        guard let home else { return nil }
+        return Source(sbx: sbx, socket: defaultSocket(home: home), asksDaemon: true)
     }
 }

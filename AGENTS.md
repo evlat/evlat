@@ -277,7 +277,11 @@ process that bound it runs the watcher (`SandboxWatcher`): it hears the
 `sbx` daemon's lifecycle events (`GET /events` on `sandboxd.sock`, chunked
 NDJSON, undocumented and internal — read as derived, a word it does not
 know counted, the stream opened again on the core's growing delay,
-`SandboxDaemon`; transport `SandboxDaemonLink`). On connect it lists the
+`SandboxDaemon`; transport `SandboxDaemonLink`). Where that socket is,
+`sbx daemon status --json` says, asked once per watcher: under a long home
+it is not the default path (below, Pitfalls), which is tried only when
+`sbx` cannot say; a socket given as `EVLAT_SBX_SOCKET` is never asked
+about. On connect it lists the
 sandboxes (`sbx ls --json`) and sets up every running one of
 `Agents.sandboxAgent`'s; then each `started` one. `stopped`/`deleted`
 drops that sandbox's rows (`HooksProvider.forget(sandbox:)`); a lost
@@ -285,8 +289,8 @@ stream drops none. A stopped sandbox is never `exec`'d — that starts it.
 Turned off, Evlat's file and rule come out of every running sandbox; a
 stopped one keeps the file, which speaks to a closed port, and no record
 of it is kept. Settings lists what the last list said, one tag each, and
-one status line (the port taken, the socket path too long for a unix
-address, `sbx` not running, a version other than the measured 0.46.0).
+one status line (the port taken, a socket path past the 103 bytes Evlat
+dials, `sbx` not running, a version other than the measured 0.46.0).
 
 A machine shows this Mac's agent cards (Settings → Servers, the same
 `SetupRowView` with another `SetupCardDriver`), written over `ssh`: one
@@ -600,7 +604,8 @@ is lost with the process.
   never change.
   Setting sandboxes up is the one place Evlat runs `sbx` (`SandboxRunner`,
   found as `EVLAT_SBX` or on the login `PATH`), only while "Watch
-  sandboxes" is on: `sbx version` and `sbx ls --json`, which only read;
+  sandboxes" is on: `sbx daemon status --json`, `sbx version` and
+  `sbx ls --json`, which only read;
   per running sandbox `sbx policy allow network --sandbox <name>
   localhost:48152` and `sbx exec -i -u root <name> sh -c '…'` with the
   file on stdin; and, turned off, `sbx exec -u root <name> rm -f <file>`
@@ -1156,7 +1161,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their switches stay in memory |
 | `EVLAT_SANDBOX_PORT` | the Docker sandbox listener's port; with `EVLAT_SOCKET` set there is no sandbox listener unless this is given |
-| `EVLAT_SBX`, `EVLAT_SBX_SOCKET` | the `sbx` to run and the daemon's socket; with `EVLAT_SOCKET` set no sandbox is watched or set up unless both are given (a fake `sbx`: `Tests/Fixtures/fake-sbx`). With `EVLAT_SOCKET` the "Watch sandboxes" switch stays in memory |
+| `EVLAT_SBX`, `EVLAT_SBX_SOCKET` | the `sbx` to run and the daemon's socket (given, `sbx` is not asked where it is); with `EVLAT_SOCKET` set no sandbox is watched or set up unless both are given (a fake `sbx`: `Tests/Fixtures/fake-sbx`). With `EVLAT_SOCKET` the "Watch sandboxes" switch stays in memory |
 | `EVLAT_SANDBOXES` | `on`/`off` forces "Watch sandboxes" at launch; the stored switch is never written |
 | `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` (`Tests/Fixtures/fake-ssh` runs calls in `FAKE_SSH_HOME`, prints the master's mark, makes the forward) |
 | `EVLAT_CHATS` | temporary chat root |
@@ -1341,11 +1346,34 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   way back to the same session was seen. `SessionStart` reached this Mac
   1.4–3.5 s after its client started; the first `sbx run`, which made the
   sandbox, took 14 s.
-- **The `sbx` daemon's socket path is long.** 97 bytes under this user's
-  home, against a unix address's 103 (`sbx daemon status` says where it
-  is): a longer user name can pass the limit, which `SandboxWatcher.start`
-  says rather than retrying a connection that cannot open. The daemon
-  repeats a sandbox's last `started` on connect.
+- **The `sbx` daemon's socket is not always under `Library`.** The
+  default, `~/Library/Application Support/com.docker.sandboxes/sandboxes/
+  sandboxd/sandboxd.sock`, is 82 bytes after the home: 97 under this
+  user's. Where it would reach 104 bytes `sbx` moves it, by `HOME`
+  (0.46.0, fake homes, `sbx daemon status`, 2026-10-07): a 21-byte home
+  kept the default (103), a 22-byte one — `/Users/` and a 15-character
+  name, a user's report — got `~/.sbx/run/d/sandboxd.sock`, homes of 77,
+  78, 79, 80, 81 and 90 bytes `/tmp/sboxd-<uid>-sandboxes/sandboxd.sock`
+  (between 22 and 77 not measured). Evlat built the default itself, found
+  it too long, and heard nothing, while `sbx` itself worked;
+  `sbx daemon status --json` names the socket, so it is asked. Unanswered,
+  the default is dialed, and when it is too long Settings says `sbx` did
+  not say (`Status.daemonUnsaid`). It answered in 0.75–0.78 s, also with
+  the daemon stopped (`"status": "stopped"`), and started none. The daemon
+  here listened on `~/.sbx/run/d/sandboxd.sock` too: both answered
+  `/events` with `200`. Measured end to end: in a 22-byte fake home whose
+  `.sbx/run/d/sandboxd.sock` linked to the real one, the watcher without
+  asking said the socket was too long; asking, it reached the stream in
+  1.09 s and read the list. `sbx`'s daily update check (24 h, its
+  `update-state.json` per home), when due with a newer `sbx` out, printed
+  a notice on stdout after the JSON of `daemon status --json` and
+  `ls --json` (not after `version`'s line), the daemon running or not; the
+  call right after printed none. Before this was seen, such a list read as
+  another shape. Only the first JSON object is read
+  (`SandboxInstall.firstObject`). A unix address took a 104-byte
+  path without its NUL, through `connect` and `NWConnection` alike
+  (macOS 26.4.1): 103 is Evlat's own margin (`UnixSocket.pathLimit`).
+  The daemon repeats a sandbox's last `started` on connect.
 - **A sandbox's hook to a closed Evlat fails at once.** Through the
   sandbox's proxy: a port in the sandbox's rule with nothing listening is
   `500` in ~10 ms, one outside the rule `403` in ~8 ms; no 2 s wait per

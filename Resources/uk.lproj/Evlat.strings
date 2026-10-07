@@ -326,7 +326,8 @@
 "settings.sandboxes.watch.detail" = "Уже запущені пісочниці налаштовуються одразу, нові — під час запуску. Нічого не перезапускається: сесія, що вже триває, з’явиться з наступного повідомлення.";
 "settings.sandboxes.status.isolated" = "Ця копія Evlat слухає через власний файл (EVLAT_SOCKET), тож не стежить за пісочницями.";
 "settings.sandboxes.status.missing" = "Evlat не знаходить sbx на цьому Mac.";
-"settings.sandboxes.status.socket" = "Довжина шляху до сокета демона sbx у байтах — {length}, більше, ніж дозволяє macOS ({limit}), тож Evlat не чує запуску пісочниць. Пісочниці, що працювали, коли почалося спостереження, налаштовано.";
+"settings.sandboxes.status.socket" = "Довжина шляху до сокета демона sbx у байтах — {length}, більше, ніж Evlat може використати для з'єднання ({limit}), тож Evlat не чує запуску пісочниць. Пісочниці, що працювали, коли почалося спостереження, налаштовано.";
+"settings.sandboxes.status.socketUnsaid" = "sbx не повідомив, де сокет його демона, а довжина типового шляху в байтах — {length}, більше, ніж Evlat може використати для з'єднання ({limit}), тож Evlat не чує запуску пісочниць. Пісочниці, що працювали, коли почалося спостереження, налаштовано.";
 "settings.sandboxes.status.taken" = "Порт {port} зайнятий іншою програмою, тож пісочниці не дістають до Evlat.";
 "settings.sandboxes.status.starting" = "Запуск…";
 "settings.sandboxes.status.connecting" = "Підключення до sbx…";

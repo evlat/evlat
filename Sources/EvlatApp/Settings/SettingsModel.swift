@@ -768,9 +768,12 @@ final class SettingsModel: ObservableObject {
         }
         guard state.on else { return nil }
         let watcher = state.watcher
-        if watcher?.socketTooLong == true {
-            return (t("settings.sandboxes.status.socket", ["length": String(state.socketLength),
-                                                            "limit": String(SandboxWatcher.socketPathLimit)]), .trouble)
+        if let watcher, watcher.socketTooLong {
+            // Unsaid: `sbx` was asked and did not answer, so the default was
+            // dialed — under a long home not where its daemon is.
+            let key = watcher.daemonUnsaid ? "settings.sandboxes.status.socketUnsaid" : "settings.sandboxes.status.socket"
+            return (t(key, ["length": String(state.socketLength),
+                            "limit": String(SandboxWatcher.socketPathLimit)]), .trouble)
         }
         switch state.listener {
         case .taken(let port): return (t("settings.sandboxes.status.taken", ["port": String(port)]), .trouble)
@@ -883,6 +886,7 @@ final class SettingsModel: ObservableObject {
         "settings.sandboxes.intro", "settings.sandboxes.watching", "settings.sandboxes.watch",
         "settings.sandboxes.watch.detail",
         "settings.sandboxes.status.isolated", "settings.sandboxes.status.missing", "settings.sandboxes.status.socket",
+        "settings.sandboxes.status.socketUnsaid",
         "settings.sandboxes.status.taken", "settings.sandboxes.status.starting", "settings.sandboxes.status.connecting",
         "settings.sandboxes.status.disconnected", "settings.sandboxes.status.refused", "settings.sandboxes.status.listFailed",
         "settings.sandboxes.status.watching", "settings.sandboxes.status.version",

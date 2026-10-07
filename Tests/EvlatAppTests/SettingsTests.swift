@@ -642,10 +642,19 @@ final class SettingsTests: XCTestCase {
         recorder.sandboxes.socketLength = 120
         recorder.sandboxes.listener = .taken(48152)
         model.follow()
-        XCTAssertEqual(line(), "The sbx daemon's socket path is 120 bytes, longer than macOS allows (103), "
+        XCTAssertEqual(line(), "The sbx daemon's socket path is 120 bytes, more than the 103 Evlat can connect to, "
                        + "so Evlat can't hear sandboxes start. Sandboxes that were running when watching began are set up.")
         XCTAssertEqual(model.sandboxStatus?.tone, .trouble)
         XCTAssertFalse(model.offersSandboxes)
+
+        recorder.sandboxes = watching { $0.socketTooLong = true; $0.daemonUnsaid = true; $0.daemon = .off }
+        recorder.sandboxes.socketLength = 104
+        recorder.sandboxes.listener = .taken(48152)
+        model.follow()
+        XCTAssertEqual(line(), "sbx didn't say where its daemon's socket is, and the default path is 104 bytes, more than "
+                       + "the 103 Evlat can connect to, so Evlat can't hear sandboxes start. Sandboxes that were running "
+                       + "when watching began are set up.")
+        XCTAssertEqual(model.sandboxStatus?.tone, .trouble)
 
         recorder.sandboxes = watching { $0.daemon = .disconnected }
         recorder.sandboxes.listener = .taken(48152)

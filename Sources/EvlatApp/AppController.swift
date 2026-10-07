@@ -2811,7 +2811,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             self.retiredSandboxWatcher?.abandon()
             if self.sandboxRunner?.sbxPath != sbx { self.sandboxRunner = SandboxRunner(sbxPath: sbx) }
             guard let runner = self.sandboxRunner else { return }
-            let watcher = SandboxWatcher(runner: runner, socketPath: source.socket,
+            let watcher = SandboxWatcher(runner: runner, socketPath: source.socket, asksDaemon: source.asksDaemon,
                                          plan: Agents.sandboxInstall(port: port), delay: self.sandboxDelay,
                                          forget: { [weak hooks] in hooks?.forget(sandbox: $0) },
                                          onChange: { [weak self] in self?.scheduleRefresh() })
@@ -2867,7 +2867,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             }
         }
         view.watcher = (sandboxWatcher ?? retiredSandboxWatcher)?.status
-        view.socketLength = sandboxSource?.socket.utf8.count ?? 0
+        view.socketLength = view.watcher?.socket?.utf8.count ?? 0
         view.agentOn = enabledAgents.contains(Agents.sandboxAgent)
         return view
     }

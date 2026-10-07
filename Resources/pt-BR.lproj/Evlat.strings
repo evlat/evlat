@@ -327,7 +327,8 @@
 "settings.sandboxes.watch.detail" = "As sandboxes rodando agora são preparadas na hora; as novas, quando iniciam. Nada reinicia: uma sessão que já está rodando aparece a partir da próxima mensagem.";
 "settings.sandboxes.status.isolated" = "Esta cópia do Evlat escuta por um arquivo próprio (EVLAT_SOCKET), então não observa sandboxes.";
 "settings.sandboxes.status.missing" = "O Evlat não encontra o sbx neste Mac.";
-"settings.sandboxes.status.socket" = "O caminho do socket do daemon do sbx tem {length} bytes, mais do que o macOS permite ({limit}), então o Evlat não percebe quando as sandboxes iniciam. As que já rodavam quando a observação começou foram preparadas.";
+"settings.sandboxes.status.socket" = "O caminho do socket do daemon do sbx tem {length} bytes, mais do que os {limit} aos quais o Evlat consegue se conectar, então o Evlat não percebe quando as sandboxes iniciam. As que já rodavam quando a observação começou foram preparadas.";
+"settings.sandboxes.status.socketUnsaid" = "O sbx não disse onde fica o socket do daemon, e o caminho padrão tem {length} bytes, mais do que os {limit} aos quais o Evlat consegue se conectar, então o Evlat não percebe quando as sandboxes iniciam. As que já rodavam quando a observação começou foram preparadas.";
 "settings.sandboxes.status.taken" = "Outro programa está usando a porta {port}, então as sandboxes não alcançam o Evlat.";
 "settings.sandboxes.status.starting" = "Iniciando…";
 "settings.sandboxes.status.connecting" = "Conectando ao sbx…";

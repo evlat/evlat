@@ -326,7 +326,8 @@
 "settings.sandboxes.watch.detail" = "実行中のサンドボックスはすぐに、新しいものは起動したときに設定されます。何も再起動されません。すでに実行中のセッションは、次のメッセージから表示されます。";
 "settings.sandboxes.status.isolated" = "このEvlatは専用のファイルで待ち受けているため（EVLAT_SOCKET）、サンドボックスを監視しません。";
 "settings.sandboxes.status.missing" = "EvlatはこのMacでsbxを見つけられません。";
-"settings.sandboxes.status.socket" = "sbxデーモンのソケットのパスが{length}バイトで、macOSの上限（{limit}）を超えているため、Evlatはサンドボックスの起動を検知できません。監視を始めた時点で実行中だったサンドボックスは設定済みです。";
+"settings.sandboxes.status.socket" = "sbxデーモンのソケットのパスが{length}バイトで、Evlatが接続できる上限（{limit}）を超えているため、Evlatはサンドボックスの起動を検知できません。監視を始めた時点で実行中だったサンドボックスは設定済みです。";
+"settings.sandboxes.status.socketUnsaid" = "sbxがデーモンのソケットの場所を返さず、既定のパスが{length}バイトで、Evlatが接続できる上限（{limit}）を超えているため、Evlatはサンドボックスの起動を検知できません。監視を始めた時点で実行中だったサンドボックスは設定済みです。";
 "settings.sandboxes.status.taken" = "ポート{port}は別のプログラムが使用中のため、サンドボックスはEvlatに届きません。";
 "settings.sandboxes.status.starting" = "開始しています…";
 "settings.sandboxes.status.connecting" = "sbxに接続しています…";

@@ -326,7 +326,8 @@
 "settings.sandboxes.watch.detail" = "正在运行的沙盒会立即设置，新沙盒在启动时设置。不会重启任何东西：已在运行的会话从下一条消息起显示。";
 "settings.sandboxes.status.isolated" = "这份 Evlat 通过自己的文件接收消息（EVLAT_SOCKET），因此不监视沙盒。";
 "settings.sandboxes.status.missing" = "Evlat 在这台 Mac 上找不到 sbx。";
-"settings.sandboxes.status.socket" = "sbx 守护进程的套接字路径有 {length} 字节，超过了 macOS 允许的长度（{limit}），因此 Evlat 无法得知沙盒何时启动。开始监视时已在运行的沙盒已设置好。";
+"settings.sandboxes.status.socket" = "sbx 守护进程的套接字路径有 {length} 字节，超过了 Evlat 能连接的长度（{limit}），因此 Evlat 无法得知沙盒何时启动。开始监视时已在运行的沙盒已设置好。";
+"settings.sandboxes.status.socketUnsaid" = "sbx 没有说明其守护进程的套接字在哪里，而默认路径有 {length} 字节，超过了 Evlat 能连接的长度（{limit}），因此 Evlat 无法得知沙盒何时启动。开始监视时已在运行的沙盒已设置好。";
 "settings.sandboxes.status.taken" = "{port} 端口被其他程序占用，沙盒无法连到 Evlat。";
 "settings.sandboxes.status.starting" = "正在启动…";
 "settings.sandboxes.status.connecting" = "正在连接 sbx…";

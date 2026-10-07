@@ -96,6 +96,11 @@ public struct SandboxInstall: Equatable {
     /// Lists the sandboxes on this Mac, as JSON (`sandboxes(fromList:)`).
     public static let list = Command(arguments: ["ls", "--json"])
 
+    /// Asks `sbx` where its daemon's socket is (`daemonSocket(fromStatus:)`).
+    /// Read-only, like the list, and it starts no daemon: the path is
+    /// `sbx`'s to choose — under a long home it is not the default one.
+    public static let daemonStatus = Command(arguments: ["daemon", "status", "--json"])
+
     /// Asks `sbx` its version (`version(fromOutput:)`). Read-only, like the
     /// list: Settings says when it is not the one measured.
     public static let version = Command(arguments: ["version"])
@@ -160,8 +165,11 @@ public struct SandboxInstall: Equatable {
     /// `sbx ls --json`'s output (`{"sandboxes": [{"name", "agent",
     /// "status", …}]}`, 0.46.0), or `nil` when it is not that shape. An
     /// entry without a name is left out; its other fields are optional.
+    /// Only the first JSON object is read: when its daily update check is
+    /// due, `sbx` prints a notice after it on the same stdout.
     public static func sandboxes(fromList data: Data) -> [Sandbox]? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = firstObject(in: data),
+              let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
               let entries = object["sandboxes"] as? [Any] else { return nil }
         return entries.compactMap { entry in
             guard let fields = entry as? [String: Any], let name = fields["name"] as? String else { return nil }
@@ -169,5 +177,42 @@ public struct SandboxInstall: Equatable {
             return Sandbox(name: name, agent: fields["agent"] as? String, status: fields["status"] as? String,
                            workspace: workspace.flatMap { $0.isEmpty ? nil : $0 })
         }
+    }
+
+    /// `sbx daemon status --json`'s socket (`{"status", "socket", …}`,
+    /// 0.46.0), or `nil` when it names no absolute path. Only the first
+    /// JSON object is read, as for the list.
+    public static func daemonSocket(fromStatus data: Data) -> String? {
+        guard let json = firstObject(in: data),
+              let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let socket = object["socket"] as? String, socket.hasPrefix("/") else { return nil }
+        return socket
+    }
+
+    /// The bytes of the first top-level JSON object in `data`, from its `{`
+    /// to the `}` that closes it; braces inside strings do not count.
+    /// `nil` when none closes.
+    static func firstObject(in data: Data) -> Data? {
+        let bytes = [UInt8](data)
+        guard let start = bytes.firstIndex(of: UInt8(ascii: "{")) else { return nil }
+        var depth = 0, inString = false, escaped = false
+        for index in start..<bytes.count {
+            let byte = bytes[index]
+            if inString {
+                if escaped { escaped = false }
+                else if byte == UInt8(ascii: "\\") { escaped = true }
+                else if byte == UInt8(ascii: "\"") { inString = false }
+                continue
+            }
+            switch byte {
+            case UInt8(ascii: "\""): inString = true
+            case UInt8(ascii: "{"): depth += 1
+            case UInt8(ascii: "}"):
+                depth -= 1
+                if depth == 0 { return Data(bytes[start...index]) }
+            default: break
+            }
+        }
+        return nil
     }
 }

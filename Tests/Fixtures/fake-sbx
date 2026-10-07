@@ -12,6 +12,11 @@
 #                   started        one line per sandbox an `exec` started
 #   FAKE_SBX_FAIL   a sandbox name whose `exec` fails: one stderr line, exit 1
 #   FAKE_SBX_VERSION  what `version` says (0.46.0 when unset)
+#   FAKE_SBX_SOCKET   the socket `daemon status --json` names; unset, it
+#                     fails: one stderr line, exit 1
+#   FAKE_SBX_BANNER   set: `daemon status --json` and `ls --json` print the
+#                     update notice after their JSON, on stdout, as 0.46.0
+#                     does when its daily update check is due
 #
 # `exec` starts a stopped sandbox, as the real one does (measured on 0.46.0),
 # so a test can tell it was never asked to.
@@ -34,6 +39,16 @@ case "$1 $2" in
   "version ")
     echo "sbx version: v${FAKE_SBX_VERSION:-0.46.0} 0000000"
     ;;
+  "daemon status")
+    [ -n "${FAKE_SBX_SOCKET-}" ] || { echo "fake-sbx: no daemon here" >&2; exit 1; }
+    printf '{\n  "status": "running",\n  "socket": "%s",\n  "logs": "/fake/daemon.log"\n}\n' "$FAKE_SBX_SOCKET"
+    if [ -n "${FAKE_SBX_BANNER-}" ]; then
+      printf '\n╭──────────────────────────────────╮\n'
+      printf '│ Docker Sandboxes Update Available │\n'
+      printf '│ {v0.46.0}  →  v0.47.0             │\n'
+      printf '╰──────────────────────────────────╯\n'
+    fi
+    ;;
   "ls --json")
     printf '{"sandboxes":['
     sep=''
@@ -43,6 +58,7 @@ case "$1 $2" in
       sep=','
     done < "$root/sandboxes"
     printf ']}\n'
+    [ -z "${FAKE_SBX_BANNER-}" ] || printf '\n╭─────╮\n│ Docker Sandboxes Update Available │\n╰─────╯\n'
     ;;
   "policy allow")
     # policy allow network --sandbox <name> <resource>

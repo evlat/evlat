@@ -146,6 +146,10 @@ final class SandboxInstallPlanTests: XCTestCase {
         ])
         XCTAssertEqual(sandboxes.map(\.isRunning), [true, false, false])
         XCTAssertEqual(SandboxInstall.sandboxes(fromList: Data(#"{"sandboxes": []}"#.utf8)), [])
+        // The daily update check's notice after the JSON (0.46.0, measured).
+        let noticed = Data((#"{"sandboxes": [{"name": "w", "status": "running"}]}"#
+                            + "\n╭──╮\n│ Docker Sandboxes Update Available │\n│ v0.46.0  →  v0.47.0 │\n╰──╯\n").utf8)
+        XCTAssertEqual(SandboxInstall.sandboxes(fromList: noticed), [SandboxInstall.Sandbox(name: "w", agent: nil, status: "running")])
         XCTAssertNil(SandboxInstall.sandboxes(fromList: Data("[]".utf8)))
         XCTAssertNil(SandboxInstall.sandboxes(fromList: Data("no".utf8)))
     }
@@ -161,5 +165,42 @@ final class SandboxInstallPlanTests: XCTestCase {
         XCTAssertNil(SandboxInstall.version(fromOutput: Data("v1.2 v1..3 v1.2.x".utf8)))
         XCTAssertNil(SandboxInstall.version(fromOutput: Data()))
         XCTAssertEqual(SandboxInstall.measuredVersion, "0.46.0")
+    }
+
+    /// `sbx daemon status --json` as 0.46.0 printed it under a 22-byte home
+    /// with its update check due: the socket moved off the default path,
+    /// and the update notice (abridged) after the JSON on the same stdout.
+    func testTheDaemonsSocketIsReadFromTheFirstObject() throws {
+        XCTAssertEqual(SandboxInstall.daemonStatus.arguments, ["daemon", "status", "--json"])
+        XCTAssertNil(SandboxInstall.daemonStatus.input)
+        let measured = Data("""
+            {
+              "status": "stopped",
+              "socket": "/private/tmp/ehhhhhhhh/.sbx/run/d/sandboxd.sock"
+            }
+
+            ╭──────────────────────────────────────────────────────────────────────────────────╮
+            │ Docker Sandboxes Update Available                                                │
+            ├──────────────────────────────────────────────────────────────────────────────────┤
+            │ v0.46.0  →  v0.47.0                                                              │
+            ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+            """.utf8)
+        XCTAssertEqual(SandboxInstall.daemonSocket(fromStatus: measured),
+                       "/private/tmp/ehhhhhhhh/.sbx/run/d/sandboxd.sock")
+        let running = Data(#"{"status": "running", "socket": "/Users/u/s.sock", "logs": "/Users/u/d.log"}"#.utf8)
+        XCTAssertEqual(SandboxInstall.daemonSocket(fromStatus: running), "/Users/u/s.sock")
+    }
+
+    /// Braces in strings and nested objects do not end the first object;
+    /// anything but an absolute path is no socket.
+    func testTheFirstObjectIsFoundByItsBracesNotItsShape() {
+        let tricky = Data(#"{"note": "a } and a \" {", "nested": {"socket": "/no"}, "socket": "/yes.sock"} {"socket": "/later"}"#.utf8)
+        XCTAssertEqual(SandboxInstall.daemonSocket(fromStatus: tricky), "/yes.sock")
+        XCTAssertNil(SandboxInstall.daemonSocket(fromStatus: Data(#"{"socket": "relative.sock"}"#.utf8)))
+        XCTAssertNil(SandboxInstall.daemonSocket(fromStatus: Data(#"{"socket": 3}"#.utf8)))
+        XCTAssertNil(SandboxInstall.daemonSocket(fromStatus: Data(#"{"socket": "/never closed""#.utf8)))
+        XCTAssertNil(SandboxInstall.daemonSocket(fromStatus: Data("Status: running\nSocket: /x.sock\n".utf8)))
+        XCTAssertNil(SandboxInstall.daemonSocket(fromStatus: Data()))
     }
 }

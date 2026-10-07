@@ -35,6 +35,8 @@ final class SandboxWatcherTests: XCTestCase {
         daemon.close()
         unsetenv("FAKE_SBX_FAIL")
         unsetenv("FAKE_SBX_VERSION")
+        unsetenv("FAKE_SBX_SOCKET")
+        unsetenv("FAKE_SBX_BANNER")
         unsetenv("FAKE_SBX_ROOT")
         try? FileManager.default.removeItem(at: root)
     }
@@ -84,9 +86,11 @@ final class SandboxWatcherTests: XCTestCase {
     }
 
     @discardableResult
-    private func start(runner: SandboxRunner? = nil, socketPath: String? = nil) throws -> SandboxWatcher {
+    private func start(runner: SandboxRunner? = nil, socketPath: String? = nil,
+                       asksDaemon: Bool = false) throws -> SandboxWatcher {
         let made = SandboxWatcher(runner: try runner ?? SandboxRunner(sbxPath: fakeSbx()),
-                                  socketPath: socketPath ?? daemon.path, plan: plan, delay: { _ in 0.05 },
+                                  socketPath: socketPath ?? daemon.path, asksDaemon: asksDaemon,
+                                  plan: plan, delay: { _ in 0.05 },
                                   forget: { [weak self] in self?.forgotten.append($0) }, onChange: {})
         watcher = made
         made.start()
@@ -116,6 +120,8 @@ final class SandboxWatcherTests: XCTestCase {
         XCTAssertEqual(watcher?.status.sandboxes["web"]?.folder, "/work/web", "the list's folder")
         XCTAssertEqual(watcher?.status.version, "0.46.0")
         XCTAssertEqual(runs().filter { $0 == ["version"] }.count, 1, "the version is asked once")
+        XCTAssertFalse(runs().contains(SandboxInstall.daemonStatus.arguments),
+                       "a socket given by hand is never asked about")
     }
 
     /// Settings says a version other than the one measured: it is read.
@@ -133,8 +139,61 @@ final class SandboxWatcherTests: XCTestCase {
         let long = "/" + String(repeating: "s", count: SandboxWatcher.socketPathLimit)
         try start(socketPath: long)
         XCTAssertEqual(watcher?.status.socketTooLong, true)
+        XCTAssertEqual(watcher?.status.socket, long)
+        XCTAssertEqual(watcher?.status.daemonUnsaid, false, "given by hand: nothing was asked")
         waitUntil("web ready") { self.setup("web") == .ready }
         XCTAssertEqual(watcher?.status.daemon, .off)
+        XCTAssertEqual(daemon.connections, 0)
+    }
+
+    /// `sbx` moves its socket off the default path under a long home
+    /// (0.46.0: `~/.sbx/run/d`, then `/tmp`), so the default is only asked
+    /// about: the stream opens where `sbx` says, before anything else runs.
+    func testTheStreamOpensWhereSbxSaysItsDaemonIs() throws {
+        try sandboxes("web \(claude) running")
+        setenv("FAKE_SBX_SOCKET", daemon.path, 1)
+        try start(socketPath: "/nowhere/sandboxd.sock", asksDaemon: true)
+        waitUntil("web ready") { self.setup("web") == .ready }
+        XCTAssertEqual(watcher?.status.daemon, .connected)
+        XCTAssertEqual(watcher?.status.socket, daemon.path)
+        XCTAssertFalse(watcher?.status.socketTooLong ?? true)
+        XCTAssertEqual(watcher?.status.daemonUnsaid, false)
+        XCTAssertEqual(runs().first, SandboxInstall.daemonStatus.arguments, "asked first")
+        XCTAssertEqual(runs().filter { $0 == SandboxInstall.daemonStatus.arguments }.count, 1)
+    }
+
+    /// With its daily update check due `sbx` prints a notice after the
+    /// JSON, on stdout: the answer and the list are still read.
+    func testTheUpdateNoticeAfterTheAnswerIsLeftOut() throws {
+        try sandboxes("web \(claude) running")
+        setenv("FAKE_SBX_SOCKET", daemon.path, 1)
+        setenv("FAKE_SBX_BANNER", "1", 1)
+        try start(socketPath: "/nowhere/sandboxd.sock", asksDaemon: true)
+        waitUntil("web ready") { self.setup("web") == .ready }
+        XCTAssertEqual(watcher?.status.socket, daemon.path)
+        XCTAssertEqual(watcher?.status.daemon, .connected)
+    }
+
+    /// An `sbx` that cannot say where its daemon is: the default is tried.
+    func testTheDefaultIsTriedWhenSbxCannotSay() throws {
+        try sandboxes("web \(claude) running")
+        try start(socketPath: daemon.path, asksDaemon: true)
+        waitUntil("web ready") { self.setup("web") == .ready }
+        XCTAssertEqual(watcher?.status.socket, daemon.path)
+        XCTAssertEqual(watcher?.status.daemon, .connected)
+        XCTAssertEqual(watcher?.status.daemonUnsaid, true)
+        XCTAssertTrue(runs().contains(SandboxInstall.daemonStatus.arguments))
+    }
+
+    /// Unanswered, and the default too long — a long home's: said as such,
+    /// and what runs now is still set up.
+    func testAnUnansweredLongDefaultIsSaidAsUnanswered() throws {
+        try sandboxes("web \(claude) running")
+        let long = "/" + String(repeating: "s", count: SandboxWatcher.socketPathLimit)
+        try start(socketPath: long, asksDaemon: true)
+        waitUntil("web ready") { self.setup("web") == .ready }
+        XCTAssertEqual(watcher?.status.socketTooLong, true)
+        XCTAssertEqual(watcher?.status.daemonUnsaid, true)
         XCTAssertEqual(daemon.connections, 0)
     }
 
@@ -309,7 +368,11 @@ final class SandboxWatcherTests: XCTestCase {
         let home = URL(fileURLWithPath: "/Users/u")
         XCTAssertEqual(SandboxWatcher.source(environment: [:], home: home),
                        SandboxWatcher.Source(sbx: nil, socket:
-                        "/Users/u/Library/Application Support/com.docker.sandboxes/sandboxes/sandboxd/sandboxd.sock"))
+                        "/Users/u/Library/Application Support/com.docker.sandboxes/sandboxes/sandboxd/sandboxd.sock",
+                                             asksDaemon: true),
+                       "the default, asked about")
+        XCTAssertEqual(SandboxWatcher.source(environment: ["EVLAT_SBX_SOCKET": "/x.sock"], home: home),
+                       SandboxWatcher.Source(sbx: nil, socket: "/x.sock"), "given by hand: never asked")
         XCTAssertNil(SandboxWatcher.source(environment: [:], home: nil), "no home: never the real socket")
         XCTAssertNil(SandboxWatcher.source(environment: ["EVLAT_SOCKET": "/tmp/e.sock"], home: home),
                      "isolated: no sbx, no daemon")

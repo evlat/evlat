@@ -79,6 +79,18 @@ final class SandboxRunner {
         }
     }
 
+    /// Where `sbx` says its daemon's socket is
+    /// (`SandboxInstall.daemonStatus`), or `nil` when it did not say.
+    /// Read-only, like the list.
+    func daemonSocket(completion: @escaping (String?) -> Void) {
+        let path = sbxPath, deadline = self.deadline
+        queue.async {
+            let answer = Self.run(path, SandboxInstall.daemonStatus, deadline: deadline)
+            let socket = answer.failure == nil ? SandboxInstall.daemonSocket(fromStatus: answer.output) : nil
+            DispatchQueue.main.async { completion(socket) }
+        }
+    }
+
     /// `sbx`'s version (`SandboxInstall.version`), or `nil` when it did not
     /// say one. Read-only, like the list.
     func version(completion: @escaping (String?) -> Void) {

@@ -59,6 +59,13 @@ renames that heading to its version.
   Bateri's one connection to that server. The button also no longer goes
   missing when your Mac reaches a server by two addresses, as a `.local`
   name with both IPv4 and IPv6 does.
+- **Docker sandboxes with a long user name.** Where your user name is 15
+  characters or longer, `sbx` keeps its daemon's socket somewhere else,
+  and Evlat looked in the wrong place: Settings said the socket path was
+  too long, and sandboxes that started later were not set up. Evlat now
+  asks `sbx` where the socket is. And when an `sbx` update is out, the
+  notice `sbx` prints once a day no longer makes Evlat miss the sandbox
+  list.
 
 ## 0.2.2
 
