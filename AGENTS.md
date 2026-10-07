@@ -480,10 +480,11 @@ no terminal that can say running, nothing is walked and no server asked.
 The walk is the shallow one (`SessionHost.resolveShallow`): a session in
 a tmux or herdr pane is not asked about, since its client's tab may show
 another pane. A remote session is walked only when its server walked
-from the agent itself (`RemoteHost.Connection.direct`), and here only
-from one `ssh` that carries no other (`Ssh`'s `shallow`: no riders, not
-herdr's master, no candidates too close to tell apart, no local
-multiplexer on the way).
+from the agent itself (`RemoteHost.Connection.direct`), and here only to
+a tab it is sure of (`Ssh`'s `shallow`: one `ssh`, or one master's
+riders that all reach the one app and give the one tab — the session's
+forwarded value, each rider's session its own; not herdr's master, no
+candidates too close to tell apart, no local multiplexer on the way).
 
 A seen chat (`job`) stays through the close it was seen at and goes to the
 balloon's history at the next one (`ChatStore.markSeen`, which writes it
@@ -625,7 +626,7 @@ is lost with the process.
   parents to its connection's `sshd` (the one under the listener) and says
   `SSH_CONNECTION`'s ports and server address, that `sshd`'s start and its
   own clock, after a line of its own, `direct`: the one answer the news
-  walks. In a
+  walks — and one more, `tty`, when the agent has a terminal. In a
   tmux or herdr pane it walks from the client instead, by this Mac's rules:
   tmux's client of the pane's session that did something last, asked of
   the server's own executable (`<proc>/<pid>/exe`, `timeout 2` where there
@@ -658,7 +659,9 @@ is lost with the process.
   `ssh`, or to the server address the script said, never its loopback
   (`Ssh`, `PROC_PIDFDSOCKETINFO`): one host can be two ends, and a
   `.local` name gave the tunnel its IPv6 and Bateri's `ssh` its IPv4.
-  Then the exact client port, else the only one (unless its start is >
+  With `tty` said, an `ssh` with no terminal of its own that is no master
+  is left out first (`Ssh.askingTerminals`): the agent's `ssh` asked for
+  one. Then the exact client port, else the only one (unless its start is >
   10 s off), else the start nearest the connection's (≤ 2 s, every
   other > 10 s), else the app alone if all are in one, else no button. A
   pick that is the user's own `ControlMaster` with other `ssh` riding it
@@ -666,7 +669,9 @@ is lost with the process.
   value fills the same one for every rider. A master detached by
   `ControlPersist` (parented to launchd) is in no app and stands for its
   riders alone: Bateri's own `ssh` is one, and the session's forwarded
-  value names its tab. herdr's own master is one too, but its riders are
+  value names its tab. The `ssh` that made such a master keeps a copy of
+  its socket, the same port: it is one of the riders, not a candidate of
+  its own. herdr's own master is one too, but its riders are
   children of the `herdr --remote` in the tab, and that `herdr` is walked
   instead (its environment can be read; several on one master give the
   app alone).
@@ -1479,6 +1484,35 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   `ssh -T -o BatchMode=yes -o ControlMaster=no` (a child of Bateri, no
   terminal) rode it, and the master's walk reached no app. On the server
   the session had `LC_BATERI_TAB_URL`.
+- **The `ssh` that made a `ControlPersist` master keeps its socket, and
+  each rider's session is its own** (OpenSSH 10.2p1 client, 9.6p1 and
+  10.2p1 servers, 2026-10-07). Bateri 0.7.0 makes the tab's own wrapped
+  `ssh` the master (`ControlMaster=auto`, `ControlPersist=2`, a socket per
+  host): the master forks off to launchd and the `ssh` that made it rides
+  it as a mux client, yet still holds the connection's TCP socket — the
+  same port, started the same second — so the two tied as candidates and
+  neither the card nor the news found a tab (the measured shape, run as a
+  test before the fix). A second tab's `ssh` to the host rode the
+  master with no TCP of its own. On the server every session, under the
+  one `sshd: <user>@notty` with one `SSH_CONNECTION`, had its own tab's
+  `LC_BATERI_TAB_URL`: sent by `SendEnv LC_*` from each rider's
+  environment alone, or exported from the remote command's argument alone,
+  as Bateri's bootstrap does (each on 10.2p1); both together, as Bateri
+  sends them, on 9.6p1. Run live against Evlat's own lookup and walks, both
+  sessions found Bateri and their own tabs, and `bateri focus` was asked.
+- **Bateri's own `ssh` opens a connection beside a tab's, too close to
+  tell apart by start** (Bateri 0.7.0, a server behind a home NAT,
+  2026-10-07). A tab ran a plain `ssh <server>`, not wrapped; 1.6 s later
+  Bateri, its parent, ran `ssh -T -o BatchMode=yes -o ControlMaster=no
+  <server> sh -c 'bt_sm…'`, with no terminal and a connection of its own,
+  and kept it open. The server said a NAT'd port, so no port matched, and
+  the connection's start was 0.05 s from the tab's `ssh` and 1.63 s from
+  Bateri's: ambiguous. The card brought the tab (both in Bateri, the tab
+  from the forwarded value); the news found nothing, asked no terminal,
+  and told the finish as if away. The agent's `stat` there has a terminal and
+  Bateri's `ssh` has none: the server's `tty` line leaves it out. The
+  same shape run live in a container (OpenSSH 9.6p1) said `tty` and the
+  news found the tab.
 - **`ssh -S` with a gone master logs in by itself.** `ControlMaster=no`
   only stops it becoming a master; with no socket it connects directly.
   `-o ProxyCommand=/usr/bin/false` makes that fail at once (exit 255,

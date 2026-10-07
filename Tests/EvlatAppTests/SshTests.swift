@@ -306,19 +306,45 @@ extension SessionHostTests {
         XCTAssertEqual(host, remote(reply, environment: [:]), "the card's walk")
     }
 
-    /// Riders of one master, two close starts, herdr's own master: the card
-    /// brings the app, and keeps a tab every candidate gives; the news has
-    /// no tab it is sure of — nothing.
+    /// A tab's `ssh` that is a master, and another tab's riding it: the
+    /// server sees one connection, and the session's forwarded value names
+    /// its tab for the news as for the card. Riders whose own tabs can be
+    /// read and differ keep none.
+    func testAShallowWalkOfRidersInOneAppKeepsTheSessionsTab() {
+        let reply = connection(forwarded: [Self.forwardedTab(Self.newerTab)])
+        let host = remote(reply, table: riding, environment: [:], shallow: true, unix: ridingUnix)
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.newerTab)")
+        XCTAssertEqual(host, remote(reply, table: riding, environment: [:], unix: ridingUnix), "the card's")
+        guard case .app(let app) = remote(reply, table: riding, shallow: true, unix: ridingUnix) else {
+            return XCTFail("no app")
+        }
+        XCTAssertNil(app.tab, "each rider's own, two tabs")
+    }
+
+    /// The master `1001` in a Bateri tab, a second tab's `ssh` riding it.
+    var riding: [Int32: Proc] {
+        var table = sshInBateri
+        table[1101] = Proc(parent: 1100, path: Self.sshPath)
+        table[1100] = Proc(parent: 580, path: "/bin/zsh")
+        return table
+    }
+
+    var ridingUnix: [Int32: [SessionHost.UnixSocket]] {
+        [1001: [.init(pcb: 0xA1, peer: 0)], 1101: [.init(pcb: 0xB1, peer: 0xA1)]]
+    }
+
+    /// Riders of one master in two apps, two close starts, herdr's own
+    /// master: the card brings the app where they are all in one, and keeps
+    /// a tab every candidate gives; the news has no tab it is sure of —
+    /// nothing.
     func testAShallowWalkGivesNothingWhereTheTabIsNotSure() {
         let reply = connection(forwarded: [Self.forwardedTab(Self.olderTab)])
-        let riders: [Int32: [SessionHost.UnixSocket]] = [1001: [.init(pcb: 0xA1, peer: 0)],
-                                                         1101: [.init(pcb: 0xB1, peer: 0xA1)]]
-        var riding = sshInBateri
-        riding[1101] = Proc(parent: 1100, path: Self.sshPath)
-        riding[1100] = Proc(parent: 580, path: "/bin/zsh")
-        XCTAssertNotEqual(remote(reply, table: riding, environment: [:], unix: riders), .notFound, "the card's")
-        XCTAssertEqual(remote(reply, table: riding, environment: [:], shallow: true, unix: riders), .notFound,
-                       "a master with riders")
+        var inTwoApps = riding
+        inTwoApps[1100] = Proc(parent: 600, path: "/bin/zsh")
+        inTwoApps[600] = Proc(parent: 1, path: "/Applications/Visual Studio Code.app/Contents/MacOS/Electron",
+                              app: code)
+        XCTAssertEqual(remote(reply, table: inTwoApps, environment: [:], shallow: true, unix: ridingUnix),
+                       .notFound, "riders in two apps")
 
         let started: [Int32: TimeInterval] = [1001: Self.tabStart, 1101: Self.tabStart + 5]
         XCTAssertNotEqual(remote(reply, table: twoTabs, sockets: twoTabSockets, started: started, environment: [:]),
@@ -542,13 +568,13 @@ extension SessionHostTests {
 
     /// Bateri's own master is detached and in no app: its riders are, the
     /// tab's and Bateri's own, and the session's forwarded value names the
-    /// tab.
+    /// tab, for the news too.
     func testBaterisOwnSshOpensTheSessionsTab() {
         guard case .app(let app) = bateriSsh(piReply()) else { return XCTFail("no app") }
         XCTAssertEqual(app.bundleID, bateri.bundleID)
         XCTAssertEqual(app.tab?.absoluteString, "bateri://tab/\(Self.piTab)")
         XCTAssertEqual(bateriSsh(piReply(forwarded: [])), .app(bateri), "no value forwarded: the app alone")
-        XCTAssertEqual(bateriSsh(piReply(), shallow: true), .notFound, "riders name no sure tab for the news")
+        XCTAssertEqual(bateriSsh(piReply(), shallow: true), bateriSsh(piReply()), "the news's")
     }
 
     /// A rider in another app says the session may be there: nothing.
@@ -557,5 +583,140 @@ extension SessionHostTests {
         table[85883] = Proc(parent: 600, path: Self.sshPath)
         table[600] = Proc(parent: 1, path: "/Applications/Visual Studio Code.app/Contents/MacOS/Electron", app: code)
         XCTAssertEqual(bateriSsh(piReply(), table: table), .notFound)
+    }
+
+    // MARK: - The tab's ssh made the master
+
+    /// The shape measured (2026-10-07, OpenSSH 10.2p1 client and server):
+    /// Bateri 0.7.0 makes the tab's own wrapped `ssh` the master
+    /// (`ControlMaster=auto`, `ControlPersist=2`). The master detaches to
+    /// launchd, and the `ssh` that made it rides it but keeps a copy of the
+    /// connection's socket: both hold the one port, started the same second.
+    /// A second tab's `ssh` to the host rides the master and holds no TCP.
+    /// Each session carried its own tab (`AAAA`, `BBBB`; and `CCCC` given as
+    /// the remote command's argument, Bateri's bootstrap), with one
+    /// `SSH_CONNECTION`.
+    var tabMadeMasterChain: [Int32: Proc] {
+        [
+            50: Proc(parent: 1, path: "/Applications/Evlat.app/Contents/MacOS/Evlat"),
+            51: Proc(parent: 50, path: Self.sshPath),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+            2000: Proc(parent: 580, path: "/usr/bin/login"),
+            2001: Proc(parent: 2000, path: "/bin/zsh"),
+            2002: Proc(parent: 2001, path: Self.sshPath),
+            2010: Proc(parent: 1, path: Self.sshPath),
+            2100: Proc(parent: 580, path: "/usr/bin/login"),
+            2101: Proc(parent: 2100, path: "/bin/zsh"),
+            2102: Proc(parent: 2101, path: Self.sshPath),
+        ]
+    }
+
+    var tabMadeMasterTCP: [Int32: [SessionHost.TCPSocket]] {
+        [51: Self.socket(60070), 2002: Self.socket(57817), 2010: Self.socket(57817)]
+    }
+
+    /// The master's listening socket (0xD1) and its accepted ends, the
+    /// riders' peers: the tab that made it (0xD2) and the second tab (0xD3).
+    var tabMadeMasterUnix: [Int32: [SessionHost.UnixSocket]] {
+        [2010: [.init(pcb: 0xD1, peer: 0), .init(pcb: 0xD2, peer: 0xE1), .init(pcb: 0xD3, peer: 0xF1)],
+         2002: [.init(pcb: 0xE1, peer: 0xD2)],
+         2102: [.init(pcb: 0xF1, peer: 0xD3)]]
+    }
+
+    func tabMadeMaster(_ tab: String, table: [Int32: Proc]? = nil, shallow: Bool = false,
+                       tmux: @escaping (TmuxQuery) -> TmuxReply? = { _ in nil }) -> SessionHost {
+        let reply = connection(port: 57817, start: Self.tabStart + 0.11, offset: 0,
+                               forwarded: [Self.forwardedTab(tab)])
+        return SessionHost.resolve(remote: reply, tunnel: Self.tunnel, evlat: Self.evlat, shallow: shallow,
+                                   probe(table ?? tabMadeMasterChain, sockets: tabMadeMasterUnix,
+                                         started: [2002: Self.tabStart, 2010: Self.tabStart],
+                                         tcp: tabMadeMasterTCP, tmux: tmux))
+    }
+
+    /// The `ssh` that made the master is that master's connection, not a
+    /// second one: the master is the pick, and the session's own forwarded
+    /// value names its tab, for the card and for the news alike.
+    func testTheSshThatMadeTheMasterIsTheMastersConnection() {
+        let probe = probe(tabMadeMasterChain, sockets: tabMadeMasterUnix, tcp: tabMadeMasterTCP)
+        XCTAssertEqual(Ssh.candidates(tunnel: Self.tunnel, evlat: Self.evlat, probe),
+                       [Ssh.Candidate(pid: 2010, localPorts: [57817])])
+        for (id, shallow) in [(Self.olderTab, false), (Self.newerTab, false),
+                              (Self.olderTab, true), (Self.newerTab, true)] {
+            XCTAssertEqual(tab(of: tabMadeMaster(id, shallow: shallow)), "bateri://tab/\(id)",
+                           shallow ? "the news's" : "the card's")
+        }
+    }
+
+    // MARK: - Bateri's own ssh beside a tab's
+
+    /// The shape measured live (2026-10-07, Bateri 0.7.0, a server behind a
+    /// home NAT): a tab ran a plain `ssh` to the server, not wrapped, and
+    /// 1.6 s later Bateri, its parent, ran its own `ssh -T -o BatchMode=yes
+    /// -o ControlMaster=no … sh -c 'bt_sm…'` with no terminal and its own
+    /// connection. The server said port 19574 for the tab's 59592, the
+    /// connection's start 0.05 s before the tab's `ssh`, and a terminal.
+    var tabAndHelperChain: [Int32: Proc] {
+        [
+            50: Proc(parent: 1, path: "/Applications/Evlat.app/Contents/MacOS/Evlat"),
+            51: Proc(parent: 50, path: Self.sshPath),
+            580: Proc(parent: 1, path: Self.bateriPath, app: bateri),
+            3000: Proc(parent: 580, path: "/usr/bin/login"),
+            3001: Proc(parent: 3000, path: "/bin/zsh"),
+            3002: Proc(parent: 3001, path: Self.sshPath),
+            3100: Proc(parent: 580, path: Self.sshPath),
+        ]
+    }
+
+    func tabAndHelper(terminal: Bool, shallow: Bool = false, table: [Int32: Proc]? = nil,
+                      unix: [Int32: [SessionHost.UnixSocket]]? = nil,
+                      tcp: [Int32: [SessionHost.TCPSocket]]? = nil) -> SessionHost {
+        let reply = RemoteHost.Reply.connection(RemoteHost.Connection(
+            clientPort: 19574, serverPort: 22, startedAt: Date(timeIntervalSince1970: Self.tabStart), offset: 0,
+            forwarded: [Self.forwardedTab(Self.olderTab)], direct: true, terminal: terminal))
+        return SessionHost.resolve(remote: reply, tunnel: Self.tunnel, evlat: Self.evlat, shallow: shallow,
+                                   probe(table ?? tabAndHelperChain, sockets: unix,
+                                         terminals: [3002: true, 3100: false, 2002: true, 2102: true],
+                                         started: [3002: Self.tabStart + 0.05, 3100: Self.tabStart + 1.63,
+                                                   2002: Self.tabStart, 2010: Self.tabStart],
+                                         tcp: tcp ?? [51: Self.socket(60070), 3002: Self.socket(59592),
+                                                      3100: Self.socket(59595)]))
+    }
+
+    /// With the agent at a terminal on the server, Bateri's own `ssh`, which
+    /// has none, is not the session's: the tab's is, for the card and the
+    /// news. Without the terminal said, the two are too close to tell apart
+    /// and the news has nothing; the card still brings Bateri, where both
+    /// are.
+    func testAnSshWithNoTerminalIsNotTheSessionOfAnAgentWithOne() {
+        for shallow in [false, true] {
+            XCTAssertEqual(tab(of: tabAndHelper(terminal: true, shallow: shallow)), "bateri://tab/\(Self.olderTab)",
+                           shallow ? "the news's" : "the card's")
+        }
+        XCTAssertEqual(tabAndHelper(terminal: false, shallow: true), .notFound, "no terminal said")
+        XCTAssertEqual(tab(of: tabAndHelper(terminal: false)), "bateri://tab/\(Self.olderTab)", "the card's")
+    }
+
+    /// A master detached by `ControlPersist` has no terminal either, and
+    /// stays: it stands for its riders, the tabs.
+    func testADetachedMasterStaysBesideAnSshWithNoTerminal() {
+        var table = tabMadeMasterChain
+        table[3100] = Proc(parent: 580, path: Self.sshPath)
+        var tcp = tabMadeMasterTCP
+        tcp[3100] = Self.socket(59595)
+        let host = tabAndHelper(terminal: true, shallow: true, table: table, unix: tabMadeMasterUnix, tcp: tcp)
+        XCTAssertEqual(tab(of: host), "bateri://tab/\(Self.olderTab)")
+    }
+
+    /// A rider in a local tmux pane: the card asks tmux and finds no client
+    /// here, so it brings the app alone; the news asks nothing and has no
+    /// tab.
+    func testARiderInALocalPaneNamesNoTabForTheNews() {
+        var table = tabMadeMasterChain
+        table[2101] = Proc(parent: 4000, path: "/bin/zsh")
+        table[4000] = Proc(parent: 1, path: Self.tmuxPath)
+        var asked = 0
+        let host = tabMadeMaster(Self.olderTab, table: table, shallow: true, tmux: { _ in asked += 1; return nil })
+        XCTAssertNil(tab(of: host))
+        XCTAssertEqual(asked, 0, "the news runs no tmux")
     }
 }

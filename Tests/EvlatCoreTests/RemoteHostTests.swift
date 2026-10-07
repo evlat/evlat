@@ -178,6 +178,24 @@ final class RemoteHostTests: XCTestCase {
                        "not direct unless said")
     }
 
+    /// The agent's terminal is read from its own line, and only beside
+    /// `direct`: a client's walk says nothing of the agent's.
+    func testTheTerminalIsReadOnlyBesideDirect() {
+        let at = Date(timeIntervalSince1970: 0)
+        func terminal(_ text: String) -> Bool? {
+            guard case .connection(let connection) = RemoteHost.reply(exitCode: 0, output: Data(text.utf8), nonce: "n",
+                                                                      arrivedAt: at) else { return nil }
+            return connection.terminal
+        }
+        XCTAssertEqual(terminal("n direct\nn tty\nn ssh 1 22 100 50 1.5\n"), true)
+        XCTAssertEqual(terminal("n direct\nn ssh 1 22 100 50 1.5\n"), false, "no line: no terminal said")
+        XCTAssertEqual(terminal("n tty\nn ssh 1 22 100 50 1.5\n"), false, "not direct")
+        XCTAssertEqual(terminal("n direct\nn tty 1\nn ssh 1 22 100 50 1.5\n"), false, "a word more is not the line")
+        XCTAssertEqual(terminal("n direct\nx tty\nn ssh 1 22 100 50 1.5\n"), false, "another nonce's")
+        XCTAssertNil(RemoteHost.reply(exitCode: 0, output: Data("n direct\nn tty\n".utf8), nonce: "n", arrivedAt: at),
+                     "the marks alone are no connection")
+    }
+
     /// The server address rides beside the connection, on a line of its
     /// own; one without an address's shape is left out and the connection
     /// stands. The measured pair: one `.local` name, an IPv4 and an IPv6.
@@ -228,7 +246,7 @@ final class RemoteHostTests: XCTestCase {
                          (700, "bash", 600, 12350), (800, "claude", 700, 12400)],
                  agent: 800, environment: ["TERM=xterm", "SSH_CONNECTION=31.223.75.17 19554 116.202.9.44 22"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn addr 116.202.9.44\nn ssh 19554 22 1000 12345 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn tty\nn addr 116.202.9.44\nn ssh 19554 22 1000 12345 2000.25", shell)
         }
     }
 
@@ -240,7 +258,7 @@ final class RemoteHostTests: XCTestCase {
                          (650, "sshd-session", 600, 230), (700, "bash", 650, 240), (800, "claude", 700, 250)],
                  agent: 800, environment: ["SSH_CONNECTION=10.0.0.1 50000 10.0.0.2 2222"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn addr 10.0.0.2\nn ssh 50000 2222 1000 222 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn tty\nn addr 10.0.0.2\nn ssh 50000 2222 1000 222 2000.25", shell)
         }
     }
 
@@ -249,14 +267,14 @@ final class RemoteHostTests: XCTestCase {
         try tree(chain: [(1, "systemd", 0, 1), (500, "sshd", 1, 300), (600, "sshd", 500, 7),
                          (800, "my (odd) agent", 600, 9)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
-        XCTAssertEqual(try run("/bin/sh"), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 7 2000.25")
+        XCTAssertEqual(try run("/bin/sh"), "n direct\nn tty\nn addr 2.2.2.2\nn ssh 1 22 1000 7 2000.25")
     }
 
     func testNoSshdAboveIsSaidOutright() throws {
         try tree(chain: [(1, "systemd", 0, 1), (300, "login", 1, 5), (700, "bash", 300, 6), (800, "claude", 700, 7)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn none", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn tty\nn none", shell)
         }
     }
 
@@ -265,7 +283,20 @@ final class RemoteHostTests: XCTestCase {
     func testAnSshdWithoutAListenerIsNoConnection() throws {
         try tree(chain: [(1, "systemd", 0, 1), (600, "sshd", 1, 5), (800, "claude", 600, 7)],
                  agent: 800, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])
-        XCTAssertEqual(try run("/bin/sh"), "n direct\nn none")
+        XCTAssertEqual(try run("/bin/sh"), "n direct\nn tty\nn none")
+    }
+
+    /// An agent with no terminal — `claude -p` over `ssh -T` — says no
+    /// `tty`: its connection's `ssh` asked for none, and nothing is left out
+    /// on this Mac.
+    func testAnAgentWithNoTerminalSaysNoTty() throws {
+        try build([Proc(1, "systemd", 0, 1, tty: 0), Proc(500, "sshd", 1, 300, tty: 0),
+                   Proc(600, "sshd", 500, 5, tty: 0),
+                   Proc(800, "claude", 600, 7, tty: 0, environment: ["SSH_CONNECTION=1.1.1.1 1 2.2.2.2 22"])],
+                  agent: 800)
+        for shell in Self.shells {
+            XCTAssertEqual(try run(shell), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", shell)
+        }
     }
 
     func testNotLinuxNoRecordOrNoProcessSaysNothing() throws {
@@ -299,7 +330,7 @@ final class RemoteHostTests: XCTestCase {
 
         try tree(chain: chain, agent: 800, environment: environment, recordedStart: 1_124_000 + 90_000)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
+            XCTAssertEqual(try run(shell), "n direct\nn tty\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", "within the tolerance, \(shell)")
         }
     }
 
@@ -313,7 +344,7 @@ final class RemoteHostTests: XCTestCase {
         try #"{"pid":700,"sessionId":"\#(Self.session)","startedAt":5000}"#
             .write(to: stale, atomically: true, encoding: .utf8)
         for shell in Self.shells {
-            XCTAssertEqual(try run(shell), "n direct\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", shell)
+            XCTAssertEqual(try run(shell), "n direct\nn tty\nn addr 2.2.2.2\nn ssh 1 22 1000 5 2000.25", shell)
         }
     }
 
@@ -329,6 +360,7 @@ final class RemoteHostTests: XCTestCase {
         for shell in Self.shells {
             XCTAssertEqual(try run(shell, forwarded: ["LC_SPACED", "LC_ABSENT", "LC_TAB", "LC_LONG", "LANG"]), """
                 n direct
+                n tty
                 n env LC_SPACED a b
                 n env LC_TAB t://tab/1
                 n env LC_LONG \(long.prefix(RemoteHost.maxForwardedValue + 1))

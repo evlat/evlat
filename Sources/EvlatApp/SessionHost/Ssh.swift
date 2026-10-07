@@ -16,7 +16,9 @@ import EvlatCore
 /// user's `ssh` the other — one `.local` name, an IPv6 for the tunnel and
 /// an IPv4 for Bateri's, measured.
 ///
-/// In order:
+/// When the server says the agent has a terminal, an `ssh` with none of
+/// its own that is no master is left out first (`askingTerminals`). Then,
+/// in order:
 ///  1. the candidate whose local port is the server's client port (no NAT);
 ///  2. the only candidate, unless its start is past `apart` from the
 ///     connection's — then it is another connection;
@@ -39,8 +41,9 @@ import EvlatCore
 /// detached under `herdr --remote`, stands for that `herdr`
 /// (`herdrRemoteClients`); any other master detached by `ControlPersist`
 /// (parented to launchd: Bateri's own ssh, or the user's config) is in no
-/// app, and stands for its riders. The forwarded value, the session's
-/// own, then names the tab.
+/// app, and stands for its riders — the `ssh` that made it among them,
+/// though it keeps a copy of the connection's socket (`candidates`). The
+/// forwarded value, the session's own, then names the tab.
 /// Measured on an Ubuntu server (OpenSSH 9.6p1): the connection's `sshd`
 /// started 0.11 s and −0.19 s from its Mac `ssh`, and the clocks were
 /// within half a second.
@@ -61,6 +64,12 @@ enum Ssh {
     /// is, or to `server` (`serverEnd`). Evlat's own are never one: the
     /// tunnel, the installer's calls and a jump host's `ssh -W` under them
     /// all descend from `evlat`.
+    ///
+    /// One connection is one candidate. The `ssh` that made a master
+    /// detached by `ControlPersist` rides it, yet keeps a copy of the
+    /// connection's socket: the same port, started the same second
+    /// (OpenSSH 10.2p1, measured). It is the master's rider, not a second
+    /// connection, and the master stands for it.
     static func candidates(tunnel: Int32, evlat: Int32, server: SessionHost.Endpoint? = nil,
                            _ probe: SessionHost.Probe) -> [Candidate] {
         let pids = probe.processes()
@@ -69,12 +78,15 @@ enum Ssh {
         var ends = Set(tunnelSide.flatMap { probe.tcpSockets($0) ?? [] }.map(\.remote))
         guard !ends.isEmpty else { return [] }
         if let server { ends.insert(server) }
-        return pids.compactMap { pid in
+        let found: [Candidate] = pids.compactMap { pid in
             guard pid != tunnel, isSsh(pid, probe), !descends(pid, from: evlat, probe),
                   let sockets = probe.tcpSockets(pid) else { return nil }
             let ports = Set(sockets.filter { ends.contains($0.remote) }.map(\.local.port))
             return ports.isEmpty ? nil : Candidate(pid: pid, localPorts: ports)
         }
+        guard found.count > 1 else { return found }
+        let riding = Set(found.filter { probe.parent($0.pid) == 1 }.flatMap { muxClients(of: $0.pid, probe) })
+        return found.filter { !riding.contains($0.pid) }
     }
 
     /// The end the server says the connection reached, written as this
@@ -109,6 +121,21 @@ enum Ssh {
         var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
         guard inet_ntop(AF_INET6, &six, &buffer, socklen_t(buffer.count)) != nil else { return nil }
         return SessionHost.Endpoint(address: String(cString: buffer), port: connection.serverPort)
+    }
+
+    /// The candidates that can carry a session with a terminal on the
+    /// server (`Connection.terminal`): its `ssh` asked for one, so it has
+    /// one of its own. One with none that is no master is another
+    /// connection — Bateri's own `ssh -T` beside a tab's, started 1.6 s
+    /// after it, measured — and is left out, unless none would remain. A
+    /// master detached by `ControlPersist` has no terminal and stands for
+    /// its riders; a terminal that cannot be read keeps its `ssh`. An
+    /// `ssh -tt` with no terminal of its own asks for one anyway, and is
+    /// no tab's either.
+    static func askingTerminals(_ candidates: [Candidate], _ probe: SessionHost.Probe) -> [Candidate] {
+        guard candidates.count > 1 else { return candidates }
+        let kept = candidates.filter { probe.hasTerminal($0.pid) != false || !muxClients(of: $0.pid, probe).isEmpty }
+        return kept.isEmpty ? candidates : kept
     }
 
     /// What the order above makes of the candidates (`StartMatch`).
@@ -189,26 +216,28 @@ extension SessionHost {
     /// so it rides to the app either way.
     ///
     /// `shallow` is the news's walk (`resolveShallow`): only a tab it is
-    /// sure of. One `ssh` riding nothing, walked without looking for a
-    /// multiplexer's client — an `ssh` in a local tmux or herdr pane names
-    /// no tab; riders of one master, herdr's own master and candidates too
-    /// close to tell apart are nothing at all, not the app alone. Whether
-    /// the server walked from the agent itself (`Connection.direct`) is
-    /// the caller's to have checked.
+    /// sure of, walked without looking for a multiplexer's client — an
+    /// `ssh` in a local tmux or herdr pane names no tab. Riders of one
+    /// master are walked as the card walks them: every one must reach the
+    /// one app and give the one tab, which the session's forwarded value
+    /// fills — each rider's session carries its own (measured). herdr's own
+    /// master and candidates too close to tell apart are nothing at all,
+    /// not the app alone. Whether the server walked from the agent itself
+    /// (`Connection.direct`) is the caller's to have checked.
     static func resolve(remote reply: RemoteHost.Reply, tunnel: Int32?, evlat: Int32, shallow: Bool = false,
                         _ probe: Probe) -> SessionHost {
         guard case .connection(let connection) = reply, let tunnel else { return .notFound }
         let forwarded = connection.forwarded
-        let candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, server: Ssh.serverEnd(of: connection), probe)
+        var candidates = Ssh.candidates(tunnel: tunnel, evlat: evlat, server: Ssh.serverEnd(of: connection), probe)
+        if connection.terminal { candidates = Ssh.askingTerminals(candidates, probe) }
         let host: SessionHost
         switch Ssh.choose(candidates, for: connection, startedAt: probe.startedAt) {
         case .one(let pid):
             let riders = Ssh.muxClients(of: pid, probe)
             if riders.isEmpty {
                 host = resolve(pid: pid, forwarded: forwarded, throughServers: !shallow, probe)
-            } else if shallow {
-                return .notFound
             } else if let clients = Ssh.herdrRemoteClients(master: pid, riders: riders, probe) {
+                if shallow { return .notFound }
                 // herdr's own master stands for the `herdr --remote` it
                 // serves: the session's tab is that one's.
                 host = clients.count == 1 ? resolve(pid: clients[0], forwarded: forwarded, probe)
@@ -216,9 +245,9 @@ extension SessionHost {
             } else if probe.parent(pid) == 1 {
                 // Detached by `ControlPersist`, the master is in no app: its
                 // riders are the tabs that use it.
-                host = sameApp(riders, forwarded: forwarded, probe)
+                host = sameApp(riders, forwarded: forwarded, throughServers: !shallow, probe)
             } else {
-                host = sameApp([pid] + riders, forwarded: forwarded, probe)
+                host = sameApp([pid] + riders, forwarded: forwarded, throughServers: !shallow, probe)
             }
         case .ambiguous(let pids):
             if shallow { return .notFound }
@@ -237,12 +266,13 @@ extension SessionHost {
     /// through herdr with no one pane kept says `.ambiguous`, so the card
     /// does not promise the session.
     static func sameApp(_ pids: [Int32], forwarded: [String] = [], keepsTab: Bool = true,
-                        _ probe: Probe) -> SessionHost {
+                        throughServers: Bool = true, _ probe: Probe) -> SessionHost {
         // No pane will be kept, so herdr is not asked: its answer would be
         // thrown away, and the asking spends the action's one deadline.
         var probe = probe
         if !keepsTab { probe.herdr = { _, _ in .unreachable } }
-        let apps = pids.map { resolve(pid: $0, forwarded: forwarded, probe) }.map { host -> App? in
+        let hosts = pids.map { resolve(pid: $0, forwarded: forwarded, throughServers: throughServers, probe) }
+        let apps = hosts.map { host -> App? in
             if case .app(let app) = host { return app }
             return nil
         }

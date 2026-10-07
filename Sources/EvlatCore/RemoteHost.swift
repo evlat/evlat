@@ -57,9 +57,16 @@ public enum RemoteHost {
         /// a session's tab is sure enough for the news to ask its terminal
         /// about; without the line it is `false`.
         public let direct: Bool
+        /// Whether that agent has a terminal on the server (`<nonce> tty`),
+        /// said only beside `direct`. Its connection's `ssh` then asked for
+        /// one: an `ssh` here with no terminal of its own, which is no
+        /// master, carries another connection (`Ssh`). Without the line it
+        /// is `false`, and nothing is left out.
+        public let terminal: Bool
 
         public init(clientPort: Int, serverPort: Int, serverAddress: String? = nil, startedAt: Date,
-                    offset: TimeInterval?, forwarded: [String] = [], herdrPane: Pane? = nil, direct: Bool = false) {
+                    offset: TimeInterval?, forwarded: [String] = [], herdrPane: Pane? = nil, direct: Bool = false,
+                    terminal: Bool = false) {
             self.clientPort = clientPort
             self.serverPort = serverPort
             self.serverAddress = serverAddress
@@ -68,6 +75,7 @@ public enum RemoteHost {
             self.forwarded = forwarded
             self.herdrPane = herdrPane
             self.direct = direct
+            self.terminal = terminal
         }
 
         /// The connection's start on this Mac's clock; `nil` without an
@@ -182,7 +190,9 @@ public enum RemoteHost {
     ///   select it — `agent get`, which only reads;
     /// - otherwise the agent itself, said first on a line of its own
     ///   (`<nonce> direct`, `Connection.direct`): the one answer whose tab
-    ///   the news may ask about. A pane's environment is the server's
+    ///   the news may ask about; and when the agent has a terminal (`stat`'s
+    ///   seventh field), so on another (`<nonce> tty`, `Connection.terminal`).
+    ///   A pane's environment is the server's
     ///   first client's, which may be long gone, so a pane never falls back
     ///   to it.
     /// From that process the parents are walked up to the connection's
@@ -338,6 +348,7 @@ public enum RemoteHost {
           fi
         else
           printf '%s direct\n' "$n"
+          if st "$p" && [ "$Y" != 0 ]; then printf '%s tty\n' "$n"; fi
           say "$p"
         fi
         if [ -z "$h" ]; then
@@ -546,14 +557,15 @@ public enum RemoteHost {
     /// all of them "not known", never a guess. `arrivedAt` is when the
     /// answer reached this Mac: the clock offset is read against it. A
     /// forwarded variable whose line does not parse is left out; the
-    /// connection stands without it. So do the herdr pane's, `direct`'s and
-    /// the server address's.
+    /// connection stands without it. So do the herdr pane's, `direct`'s,
+    /// `tty`'s and the server address's.
     public static func reply(exitCode: Int32, output: Data, nonce: String, arrivedAt: Date) -> Reply? {
         guard exitCode == 0 else { return nil }
         let text = String(decoding: output, as: UTF8.self)
         var forwarded: [String] = []
         var herdrPane: Pane?
         var direct = false
+        var terminal = false
         var serverAddress: String?
         var said: [Substring] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix(nonce + " ") {
@@ -562,6 +574,10 @@ public enum RemoteHost {
                 // Anything but the bare word is not it: not direct is the
                 // side that tells the news as it always was.
                 if parts.count == 2 { direct = true }
+                continue
+            }
+            if parts.count >= 2, parts[1] == "tty" {
+                if parts.count == 2 { terminal = true }
                 continue
             }
             if parts.count >= 2, parts[1] == "herdr" {
@@ -597,6 +613,6 @@ public enum RemoteHost {
         let offset = Double(words[6]).flatMap { $0.isFinite ? $0 : nil }.map { $0 - arrivedAt.timeIntervalSince1970 }
         return .connection(Connection(clientPort: client, serverPort: server, serverAddress: serverAddress,
                                       startedAt: started, offset: offset, forwarded: forwarded,
-                                      herdrPane: herdrPane, direct: direct))
+                                      herdrPane: herdrPane, direct: direct, terminal: direct && terminal))
     }
 }

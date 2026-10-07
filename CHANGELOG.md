@@ -50,11 +50,13 @@ renames that heading to its version.
   Anything that posted to `127.0.0.1:48151` directly needs this change.
 - **Quiet at the tab you're watching.** With Bateri 0.4 or newer, a
   session's finish sound, peek and reminders stay quiet while you're at its
-  tab — on this Mac, or over ssh from a Bateri tab. The bar still shows what
+  tab — on this Mac, or over ssh from a Bateri tab, Bateri's own ssh and
+  several tabs on one server included. The bar still shows what
   happened, and the finish stays new until you look at it.
 - **Go to session over Bateri's own ssh.** A session on a server you
   reach through Bateri's ssh now has its **Go to session** button, and it
-  opens the tab the session runs in. The button also no longer goes
+  opens the tab the session runs in — also when several tabs share
+  Bateri's one connection to that server. The button also no longer goes
   missing when your Mac reaches a server by two addresses, as a `.local`
   name with both IPv4 and IPv6 does.
 
