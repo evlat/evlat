@@ -91,3 +91,27 @@ final class SetupTriggerTests: XCTestCase {
         XCTAssertTrue(opens(environment: ["EVLAT_TASK": "t"]))
     }
 }
+
+/// Settings → Agents opens once by itself after the cut to the socket, for
+/// someone whose agents still hold the bytes from before it.
+final class AgentsAfterTheSocketTests: XCTestCase {
+    private func opens(storage: Bool = true, shown: Bool = false, old: Bool = true, setup: Bool = false,
+                       environment: [String: String] = [:]) -> Bool {
+        SetupTrigger.opensAgents(hasStorage: storage, shown: shown, predatesSocket: old,
+                                 opensSetup: setup, environment: environment)
+    }
+
+    func testOldBytesOpenItOnce() {
+        XCTAssertTrue(opens())
+        XCTAssertFalse(opens(shown: true), "shown before")
+        XCTAssertFalse(opens(old: false), "nothing from before the socket")
+    }
+
+    func testEachArmKeepsItShut() {
+        XCTAssertFalse(opens(storage: false), "nothing would remember it was shown")
+        XCTAssertFalse(opens(setup: true), "the setup opens instead")
+        XCTAssertFalse(opens(environment: ["EVLAT_SOCKET": "/tmp/e.sock"]), "a second Evlat")
+        XCTAssertFalse(opens(environment: ["EVLAT_HOME": "/tmp/h"]))
+        XCTAssertTrue(opens(environment: ["EVLAT_TASK": "t"]))
+    }
+}

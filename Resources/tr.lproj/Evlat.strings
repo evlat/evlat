@@ -64,7 +64,7 @@
 
 "remote.empty.title" = "Henüz uzak makine yok";
 "remote.empty.body" = "Bir sunucuda ssh ile açtığın oturumlar barda yereller gibi görünebilir. Sunucuyu ssh'a verdiğin adla ekle — ~/.ssh/config'teki devbox gibi bir takma ad ya da ben@sunucu.";
-"remote.empty.requirement" = "ssh gerekir: ajanına yüklü bir anahtar ya da makineyi eklerken Evlat'ın soracağı bir şifre.";
+"remote.empty.requirement" = "ssh gerekir: ajanına yüklü bir anahtar ya da makineyi eklerken Evlat'ın soracağı bir şifre. Sunucu da ssh'ın bir soketi yönlendirmesine izin vermeli; sshd, ayarlarında kapatılmadıkça izin verir.";
 "remote.add.placeholder" = "devbox ya da ben@sunucu";
 "remote.add" = "Ekle";
 "remote.add.empty" = "ssh'a verdiğin adı yaz.";
@@ -128,7 +128,7 @@
 "remote.copied" = "Kopyalandı";
 
 "remote.remove" = "Kaldır…";
-"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen Hook'lar satırından kaldır. Sunucudaki evlat komutu yerinde kalır ve makine yeniden eklenene dek sessizdir.";
+"remote.remove.confirm" = "{name} kaldırılsın mı? Tünel kapanır ve oturumları bardan çıkar. Sunucudaki hook'lar yerinde kalır ve dinleyen olmayınca sessizdir — önce kaldırmak istersen her ajanın kartından kaldır. Sunucudaki evlat komutu yerinde kalır ve makine yeniden eklenene dek sessizdir.";
 "remote.remove.cancel" = "Vazgeç";
 "remote.remove.do" = "Kaldır";
 
@@ -143,9 +143,9 @@
 "remote.command.noCurl" = "Sunucuda curl yok: evlat curl ile gönderir, o kurulana dek bara hiçbir şey gelmez.";
 "remote.command.try" = "Sunucuda yeni bir oturumda dene: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
-"remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
+"remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, eski bir sürümün bıraktığı anahtar dosyası ve boş kalırsa klasörleri:";
 "remote.items.title" = "{name} sunucusuna kurulanlar";
-"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki bir ajanın bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır — bu Mac'tekiyle aynı kartlar, ssh üstünden yazılır; ya da bloğu sen sunucuda çalıştırırsın. Oradaki Claude Code ve Codex onayı da bu bara sorar; Antigravity'ye yalnız hook'lar kurulur.";
+"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki bir ajanın bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır — bu Mac'tekiyle aynı kartlar, ssh üstünden yazılır; ya da bloğu sen sunucuda çalıştırırsın. Oradaki Claude Code ve Codex onayı da bu bara sorar; Antigravity'ye yalnız hook'lar kurulur. Kartı barda beklerken Codex “Running hook” gösterir, en çok iki dakika.";
 "remote.item.command" = "evlat komutu";
 "remote.status.notFound" = "Bu sunucuda bulunamadı";
 "remote.hint.install.codex" = "Codex'te /hooks'u aç ve Evlat'ın hook'larına güven: o zamana dek Codex onları çalıştırmaz.";
@@ -399,11 +399,13 @@
 "setup.manual.remove.hooks" = "Kaldırmak için {marker} içeren blokları sil.";
 "setup.manual.remove.usage" = "Kaldırmak için önceki statusLine'ını geri koy.";
 "setup.manual.remove.command" = "Kaldırmak: {line}";
-"setup.attention.hooksOutdated" = "{source} hook'ları eski";
+"setup.attention.hooksOutdated" = "{source} hook'ları eski: güncelleyene dek Evlat oturumlarını duymaz";
+"setup.attention.hooksStale" = "{source} hook'ları eski";
 "setup.attention.refused" = "{item}: son değişiklik reddedildi";
 "setup.attention.hotKey" = "Kısayol kaydedilemedi";
 "setup.attention.machine" = "{machine}: sunucuya ulaşılamıyor";
 "setup.attention.machinePassword" = "{machine}: şifre bekliyor";
+"setup.attention.machineUpdate" = "{machine}: güncellenmeli";
 "setup.attention.commandLink" = "evlat komutu başka bir yere gidiyor";
 
 /* Settings window (014/phase-2) */
@@ -564,7 +566,7 @@
 "settings.remote.close" = "Kapat";
 "settings.remote.what.command" = "evlat komutu";
 "settings.remote.what.command.remove" = "evlat komutu kaldırılır";
-"settings.remote.what.key.remove" = "anahtar kaldırılır";
+"settings.remote.what.key.remove" = "eski bir sürümün anahtar dosyası kaldırılır";
 "settings.remote.path.status" = "PATH'te değil";
 "settings.remote.path.note" = "Sunucuda yeni bir kabuk evlat'ı bulamıyor: ~/.local/bin PATH'inde değil.";
 "settings.remote.path.stillOff" = "Evlat'ın satırı {file} içinde, ama yeni bir oturum kabuğu evlat'ı hâlâ bulamıyor: bu dosya oturum açılışında okunmuyor olabilir (bash'te ~/.bash_profile'ın ~/.bashrc'yi okuması gerekir).";
@@ -605,7 +607,7 @@
 "setup.flow.sessions.title" = "Hangi ajanları kullanıyorsun?";
 "setup.flow.sessions.body" = "Evlat seçtiğin her ajanın ayarlarına küçük bir bildirim komutu ekler ve kullanım için status line'ını sarar; dosyanın geri kalanına dokunmaz. İstediğin an Ayarlar → Ajanlar'dan kaldırırsın.";
 "setup.flow.sessions.none" = "Bu Mac'te Evlat'ın tanıdığı bir ajan yok. Biri kurulunca Ayarlar → Ajanlar'dan bağlarsın.";
-"setup.flow.sessions.hint" = "Açık Claude oturumları değişikliği bir sonraki iletilerinde alır; yeni açılanlar hemen görünür.";
+"setup.flow.sessions.hint" = "Açık Claude oturumları değişikliği bir sonraki iletilerinde alır; yeni açılanlar hemen görünür. Codex, Evlat'ın hook'larını ancak kendi /hooks ekranında onlara güvendiğinde çalıştırır.";
 "setup.flow.chat.title" = "Maskotla konuş";
 "setup.flow.chat.body" = "Maskota tıkla ya da kısayola bas: bir balon açılır, iş senin claude kurulumunla koşar. Dosyayı maskota bırakabilirsin.";
 "setup.flow.chat.hotkey.detail" = "Sistemin kullandığı bir tuşu kabul etmez.";

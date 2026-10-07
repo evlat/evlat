@@ -457,6 +457,24 @@ final class RemoteMachinesModel: ObservableObject {
         if started { readings[id] = .reading }
     }
 
+    /// What the window last read on the machine itself — after a job, the
+    /// re-read that shows what the job left; `nil` while none answered.
+    func reading(of id: String) -> RemoteSettings.Reading? {
+        guard case .read(let reading)? = readings[id] else { return nil }
+        return reading
+    }
+
+    /// Whether the machine wants its "needs update" line: an agent switched
+    /// on there (`enabled`, `nil` for all) whose hooks an older copy wrote,
+    /// or an `evlat` command older than this one. This Mac's rule: a missing
+    /// part, or a usage line alone, asks for no attention.
+    static func needsUpdate(_ reading: RemoteSettings.Reading, enabled: Set<AgentID>?) -> Bool {
+        if case .installed = reading.command, !reading.command.isCurrent { return true }
+        return Agents.all.contains { agent in
+            (enabled?.contains(agent.id) ?? true) && reading.hooks(agent) == .state(.outdated)
+        }
+    }
+
     /// The rows' states; unknown until a read answered.
     func items(for id: String) -> Items {
         guard case .read(let reading)? = readings[id] else { return .unknown }

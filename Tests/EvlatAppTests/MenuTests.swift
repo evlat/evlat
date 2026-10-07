@@ -269,6 +269,21 @@ final class MenuTests: XCTestCase {
                        "the click only opens: nothing is written")
     }
 
+    /// Hooks from before the socket are silent, and their line says so —
+    /// in the bar's words, in every language.
+    func testSilentHooksSayWhatTheyCost() throws {
+        try agentDirectory(.claude)
+        let tcp = "curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true"
+        try JSONSerialization.data(withJSONObject: ["hooks": ["Stop": [["hooks": [["type": "command", "command": tcp]]]]]])
+            .write(to: Claude().hooksFile(home: home))
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")).map(\.title),
+                       ["Claude Code hooks are old: Evlat can't hear its sessions until you update them"])
+        XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "tr")).map(\.title),
+                       ["Claude Code hook'ları eski: güncelleyene dek Evlat oturumlarını duymaz"])
+    }
+
     /// A refused write is a line until a write succeeds.
     func testARefusedWriteLeavesOneLineUntilItSucceeds() throws {
         try agentDirectory(.claude)

@@ -20,4 +20,18 @@ public enum SetupTrigger {
             && hookStates.allSatisfy { $0 == .missing }
             && !Isolation.isIsolated(environment)
     }
+
+    /// Whether Settings → Agents opens by itself at launch, once, after the
+    /// cut to the socket: an agent switched on still holds the bytes from
+    /// before it (`AgentIntegration.predatesSocket`), which are silent now,
+    /// and its card's one press moves them.
+    ///
+    /// - Parameters:
+    ///   - shown: it was opened for this before (`setup.socketCutShown`).
+    ///   - opensSetup: the setup opens at this launch (`shouldOpen`); it
+    ///     shows the same cards.
+    public static func opensAgents(hasStorage: Bool, shown: Bool, predatesSocket: Bool, opensSetup: Bool,
+                                   environment: [String: String]) -> Bool {
+        hasStorage && !shown && predatesSocket && !opensSetup && !Isolation.isIsolated(environment)
+    }
 }

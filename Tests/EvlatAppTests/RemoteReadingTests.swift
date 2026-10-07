@@ -668,6 +668,24 @@ final class RemoteReadingTests: XCTestCase {
 }
 
 extension RemoteReadingTests {
+    /// The machine's "needs update" line is read from the window's own
+    /// reading once it has one: the re-read after the press finds the
+    /// parts current, and the line goes.
+    func testTheReReadAfterAnInstallTakesTheUpdateLineAway() throws {
+        let server = try self.server("/bin/sh")
+        try seed(.claude, oldHook, in: server)
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        let before = try XCTUnwrap(model.reading(of: "m"))
+        XCTAssertTrue(RemoteMachinesModel.needsUpdate(before, enabled: nil))
+        model.perform(.agent(.claude), .install, on: "m")
+        waitUntil("installed") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
+        let after = try XCTUnwrap(model.reading(of: "m"))
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(after, enabled: nil))
+    }
+
     /// Each agent is one card, by this Mac's unit rule: its hooks and —
     /// for the agent whose status line a server gets — the usage line,
     /// read from its one file, the approval group among its hooks.

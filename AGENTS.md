@@ -302,6 +302,12 @@ measured and not installed. Its switches are the machine's own set,
 `remote.machines[].agents` (`decodeIfPresent`; none stored is every agent
 the server has, and it is written only on the user's change), independent
 of `agents.enabled`; an `EVLAT_MACHINES` machine keeps it for the run.
+A connected machine whose hooks of an agent switched on there, or whose
+`evlat` command, an older copy wrote is an attention line
+(`SetupAttention.machineNeedsUpdate`, `RemoteMachinesModel.needsUpdate`),
+read from the settings window's own reading once it has one — the re-read
+after a press — else from the channel's; a missing part or a usage line
+alone is none, as on this Mac.
 
 Each machine's tunnel is Evlat's **own `ssh` master** (`-M -S <socket>
 -o ControlPersist=no`, socket under `$TMPDIR/evlat`, its path a parameter
@@ -804,6 +810,21 @@ changed command must reach the agent: Claude Code took a changed
 prompt (2.1.292, measured under a temporary `CLAUDE_CONFIG_DIR`, written in
 place and by rename); Codex runs a
 changed hook only once it is trusted again in `/hooks` (below, Pitfalls).
+
+That move was a **one-time cut**, not the rule: hooks installed by an
+earlier version do not keep talking to this one, and from here on the
+socket's bytes are the fixed point that must keep talking unchanged. The
+cut is told where the user looks, in the bar's words. Bytes from before the
+socket are recognised by one pure rule (`EvlatSocket.predates`: a string
+naming Evlat's url and not the socket — the TCP command, its relay, the
+`http` approval hook — in any file shape; `AgentIntegration.predatesSocket`
+per agent). With them, an old hook's menu line says what it costs
+(`setup.attention.hooksOutdated`: Evlat can't hear its sessions; an old
+hook still on the socket is only "old", `hooksStale`), and Settings opens
+at its Agents section once by itself (`SetupTrigger.opensAgents`, flag
+`setup.socketCutShown`): for an agent switched on, never in an isolated
+process (`Isolation.isIsolated`), never when the setup opens at that
+launch. A server's old parts are a machine line (below).
 
 - The only author of the command is `LocalAPI.installedHookCommand(for:event:)`;
   the writers (`HookSettings`, and `AntigravityHooks` for Antigravity's

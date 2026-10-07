@@ -185,4 +185,66 @@ final class AgentIntegrationTests: XCTestCase {
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .hooks, reason: .malformed))
         }
     }
+
+    // MARK: - The one cut to the socket
+
+    private func write(_ settings: [String: Any], to file: URL) throws {
+        try JSONSerialization.data(withJSONObject: settings).write(to: file)
+    }
+
+    /// Every earlier copy's bytes spoke to the loopback port, which nobody
+    /// listens on now: its command, its usage line and its `http` approval
+    /// hook are each known for what they are. Today's bytes with another
+    /// timeout are old but not silent.
+    func testTheBytesFromBeforeTheSocketAreKnown() throws {
+        try directory(".claude")
+        let file = Claude().hooksFile(home: home)
+        XCTAssertFalse(AgentIntegration.predatesSocket(home: home, for: .claude), "no file")
+
+        let tcp = try XCTUnwrap(LocalAPITests.tcpCommand["claude"])
+        try write(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcp]]]]]], to: file)
+        XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .claude), "the command")
+        XCTAssertTrue(AgentIntegration.hooksPredateSocket(home: home, for: .claude))
+
+        try write(["hooks": ["PermissionRequest": [["matcher": "*", "hooks": [
+            ["type": "http", "url": "http://127.0.0.1:48151/approval", "timeout": 600]]]]]], to: file)
+        XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .claude), "the http approval hook")
+        XCTAssertTrue(AgentIntegration.hooksPredateSocket(home: home, for: .claude))
+
+        try write(["statusLine": ["type": "command",
+                                  "command": StatusLineRelayTests.wrapper(StatusLineRelayTests.tcpRelay, "cat")]],
+                  to: file)
+        XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .claude), "the usage line")
+        XCTAssertFalse(AgentIntegration.hooksPredateSocket(home: home, for: .claude), "the hooks are not the line")
+
+        let today = HookSettings.installing(into: [:], for: .claude)
+        let timeout = String(decoding: try JSONSerialization.data(withJSONObject: today), as: UTF8.self)
+            .replacingOccurrences(of: "-m 2", with: "-m 1")
+        try Data(timeout.utf8).write(to: file)
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).hooks, .outdated)
+        XCTAssertFalse(AgentIntegration.predatesSocket(home: home, for: .claude), "old, but on the socket")
+
+        try FileManager.default.removeItem(at: file)
+        try AgentIntegration.install(home: home, for: .claude)
+        XCTAssertFalse(AgentIntegration.predatesSocket(home: home, for: .claude), "today's")
+    }
+
+    /// Antigravity's name-keyed file and Codex's own file answer the same
+    /// question by the same rule.
+    func testEveryAgentsFileIsAskedTheSameWay() throws {
+        try directory(".codex")
+        let codex = try XCTUnwrap(LocalAPITests.tcpCommand["codex"])
+        try write(["hooks": ["Stop": [["hooks": [["type": "command", "command": codex]]]]]],
+                  to: Codex().hooksFile(home: home))
+        XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .codex))
+
+        try directory(".gemini/antigravity")
+        try directory(".gemini/config")
+        try write(["evlat": ["enabled": true, "Stop": [["type": "command", "command":
+            "curl -s -m 2 -X POST -H 'X-Evlat-Event: Stop' --data-binary @- http://127.0.0.1:48151/hook/antigravity >/dev/null 2>&1 || true"]]]],
+                  to: Antigravity().hooksFile(home: home))
+        XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .antigravity))
+        try AgentIntegration.install(home: home, for: .antigravity)
+        XCTAssertFalse(AgentIntegration.predatesSocket(home: home, for: .antigravity))
+    }
 }

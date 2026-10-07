@@ -165,6 +165,26 @@ public enum AgentIntegration {
         return State(hooks: hooks, relay: relay)
     }
 
+    /// Whether the agent's files still hold Evlat's bytes from before the
+    /// socket (`EvlatSocket.predates`): its hooks, or a usage line an
+    /// earlier copy wrapped. What opens Settings → Agents once after the
+    /// cut. A file that cannot be read says nothing.
+    public static func predatesSocket(home: URL, for source: some Agent) -> Bool {
+        if hooksPredateSocket(home: home, for: source) { return true }
+        guard let relay = relayFile(home: home, for: source),
+              let settings = try? SettingsFile.read(relay),
+              let line = settings[StatusLineRelay.key] else { return false }
+        return EvlatSocket.predates(line)
+    }
+
+    /// The hooks part alone: the hooks file without the usage line it may
+    /// share (Claude's `settings.json`). Old hooks that still answer —
+    /// another timeout, a duplicate — are not this.
+    public static func hooksPredateSocket(home: URL, for source: some Agent) -> Bool {
+        guard let settings = try? SettingsFile.read(source.hooksFile(home: home)) else { return false }
+        return EvlatSocket.predates(settings.filter { $0.key != StatusLineRelay.key })
+    }
+
     /// Every part that applies, installed. Parts in one file are one
     /// write, so that file is never left with half of them; a relay changed
     /// by hand is left as it is.

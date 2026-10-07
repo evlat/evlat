@@ -50,6 +50,24 @@ public enum EvlatSocket {
         return count > 0 && count <= pathLimit
     }
 
+    // MARK: - The bytes from before it
+
+    /// Whether `value` — a settings file's JSON, or any part of it — holds
+    /// bytes an earlier copy of Evlat wrote, from before the socket: a
+    /// string that names Evlat's url (`Curl.url`) and not the socket. That
+    /// is the loopback port's command, its usage relay and its `http`
+    /// approval hook; nobody listens on that port now, so each is silent
+    /// until a press moves it. Every string is asked, at any depth, so one
+    /// rule serves every agent's file shape.
+    public static func predates(_ value: Any) -> Bool {
+        switch value {
+        case let text as String: return text.contains(Curl.url("/")) && !text.contains("--unix-socket")
+        case let list as [Any]: return list.contains(where: predates)
+        case let object as [String: Any]: return object.values.contains(where: predates)
+        default: return false
+        }
+    }
+
     // MARK: - The curl words
 
     /// The words every `curl` that reaches the socket is made of — the chat

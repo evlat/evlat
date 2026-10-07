@@ -813,6 +813,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// opens by itself once. Written only by a process that is not isolated.
     nonisolated static let setupSeenKey = "setup.seen"
 
+    /// Settings → Agents was opened by itself once after the cut to the
+    /// socket (`SetupTrigger.opensAgents`). Written only by a process that
+    /// is not isolated.
+    nonisolated static let socketCutShownKey = "setup.socketCutShown"
+
     /// Whether the setup opens by itself at this launch (`SetupTrigger`):
     /// storage and a home, never shown, no edge ever stored, no switched-on
     /// agent's hooks installed (or old), not isolated. Reads, writes nothing.
@@ -826,6 +831,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                        seen: defaults?.bool(forKey: Self.setupSeenKey) ?? false,
                                        hasStoredEdge: defaults?.object(forKey: Self.edgeKey) != nil,
                                        hookStates: states, environment: environment)
+    }
+
+    /// Whether Settings → Agents opens by itself at this launch, once, after
+    /// the cut to the socket: an agent switched on here still holds the
+    /// bytes from before it (`AgentIntegration.predatesSocket`). Reads,
+    /// writes nothing.
+    func shouldOpenAgentsAfterSocket(opensSetup: Bool,
+                                     environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        let old = home.map { home in
+            Agents.all.contains { enabledAgents.contains($0.id) && AgentIntegration.predatesSocket(home: home, for: $0) }
+        } ?? false
+        return SetupTrigger.opensAgents(hasStorage: defaults != nil && home != nil,
+                                        shown: defaults?.bool(forKey: Self.socketCutShownKey) ?? false,
+                                        predatesSocket: old, opensSetup: opensSetup, environment: environment)
     }
 
     /// Marks the setup shown; an isolated process keeps nothing.
@@ -2897,6 +2916,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                     RemoteMachinesModel.offersPassword(remote.state(of: machine.id)) ? machine.name : nil
                 }
             },
+            // A connected machine, by the newest reading there is: the
+            // settings window's own after a job re-read it, else what the
+            // channel read when it was made.
+            machinesNeedingUpdate: { [weak self] in
+                guard let self, let remote = self.remote else { return [] }
+                return remote.machines.compactMap { machine in
+                    guard remote.state(of: machine.id)?.isConnected == true,
+                          let reading = self.settings?.remote.reading(of: machine.id) ?? remote.reading(of: machine.id),
+                          RemoteMachinesModel.needsUpdate(reading, enabled: remote.enabledAgents(of: machine.id))
+                    else { return nil }
+                    return machine.name
+                }
+            },
             isEnabled: { [weak self] in self?.enabledAgents.contains($0) ?? true },
             setEnabled: { [weak self] in self?.setEnabled($0, $1) },
             setAgent: { [weak self] source, installed in self?.setAgent(source, installed: installed) },
@@ -3100,13 +3132,21 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// At launch: `EVLAT_SETUP` opens the setup at its step for looking,
     /// writing nothing; otherwise it opens once, by itself, for someone who
     /// has set nothing up (`SetupTrigger`) — and is marked shown as it
-    /// opens: closing it is having seen it.
+    /// opens: closing it is having seen it. Otherwise Settings opens at the
+    /// agents once, for one whose agents still hold the bytes from before
+    /// the socket (`shouldOpenAgentsAfterSocket`).
     func openSetupAtLaunch(environment: [String: String] = ProcessInfo.processInfo.environment) {
         if let step = Self.forcedSetup(environment) {
             openSetup(step: step)
             return
         }
-        guard shouldOpenSetup(environment: environment) else { return }
+        let opensSetup = shouldOpenSetup(environment: environment)
+        if shouldOpenAgentsAfterSocket(opensSetup: opensSetup, environment: environment) {
+            // Its cards say "Needs update", and one press each moves them.
+            openSettings(section: .agents)
+            defaults?.set(true, forKey: Self.socketCutShownKey)
+        }
+        guard opensSetup else { return }
         openSetup()
         markSetupSeen(environment: environment)
     }

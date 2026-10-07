@@ -105,7 +105,7 @@
 /* The window. With no machine it shows an invitation and the field. */
 "remote.empty.title" = "No remote machines yet";
 "remote.empty.body" = "Sessions you run on a server over ssh can show up on the bar like local ones. Add the server by the name you give ssh — an alias from ~/.ssh/config such as devbox, or me@server.";
-"remote.empty.requirement" = "Needs ssh: a key loaded in your agent, or a password Evlat asks for when you add the machine.";
+"remote.empty.requirement" = "Needs ssh: a key loaded in your agent, or a password Evlat asks for when you add the machine. The server must let ssh forward a socket, which sshd allows unless its config turns it off.";
 /* The field: an ssh target. The button adds it; Return does too. */
 "remote.add.placeholder" = "devbox or me@server";
 "remote.add" = "Add";
@@ -184,7 +184,7 @@
 
 /* Removing a machine: asked in the window first. */
 "remote.remove" = "Remove…";
-"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, remove them in the Hooks row. The evlat command on the server stays, silent until the machine is added again.";
+"remote.remove.confirm" = "Remove {name}? The tunnel closes and its sessions leave the bar. Hooks on the server stay where they are and fall silent with no one listening — to take them out first, remove them on each agent's card. The evlat command on the server stays, silent until the machine is added again.";
 "remote.remove.cancel" = "Cancel";
 "remote.remove.do" = "Remove";
 
@@ -202,9 +202,9 @@
 "remote.command.noCurl" = "curl is not on the server: evlat sends with curl, so nothing reaches the bar until it is installed.";
 "remote.command.try" = "Try it in a new session on the server: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
-"remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key, and its folder if it is left empty:";
+"remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key file an older version left, and their folder if it is left empty:";
 "remote.items.title" = "Set up on {name}";
-"remote.items.body" = "The tunnel only opens the way. For an agent on the server to tell this bar, these are written into the server's own files — the same cards as this Mac's, written over ssh, or a block you run on the server yourself. Claude Code and Codex there ask this bar for approval too; its Antigravity gets hooks only.";
+"remote.items.body" = "The tunnel only opens the way. For an agent on the server to tell this bar, these are written into the server's own files — the same cards as this Mac's, written over ssh, or a block you run on the server yourself. Claude Code and Codex there ask this bar for approval too; its Antigravity gets hooks only. Codex shows “Running hook” while its card waits on the bar, two minutes at most.";
 "remote.item.command" = "evlat command";
 /* An agent card on a server: the agent's folder is not there; and what
    the agent needs after a write there, where it has something to say
@@ -463,11 +463,13 @@
 "setup.manual.remove.hooks" = "To remove, delete the entries that contain {marker}.";
 "setup.manual.remove.usage" = "To remove, put your previous statusLine back.";
 "setup.manual.remove.command" = "To remove: {line}";
-"setup.attention.hooksOutdated" = "{source} hooks are old";
+"setup.attention.hooksOutdated" = "{source} hooks are old: Evlat can't hear its sessions until you update them";
+"setup.attention.hooksStale" = "{source} hooks are old";
 "setup.attention.refused" = "{item}: the last change was refused";
 "setup.attention.hotKey" = "The shortcut is not registered";
 "setup.attention.machine" = "{machine}: server unreachable";
 "setup.attention.machinePassword" = "{machine}: waiting for a password";
+"setup.attention.machineUpdate" = "{machine}: needs update";
 "setup.attention.commandLink" = "The evlat command points elsewhere";
 
 /* Settings window (014/phase-2) */
@@ -630,7 +632,7 @@
 "settings.remote.close" = "Close";
 "settings.remote.what.command" = "the evlat command";
 "settings.remote.what.command.remove" = "the evlat command is removed";
-"settings.remote.what.key.remove" = "the key is removed";
+"settings.remote.what.key.remove" = "an older version's key file is removed";
 /* The evlat row when a new login shell on the server does not find the command. */
 "settings.remote.path.status" = "Not on PATH";
 "settings.remote.path.note" = "A new shell on the server does not find evlat: ~/.local/bin is not on its PATH.";
@@ -675,7 +677,7 @@
 "setup.flow.sessions.title" = "Which agents do you use?";
 "setup.flow.sessions.body" = "Evlat adds a small notifying command to each chosen agent's settings and wraps its status line for usage; the rest of the file is left alone. You can take it out any time in Settings → Agents.";
 "setup.flow.sessions.none" = "No agent Evlat knows is on this Mac. Once one is installed, connect it in Settings → Agents.";
-"setup.flow.sessions.hint" = "Open Claude sessions take the change with their next message; new ones show up at once.";
+"setup.flow.sessions.hint" = "Open Claude sessions take the change with their next message; new ones show up at once. Codex runs Evlat's hooks once you trust them in its /hooks.";
 "setup.flow.chat.title" = "Talk to the mascot";
 "setup.flow.chat.body" = "Click the mascot or press the shortcut: a balloon opens and the work runs with your own claude. You can drop a file on the mascot.";
 "setup.flow.chat.hotkey.detail" = "A key the system uses is not accepted.";

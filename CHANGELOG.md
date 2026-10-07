@@ -13,6 +13,27 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **Approve a server's sessions from the bar.** Claude Code on a server
+  you added in Settings → Remote Machines now asks the bar for permission
+  — **Allow once** or **Deny** on the session's card — and its questions
+  are answered there too. Codex on a server asks for permission the same
+  way; while its card waits, Codex shows “Running hook”, two minutes at
+  most.
+- **Update your hooks once after this update.** Evlat now listens only on
+  a socket in `~/.config/evlat/run`, a folder only you can enter, and no
+  longer on port 48151. Hooks set up by earlier versions go silent until
+  you update them: Settings → Agents opens once with **Update** on each
+  card, and Settings → Remote Machines shows the servers that need it.
+  Open Claude Code sessions take the change with their next message; in
+  Codex, open `/hooks` and trust Evlat's new hooks.
+- **Several Macs on one server: update Evlat on every Mac first,** then
+  the server. An older Evlat can undo a newer one's setup there. A server
+  talks to one Mac at a time; the other says “another Evlat answers this
+  server” until that connection ends. Servers that don't let ssh forward a
+  socket are not supported.
+- **Your own scripts post to the socket now,** with no key:
+  `curl --unix-socket ~/.config/evlat/run/evlat.sock http://127.0.0.1:48151/signal …`.
+  Anything that posted to `127.0.0.1:48151` directly needs this change.
 - **Quiet at the tab you're watching.** With Bateri 0.4 or newer, a
   session's finish sound, peek and reminders stay quiet while you're at its
   tab — on this Mac, or over ssh from a Bateri tab. The bar still shows what

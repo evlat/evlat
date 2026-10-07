@@ -156,6 +156,9 @@ enum SetupAttention: Equatable {
     case machineUnreachable(String)
     /// A machine's tunnel stopped for the user's password (`needsUser`).
     case machineNeedsPassword(String)
+    /// A connected machine holds an older copy's hooks or `evlat` command
+    /// (`RemoteMachinesModel.needsUpdate`).
+    case machineNeedsUpdate(String)
     case commandLinkElsewhere
 
     /// Where the settings window shows it: its sections, in the side
@@ -174,7 +177,7 @@ enum SetupAttention: Equatable {
             case .loginItem: return .general
             }
         case .hotKeyUnregistered: return .chat
-        case .machineUnreachable, .machineNeedsPassword: return .remote
+        case .machineUnreachable, .machineNeedsPassword, .machineNeedsUpdate: return .remote
         case .commandLinkElsewhere: return .commandLine
         }
     }
@@ -202,6 +205,8 @@ final class SetupModel: ObservableObject {
         var unreachableMachines: () -> [String]
         /// Names of the machines whose tunnel waits for the user's password.
         var machinesNeedingPassword: () -> [String] = { [] }
+        /// Names of the connected machines whose parts an older copy wrote.
+        var machinesNeedingUpdate: () -> [String] = { [] }
 
         /// An agent's switch, read and written (`AppController.setEnabled`).
         var isEnabled: (AgentID) -> Bool = { _ in true }
@@ -237,6 +242,9 @@ final class SetupModel: ObservableObject {
     /// Each agent's parts as last read: the consent lists only the parts
     /// the press changes, and the press is the one the row offered.
     private var agentStates: [AgentID: AgentIntegration.State] = [:]
+    /// The agents whose old hooks are from before the socket, as last read:
+    /// silent, which their attention line says (`text`).
+    private var silentHooks: Set<AgentID> = []
 
     init(host: Host, lang: String = L10n.language) {
         self.host = host
@@ -261,6 +269,7 @@ final class SetupModel: ObservableObject {
         let home = host.home()
         linkState = nil
         agentStates = [:]
+        silentHooks = []
         if let home {
             for source in Agents.all.ids {
                 rows.append(agentRow(source, home: home, attention: &attention))
@@ -310,8 +319,7 @@ final class SetupModel: ObservableObject {
             if host.loginItemFailed() { attention.append(.refused(.loginItem)) }
         }
         if host.hotKeyRefused() { attention.append(.hotKeyUnregistered) }
-        attention += host.unreachableMachines().map(SetupAttention.machineUnreachable)
-        attention += host.machinesNeedingPassword().map(SetupAttention.machineNeedsPassword)
+        attention += machineAttention()
         self.rows = rows
         self.attention = attention
         // A block closes when its row goes, or once what it adds is there
@@ -347,7 +355,10 @@ final class SetupModel: ObservableObject {
             return row(item, .unknown, detail: files, failure: failure)
         }
         agentStates[source] = state
-        if state.hooks == .outdated { attention.append(.hooksOutdated(source)) }
+        if state.hooks == .outdated {
+            attention.append(.hooksOutdated(source))
+            if AgentIntegration.hooksPredateSocket(home: home, for: source.agent) { silentHooks.insert(source) }
+        }
         var note: String?
         if state.relay == .modified {
             attention.append(.usageModified(source))
@@ -416,13 +427,17 @@ final class SetupModel: ObservableObject {
     func reloadIfMachinesChanged() {
         let shown = attention.filter {
             switch $0 {
-            case .machineUnreachable, .machineNeedsPassword: return true
+            case .machineUnreachable, .machineNeedsPassword, .machineNeedsUpdate: return true
             default: return false
             }
         }
-        let now = host.unreachableMachines().map(SetupAttention.machineUnreachable)
+        if shown != machineAttention() { reload() }
+    }
+
+    private func machineAttention() -> [SetupAttention] {
+        host.unreachableMachines().map(SetupAttention.machineUnreachable)
             + host.machinesNeedingPassword().map(SetupAttention.machineNeedsPassword)
-        if shown != now { reload() }
+            + host.machinesNeedingUpdate().map(SetupAttention.machineNeedsUpdate)
     }
 
     private func row(_ item: SetupItem, _ status: SetupStatus, detail: String, note: String? = nil,
@@ -678,7 +693,11 @@ final class SetupModel: ObservableObject {
     func text(_ attention: SetupAttention) -> String {
         switch attention {
         case .hooksOutdated(let source):
-            return L10n.t("setup.attention.hooksOutdated", ["source": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
+            // Before the socket the hooks are silent, and the line says so;
+            // an older copy's that still answers (a timeout, a duplicate)
+            // is only old.
+            let key = silentHooks.contains(source) ? "setup.attention.hooksOutdated" : "setup.attention.hooksStale"
+            return L10n.t(key, ["source": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
         case .usageModified(let source):
             return L10n.t("setup.attention.usageModified", ["source": L10n.t("source.\(source.rawValue)", in: lang)], in: lang)
         case .refused(let item):
@@ -687,6 +706,7 @@ final class SetupModel: ObservableObject {
         case .machineUnreachable(let name): return L10n.t("setup.attention.machine", ["machine": name], in: lang)
         case .machineNeedsPassword(let name):
             return L10n.t("setup.attention.machinePassword", ["machine": name], in: lang)
+        case .machineNeedsUpdate(let name): return L10n.t("setup.attention.machineUpdate", ["machine": name], in: lang)
         case .commandLinkElsewhere: return L10n.t("setup.attention.commandLink", in: lang)
         }
     }
@@ -715,9 +735,9 @@ final class SetupModel: ObservableObject {
            "setup.manual.auto", "setup.manual.wrapping",
            "setup.manual.remove.hooks", "setup.manual.remove.usage",
            "setup.manual.remove.command",
-           "setup.attention.hooksOutdated", "setup.attention.usageModified", "setup.attention.refused",
+           "setup.attention.hooksOutdated", "setup.attention.hooksStale", "setup.attention.usageModified", "setup.attention.refused",
            "setup.attention.hotKey", "setup.attention.machine", "setup.attention.machinePassword",
-           "setup.attention.commandLink"]
+           "setup.attention.machineUpdate", "setup.attention.commandLink"]
         + [HookSettings.Failure.unreadable, .malformed, .noDirectory, .changedUnderneath, .unwritable]
             .map(AppController.failureKey)
 }

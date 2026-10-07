@@ -64,7 +64,7 @@
 
 "remote.empty.title" = "リモートマシンはまだありません";
 "remote.empty.body" = "sshで接続するサーバー上のセッションも、ローカルのセッションと同じようにバーに表示できます。sshで使っている名前でサーバーを追加してください。~/.ssh/configのエイリアス（devboxなど）や、me@serverの形式です。";
-"remote.empty.requirement" = "sshが必要です。エージェントに読み込まれた鍵、またはマシンの追加時にEvlatが尋ねるパスワードを使います。";
+"remote.empty.requirement" = "sshが必要です。エージェントに読み込まれた鍵、またはマシンの追加時にEvlatが尋ねるパスワードを使います。サーバーはsshによるソケットの転送を許可している必要があります。sshdは、設定で無効にされていない限り許可します。";
 "remote.add.placeholder" = "devbox または me@server";
 "remote.add" = "追加";
 "remote.add.empty" = "sshで使っている名前を入力してください。";
@@ -126,7 +126,7 @@
 "remote.copied" = "コピーしました";
 
 "remote.remove" = "削除…";
-"remote.remove.confirm" = "{name}を削除しますか？トンネルが閉じ、そのセッションはバーから消えます。サーバー上のフックはそのまま残り、受け取る相手がいないまま沈黙します。先に取り除くには、「フック」の行で削除してください。サーバー上のevlatコマンドは残り、マシンを再び追加するまで沈黙します。";
+"remote.remove.confirm" = "{name}を削除しますか？トンネルが閉じ、そのセッションはバーから消えます。サーバー上のフックはそのまま残り、受け取る相手がいないまま沈黙します。先に取り除くには、各エージェントのカードで削除してください。サーバー上のevlatコマンドは残り、マシンを再び追加するまで沈黙します。";
 "remote.remove.cancel" = "キャンセル";
 "remote.remove.do" = "削除";
 
@@ -141,9 +141,9 @@
 "remote.command.noCurl" = "サーバーにcurlがありません。evlatはcurlで送信するため、インストールされるまでバーには何も届きません。";
 "remote.command.try" = "サーバーの新しいセッションで試してください：evlat --list";
 "remote.command.manual.script" = "~/.local/bin/evlat — コマンド本体です。このまま書き込みます（既存のevlatは置き換わるので、先にcommand -v evlatで確認してください）：";
-"remote.command.manual.remove" = "削除するには：Evlatのものであればコマンド、鍵、そして空になったらそのフォルダを削除します：";
+"remote.command.manual.remove" = "削除するには：Evlatのものであればコマンド、古いバージョンが残した鍵ファイル、そして空になったらそのフォルダを削除します：";
 "remote.items.title" = "{name}でのセットアップ";
-"remote.items.body" = "トンネルは道を開くだけです。サーバー上のエージェントがこのバーに伝えるには、サーバー自身のファイルに書き込む必要があります。このMacと同じカードを使ってsshで書き込むか、サーバーで自分で実行するブロックを使います。サーバー上のClaude CodeとCodexも承認をこのバーに求めます。Antigravityにはフックのみが入ります。";
+"remote.items.body" = "トンネルは道を開くだけです。サーバー上のエージェントがこのバーに伝えるには、サーバー自身のファイルに書き込む必要があります。このMacと同じカードを使ってsshで書き込むか、サーバーで自分で実行するブロックを使います。サーバー上のClaude CodeとCodexも承認をこのバーに求めます。Antigravityにはフックのみが入ります。カードがバーで待っている間、Codexには「Running hook」と表示されます（最長2分）。";
 "remote.item.command" = "evlatコマンド";
 "remote.status.notFound" = "このサーバーにはありません";
 "remote.hint.install.codex" = "Codexで/hooksを開き、Evlatのフックを信頼してください。それまでCodexはフックを実行しません。";
@@ -390,11 +390,13 @@
 "setup.manual.remove.hooks" = "削除するには、{marker}を含むエントリを削除します。";
 "setup.manual.remove.usage" = "削除するには、以前のstatusLineに戻します。";
 "setup.manual.remove.command" = "削除するには：{line}";
-"setup.attention.hooksOutdated" = "{source}のフックが古くなっています";
+"setup.attention.hooksOutdated" = "{source}のフックが古くなっています。更新するまで、Evlatはそのセッションを検知できません";
+"setup.attention.hooksStale" = "{source}のフックが古くなっています";
 "setup.attention.refused" = "{item}：前回の変更は拒否されました";
 "setup.attention.hotKey" = "ショートカットが登録されていません";
 "setup.attention.machine" = "{machine}：サーバーに接続できません";
 "setup.attention.machinePassword" = "{machine}：パスワードの入力待ち";
+"setup.attention.machineUpdate" = "{machine}：要アップデート";
 "setup.attention.commandLink" = "evlatコマンドが別の場所を指しています";
 
 "menu.settings" = "設定…";
@@ -554,7 +556,7 @@
 "settings.remote.close" = "閉じる";
 "settings.remote.what.command" = "evlatコマンド";
 "settings.remote.what.command.remove" = "evlatコマンドを削除";
-"settings.remote.what.key.remove" = "鍵を削除";
+"settings.remote.what.key.remove" = "古いバージョンの鍵ファイルを削除";
 "settings.remote.path.status" = "PATHにありません";
 "settings.remote.path.note" = "サーバーの新しいシェルでevlatが見つかりません。~/.local/binがPATHにありません。";
 "settings.remote.path.stillOff" = "Evlatの行は{file}にありますが、新しいログインシェルではまだevlatが見つかりません。そのファイルがログイン時に読み込まれていない可能性があります（bashの場合、~/.bash_profileが~/.bashrcを読み込む必要があります）。";
@@ -594,7 +596,7 @@
 "setup.flow.sessions.title" = "どのエージェントを使っていますか？";
 "setup.flow.sessions.body" = "Evlatは、選んだ各エージェントの設定に通知用の小さなコマンドを追加し、利用状況のためにステータスラインをラップします。ファイルのほかの部分には触れません。設定 → エージェントでいつでも取り除けます。";
 "setup.flow.sessions.none" = "Evlatが対応しているエージェントがこのMacにありません。インストールしたら、設定 → エージェントで接続してください。";
-"setup.flow.sessions.hint" = "開いているClaudeセッションは次のメッセージから変更を反映します。新しいセッションはすぐに表示されます。";
+"setup.flow.sessions.hint" = "開いているClaudeセッションは次のメッセージから変更を反映します。新しいセッションはすぐに表示されます。Codexの/hooksでEvlatのフックを信頼すると、Codexはそれを実行します。";
 "setup.flow.chat.title" = "マスコットと話す";
 "setup.flow.chat.body" = "マスコットをクリックするかショートカットを押すと、吹き出しが開き、あなた自身のclaudeで作業が実行されます。マスコットにファイルをドロップすることもできます。";
 "setup.flow.chat.hotkey.detail" = "システムが使っているキーは使えません。";

@@ -33,6 +33,9 @@ public enum StatusLineRelay {
         public var isEvlats: Bool { self == .current || self == .outdated }
     }
 
+    /// The settings key the line lives under.
+    public static let key = "statusLine"
+
     /// `$0` of the wrapper's shell; it names the line in `ps`.
     static let name = "evlat-statusline"
 
@@ -128,7 +131,7 @@ public enum StatusLineRelay {
     // MARK: - Pure
 
     public static func state(of settings: [String: Any], source: some Agent) -> State {
-        guard path(source) != nil, let line = settings["statusLine"] as? [String: Any],
+        guard path(source) != nil, let line = settings[key] as? [String: Any],
               let command = line["command"] as? String, command.contains(marker(for: source)) else { return .missing }
         guard let unwrapped = original(in: command, source: source) else { return .modified }
         return unwrapped.current ? .current : .outdated
@@ -148,10 +151,10 @@ public enum StatusLineRelay {
     public static func installing(into settings: [String: Any], source: some Agent) -> [String: Any]? {
         guard path(source) != nil else { return nil }
         var result = settings
-        guard let value = settings["statusLine"] else {
+        guard let value = settings[key] else {
             var line: [String: Any] = ["type": "command", "command": command(wrapping: nil, source: source)]
             if stacks(source) { line[stackKey] = true }
-            result["statusLine"] = line
+            result[key] = line
             return result
         }
         guard var line = value as? [String: Any] else { return nil }
@@ -164,7 +167,7 @@ public enum StatusLineRelay {
             guard let command = line["command"] as? String,
                   let unwrapped = original(in: command, source: source) else { return nil }
             line["command"] = self.command(wrapping: unwrapped.original, source: source)
-            result["statusLine"] = line
+            result[key] = line
             return result
         case .missing: break
         }
@@ -177,7 +180,7 @@ public enum StatusLineRelay {
             line["command"] = command(wrapping: nil, source: source)
             if stacks(source), line[stackKey] == nil { line[stackKey] = true }
         }
-        result["statusLine"] = line
+        result[key] = line
         return result
     }
 
@@ -189,7 +192,7 @@ public enum StatusLineRelay {
     /// command loses that `type` too — the wrapper does not record whether
     /// it added it. Such an entry draws nothing either way.
     public static func removing(from settings: [String: Any], source: some Agent) -> [String: Any]? {
-        guard path(source) != nil, var line = settings["statusLine"] as? [String: Any],
+        guard path(source) != nil, var line = settings[key] as? [String: Any],
               let command = line["command"] as? String, command.contains(marker(for: source)) else { return settings }
         guard let unwrapped = original(in: command, source: source) else { return nil }
         if let original = unwrapped.original {
@@ -201,7 +204,7 @@ public enum StatusLineRelay {
             if stacks(source), line[stackKey] as? Bool == true { line[stackKey] = nil }
         }
         var result = settings
-        result["statusLine"] = line.isEmpty ? nil : line
+        result[key] = line.isEmpty ? nil : line
         return result
     }
 
@@ -215,7 +218,7 @@ public enum StatusLineRelay {
     static func backupContents(of settings: [String: Any]) throws -> Data {
         do {
             return try JSONSerialization.data(
-                withJSONObject: settings["statusLine"] ?? NSNull(),
+                withJSONObject: settings[key] ?? NSNull(),
                 options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes, .fragmentsAllowed])
         } catch {
             throw SettingsFile.Failure.unwritable

@@ -64,7 +64,7 @@
 
 "remote.empty.title" = "Віддалених машин ще немає";
 "remote.empty.body" = "Сесії, які ви запускаєте на сервері через ssh, можуть з’являтися на панелі так само, як локальні. Додайте сервер під тією назвою, яку ви даєте ssh: псевдонім із ~/.ssh/config, як-от devbox, або me@server.";
-"remote.empty.requirement" = "Потрібен ssh: ключ, завантажений в агент, або пароль, який Evlat запитає, коли ви додаватимете машину.";
+"remote.empty.requirement" = "Потрібен ssh: ключ, завантажений в агент, або пароль, який Evlat запитає, коли ви додаватимете машину. Сервер має дозволяти ssh пересилати сокет; sshd це дозволяє, якщо це не вимкнено в його налаштуваннях.";
 "remote.add.placeholder" = "devbox або me@server";
 "remote.add" = "Додати";
 "remote.add.empty" = "Введіть назву, яку ви даєте ssh.";
@@ -83,7 +83,7 @@
 "remote.failure.authentication" = "вхід відхилено";
 "remote.failure.authentication.advice" = "Сервер відхилив усі способи входу: ключ, завантажений в агент, і пароль. Перевірте, чи працює «ssh {target}» у Терміналі.";
 "remote.failure.channelBusy" = "цьому серверу відповідає інший Evlat";
-"remote.failure.channelBusy.advice" = "Evlat на іншому Mac під’єднаний до цього сервера під тим самим користувачем, а сервер повідомляє лише одному Mac водночас. Evlat і далі пробує: цей Mac перейме, щойно те з’єднання завершиться.";
+"remote.failure.channelBusy.advice" = "Evlat на іншому Mac під’єднаний до цього сервера під тим самим користувачем, а сервер повідомляє лише одному Mac водночас. Evlat і далі пробує: цей Mac займе його місце, щойно те з’єднання завершиться.";
 "remote.failure.forwardingRefused" = "сервер не дозволяє ssh пересилати сокет";
 "remote.failure.forwardingRefused.advice" = "Evlat зв’язується з цим сервером через сокет, який пересилає ssh, а sshd_config сервера це вимикає (AllowStreamLocalForwarding, AllowTcpForwarding або DisableForwarding). Попросіть адміністратора сервера це дозволити.";
 "remote.failure.hostKey" = "невідомий ключ хоста";
@@ -126,7 +126,7 @@
 "remote.copied" = "Скопійовано";
 
 "remote.remove" = "Видалити…";
-"remote.remove.confirm" = "Видалити {name}? Тунель закриється, а його сесії зникнуть із панелі. Хуки на сервері лишаться на місці й замовкнуть, бо їх ніхто не слухатиме, — щоб спершу їх прибрати, видаліть їх у рядку «Хуки». Команда evlat на сервері лишиться й мовчатиме, доки машину не додадуть знову.";
+"remote.remove.confirm" = "Видалити {name}? Тунель закриється, а його сесії зникнуть із панелі. Хуки на сервері лишаться на місці й замовкнуть, бо їх ніхто не слухатиме, — щоб спершу їх прибрати, видаліть їх на картці кожного агента. Команда evlat на сервері лишиться й мовчатиме, доки машину не додадуть знову.";
 "remote.remove.cancel" = "Скасувати";
 "remote.remove.do" = "Видалити";
 
@@ -141,9 +141,9 @@
 "remote.command.noCurl" = "На сервері немає curl: evlat надсилає через curl, тож доки його не встановлено, на панель нічого не потрапить.";
 "remote.command.try" = "Спробуйте в новій сесії на сервері: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — команда, записана як є (замінює наявний evlat; спершу перевірте командою command -v evlat):";
-"remote.command.manual.remove" = "Щоб видалити: команду, якщо вона від Evlat, ключ і його папку, якщо вона лишиться порожньою:";
+"remote.command.manual.remove" = "Щоб видалити: команду, якщо вона від Evlat, файл ключа, що лишився від старої версії, і їхню папку, якщо вона лишиться порожньою:";
 "remote.items.title" = "Налаштування на {name}";
-"remote.items.body" = "Тунель лише відкриває шлях. Щоб агент на сервері повідомляв цій панелі, у власні файли сервера записується ось це — ті самі картки, що й для цього Mac, записані через ssh, або блок, який ви самі запускаєте на сервері. Claude Code і Codex на сервері теж питають схвалення в цієї панелі, а його Antigravity отримує лише хуки.";
+"remote.items.body" = "Тунель лише відкриває шлях. Щоб агент на сервері повідомляв цій панелі, у власні файли сервера записується ось це — ті самі картки, що й для цього Mac, записані через ssh, або блок, який ви самі запускаєте на сервері. Claude Code і Codex на сервері теж питають схвалення в цієї панелі, а його Antigravity отримує лише хуки. Поки картка Codex чекає на панелі, Codex показує «Running hook», але не довше двох хвилин.";
 "remote.item.command" = "Команда evlat";
 "remote.status.notFound" = "Немає на цьому сервері";
 "remote.hint.install.codex" = "У Codex відкрийте /hooks і довіртеся хукам Evlat: доти Codex їх не запускає.";
@@ -155,7 +155,7 @@
 "remote.combined.hint" = "Для сервера, який ви налаштовуєте вручну: одне копіювання, одна вставка.";
 "remote.combined.title" = "Запустіть один раз на {name}";
 "remote.combined.body" = "Блоки всіх рядків в одному: хуки, рядок використання й команда evlat налаштовуються разом, у вашій власній оболонці на сервері. Evlat нічого не записує через ssh.";
-"remote.combined.whole" = "Цей блок містить увесь ~/.claude/settings.json і ~/.codex/hooks.json сервера такими, якими Evlat щойно їх прочитав, із доданими рядками Evlat. Файл, що змінився після читання, не чіпається.";
+"remote.combined.whole" = "Цей блок містить повністю ~/.claude/settings.json і ~/.codex/hooks.json сервера такими, якими Evlat щойно їх прочитав, із доданими рядками Evlat. Файл, що змінився після читання, лишається недоторканим.";
 "remote.combined.check" = "Запущено, перевірити";
 "remote.combined.checkNote" = "Перевірка лише читає, через ssh. Щоб видалити, дотримуйтеся інструкцій кожного рядка.";
 
@@ -390,11 +390,13 @@
 "setup.manual.remove.hooks" = "Щоб видалити, приберіть записи, що містять {marker}.";
 "setup.manual.remove.usage" = "Щоб видалити, поверніть свій попередній statusLine.";
 "setup.manual.remove.command" = "Щоб видалити: {line}";
-"setup.attention.hooksOutdated" = "Хуки {source} застаріли";
+"setup.attention.hooksOutdated" = "Хуки {source} застаріли: доки ви їх не оновите, Evlat не чує його сесій";
+"setup.attention.hooksStale" = "Хуки {source} застаріли";
 "setup.attention.refused" = "{item}: останню зміну відхилено";
 "setup.attention.hotKey" = "Сполучення клавіш не зареєстровано";
 "setup.attention.machine" = "{machine}: сервер недоступний";
 "setup.attention.machinePassword" = "{machine}: чекає на пароль";
+"setup.attention.machineUpdate" = "{machine}: потрібне оновлення";
 "setup.attention.commandLink" = "Команда evlat вказує деінде";
 
 "menu.settings" = "Налаштування…";
@@ -554,7 +556,7 @@
 "settings.remote.close" = "Закрити";
 "settings.remote.what.command" = "команда evlat";
 "settings.remote.what.command.remove" = "команда evlat видаляється";
-"settings.remote.what.key.remove" = "ключ видаляється";
+"settings.remote.what.key.remove" = "файл ключа від старої версії видаляється";
 "settings.remote.path.status" = "Немає в PATH";
 "settings.remote.path.note" = "Нова оболонка на сервері не знаходить evlat: ~/.local/bin немає в її PATH.";
 "settings.remote.path.stillOff" = "Рядок Evlat є в {file}, але нова оболонка входу все ще не знаходить evlat: можливо, цей файл не читається під час входу (для bash ~/.bash_profile має читати ~/.bashrc).";
@@ -594,7 +596,7 @@
 "setup.flow.sessions.title" = "Якими агентами ви користуєтеся?";
 "setup.flow.sessions.body" = "Evlat додає до налаштувань кожного вибраного агента невелику команду сповіщення й обгортає його рядок стану для даних про використання; решту файлу він не чіпає. Прибрати це можна будь-коли в Налаштуваннях → Агенти.";
 "setup.flow.sessions.none" = "На цьому Mac немає жодного агента, якого знає Evlat. Щойно ви його встановите, підключіть його в Налаштуваннях → Агенти.";
-"setup.flow.sessions.hint" = "Відкриті сесії Claude підхоплюють зміну з наступним повідомленням; нові з’являться одразу.";
+"setup.flow.sessions.hint" = "Відкриті сесії Claude підхоплюють зміну з наступним повідомленням; нові з’являться одразу. Codex запускає хуки Evlat, щойно ви довіритеся їм у його /hooks.";
 "setup.flow.chat.title" = "Поговоріть із маскотом";
 "setup.flow.chat.body" = "Клацніть маскота або натисніть сполучення клавіш: відкриється бульбашка, і робота піде через ваш власний claude. На маскота можна кинути файл.";
 "setup.flow.chat.hotkey.detail" = "Клавіші, які використовує система, не приймаються.";

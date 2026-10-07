@@ -1,5 +1,5 @@
 import XCTest
-import EvlatCore
+@testable import EvlatCore
 @testable import EvlatAgents
 @testable import EvlatApp
 
@@ -370,8 +370,72 @@ final class SetupModelTests: XCTestCase {
         XCTAssertEqual(model.attention, [.hooksOutdated(.claude), .usageModified(.claude), .refused(.agent(.codex)),
                                          .hotKeyUnregistered, .machineUnreachable("devbox")])
         XCTAssertEqual(model.attention.map(\.section), [.agents, .agents, .agents, .chat, .remote])
-        XCTAssertEqual(model.text(.hooksOutdated(.claude)), "Claude Code hooks are old")
+        XCTAssertEqual(model.text(.hooksOutdated(.claude)),
+                       "Claude Code hooks are old: Evlat can't hear its sessions until you update them",
+                       "from before the socket: the line says what it costs")
         XCTAssertEqual(model.text(.machineUnreachable("devbox")), "devbox: server unreachable")
+    }
+
+    /// Old hooks that still reach Evlat — another timeout — are only old.
+    func testOldHooksOnTheSocketAreOnlyOld() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let today = String(decoding: try JSONSerialization.data(withJSONObject: HookSettings.installing(into: [:], for: .claude)),
+                           as: UTF8.self).replacingOccurrences(of: "-m 2", with: "-m 1")
+        try Data(today.utf8).write(to: Claude().hooksFile(home: home))
+        let model = model(controller)
+        XCTAssertEqual(model.attention, [.hooksOutdated(.claude)])
+        XCTAssertEqual(model.text(.hooksOutdated(.claude)), "Claude Code hooks are old")
+    }
+
+    /// A connected machine whose parts an older copy wrote is a line at the
+    /// remote section; it follows the machines like the others, and goes
+    /// once a re-read finds them current.
+    func testAMachineThatNeedsAnUpdateIsAnAttentionLine() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        var old: [String] = ["devbox"]
+        let model = model(controller) { host in
+            host.unreachableMachines = { [] }
+            host.machinesNeedingUpdate = { old }
+        }
+        XCTAssertEqual(model.attention, [.machineNeedsUpdate("devbox")])
+        XCTAssertEqual(SetupAttention.machineNeedsUpdate("devbox").section, .remote)
+        XCTAssertEqual(model.text(.machineNeedsUpdate("devbox")), "devbox: needs update")
+        XCTAssertEqual(SetupModel(host: { var h = controller.setupHost; h.machinesNeedingUpdate = { old }; return h }(),
+                                  lang: "tr").text(.machineNeedsUpdate("devbox")), "devbox: güncellenmeli")
+        old = []
+        model.reloadIfMachinesChanged()
+        XCTAssertEqual(model.attention, [], "the line follows the reading")
+    }
+
+    /// The rule behind the line: an older copy's hooks of an agent switched
+    /// on there, or an older `evlat` command. Current parts, a missing part,
+    /// a usage line alone and a newer command are no line.
+    func testWhatMakesAMachineNeedAnUpdate() throws {
+        func file(_ settings: [String: Any]?) throws -> Result<RemoteSettings.Snapshot, SettingsFile.Failure> {
+            let bytes = try settings.map { try JSONSerialization.data(withJSONObject: $0) }
+            return .success(RemoteSettings.Snapshot(bytes: bytes, checksum: bytes == nil ? RemoteSettings.absent : "1 1"))
+        }
+        let tcp = "curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true"
+        let old = try file(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcp]]]]]])
+        let current = try file(LocalHooks.installing(into: [:], for: .claude, target: .server))
+        let none: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory)
+        func reading(_ claude: Result<RemoteSettings.Snapshot, SettingsFile.Failure>,
+                     command: RemoteCommand.Status = .missing) -> RemoteSettings.Reading {
+            RemoteSettings.Reading(files: [.claude: claude, .codex: none, .antigravity: none], command: command)
+        }
+        XCTAssertTrue(RemoteMachinesModel.needsUpdate(reading(old), enabled: nil))
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(reading(old), enabled: [.codex]), "Claude is off there")
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(reading(current), enabled: nil), "the usage line alone asks nothing")
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(reading(try file(nil)), enabled: nil), "nothing installed")
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(reading(.success(.init(bytes: Data("{".utf8), checksum: "1 1"))),
+                                                       enabled: nil), "a file that cannot be read")
+        XCTAssertTrue(RemoteMachinesModel.needsUpdate(reading(current, command: .installed(version: 1)), enabled: nil),
+                      "an older evlat command")
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(
+            reading(current, command: .installed(version: RemoteCommand.version + 1)), enabled: nil),
+            "a newer Mac's command is not old")
     }
 
     /// A machine waiting for its password is its own line, at the remote
