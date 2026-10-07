@@ -14,7 +14,7 @@ renames that heading to its version.
 ## Unreleased
 
 - **Approve a server's sessions from the bar.** Claude Code on a server
-  you added in Settings → Remote Machines now asks the bar for permission
+  you added in Settings → Servers now asks the bar for permission
   — **Allow once** or **Deny** on the session's card — and its questions
   are answered there too. Codex on a server asks for permission the same
   way; while its card waits, Codex shows “Running hook”, two minutes at
@@ -24,8 +24,8 @@ renames that heading to its version.
   longer on port 48151. Hooks set up by earlier versions go silent until
   you update them: a window opens at launch listing them, this Mac's
   agents and your servers, with **Update all**; the menu's **Review
-  updates…** opens it again, and Settings → Agents and Remote Machines
-  show the same. Open Claude Code sessions take the change with their
+  updates…** opens it again, and Settings → This Mac and Servers show
+  the same, with **Update all** on top. Open Claude Code sessions take the change with their
   next message; in Codex, open `/hooks` and trust Evlat's new hooks.
 - **Evlat keeps its parts up to date.** Leave **Keep these up to date
   automatically** checked when you press **Update all**, and from then on
@@ -33,7 +33,11 @@ renames that heading to its version.
   when they go out of date — this Mac's at launch, a server's when it
   connects — and opens the window only when you need to act, such as
   Codex's `/hooks`. A usage line you took out or edited is left as it is.
-  Turn it off in Settings → General → Updates.
+  Turn it off in Settings → General → Updates. Settings → This Mac and
+  Servers then say what Evlat updated and when, with **Review**.
+- **Settings has a Connections group.** Agents is now **This Mac**,
+  Remote Machines **Servers**, Sandboxes **Docker sandboxes**, side by side
+  under one heading; the `evlat` command moved to the bottom of This Mac.
 - **Several Macs on one server: update Evlat on every Mac first,** then
   the server. An older Evlat can undo a newer one's setup there. A server
   talks to one Mac at a time; the other says “another Evlat answers this

@@ -170,7 +170,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The update window, once opened, and its model.
     private(set) var updatesWindow: AppWindow?
     private(set) var updates: UpdatesModel?
-    /// The machines' model, one for Settings → Remote Machines and the
+    /// The machines' model, one for Settings → Servers and the
     /// update window: one owner of their readings and jobs.
     private(set) var remoteMachines: RemoteMachinesModel?
     private var statusItem: NSStatusItem?
@@ -239,7 +239,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
-    /// Settings → Agents → Git branch (`BranchDisplay`). Handed to the
+    /// Settings → This Mac → Git branch (`BranchDisplay`). Handed to the
     /// rows, and read by the card's reader so that `off` reads nothing.
     var branchDisplay: BranchDisplay = .auto {
         didSet { sessionRows.branchDisplay = branchDisplay }
@@ -873,7 +873,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// next launch — unless the window is on screen with its own rows.
     func setUpdatesAutomatic(_ on: Bool) {
         if let agentsDefaults { agentsDefaults.set(on, forKey: Self.updatesAutomaticKey) } else { updatesAutomaticUnstored = on }
-        if settingsWindow?.isVisible == true { settings?.objectWillChange.send() }
+        if settingsWindow?.isVisible == true {
+            settings?.objectWillChange.send()
+            // The strip's "kept up to date" is said only while it is on.
+            updates?.refresh()
+        }
         if updatesWindow?.isVisible == true {
             updates?.automaticChanged(on)
         } else if on, mayKeepPartsCurrent() {
@@ -1340,7 +1344,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // listener still binds and the events still parse, and the bar is
         // exactly what the session files alone show.
         registry.register(hooks)
-        // Only the switched-on agents' (Settings → Agents); the switch
+        // Only the switched-on agents' (Settings → This Mac); the switch
         // registers and takes them away from here on.
         applyEnabledAgents()
         registry.register(chats.provider)
@@ -1422,7 +1426,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .entity(let entity)?: select(entity)
         case nil: break
         }
-        if let section = Self.forcedSettings() { openSettings(section: section) }
+        if let place = Self.forcedSettings() { openSettings(section: place.section, anchor: place.anchor) }
         openSetupAtLaunch()
         poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) {
             [weak self] _ in
@@ -2095,7 +2099,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         home.map { source.agent.isPresent(home: $0) } ?? true
     }
 
-    /// The user's switch (Settings → Agents, the setup's agent step), and
+    /// The user's switch (Settings → This Mac, the setup's agent step), and
     /// the one writer of `agents.enabled`. Leaves the files alone: taking
     /// Evlat's parts out is `setAgent`'s, asked for by the card.
     func setEnabled(_ source: AgentID, _ on: Bool) {
@@ -2105,6 +2109,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         if let agentsDefaults { agentsDefaults.set(value, forKey: EnabledAgents.key) } else { agentsUnstored = value }
         applyEnabledAgents()
+        // This Mac's strip counts only the agents switched on.
+        if settingsWindow?.isVisible == true || updatesWindow?.isVisible == true { updates?.agentsChanged() }
         scheduleRefresh()
     }
 
@@ -2650,7 +2656,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         tunnels.onReading = { [weak self] id in
             MainActor.assumeIsolated {
                 self?.remoteMachines?.channelRead(id)
-                if self?.updatesWindow?.isVisible == true { self?.updates?.refresh() }
+                if self?.updatesWindow?.isVisible == true || self?.settingsWindow?.isVisible == true {
+                    self?.updates?.refresh()
+                }
                 self?.keepMachineCurrent(id)
             }
         }
@@ -3086,23 +3094,28 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// is never activated.
     var settingsActivation: () -> Void = { WindowStage.activate() }
 
-    /// The settings window at `section`, built on first use. Like the menus'
-    /// entries the open list closes first; unlike them, Evlat comes forward —
-    /// the user asked for a window to type into.
-    func openSettings(section: SettingsModel.Section? = nil) {
+    /// The settings window at `section`, scrolled to `anchor`, built on
+    /// first use. Like the menus' entries the open list closes first; unlike
+    /// them, Evlat comes forward — the user asked for a window to type into.
+    func openSettings(section: SettingsModel.Section? = nil, anchor: SettingsModel.Anchor? = nil) {
         hover.closeNow()
         if barState.isOpen { closeBar() }
         let window = settingsWindow ?? makeSettingsWindow()
-        if let section { settings?.section = section }
         window.show()
+        // After the window is shown and read afresh: the anchor is taken by
+        // the view on screen, not by a hidden one before the opening.
+        if let section { settings?.show(SettingsModel.Place(section: section, anchor: anchor)) }
     }
 
     private func makeSettingsWindow() -> AppWindow {
+        // This Mac's and Servers' strip read the update window's model.
+        updatesWindowOrNew()
         let model = SettingsModel(
             host: settingsHost,
             setup: SetupModel(host: setupHost),
             remote: remoteMachinesModel(),
-            recorder: hotKeyRecorder)
+            recorder: hotKeyRecorder,
+            updates: updates)
         let window = AppWindow(make: {
             let window = AppKeyWindow(contentRect: NSRect(origin: .zero, size: SettingsView.size),
                                       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -3129,16 +3142,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     @objc func openSettingsFromMenu(_ sender: Any?) { openSettings() }
 
     /// `EVLAT_SETTINGS=<section>` opens the settings at launch at that
-    /// section (`general`, `agents`, `usage`, `chat`, `command`, `remote`) — for
-    /// looking at one, the same pattern as `EVLAT_SELECT`. It only reads:
-    /// nothing is pressed. An unknown value opens nothing.
+    /// section (`general`, `mascot`, `usage`, `chat`, `agents` — This Mac —,
+    /// `remote` — Servers —, `sandboxes`) — for looking at one, the same
+    /// pattern as `EVLAT_SELECT`. `command`, a section once, is This Mac
+    /// scrolled to the command line. It only reads: nothing is pressed. An
+    /// unknown value opens nothing.
     nonisolated static func forcedSettings(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> SettingsModel.Section? {
+    ) -> SettingsModel.Place? {
         guard let raw = environment["EVLAT_SETTINGS"]?.trimmingCharacters(in: .whitespaces).lowercased(),
               !raw.isEmpty else { return nil }
-        return SettingsModel.Section(rawValue: raw)
-            ?? SettingsModel.Section.allCases.first { "\($0)".lowercased() == raw }
+        if let anchor = SettingsModel.Anchor(rawValue: raw)
+            ?? SettingsModel.Anchor.allCases.first(where: { "\($0)".lowercased() == raw }) {
+            return SettingsModel.Place(section: .agents, anchor: anchor)
+        }
+        return (SettingsModel.Section(rawValue: raw)
+            ?? SettingsModel.Section.allCases.first { "\($0)".lowercased() == raw })
+            .map { SettingsModel.Place(section: $0) }
     }
 
     // MARK: - Setup
@@ -3218,6 +3238,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         model.isShown = { [weak window] in window?.isVisible == true }
         // Something is left to the user: the window opens on the results.
         model.onNeedsUser = { [weak self] in self?.openUpdates() }
+        // The settings' strip: "Update all" and "Review" open it.
+        model.show = { [weak self] in self?.openUpdates() }
         updates = model
         updatesWindow = window
         return window
@@ -3263,7 +3285,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The update window's way to the app: this Mac's cards through a setup
     /// model of its own, the servers through the tunnels and the settings'
-    /// machine model — the jobs Settings → Remote Machines runs, so its
+    /// machine model — the jobs Settings → Servers runs, so its
     /// lines and readings follow too.
     var updatesHost: UpdatesModel.Host {
         let setup = SetupModel(host: setupHost)
@@ -3603,7 +3625,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
         if let settingsWindow, settingsWindow.isVisible { settings?.follow() }
-        if let updatesWindow, updatesWindow.isVisible { updates?.refresh() }
+        // Once, for the update window and for the settings' strip alike.
+        if settingsWindow?.isVisible == true || updatesWindow?.isVisible == true { updates?.refresh() }
         // A seen row that has aged out, or been pushed out by newer ones,
         // leaves on the closed bar; the scan after it draws the list without.
         if !barState.isOpen, release(from: snapshot) { scheduleRefresh() }
@@ -4221,7 +4244,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = toggles
     }
 
-    /// Settings → Agents → Git branch. Stored, then drawn at once: the
+    /// Settings → This Mac → Git branch. Stored, then drawn at once: the
     /// branches are read again so a switch to `on` shows every row's.
     func setBranchDisplay(_ display: BranchDisplay) {
         defaults?.set(display.storedValue, forKey: Self.branchDisplayKey)
@@ -4832,7 +4855,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// An attention line: the settings, at its section.
     @objc func openAttention(_ sender: NSMenuItem) {
         guard let attention = sender.representedObject as? SetupAttention else { return }
-        openSettings(section: attention.section)
+        openSettings(section: attention.section, anchor: attention.anchor)
     }
 
     // MARK: - The writers
@@ -4881,9 +4904,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             agentFailures[source] = error as? AgentIntegration.Failure
                 ?? AgentIntegration.Failure(part: .hooks, reason: error as? SettingsFile.Failure ?? .unwritable)
         }
-        // The other window showing the agents reads what this write left.
+        // The other window showing the agents reads what this write left;
+        // so does This Mac's strip, which reads the update window's model.
         if settingsWindow?.isVisible == true { settings?.setup.reload() }
-        if updatesWindow?.isVisible == true { updates?.agentsChanged() }
+        if updatesWindow?.isVisible == true || settingsWindow?.isVisible == true { updates?.agentsChanged() }
         closeListAfterWrite()
     }
 

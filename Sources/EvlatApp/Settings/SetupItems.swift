@@ -179,9 +179,17 @@ enum SetupAttention: Equatable {
     }
 
     /// Where the settings window shows it: its sections, in the side
-    /// list's order. The raw value is `EVLAT_SETTINGS`'.
+    /// list's order (`SettingsModel.sideList`). The raw value is
+    /// `EVLAT_SETTINGS`'; `agents` is This Mac, `remote` Servers, and the
+    /// command line, which has no section of its own, is This Mac's part.
     enum Section: String, CaseIterable, Equatable {
-        case general, mascot, agents, usage, chat, commandLine = "command", remote, sandboxes
+        case general, mascot, usage, chat, agents, remote, sandboxes
+    }
+
+    /// A part of a section the window scrolls to.
+    enum Anchor: String, Hashable, CaseIterable {
+        /// This Mac's last group, what the Command Line section held.
+        case commandLine = "command"
     }
 
     var section: Section {
@@ -189,13 +197,20 @@ enum SetupAttention: Equatable {
         case .hooksOutdated, .usageModified: return .agents
         case .refused(let item):
             switch item {
-            case .agent: return .agents
-            case .commandLink: return .commandLine
+            case .agent, .commandLink: return .agents
             case .loginItem: return .general
             }
         case .hotKeyUnregistered: return .chat
         case .machineUnreachable, .machineNeedsPassword, .machineNeedsUpdate: return .remote
-        case .commandLinkElsewhere: return .commandLine
+        case .commandLinkElsewhere: return .agents
+        }
+    }
+
+    /// The part of `section` it is about, when the section is long.
+    var anchor: Anchor? {
+        switch self {
+        case .refused(.commandLink), .commandLinkElsewhere: return .commandLine
+        default: return nil
         }
     }
 }
@@ -806,7 +821,7 @@ struct SetupRowView: View {
     /// while there is something to write and the row is not set up by hand.
     var queued: Binding<Bool>?
     /// A line under the card that leads elsewhere (the Claude Code card's
-    /// to Sandboxes): its words and where the click goes.
+    /// to Docker sandboxes): its words and where the click goes.
     var link: (text: String, action: () -> Void)?
     @State private var copied = false
     /// An agent's "What it writes" is open.

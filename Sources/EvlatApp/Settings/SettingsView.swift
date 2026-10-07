@@ -3,9 +3,9 @@ import SwiftUI
 import EvlatCore
 import EvlatAgents
 
-/// The settings window: the
-/// six sections on the left, a dot on the ones that want attention; the
-/// open section on the right under its title.
+/// The settings window: the sections on the left — the last three, where
+/// Evlat writes its parts, under "Connections" — a dot on the ones that
+/// want attention; the open section on the right under its title.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var setup: SetupModel
@@ -32,14 +32,26 @@ struct SettingsView: View {
                     .frame(height: 44)
                     .accessibilityAddTraits(.isHeader)
                 Rectangle().fill(SettingsPalette.paneLine).frame(height: 1)
-                ScrollView {
-                    // 24 between groups: a group's note is its last line, and at 14
-                    // the next group's heading read as the note's.
-                    VStack(alignment: .leading, spacing: 24) { section }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                        .padding(.bottom, 20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        // 24 between groups: a group's note is its last line, and at 14
+                        // the next group's heading read as the note's.
+                        VStack(alignment: .leading, spacing: 24) { section }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 16)
+                            .padding(.bottom, 20)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    // Opened at a part of the section: scrolled there once it
+                    // is laid out, then forgotten, so the user's own scrolling
+                    // stays.
+                    .onChange(of: model.anchor, initial: true) { _, anchor in
+                        guard let anchor else { return }
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(anchor, anchor: .top)
+                            model.anchor = nil
+                        }
+                    }
                 }
                 .id(model.section)
             }
@@ -57,12 +69,22 @@ struct SettingsView: View {
         switch model.section {
         case .general: GeneralSection(model: model, setup: setup)
         case .mascot: MascotSection(model: model)
-        case .agents: AgentsSection(model: model, setup: setup)
+        case .agents:
+            strip
+            AgentsSection(model: model, setup: setup)
         case .usage: UsageSection(model: model)
         case .chat: ChatSection(model: model, recorder: model.recorder, setup: setup)
-        case .commandLine: CommandSection(model: model, setup: setup)
-        case .remote: RemoteSection(model: model.remote, settings: model)
+        case .remote:
+            strip
+            RemoteSection(model: model.remote, settings: model)
         case .sandboxes: SandboxSection(model: model)
+        }
+    }
+
+    /// This Mac's and Servers' strip, while it has something to say.
+    @ViewBuilder private var strip: some View {
+        if let updates = model.updates {
+            UpdateStrip(updates: updates, section: model.section)
         }
     }
 }
@@ -73,26 +95,20 @@ private struct SettingsSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(SettingsModel.Section.allCases, id: \.self) { section in
-                let on = model.section == section
-                Button { model.section = section } label: {
-                    HStack(spacing: 6) {
-                        Text(model.t(SettingsModel.titleKey(section)))
-                            .font(.system(size: 13))
-                            .foregroundStyle(on ? SettingsPalette.selectedInk : SettingsPalette.ink)
-                        Spacer(minLength: 4)
-                        if dots.contains(section) {
-                            Circle().fill(SettingsPalette.dot).frame(width: 6, height: 6)
-                                .accessibilityLabel(model.t("settings.attention"))
-                        }
-                    }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(on ? SettingsPalette.selected : .clear))
-                    .contentShape(Rectangle())
+            ForEach(SettingsModel.sideList.indices, id: \.self) { index in
+                let group = SettingsModel.sideList[index]
+                if let heading = group.heading {
+                    // A group's heading, as a section's group is headed.
+                    Text(model.t(heading).uppercased(with: Locale(identifier: model.lang)))
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.55)
+                        .foregroundStyle(SettingsPalette.muted)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 12)
+                        .padding(.bottom, 2)
+                        .accessibilityAddTraits(.isHeader)
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
+                ForEach(group.sections, id: \.self) { item($0) }
             }
             Spacer()
         }
@@ -102,6 +118,69 @@ private struct SettingsSidebar: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(SettingsPalette.side)
     }
+
+    private func item(_ section: SettingsModel.Section) -> some View {
+        let on = model.section == section
+        return Button { model.section = section } label: {
+            HStack(spacing: 6) {
+                Text(model.t(SettingsModel.titleKey(section)))
+                    .font(.system(size: 13))
+                    .foregroundStyle(on ? SettingsPalette.selectedInk : SettingsPalette.ink)
+                Spacer(minLength: 4)
+                if dots.contains(section) {
+                    Circle().fill(SettingsPalette.dot).frame(width: 6, height: 6)
+                        .accessibilityLabel(model.t("settings.attention"))
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 6).fill(on ? SettingsPalette.selected : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The line on top of This Mac and Servers (`UpdatesModel.strip(for:)`):
+/// amber while something there needs an update — "Update all" — or a step
+/// is left to the user; calm blue once automatic updates kept it current —
+/// "Review". Both open the update window. Absent with nothing to say.
+private struct UpdateStrip: View {
+    @ObservedObject var updates: UpdatesModel
+    let section: SettingsModel.Section
+
+    var body: some View {
+        if let strip = updates.strip(for: section) {
+            let calm: Bool = { if case .kept = strip { return true } else { return false } }()
+            HStack(alignment: .center, spacing: 12) {
+                Text(updates.stripLine(strip))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(SettingsPalette.ink)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if case .needsUpdate = strip {
+                    Button(updates.t("updates.all")) { updates.updateAllFromSettings() }
+                        .buttonStyle(UpdatesButtonStyle(primary: true))
+                } else {
+                    Button(updates.t("settings.strip.review")) { updates.review() }
+                        .buttonStyle(UpdatesButtonStyle())
+                }
+            }
+            .padding(.vertical, 9)
+            .padding(.leading, 14)
+            .padding(.trailing, 10)
+            .frame(minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 10).fill(calm ? SettingsPalette.calm : SettingsPalette.tagWait))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(calm ? SettingsPalette.calmLine : SettingsPalette.tagWaitLine))
+            // Nearer the group under it than the groups are to each other:
+            // it is about that group.
+            .padding(.bottom, -8)
+        }
+    }
+
 }
 
 // MARK: - General
@@ -136,11 +215,12 @@ private struct GeneralSection: View {
             }
         }
         // Sparkle's row only where its updater offers it; Evlat's own parts
-        // in every copy.
+        // in every copy. Their switches sit level with the names, as the
+        // design draws two rows whose lines wrap.
         SettingsGroup(title: model.t("settings.general.updates")) {
             if model.hasUpdater {
                 RowBox {
-                    HStack(spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
                         RowTitle(name: model.t("settings.general.autoUpdate"),
                                  detail: model.t("settings.general.autoUpdate.detail"))
                         Toggle("", isOn: Binding(get: { model.automaticallyUpdates },
@@ -153,7 +233,7 @@ private struct GeneralSection: View {
                 }
             }
             RowBox {
-                HStack(spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
                     RowTitle(name: model.t("settings.general.keepParts"),
                              detail: model.t("settings.general.keepParts.detail"))
                     Toggle("", isOn: Binding(get: { model.keepsPartsCurrent },
@@ -530,7 +610,7 @@ private struct LoginRow: View {
     }
 }
 
-// MARK: - Agents
+// MARK: - This Mac
 
 /// A card for every agent in the catalogue: found or not, one state and
 /// one button each; and the git branch, which is the sessions'.
@@ -550,13 +630,19 @@ private struct AgentsSection: View {
         SettingsGroup(title: model.t("settings.sessions.branch"), note: model.t("settings.sessions.branch.note")) {
             BranchRow(model: model)
         }
+        // What the Command Line section held, as it was; the anchor the
+        // command link's lines and `EVLAT_SETTINGS=command` scroll to.
+        VStack(alignment: .leading, spacing: 24) {
+            CommandSection(model: model, setup: setup)
+        }
+        .id(SettingsModel.Anchor.commandLine)
     }
 
     /// The sandboxes' agent's card, while `sbx` is here and not watched:
-    /// one line to Sandboxes.
+    /// one line to Docker sandboxes.
     private func sandboxLink(_ row: SetupRow) -> (text: String, action: () -> Void)? {
         guard row.item.agent == Agents.sandboxAgent, row.enabled, model.offersSandboxes else { return nil }
-        return (model.t("settings.sandboxes.discover"), { model.section = .sandboxes })
+        return (model.t("settings.sandboxes.discover"), { model.show(.init(section: .sandboxes)) })
     }
 }
 
@@ -888,6 +974,7 @@ private struct MemoryRow: View {
 
 // MARK: - Command line
 
+/// This Mac's last part: the `evlat` command's link and its examples.
 private struct CommandSection: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var setup: SetupModel

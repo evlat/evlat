@@ -345,12 +345,49 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(model.cancelInside(), "no question: Esc closes the window")
     }
 
+    /// The raw values are kept; the command line, no section of its own
+    /// any more, opens This Mac at its part.
     func testTheEnvironmentOpensASection() {
-        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": "remote"]), .remote)
-        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": " Command "]), .commandLine)
-        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": "commandLine"]), .commandLine)
+        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": "remote"]), .init(section: .remote))
+        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": "agents"]), .init(section: .agents))
+        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": "sandboxes"]), .init(section: .sandboxes))
+        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": " Command "]),
+                       .init(section: .agents, anchor: .commandLine))
+        XCTAssertEqual(AppController.forcedSettings(["EVLAT_SETTINGS": "commandLine"]),
+                       .init(section: .agents, anchor: .commandLine))
         XCTAssertNil(AppController.forcedSettings(["EVLAT_SETTINGS": "nope"]))
         XCTAssertNil(AppController.forcedSettings([:]))
+    }
+
+    /// The side list: four sections, then This Mac, Servers and Docker
+    /// sandboxes under "Connections"; every section once.
+    func testTheSideListGroupsTheConnections() {
+        XCTAssertEqual(SettingsModel.sideList.map(\.heading), [nil, "settings.section.connections"])
+        XCTAssertEqual(SettingsModel.sideList.map(\.sections),
+                       [[.general, .mascot, .usage, .chat], [.agents, .remote, .sandboxes]])
+        XCTAssertEqual(SettingsModel.sideList.flatMap(\.sections), SettingsModel.Section.allCases)
+        XCTAssertEqual(L10n.t("settings.section.agents", in: "en"), "This Mac")
+        XCTAssertEqual(L10n.t("settings.section.remote", in: "en"), "Servers")
+        XCTAssertEqual(L10n.t("settings.section.sandboxes", in: "en"), "Docker sandboxes")
+    }
+
+    /// Whatever pointed at the command line's section lands on This Mac,
+    /// scrolled to the command line: its attention lines and the menu's.
+    func testTheCommandLineLeadsToThisMac() throws {
+        for attention in [SetupAttention.commandLinkElsewhere, .refused(.commandLink)] {
+            XCTAssertEqual(attention.section, .agents)
+            XCTAssertEqual(attention.anchor, .commandLine)
+        }
+        XCTAssertNil(SetupAttention.hooksOutdated(.claude).anchor)
+        let controller = AppController(defaults: defaults)
+        controller.settingsActivation = { }
+        defer { controller.settingsWindow?.close() }
+        let item = NSMenuItem()
+        item.representedObject = SetupAttention.commandLinkElsewhere
+        controller.openAttention(item)
+        let settings = try XCTUnwrap(controller.settings)
+        XCTAssertEqual(settings.section, .agents)
+        XCTAssertEqual(settings.anchor, .commandLine)
     }
 
     func testBothMenusOpenTheSettings() throws {
@@ -660,7 +697,7 @@ final class SettingsTests: XCTestCase {
         model.follow()
         XCTAssertEqual(model.sandboxRows.first { $0.name == "web" }?.tag, .agentOff)
         XCTAssertEqual(model.sandboxRows.first { $0.name == "box" }?.tag, .otherAgent("shell"))
-        XCTAssertEqual(model.sandboxTag(.agentOff), "Claude Code is off in Agents")
+        XCTAssertEqual(model.sandboxTag(.agentOff), "Claude Code is off in This Mac")
 
         recorder.sandboxes.agentOn = true
         recorder.sandboxes.on = false

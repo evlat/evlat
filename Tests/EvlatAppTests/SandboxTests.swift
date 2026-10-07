@@ -472,7 +472,7 @@ final class SandboxTests: XCTestCase {
     }
 
     /// End to end: a sandbox's row, heard on the real socket, leaves the bar
-    /// when its agent is switched off in Settings → Agents — this Mac's
+    /// when its agent is switched off in Settings → This Mac — this Mac's
     /// switch, since the agent runs here — and comes back when it is on.
     func testASandboxsRowHidesWhenItsAgentIsSwitchedOff() throws {
         let controller = AppController()

@@ -20,6 +20,10 @@ import EvlatAgents
 /// (`onNeedsUser`) only when something is left to the user
 /// (`SetupTrigger.opensResults`), and opens on those results.
 ///
+/// Settings' This Mac and Servers draw a strip from it (`strip(for:)`):
+/// what is old there now, or what automatic updates did in this process,
+/// kept row by row (`kept`) across the window's openings.
+///
 /// **Main queue only**, like the models behind `Host`.
 @MainActor
 final class UpdatesModel: ObservableObject {
@@ -51,6 +55,9 @@ final class UpdatesModel: ObservableObject {
         /// socket (`AgentIntegration.predatesSocket`): the paragraph says
         /// why they went silent.
         var predatesSocket: () -> Bool = { false }
+        /// The clock an automatic update is stamped with: the strip's
+        /// "at 12:05".
+        var now: () -> Date = { Date() }
     }
 
     /// A machine as the window reads it: its tunnel, and from its newest
@@ -132,6 +139,24 @@ final class UpdatesModel: ObservableObject {
 
     enum Action: Equatable { case update, retry }
 
+    /// A row automatic updates wrote in this process, and when.
+    struct Kept: Equatable {
+        let kind: Kind
+        let at: Date
+        /// The agents written: this Mac's row's own, a server's job's.
+        let agents: [AgentID]
+    }
+
+    /// The strip on top of Settings' This Mac and Servers.
+    enum Strip: Equatable {
+        /// This many there need an update: "Update all".
+        case needsUpdate(Int)
+        /// Automatic updates left this agent's step to the user: "Review".
+        case step(AgentID)
+        /// Automatic updates wrote these, the last at `at`: "Review".
+        case kept(names: [String], at: Date)
+    }
+
     @Published private(set) var agents: [Row] = []
     @Published private(set) var machines: [Row] = []
     /// The rows whose "Why?" is open.
@@ -145,6 +170,16 @@ final class UpdatesModel: ObservableObject {
     @Published private(set) var keepCurrent = true
     /// The window shows what automatic updates did, not what is old.
     @Published private(set) var results = false
+    /// Settings' strips, by section; one with nothing to say is absent.
+    /// Written only when one reads differently.
+    @Published private(set) var strips: [SettingsModel.Section: Strip] = [:]
+    /// What automatic updates wrote in this process, oldest first: one
+    /// entry a row, its latest. A refusal takes the row's out.
+    private(set) var kept: [Kept] = []
+    /// The kept rows whose step the strip's Review showed: Evlat cannot
+    /// tell when it is taken (Codex's `/hooks`), so the strip says it until
+    /// the user looked, then names what was written.
+    private var stepsReviewed: Set<Kind> = []
 
     private let host: Host
     private(set) var lang: String
@@ -182,6 +217,9 @@ final class UpdatesModel: ObservableObject {
     /// The window is on screen: a server's automatic update joins what it
     /// shows rather than starting a set of its own.
     var isShown: () -> Bool = { false }
+    /// Opens the window (`AppController.openUpdates`): the strip's
+    /// "Update all" and "Review".
+    var show: () -> Void = {}
 
     init(host: Host, lang: String = L10n.language) {
         self.host = host
@@ -236,8 +274,8 @@ final class UpdatesModel: ObservableObject {
 
     /// This Mac's agents switched on whose hooks an older copy wrote (the
     /// `hooksOutdated` rule: a usage line alone is not asked for).
-    private func outdatedAgents() -> [AgentID] {
-        host.agentRows().compactMap { row in
+    private func outdatedAgents(_ rows: [SetupRow]? = nil) -> [AgentID] {
+        (rows ?? host.agentRows()).compactMap { row in
             guard let source = row.item.agent, row.enabled, row.hooksStatus == .outdated else { return nil }
             return source
         }
@@ -367,15 +405,24 @@ final class UpdatesModel: ObservableObject {
     /// tunnels move, and after each press. Written only when a row reads
     /// differently.
     func refresh() {
-        let cards = Dictionary(host.agentRows().compactMap { row in row.item.agent.map { ($0, row) } },
+        let rows = host.agentRows()
+        let cards = Dictionary(rows.compactMap { row in row.item.agent.map { ($0, row) } },
                                uniquingKeysWith: { first, _ in first })
         let agents = agentIDs.compactMap { source -> Row? in
             cards[source].flatMap { agentRow($0, source) }
         }
-        let byID = Dictionary(host.machines().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let all = host.machines()
+        // A server removed since takes its record with it.
+        kept.removeAll { kept in
+            if case .machine(let id) = kept.kind { return !all.contains { $0.id == id } }
+            return false
+        }
+        let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let machines = machineIDs.compactMap { id in byID[id].map(machineRow) }
         if agents != self.agents { self.agents = agents }
         if machines != self.machines { self.machines = machines }
+        let strips = readStrips(cards: rows, machines: all)
+        if strips != self.strips { self.strips = strips }
     }
 
     /// `nil` once the agent is no longer this window's: its hooks taken
@@ -532,6 +579,7 @@ final class UpdatesModel: ObservableObject {
             } else {
                 pressed[kind] = nil
             }
+            if automaticKinds.contains(kind) { keep(kind, agents: [source]) }
             refresh()
             next()
         case .machine(let id):
@@ -549,6 +597,7 @@ final class UpdatesModel: ObservableObject {
                     self.pressed[kind] = .updated
                     self.updatedAgents[kind] = result.agents
                 }
+                if self.automaticKinds.contains(kind) { self.keep(kind, agents: result.agents) }
                 self.refresh()
                 self.next()
                 self.report()
@@ -564,6 +613,130 @@ final class UpdatesModel: ObservableObject {
     /// "Why?": the row's advice opens under it, or closes.
     func toggleWhy(_ kind: Kind) {
         if expanded.contains(kind) { expanded.remove(kind) } else { expanded.insert(kind) }
+    }
+
+    // MARK: - Settings' strip
+
+    /// An automatic write's outcome, kept for the strip: an update as the
+    /// row's latest, a refusal or nothing written taking it out.
+    private func keep(_ kind: Kind, agents: [AgentID]) {
+        kept.removeAll { $0.kind == kind }
+        stepsReviewed.remove(kind)
+        if pressed[kind] == .updated { kept.append(Kept(kind: kind, at: host.now(), agents: agents)) }
+    }
+
+    /// This Mac's strip (`.agents`) and Servers' (`.remote`); the
+    /// sandboxes have none, set up by themselves as they are.
+    func strip(for section: SettingsModel.Section) -> Strip? { strips[section] }
+
+    /// Something old on the page outranks what automatic updates did;
+    /// those are said only while they are on, a step left before the rest.
+    private func readStrips(cards: [SetupRow], machines: [Machine]) -> [SettingsModel.Section: Strip] {
+        let automatic = host.automatic() == true
+        let names = Dictionary(machines.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        func strip(old: Int, kept: [Kept], name: (Kind) -> String) -> Strip? {
+            if old > 0 { return .needsUpdate(old) }
+            guard automatic, let last = kept.map(\.at).max() else { return nil }
+            if let source = kept.filter({ !stepsReviewed.contains($0.kind) }).flatMap(\.agents)
+                .first(where: { hint("updates.step.\($0.rawValue)") != nil }) {
+                return .step(source)
+            }
+            return .kept(names: kept.map { name($0.kind) }, at: last)
+        }
+        var strips: [SettingsModel.Section: Strip] = [:]
+        strips[.agents] = strip(old: outdatedAgents(cards).count,
+                                kept: kept.filter { if case .agent = $0.kind { return true } else { return false } },
+                                name: { kind in
+                                    guard case .agent(let source) = kind else { return "" }
+                                    return t(source.agent.display.nameKey)
+                                })
+        // Servers whose hooks are old: an old `evlat` command alone still
+        // lets Evlat hear them, which the strip's sentence would deny.
+        strips[.remote] = strip(old: machines.filter { machine in
+                                    Self.state(of: machine, in: lang) == .needsUpdate && machine.outdated?.isEmpty == false
+                                }.count,
+                                kept: kept.filter { if case .machine = $0.kind { return true } else { return false } },
+                                name: { kind in
+                                    guard case .machine(let id) = kind else { return "" }
+                                    return names[id] ?? id
+                                })
+        return strips
+    }
+
+    /// The strip's line, its first sentence in bold (Markdown, as the
+    /// catalogue writes it); what is filled in is escaped.
+    func stripText(_ strip: Strip) -> String {
+        switch strip {
+        case .needsUpdate(let count):
+            return count == 1 ? t("settings.strip.update.one") : t("settings.strip.update", ["count": String(count)])
+        case .step(let source):
+            let step = hint("settings.strip.step.\(source.rawValue)") ?? hint("updates.step.\(source.rawValue)") ?? ""
+            return t("settings.strip.step", ["step": Self.escaped(step)])
+        case .kept(let names, let at):
+            let locale = Locale(identifier: lang)
+            return t("settings.strip.kept", [
+                "names": Self.escaped(names.formatted(.list(type: .and).locale(locale))),
+                "time": Self.escaped(at.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(locale))),
+            ])
+        }
+    }
+
+    /// The strip's line as drawn: the catalogue's Markdown read inline —
+    /// its first sentence bold — or, should a table's not read, as it is.
+    func stripLine(_ strip: Strip) -> AttributedString {
+        let markdown = stripText(strip)
+        return (try? AttributedString(markdown: markdown,
+                                      options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(markdown)
+    }
+
+    /// A server's name is the user's: none of it is read as Markdown.
+    private static func escaped(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if "\\`*_[]<>~#".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
+    /// The strip's "Update all": the window's, on the window it opens. The
+    /// box there was never seen, so the press writes no choice: the box is
+    /// the setting as it is from then on.
+    func updateAllFromSettings() {
+        // A window already shown holds the rows it opened with; the strip
+        // counted what is old now.
+        if isShown(), running == nil, queue.isEmpty { start() }
+        show()
+        guard canUpdateAll else { return }
+        boxIsSwitch = true
+        keepCurrent = host.automatic() ?? false
+        updateAll()
+    }
+
+    /// The strip's "Review": the window on what automatic updates wrote in
+    /// this process — again after any opening since — unless a press runs
+    /// there now, when it opens as it is.
+    func review() {
+        if running == nil, queue.isEmpty, !kept.isEmpty {
+            agentIDs = kept.compactMap { if case .agent(let source) = $0.kind { return source } else { return nil } }
+            machineIDs = kept.compactMap { if case .machine(let id) = $0.kind { return id } else { return nil } }
+            pressed = Dictionary(kept.map { ($0.kind, State.updated) }, uniquingKeysWith: { _, last in last })
+            updatedAgents = Dictionary(kept.map { ($0.kind, $0.agents) }, uniquingKeysWith: { _, last in last })
+            automaticKinds = Set(kept.map(\.kind))
+            // Already told: nothing here asks for the window again.
+            reported = automaticKinds
+            stepsReviewed = automaticKinds
+            expanded = []
+            results = true
+            pressedAll = true
+            pressedAny = true
+            boxIsSwitch = true
+            keepCurrent = host.automatic() ?? false
+            holdsResults = !isShown()
+            refresh()
+        }
+        show()
     }
 
     /// Every line is made in `lang` as it is read: a new language reads again.
@@ -588,5 +761,7 @@ final class UpdatesModel: ObservableObject {
                        "updates.section.mac", "updates.section.servers", "updates.later", "updates.all", "updates.done",
                        "updates.updating", "updates.updated", "updates.current", "updates.retry", "updates.why",
                        "updates.checking", "updates.machine.notConnected", "updates.machine.approvals",
-                       "updates.commandNotRun"]
+                       "updates.commandNotRun",
+                       "settings.strip.update", "settings.strip.update.one", "settings.strip.kept",
+                       "settings.strip.step", "settings.strip.review"]
 }

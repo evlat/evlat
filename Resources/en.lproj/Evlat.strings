@@ -101,7 +101,7 @@
 "menu.hooks.error.unwritable" = "The settings file could not be written";
 
 /* The remote machines: servers reached over ssh whose sessions show on the
-   bar, set up in Settings → Remote Machines. */
+   bar, set up in Settings → Servers. */
 /* The window. With no machine it shows an invitation and the field. */
 "remote.empty.title" = "No remote machines yet";
 "remote.empty.body" = "Sessions you run on a server over ssh can show up on the bar like local ones. Add the server by the name you give ssh — an alias from ~/.ssh/config such as devbox, or me@server.";
@@ -388,11 +388,11 @@
 "setup.consent.command.remove" = "{file} · the link is removed";
 "setup.consent.login.on" = "Evlat is added to your login items (System Settings → General → Login Items)";
 "setup.consent.login.off" = "Evlat leaves your login items — for every copy of Evlat: they share one item";
-"settings.section.agents" = "Agents";
+"settings.section.agents" = "This Mac";
 "settings.section.usage" = "Usage";
 "settings.agents.group" = "Agents on this Mac";
 "settings.agents.note" = "Before the first write a .evlat.bak copy is kept beside the file. Codex runs Evlat's hooks once you trust them in its /hooks; open Claude sessions take the change with their next message.";
-"settings.section.sandboxes" = "Sandboxes";
+"settings.section.sandboxes" = "Docker sandboxes";
 "settings.sandboxes.intro" = "Claude Code sessions running in a Docker sandbox on this Mac can show on the bar like any other session. Keep using sbx as you do: Evlat sets up each sandbox itself.";
 "settings.sandboxes.watching" = "Watching";
 "settings.sandboxes.watch" = "Watch sandboxes";
@@ -422,16 +422,16 @@
 "settings.sandboxes.removalFailed" = "Couldn't take Evlat's file out";
 "settings.sandboxes.retry" = "Try Again";
 "settings.sandboxes.otherAgent" = "Runs {agent}; only {watched} is watched for now";
-"settings.sandboxes.agentOff" = "{agent} is off in Agents";
+"settings.sandboxes.agentOff" = "{agent} is off in This Mac";
 "settings.sandboxes.what" = "What it does while on";
 "settings.sandboxes.what.file" = "Inside each {agent} sandbox, as root, Evlat writes one file of its own: {path}.";
 "settings.sandboxes.what.rule" = "It lets that sandbox reach port {port} on this Mac, and nothing else.";
 "settings.sandboxes.what.mac" = "No file of yours on this Mac is touched. sbx keeps each sandbox's rule on this Mac, and deletes it with the sandbox.";
 "settings.sandboxes.what.off" = "Turned off, both come out of the running sandboxes. A stopped sandbox keeps them: while Evlat isn't listening, its hooks fail at once and {agent} carries on.";
 "settings.sandboxes.what.cloud" = "Sandboxes in Docker's cloud can't reach this Mac.";
-"settings.sandboxes.discover" = "Using Docker sandboxes? Watch them in Sandboxes ›";
+"settings.sandboxes.discover" = "Using Docker sandboxes? Watch them in Docker sandboxes ›";
 "setup.flow.sandboxes" = "Docker sandboxes";
-"setup.flow.sandboxes.detail" = "Show Claude Code sessions that run in sbx sandboxes. Evlat sets up each sandbox itself. You can change this in Settings → Sandboxes.";
+"setup.flow.sandboxes.detail" = "Show Claude Code sessions that run in sbx sandboxes. Evlat sets up each sandbox itself. You can change this in Settings → Docker sandboxes.";
 "setup.flow.sandboxes.consent" = "Each running {agent} sandbox · one file of Evlat's, and a rule for port {port}";
 "setup.flow.summary.sandboxes" = "Docker sandboxes are watched";
 "settings.usage.bar" = "On the bar";
@@ -477,8 +477,18 @@
 "settings.window.title" = "Evlat Settings";
 "settings.section.general" = "General";
 "settings.section.chat" = "Chat";
-"settings.section.command" = "Command Line";
-"settings.section.remote" = "Remote Machines";
+"settings.section.remote" = "Servers";
+/* Settings' side list groups This Mac, Servers and Docker sandboxes under
+   one heading; on top of This Mac and Servers a strip says what needs an
+   update or what Evlat kept up to date itself. Markdown: the first
+   sentence is bold. */
+"settings.section.connections" = "Connections";
+"settings.strip.update" = "**{count} need an update.** Until then Evlat can’t hear them.";
+"settings.strip.update.one" = "**One needs an update.** Until then Evlat can’t hear it.";
+"settings.strip.kept" = "**Kept up to date automatically.** Evlat updated {names} at {time}.";
+"settings.strip.step" = "**One step for you:** {step}";
+"settings.strip.step.codex" = "in Codex, open /hooks and trust Evlat’s hooks.";
+"settings.strip.review" = "Review";
 "settings.attention" = "needs attention";
 "settings.general.bar" = "Bar";
 "settings.general.edge" = "Edge";
@@ -618,7 +628,7 @@
 "settings.chat.memory.confirm.detail" = "What Claude remembered in Evlat's chats is deleted for good. Chats in a folder of yours keep that folder's memory.";
 "settings.chat.memory.cancel" = "Cancel";
 "settings.chat.memory.do" = "Clear";
-"settings.command.title" = "evlat command";
+"settings.command.title" = "Command line";
 "settings.command.examples" = "Examples";
 "settings.command.watch" = "evlat watch npm run build";
 "settings.command.watch.detail" = "Runs the command as it is; a row on the bar while it runs, green or red when it ends.";
@@ -677,15 +687,15 @@
 "setup.flow.edge.left" = "Left edge";
 "setup.flow.edge.right" = "Right edge";
 "setup.flow.sessions.title" = "Which agents do you use?";
-"setup.flow.sessions.body" = "Evlat adds a small notifying command to each chosen agent's settings and wraps its status line for usage; the rest of the file is left alone. You can take it out any time in Settings → Agents.";
-"setup.flow.sessions.none" = "No agent Evlat knows is on this Mac. Once one is installed, connect it in Settings → Agents.";
+"setup.flow.sessions.body" = "Evlat adds a small notifying command to each chosen agent's settings and wraps its status line for usage; the rest of the file is left alone. You can take it out any time in Settings → This Mac.";
+"setup.flow.sessions.none" = "No agent Evlat knows is on this Mac. Once one is installed, connect it in Settings → This Mac.";
 "setup.flow.sessions.hint" = "Open Claude sessions take the change with their next message; new ones show up at once. Codex runs Evlat's hooks once you trust them in its /hooks.";
 "setup.flow.chat.title" = "Talk to the mascot";
 "setup.flow.chat.body" = "Click the mascot or press the shortcut: a balloon opens and the work runs with your own claude. You can drop a file on the mascot.";
 "setup.flow.chat.hotkey.detail" = "A key the system uses is not accepted.";
 "setup.flow.optional.title" = "These too, if you like";
 "setup.flow.remote" = "Remote machines";
-"setup.flow.remote.detail" = "Sessions on a server, over SSH. Later, in Settings → Remote Machines.";
+"setup.flow.remote.detail" = "Sessions on a server, over SSH. Later, in Settings → Servers.";
 "setup.flow.remote.later" = "Later";
 "setup.flow.done.title" = "Ready";
 "setup.flow.done.note" = "Open a Claude session; its ring appears on the bar. You can open the setup again from the menu.";

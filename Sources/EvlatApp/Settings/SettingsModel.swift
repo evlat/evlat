@@ -14,6 +14,20 @@ import EvlatAgents
 @MainActor
 final class SettingsModel: ObservableObject {
     typealias Section = SetupAttention.Section
+    typealias Anchor = SetupAttention.Anchor
+
+    /// Where the window opens: a section, and a part of it to scroll to.
+    struct Place: Equatable {
+        let section: Section
+        var anchor: Anchor? = nil
+    }
+
+    /// The side list: the sections, and the group of the three places
+    /// Evlat writes its parts into under its heading (a catalogue key).
+    static let sideList: [(heading: String?, sections: [Section])] = [
+        (nil, [.general, .mascot, .usage, .chat]),
+        ("settings.section.connections", [.agents, .remote, .sandboxes]),
+    ]
 
     struct Host {
         var edge: () -> BarPanel.Edge
@@ -114,7 +128,7 @@ final class SettingsModel: ObservableObject {
         var lookForSbx: (@escaping () -> Void) -> Void = { $0() }
     }
 
-    /// Everything the Sandboxes section draws from, read whole at each
+    /// Everything the Docker sandboxes section draws from, read whole at each
     /// refresh and published only when it changed.
     struct Sandboxes: Equatable {
         enum Availability: Equatable {
@@ -146,7 +160,7 @@ final class SettingsModel: ObservableObject {
         var watcher: SandboxWatcher.Status?
         /// The daemon's socket path, in bytes.
         var socketLength = 0
-        /// The sandboxes' agent is switched on in Agents.
+        /// The sandboxes' agent is switched on in This Mac.
         var agentOn = true
     }
 
@@ -162,6 +176,9 @@ final class SettingsModel: ObservableObject {
     @Published var section: Section = .general {
         didSet { if section != oldValue { recorder.cancel() } }
     }
+    /// The part of the open section to scroll to once it is drawn; the
+    /// view clears it when it has.
+    @Published var anchor: Anchor?
     /// Where each chat backend's program is, by its id; one not asked yet
     /// is `.looking`.
     @Published private(set) var locations: [AgentID: Location] = [:]
@@ -178,17 +195,22 @@ final class SettingsModel: ObservableObject {
     let setup: SetupModel
     let remote: RemoteMachinesModel
     let recorder: HotKeyRecorder
+    /// The update window's model: This Mac's and Servers' strip read it
+    /// (`UpdatesModel.strip(for:)`), and their presses open that window.
+    /// `nil` in a test that hands none: no strip.
+    let updates: UpdatesModel?
     private let host: Host
     /// The language the window draws in; the controller writes it when the
     /// choice changes (`languageChanged(to:)`), and every row reads it again.
     @Published private(set) var lang: String
 
     init(host: Host, setup: SetupModel, remote: RemoteMachinesModel, recorder: HotKeyRecorder,
-         lang: String = L10n.language) {
+         updates: UpdatesModel? = nil, lang: String = L10n.language) {
         self.host = host
         self.setup = setup
         self.remote = remote
         self.recorder = recorder
+        self.updates = updates
         self.lang = lang
         memoryCount = host.memoryCount()
         sandboxes = host.sandboxes()
@@ -205,10 +227,18 @@ final class SettingsModel: ObservableObject {
         remote.languageChanged(to: language)
     }
 
+    /// Opens `place`'s section, scrolled to its part.
+    func show(_ place: Place) {
+        section = place.section
+        anchor = place.anchor
+    }
+
     /// The window opens: every section reads fresh.
     func reload() {
         setup.reload()
         remote.reload()
+        // The strip's agents, read from their files as the cards are.
+        updates?.agentsChanged()
         memoryCount = host.memoryCount()
         confirmingClear = false
         followSandbox()
@@ -718,7 +748,7 @@ final class SettingsModel: ObservableObject {
 
     func retrySandbox(_ name: String) { host.retrySandbox(name) }
 
-    /// The Claude Code card's line to the Sandboxes section: `sbx` is here
+    /// The Claude Code card's line to the Docker sandboxes section: `sbx` is here
     /// and not watched yet.
     var offersSandboxes: Bool { sandboxes.availability == .found && !sandboxes.on }
 
@@ -876,7 +906,7 @@ final class SettingsModel: ObservableObject {
         path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
-    static let keys: [String] = Section.allCases.map(titleKey) + [
+    static let keys: [String] = Section.allCases.map(titleKey) + sideList.compactMap(\.heading) + [
         "settings.window.title",
         "settings.general.language", "settings.general.language.detail", "settings.general.language.system",
         "language.name",

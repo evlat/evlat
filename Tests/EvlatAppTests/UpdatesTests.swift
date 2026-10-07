@@ -24,6 +24,8 @@ final class UpdatesTests: XCTestCase {
         /// `updates.automatic`: `nil` while never written.
         var automatic: Bool?
         var predatesSocket = false
+        /// The clock automatic updates are stamped with.
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
 
         init(cards: [SetupRow], machines: [UpdatesModel.Machine]) {
             self.cards = cards
@@ -31,7 +33,7 @@ final class UpdatesTests: XCTestCase {
         }
 
         var host: UpdatesModel.Host {
-            UpdatesModel.Host(
+            var host = UpdatesModel.Host(
                 agentRows: { [unowned self] in cards },
                 updateAgent: { [unowned self] source in
                     log.append("agent \(source.rawValue)")
@@ -65,6 +67,8 @@ final class UpdatesTests: XCTestCase {
                     return true
                 },
                 predatesSocket: { [unowned self] in predatesSocket })
+            host.now = { [unowned self] in now }
+            return host
         }
 
         /// The oldest running job answers.
@@ -439,9 +443,162 @@ final class UpdatesTests: XCTestCase {
         XCTAssertFalse(model.machines.map(\.name).contains("other"))
     }
 
+    // MARK: - Settings' strip
+
+    /// Nothing old and nothing done by itself: This Mac and Servers draw no
+    /// strip.
+    func testTheStripIsHiddenWithNothingToSay() {
+        let fake = Fake(cards: [Self.card(.claude, .installed)], machines: [Self.machine("rasp", Self.connected, outdated: [])])
+        let model = model(fake)
+        XCTAssertNil(model.strip(for: .agents))
+        XCTAssertNil(model.strip(for: .remote))
+        XCTAssertNil(model.strip(for: .sandboxes), "sandboxes are set up by themselves")
+        fake.automatic = true
+        model.refresh()
+        XCTAssertNil(model.strip(for: .agents), "on, but nothing was updated in this run")
+    }
+
+    /// What needs an update, counted on its own page: this Mac's agents,
+    /// and the servers connected with old parts — a server whose channel
+    /// failed is not one of them. A card's press in Settings lowers it.
+    func testTheStripCountsWhatNeedsAnUpdate() {
+        let fake = mockup()
+        let model = model(fake)
+        XCTAssertEqual(model.strip(for: .agents), .needsUpdate(3))
+        XCTAssertEqual(model.strip(for: .remote), .needsUpdate(2))
+        XCTAssertEqual(model.stripText(.needsUpdate(3)),
+                       "**3 need an update.** Until then Evlat can’t hear them.")
+        XCTAssertEqual(model.stripText(.needsUpdate(1)),
+                       "**One needs an update.** Until then Evlat can’t hear it.")
+
+        fake.cards = [Self.card(.claude, .installed), Self.card(.codex, .installed), Self.card(.antigravity, .outdated)]
+        model.agentsChanged()
+        XCTAssertEqual(model.strip(for: .agents), .needsUpdate(1), "the card's press reads here too")
+    }
+
+    /// Automatic updates that left nothing to the user: a calm strip names
+    /// what and when, for the rest of the run — a fresh opening of the
+    /// window does not take it — and Review opens the window on those
+    /// results, each time. Turned off, the strip goes.
+    func testAutomaticUpdatesLeaveACalmStripAndReviewShowsThem() {
+        let fake = Fake(cards: [Self.card(.claude, .outdated)], machines: [])
+        fake.automatic = true
+        let model = UpdatesModel(host: fake.host, lang: "en")
+        var shown = 0
+        model.show = { shown += 1; model.opened() }
+        model.keepAgentsCurrent()
+        XCTAssertEqual(model.strip(for: .agents), .kept(names: ["Claude Code"], at: fake.now))
+        XCTAssertNil(model.strip(for: .remote))
+        let time = fake.now.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(identifier: "en")))
+        XCTAssertEqual(model.stripText(.kept(names: ["Claude Code"], at: fake.now)),
+                       "**Kept up to date automatically.** Evlat updated Claude Code at \(time).")
+
+        model.start()
+        XCTAssertFalse(model.results, "the menu's window opens afresh")
+        XCTAssertEqual(model.strip(for: .agents), .kept(names: ["Claude Code"], at: fake.now), "the run's record stays")
+        for _ in 0..<2 {
+            model.review()
+            XCTAssertTrue(model.results)
+            XCTAssertEqual(model.title, "Evlat updated its parts")
+            XCTAssertEqual(model.agents.map(\.state), [.updated])
+            model.close()
+            model.start()
+        }
+        XCTAssertEqual(shown, 2)
+
+        fake.automatic = false
+        model.refresh()
+        XCTAssertNil(model.strip(for: .agents), "off: nothing is kept up to date any more")
+    }
+
+    /// A step left to the user is amber and names it — here and on a
+    /// server alike; something old again outranks it.
+    func testAStepLeftIsTheStripsAndSomethingOldOutranksIt() {
+        let fake = Fake(cards: [Self.card(.claude, .outdated), Self.card(.codex, .outdated)],
+                        machines: [Self.machine("box", Self.connected, outdated: [.codex])])
+        fake.automatic = true
+        let model = UpdatesModel(host: fake.host, lang: "en")
+        model.keepAgentsCurrent()
+        XCTAssertEqual(model.strip(for: .agents), .step(.codex))
+        XCTAssertEqual(model.stripText(.step(.codex)),
+                       "**One step for you:** in Codex, open /hooks and trust Evlat’s hooks.")
+        XCTAssertEqual(model.strip(for: .remote), .needsUpdate(1), "the server is not updated yet")
+        model.keepMachineCurrent("box")
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.codex]))
+        XCTAssertEqual(model.strip(for: .remote), .step(.codex))
+
+        model.review()
+        XCTAssertEqual(model.strip(for: .agents), .kept(names: ["Claude Code", "Codex"], at: fake.now),
+                       "looked at: the strip names what was written")
+        XCTAssertEqual(model.strip(for: .remote), .kept(names: ["box"], at: fake.now))
+
+        fake.cards[0] = Self.card(.claude, .outdated)
+        model.agentsChanged()
+        XCTAssertEqual(model.strip(for: .agents), .needsUpdate(1), "the actionable one wins")
+
+        fake.machines = []
+        model.refresh()
+        XCTAssertNil(model.strip(for: .remote), "a server removed takes its record with it")
+    }
+
+    /// A server whose only old part is its `evlat` command is still heard:
+    /// the strip, which says otherwise, leaves it to the window.
+    func testAnOldCommandAloneIsNotTheStrips() {
+        let fake = Fake(cards: [], machines: [Self.machine("rasp", Self.connected, outdated: [], command: true)])
+        let model = model(fake)
+        XCTAssertEqual(model.machines.first?.state, .needsUpdate)
+        XCTAssertNil(model.strip(for: .remote))
+    }
+
+    /// The strip's "Update all" is the window's, on a window it opens: the
+    /// box was never seen, so it writes no choice and becomes the setting
+    /// as it is. On a window already shown it runs that window's rows.
+    func testTheStripsUpdateAllRunsTheWindowsAndWritesNoChoice() {
+        let fake = mockup()
+        let model = UpdatesModel(host: fake.host, lang: "en")
+        var shown = 0
+        model.show = { shown += 1; model.opened() }
+        model.updateAllFromSettings()
+        XCTAssertEqual(shown, 1)
+        XCTAssertEqual(Array(fake.log.prefix(4)), ["agent claude", "agent codex", "agent antigravity", "machine rasp"])
+        XCTAssertNil(fake.automatic, "the box was never seen: nothing written")
+        XCTAssertFalse(model.keepCurrent)
+        XCTAssertEqual(model.keepDetail, L10n.t("updates.keep.on", in: "en"), "the box is the setting from now on")
+
+        let open = mockup()
+        let shownModel = UpdatesModel(host: open.host, lang: "en")
+        shownModel.start()
+        shownModel.isShown = { true }
+        shownModel.show = {}
+        shownModel.updateAllFromSettings()
+        XCTAssertEqual(Array(open.log.prefix(3)), ["agent claude", "agent codex", "agent antigravity"])
+    }
+
+    /// Every table's strip reads as Markdown: its lead bold, no asterisk
+    /// left — Chinese and Japanese close the bold before their full stop,
+    /// which would otherwise not end it — and a server's name is not read.
+    func testEveryStripLineDrawsItsLeadInBold() {
+        let strips: [UpdatesModel.Strip] = [.needsUpdate(1), .needsUpdate(3), .step(.codex),
+                                            .kept(names: ["*rasp*", "build_01"], at: Date(timeIntervalSince1970: 0))]
+        for lang in L10nTests.languages {
+            let model = UpdatesModel(host: mockup().host, lang: lang)
+            for strip in strips {
+                let line = model.stripLine(strip)
+                let text = String(line.characters)
+                let bold = line.runs.filter { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true }
+                XCTAssertFalse(bold.isEmpty, "\(lang) \(strip): no bold lead in \(text)")
+                XCTAssertFalse(text.contains("**"), "\(lang) \(strip): \(text)")
+                if case .kept = strip {
+                    XCTAssertTrue(text.contains("*rasp*") && text.contains("build_01"), "\(lang): \(text)")
+                }
+            }
+        }
+    }
+
     func testEveryKeyIsInEveryTable() {
         for lang in L10nTests.languages {
             for key in UpdatesModel.keys + ["menu.updates", "updates.after.claude", "updates.step.codex",
+                                            "settings.strip.step.codex",
                                             "settings.general.keepParts", "settings.general.keepParts.detail"] {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }

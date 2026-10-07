@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which agents Evlat follows on this Mac (Settings → Agents, the setup's
+/// Which agents Evlat follows on this Mac (Settings → This Mac, the setup's
 /// agent step). An agent switched off has no row, no usage provider and no
 /// approval card; its hooks may still be installed and still post.
 ///

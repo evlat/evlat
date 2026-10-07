@@ -59,6 +59,10 @@ enum SettingsPalette {
     static let tagOkLine = dynamic(0xBFE2CF, 0x2C5A41)
     static let tagWait = dynamic(0xFBF4E4, 0x2E2414)
     static let tagWaitLine = dynamic(0xECD7A9, 0x5E4A22)
+    /// The update strip once automatic updates kept things current: a calm
+    /// blue beside the tags' amber.
+    static let calm = dynamic(0xF1F6FD, 0x17222F)
+    static let calmLine = dynamic(0xCFDFF3, 0x2B3F58)
 }
 
 /// A small tag beside a name (`.tag`): "Available in chat", "experimental".

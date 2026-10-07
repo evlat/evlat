@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-/// Settings → Remote machines: what the "Remote Machines…"
+/// Settings → Servers: what the "Remote Machines…"
 /// window held, as a section. Each machine is a row that opens on a click
 /// (the whole row, and a 24 pt chevron); open, it lists what is set up on
 /// **the server's own files** — this Mac's agent cards, drawn by the same

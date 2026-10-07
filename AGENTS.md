@@ -234,7 +234,7 @@ which agent it is:
 | `evlat` | chat jobs | the chat bubble's turns, on any chat backend (`ChatsProvider`); a backend that answered with another version than the one measured is in its `diagnostics` and in Settings → Chat | official |
 | `signal` | external jobs | `POST /signal` on a socket, no key; sent by `Evlat watch` / `Evlat signal` | manual |
 
-An agent can be switched off (Settings → Agents, its card's switch; the
+An agent can be switched off (Settings → This Mac, its card's switch; the
 setup's agent step). The set is `agents.enabled` (`EnabledAgents`): nothing
 stored is the agents found, asked live each time, and it is written only by
 the user's change — a second Evlat (`EVLAT_SOCKET`) keeps it in memory.
@@ -269,7 +269,7 @@ not a machine's set. While it listens a row is not dimmed
 (`HooksProvider.setLink`). It has no usage, no `/signal` and no approval
 card.
 
-It is one switch, Settings → Sandboxes → "Watch sandboxes"
+It is one switch, Settings → Docker sandboxes → "Watch sandboxes"
 (`sandboxes.enabled`, off when nothing is stored; the setup's optional
 step offers it, and the Claude Code card points there, only where `sbx`
 is found). Only while it is on does the listener bind, and only the
@@ -288,7 +288,7 @@ of it is kept. Settings lists what the last list said, one tag each, and
 one status line (the port taken, the socket path too long for a unix
 address, `sbx` not running, a version other than the measured 0.46.0).
 
-A machine shows this Mac's agent cards (Settings → Remote Machines, the same
+A machine shows this Mac's agent cards (Settings → Servers, the same
 `SetupRowView` with another `SetupCardDriver`), written over `ssh`: one
 press is one agent's unit (`RemoteSettings.Change.agent`), its one file in
 one write. Claude's unit there carries its approval hook, as on this Mac,
@@ -853,6 +853,23 @@ updates…" beside an old hook's or a server's line. It grows with its
 content up to its screen's visible frame less a margin, centred, never off
 it; past that only the two lists scroll (`UpdatesWindow.fit`, pure).
 
+Settings' side list groups the three places Evlat writes its parts into
+under "Connections": This Mac (`agents`, the agent cards, the git branch
+and, last, the `evlat` command — no section of its own any more), Servers
+(`remote`) and Docker sandboxes (`sandboxes`); the raw values are
+`EVLAT_SETTINGS`', and `command` opens This Mac scrolled to the command
+line (`SetupAttention.Anchor`), as the command link's lines do. On top of
+This Mac and Servers a strip reads the same model (`UpdatesModel.strip`,
+no state of its own): amber with "Update all" while an agent there has old
+hooks (a server's old `evlat` command alone is heard, and left to the
+window; the press is the window's, on the window it opens afresh, and the
+box there writes no choice), else — automatic updates on — amber with
+"Review" for a step they left, until Review showed it (Evlat cannot see
+Codex's `/hooks` trusted), then calm blue naming what they wrote this run
+and when (`UpdatesModel.kept`, which a fresh opening of the window keeps
+and a removed server leaves); Review opens the window on those results.
+Docker sandboxes has none.
+
 - The only author of the command is `LocalAPI.installedHookCommand(for:event:)`;
   the writers (`HookSettings`, and `AntigravityHooks` for Antigravity's
   name-keyed file, both behind `LocalHooks`) install nothing else and never
@@ -885,7 +902,7 @@ again without a new backup (the one it has is the user's line from before
 any wrapper), and a removal takes it apart. Only a wrapper no copy of Evlat
 wrote is `modified`.
 
-On this Mac an agent is one card in Settings → Agents and one unit to
+On this Mac an agent is one card in Settings → This Mac and one unit to
 install (`AgentIntegration`): its hooks, its approval hook where it has one,
 and its usage relay where it has a status line here (Claude; Antigravity
 only with its CLI). The parts' states make one: all current → installed,

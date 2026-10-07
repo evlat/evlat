@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import EvlatCore
 
-/// Settings → Sandboxes: Docker sandboxes (`sbx`) on this Mac. One switch
+/// Settings → Docker sandboxes: Docker sandboxes (`sbx`) on this Mac. One switch
 /// and its one status line; the sandboxes the watcher last listed, each with
 /// one tag; and what the switch does while on. Without `sbx` the switch is
 /// dim and off, and one line says why — no instructions to install it.
