@@ -1539,6 +1539,14 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **A preference sent out of a `ScrollView` arrives once, empty.** Read
   positions inside with `GeometryReader` +
   `onChange(of: frame(in: .named…), initial: true)`.
+- **A full-size content view's SwiftUI root sits below the title bar
+  unless it ignores the safe area, and `ImageRenderer` cannot show it.** The
+  update window, sized to its measured content, drew its content a title
+  bar lower and lost the footer's bottom padding off the edge; its
+  `ImageRenderer` pictures, which have no safe area, looked right. Setup,
+  Settings and Updates end in `.ignoresSafeArea()`; check a window on the
+  real screen (`screencapture -l <window id>`), not only in a rendered
+  picture.
 - **A test run's windows land on the user's screen and keyboard.**
   `EvlatAppTests` build real windows: a left-docked bar flashed opaque at
   `.statusBar` over the user's work, and the key balloon (a

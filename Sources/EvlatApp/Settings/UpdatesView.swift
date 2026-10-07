@@ -21,6 +21,11 @@ struct UpdatesView: View {
         .frame(width: measure.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(SettingsPalette.pane)
+        // Under the see-through title bar, as Setup and Settings: the
+        // header's top padding already clears it. Left in the safe area, the
+        // content sat a title bar lower than the size the rule gave the
+        // window, and the footer lost its bottom padding off the edge.
+        .ignoresSafeArea()
     }
 
     // MARK: - Parts

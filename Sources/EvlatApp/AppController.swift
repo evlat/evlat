@@ -3158,6 +3158,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if barState.isOpen { closeBar() }
         let window = updatesWindow ?? makeUpdatesWindow()
         window.show()
+        // Activation is a request the app in front may refuse (cooperative
+        // activation): opened at launch while the user typed in a terminal,
+        // the window was drawn behind it and nobody saw it. Ordered front
+        // regardless it is seen; the keyboard stays where it is until the
+        // user clicks the window.
+        if !WindowStage.isOffstage { window.window?.orderFrontRegardless() }
     }
 
     private func makeUpdatesWindow() -> AppWindow {
