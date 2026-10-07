@@ -139,6 +139,54 @@ final class ApprovalStoreTests: XCTestCase {
         XCTAssertEqual(Set(store.pending.map(\.id)), ["local", "b"])
     }
 
+    /// Codex's dialog waits for the hook, and Esc ends the turn while the
+    /// hook's process lives on (measured): the request is let go by the
+    /// `Interrupt` that follows, which its adapter reads as `Stop` — heard
+    /// on the machine's listener, as a server's hook posts it.
+    func testACodexRequestIsLetGoByItsInterrupt() {
+        let store = store()
+        let session = "019a-thread"
+        let asked = LocalAPI.handle(
+            HTTPRequest(method: "POST", target: "/approval/codex",
+                        body: Data(#"{"hook_event_name":"PermissionRequest","session_id":"019a-thread","turn_id":"t-1","tool_name":"Bash","tool_input":{"command":"rm -r build"}}"#.utf8),
+                        host: "127.0.0.1:48151"),
+            listener: LocalAPI.Listener(origin: .machine, routes: Agents.routes), agents: Agents.all)
+        guard case .approval(var request)? = asked.delivery else { return XCTFail("not held") }
+        request.machine = "m-a"
+        XCTAssertEqual(request.source, .codex)
+        store.asked(request)
+        let interrupt = LocalAPI.handle(
+            HTTPRequest(method: "POST", target: "/hook/codex",
+                        body: Data(#"{"hook_event_name":"Interrupt","session_id":"019a-thread","turn_id":"t-1"}"#.utf8),
+                        host: "127.0.0.1:48151"),
+            listener: LocalAPI.Listener(origin: .machine, routes: Agents.routes), agents: Agents.all)
+        guard case .hook(let event)? = interrupt.delivery else { return XCTFail("not heard") }
+        store.heard(event, machine: nil)
+        XCTAssertNotNil(store.request(forSession: session, machine: "m-a"), "this Mac's events speak of none of it")
+        store.heard(event, machine: "m-a")
+        XCTAssertEqual(sent.map(\.0), [request.id])
+        XCTAssertEqual(sent.first?.1, ApprovalStore.released, "no decision: the turn is already over")
+        XCTAssertNil(store.request(forSession: session, machine: "m-a"))
+    }
+
+    /// Allow once and Deny reach Codex in its own measured shape.
+    func testACodexRequestIsAnsweredInCodexsShape() throws {
+        let store = store()
+        var request = request("c-1", machine: "m-a")
+        request.source = .codex
+        store.asked(request)
+        XCTAssertTrue(store.answer("c-1", allow: true))
+        XCTAssertEqual(sent.first?.1.body, Codex().approvals?.body(.allow(rules: [], directories: [])))
+    }
+
+    /// The card says which agent asks: a server's Codex is not "Claude".
+    func testTheCardNamesTheAgentThatAsks() {
+        var codex = request("c-1", machine: "m-a")
+        codex.source = .codex
+        XCTAssertEqual(SessionDetail.ApprovalCard(codex).agentNameKey, Codex().display.nameKey)
+        XCTAssertEqual(SessionDetail.ApprovalCard(request("r-1")).agentNameKey, Claude().display.nameKey)
+    }
+
     /// A request naming no agent this build knows is answered with no
     /// decision.
     func testARequestOfNoKnownAgentIsAnsweredWithNoDecision() {

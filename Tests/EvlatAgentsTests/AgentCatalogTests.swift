@@ -27,9 +27,10 @@ final class AgentCatalogTests: XCTestCase {
             XCTAssertFalse(agent.hooks.events.isEmpty, agent.id.rawValue)
             XCTAssertFalse(agent.presence.isEmpty, agent.id.rawValue)
         }
-        XCTAssertEqual(Agents.all.filter { $0.approvals != nil }.map(\.id), [.claude],
+        XCTAssertEqual(Agents.all.filter { $0.approvals != nil }.map(\.id), [.claude, .codex],
                        "the agents whose requests a card answers, each on its own path")
-        XCTAssertEqual(Agents.routes.approvals, [ApprovalHook.path: .claude], "Claude's path cannot move")
+        XCTAssertEqual(Agents.routes.approvals, [ApprovalHook.path: .claude, ApprovalHook.path + "/codex": .codex],
+                       "Claude's path cannot move; Codex's is its own")
     }
 
     /// Each agent's name is in both string tables.

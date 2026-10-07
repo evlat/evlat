@@ -163,15 +163,80 @@ final class ApprovalHookTests: XCTestCase {
     }
 
     /// The approval hook goes wherever the agent's channel says: Claude's
-    /// on this Mac and on a server, Codex's nowhere here.
+    /// on this Mac and on a server, Codex's on a server only — its dialog
+    /// waits for the hook, so here every permission would wait on the bar.
     func testTheTargetDecidesWhetherTheGroupGoes() {
         XCTAssertEqual(channel.installs, [.mac, .server])
         XCTAssertEqual(ApprovalHook.state(of: LocalHooks.installing(into: [:], for: .claude, target: .server),
                                           for: channel), .current)
+        XCTAssertEqual(codex.installs, [.server])
         XCTAssertEqual(LocalHooks.installing(into: [:], for: .codex, target: .mac) as NSDictionary,
                        HookSettings.installing(into: [:], for: .codex) as NSDictionary)
+        XCTAssertEqual(ApprovalHook.state(of: LocalHooks.installing(into: [:], for: .codex, target: .server),
+                                          for: codex), .current)
         XCTAssertTrue(LocalHooks.manual(for: .claude).contains("/approval"))
+        XCTAssertFalse(LocalHooks.manual(for: .codex).contains("/approval"))
         XCTAssertTrue(RemoteSettings.manual(agents: Agents.all).hooks(for: .claude).contains("/approval"))
+        XCTAssertTrue(RemoteSettings.manual(agents: Agents.all).hooks(for: .codex).contains("/approval/codex"))
+    }
+
+    // MARK: - Codex's
+
+    private var codex: any ApprovalChannel { Codex().approvals! }
+
+    /// Codex's group, byte for byte: its own path, two minutes. `|| true`
+    /// carries weight here — for Codex an exit 2 is a deny (measured), not
+    /// a hook error.
+    func testCodexsInstalledHookIsUnchanged() throws {
+        let data = try JSONSerialization.data(withJSONObject: ApprovalHook.installedHook(for: codex),
+                                              options: [.sortedKeys, .withoutEscapingSlashes])
+        XCTAssertEqual(String(decoding: data, as: UTF8.self),
+                       #"{"command":"curl -q -sf --noproxy '*' --unix-socket \"$HOME/.config/evlat/run/evlat.sock\" -m 120 -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:48151/approval/codex 2>/dev/null || true","timeout":120,"type":"command"}"#)
+        XCTAssertEqual(codex.path, ApprovalHook.path + "/codex")
+        XCTAssertEqual(codex.timeout, 120)
+    }
+
+    /// The two answers Codex was measured to take, byte for byte; nothing
+    /// else is ever sent — `updatedInput`, `updatedPermissions` and
+    /// `interrupt` fail closed in Codex — and a question's answer, which
+    /// Codex never asks for, is no decision.
+    func testCodexsAnswersAreTheMeasuredOnes() {
+        let allow = #"{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}"#
+        let deny = #"{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"The user denied this in Evlat."},"hookEventName":"PermissionRequest"}}"#
+        XCTAssertEqual(codex.body(.allow(rules: [], directories: [])), allow)
+        XCTAssertEqual(codex.body(.allow(rules: [PermissionRule(toolName: "Bash", ruleContent: "ls:*")],
+                                         directories: ["/tmp"])), allow, "no rule, no folder")
+        XCTAssertEqual(codex.body(.allowForSession), allow)
+        XCTAssertEqual(codex.body(.deny(interrupt: false)), deny)
+        XCTAssertEqual(codex.body(.deny(interrupt: true)), deny, "no interrupt")
+        XCTAssertEqual(codex.body(.answer(input: Data("{}".utf8), answers: ["a": "b"])), "{}")
+    }
+
+    /// Codex's body, as measured, read through its adapter into the card's
+    /// request; it asks no question.
+    func testCodexsRequestIsReadCanonically() throws {
+        let measured: [String: Any] = [
+            "session_id": "019a-thread", "turn_id": "t-1", "transcript_path": "/x.jsonl", "cwd": "/srv/app",
+            "hook_event_name": "PermissionRequest", "model": "gpt-5.5", "permission_mode": "default",
+            "tool_name": "Bash", "tool_input": ["command": "rm -r build", "description": "Clean"],
+        ]
+        let request = try XCTUnwrap(codex.request(json: measured))
+        XCTAssertEqual(request.tool, "Bash")
+        XCTAssertEqual(request.command, "rm -r build")
+        XCTAssertEqual(request.sessionID, "019a-thread")
+        XCTAssertEqual(request.cwd, "/srv/app")
+        XCTAssertNil(request.questions)
+        XCTAssertTrue(request.rules.isEmpty)
+        let patch: [String: Any] = ["session_id": "s", "hook_event_name": "PermissionRequest",
+                                    "tool_name": "apply_patch",
+                                    "tool_input": ["command": "*** Begin Patch\n*** Add File: a.txt\n+x\n"]]
+        let edit = try XCTUnwrap(codex.request(json: patch))
+        XCTAssertEqual(edit.tool, "Write", "through Codex's adapter")
+        XCTAssertEqual(edit.subject, "a.txt")
+        let asking: [String: Any] = ["session_id": "s", "tool_name": AskQuestion.tool,
+                                     "tool_input": ["questions": [["question": "Which?", "options": [["label": "A"]]]]]]
+        XCTAssertNil(try XCTUnwrap(codex.request(json: asking)).questions, "Codex asks no question")
+        XCTAssertFalse(codex.isQuestion(AskQuestion.tool))
     }
 
     func testAnOtherTimeoutOrTwoCopiesReadOutdated() {

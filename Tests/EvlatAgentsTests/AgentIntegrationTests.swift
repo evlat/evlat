@@ -76,6 +76,18 @@ final class AgentIntegrationTests: XCTestCase {
         XCTAssertEqual((try json(file)["statusLine"] as? [String: Any])?["command"] as? String, "bash ~/s.sh")
     }
 
+    /// This Mac's Codex card is its hooks alone: Codex's dialog waits for
+    /// the approval hook, so the group goes only to a server, and the
+    /// command alone reads current here.
+    func testThisMacsCodexWantsNoApprovalGroup() throws {
+        try directory(".codex")
+        let file = Codex().hooksFile(home: home)
+        try AgentIntegration.install(home: home, for: .codex)
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: .codex).status, .current)
+        XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("/approval"))
+        XCTAssertEqual(try ApprovalHook.state(of: json(file), for: Codex().approvals!), .missing)
+    }
+
     /// A usage line edited by hand stays byte for byte; the hooks go in.
     func testAHandEditedRelayIsNotWrittenOver() throws {
         try directory(".claude")

@@ -22,7 +22,8 @@ struct Codex: Agent {
     /// No status line: its windows come from its own file (`providers`).
     let statusLineUsage: StatusLineUsage? = nil
 
-    let approvals: (any ApprovalChannel)? = nil
+    /// Its permission requests, on a server's card (`CodexApprovals`).
+    let approvals: (any ApprovalChannel)? = CodexApprovals()
 
     /// Its app-server, as the chat bubble's second backend.
     let chat: (any ChatBackend)? = CodexChat()

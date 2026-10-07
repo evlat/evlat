@@ -303,12 +303,16 @@ final class RemoteSettingsTests: XCTestCase {
         }
     }
 
+    /// The local writer's bytes, with what a server gets that this Mac
+    /// does not: Codex's approval group (`ApprovalChannel.installs`).
     func testCodexHooksAreWrittenLikeTheLocalOnes() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)
             try seed(.codex, nil)
             XCTAssertEqual(apply(.hooks(.codex), .install, ssh: ssh), .success(.written), shell)
-            XCTAssertEqual(try HookSettings.install(at: codex(local), for: .codex), .written)
+            XCTAssertEqual(try SettingsFile.apply(at: codex(local)) {
+                LocalHooks.installing(into: $0, for: .codex, target: .server)
+            }, .written)
             XCTAssertEqual(bytes(codex(remote)), bytes(codex(local)), shell)
         }
     }
@@ -470,7 +474,7 @@ final class RemoteSettingsTests: XCTestCase {
         try seed(.codex, nil)
         try LocalHooks.install(at: claude(local), for: .claude)
         XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).hooks(for: .claude).utf8), bytes(claude(local)))
-        try HookSettings.install(at: codex(local), for: .codex)
+        try SettingsFile.apply(at: codex(local)) { LocalHooks.installing(into: $0, for: .codex, target: .server) }
         XCTAssertEqual(Data(RemoteSettings.manual(agents: Agents.all).hooks(for: .codex).utf8), bytes(codex(local)))
         try FileManager.default.removeItem(at: claude(local))
         try StatusLineRelay.install(at: claude(local), source: .claude)

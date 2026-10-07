@@ -291,8 +291,10 @@ address, `sbx` not running, a version other than the measured 0.46.0).
 A machine shows this Mac's agent cards (Settings → Remote Machines, the same
 `SetupRowView` with another `SetupCardDriver`), written over `ssh`: one
 press is one agent's unit (`RemoteSettings.Change.agent`), its one file in
-one write. Claude's unit there carries its approval hook, as on this Mac
-(the channel's `installs`): its requests are held under the machine's id,
+one write. Claude's unit there carries its approval hook, as on this Mac,
+and Codex's carries its own, there only (the channel's `installs`; Codex's
+dialog waits for the hook, so here every permission would wait on the
+bar): its requests are held under the machine's id,
 only that machine's events resolve them, its rows' cards show them, and
 the answer goes back to its listener. Only `RemoteSettings.relays`
 — Claude — gets the usage line there; Antigravity's remote relay is not
@@ -856,22 +858,29 @@ Unlike the hook command its stdout is the answer, and only the answer:
 a refusal, a channel gone, the time out — exit 0 with empty stdout, which
 is no decision. The timeout is one constant of the agent's channel in
 three places: the hook's `timeout`, `curl -m`, and so how long a card can
-wait (Claude: 600). The core writes the group and names no agent; an
+wait (Claude: 600; Codex: 120, since its dialog waits for the hook). The
+core writes the group and names no agent; an
 agent's `ApprovalChannel` gives the wire (`request`, `body`), its path
-under `/approval` (Claude's is `/approval` itself; `RouteTable.approvals`)
-and where it is installed (`installs`: Claude's on this Mac and on a
-server). It is Evlat's by the command with `127.0.0.1:48151<path>`, and
+under `/approval` (Claude's is `/approval` itself, Codex's
+`/approval/codex`; `RouteTable.approvals`) and where it is installed
+(`installs`: Claude's on this Mac and on a server, Codex's on a server
+only). It is Evlat's by the command with `127.0.0.1:48151<path>`, and
 the `type: "http"` hook earlier copies installed at that url is Evlat's
 older one: outdated, replaced in place, removed with it. It is part of
 the Claude Code card, here and on a server, installed and removed with
 the command as one (`LocalHooks`, by target); the command alone reads
-outdated, which is how a copy from before it is offered the update. It is the one hook
-whose answer reaches Claude Code, so Evlat answers it only with the user's
+outdated, which is how a copy from before it is offered the update. On a
+server Codex's is part of the Codex card the same way, and Codex's trust
+asks for it once (`/hooks`), as for any hook new to it. It is the one hook
+whose answer reaches the agent, so Evlat answers it only with the user's
 press on the card — Allow once or Deny, never a rule, a folder or a mode —
 or `{}`, which is no decision. An `AskUserQuestion` comes through it too;
 its card offers the question's options, "Other…" (a line of its own,
 `AnswerPanel`, since the bar never takes keys) and Deny, never a bare
-Allow, and answers with `updatedInput` + `answers` (`AskQuestion`). It
+Allow, and answers with `updatedInput` + `answers` (`AskQuestion`).
+Codex's answer is its own two measured shapes, `allow` and `deny` with a
+`message` (`CodexApprovals`), never `updatedInput`, `updatedPermissions` or
+`interrupt`, which it fails closed on; it asks no question. It
 authenticates no server: whatever answers on the socket decides. The
 socket's folder is the user's alone (`0700`), here and on a server, so
 that is a process of the same user, which could write the settings file
@@ -909,7 +918,7 @@ holds (`Origin.role`, one `switch`).
 | `GET /health` | |
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
-| `POST /approval` | approval hook of terminal sessions (`ApprovalHook`), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
+| `POST /approval`, `/approval/codex` | approval hook of terminal sessions (`ApprovalHook`), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
 | `POST /signal` | external jobs; requires `X-Evlat-Key` on the port, none on the socket |
 | `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.sandbox`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped and every other route is `404`. The only listener that trusts `X-Evlat-Sandbox`, checked |
 | `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
@@ -1170,6 +1179,21 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   stdout left the prompt to Claude as an empty output does; under
   `-p --permission-prompts none` that is a denial. Esc in the terminal ended
   the hook's process tree; "Yes" did not, and the `curl` stayed waiting.
+- **Codex's `PermissionRequest` hook is not Claude's** (codex-cli 0.160.0,
+  a pty-driven TUI under a temporary `CODEX_HOME`, a stand-in on the
+  socket answering with the card's bytes). Its dialog **waits for
+  the hook** ("Running hook"), and asks only once the hook is done. An
+  **exit 2 is a deny** ("Blocked by hook"), where Claude reads it as no
+  decision, so the command's `|| true` carries weight; empty stdout, `{}`,
+  an exit 1 or a timeout bring the dialog. Esc ends the turn while the
+  hook's process lives on: the held request is let go by the `Interrupt`
+  that follows, read as `Stop`. A hook is trusted by its hash under
+  `<file>:<event>:<group>:<hook>`: an added group asked for review at the
+  next start ("1 hook is new or changed"), did not run until trusted
+  (the command hooks beside it ran, and the dialog came as before), and
+  once trusted in `/hooks` ran in the same session without a restart; an
+  `allow` from it ran the command with no dialog. The group beside it kept
+  its trust: Evlat appends, and never shifts an index.
 - **A unix socket file takes the umask's mode** (`755` measured, a
   `NWListener` bound with `requiredLocalEndpoint = .unix(path:)`), and
   survives the listener's `cancel()`. The directory is the guard, and the

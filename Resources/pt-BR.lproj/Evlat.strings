@@ -144,7 +144,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat: o comando, gravado como está (substitui um evlat que já esteja lá; confira antes com command -v evlat):";
 "remote.command.manual.remove" = "Para remover: o comando, se for do Evlat, a chave e a pasta dela, se ficar vazia:";
 "remote.items.title" = "Configurado em {name}";
-"remote.items.body" = "O túnel só abre o caminho. Para que um agente no servidor avise esta barra, isto é gravado nos arquivos do próprio servidor: os mesmos cartões deste Mac, gravados por ssh, ou um bloco que você mesmo roda no servidor. O Claude Code de lá também pede aprovação a esta barra; o Antigravity dele recebe só hooks.";
+"remote.items.body" = "O túnel só abre o caminho. Para que um agente no servidor avise esta barra, isto é gravado nos arquivos do próprio servidor: os mesmos cartões deste Mac, gravados por ssh, ou um bloco que você mesmo roda no servidor. O Claude Code e o Codex de lá também pedem aprovação a esta barra; o Antigravity dele recebe só hooks.";
 "remote.item.command" = "Comando evlat";
 "remote.status.notFound" = "Não está neste servidor";
 "remote.hint.install.codex" = "No Codex, abra /hooks e confie nos hooks do Evlat: até lá, o Codex não os executa.";
@@ -243,7 +243,7 @@
 
 "card.outside" = "Tarefa externa";
 "card.progress" = "Progresso";
-"card.approval.tool" = "O Claude quer usar {tool}.";
+"card.approval.tool" = "{agent} quer usar {tool}.";
 "card.approval.subagent" = "Um subagente quer usar {tool}.";
 "card.approval.allow" = "Permitir";
 "card.approval.deny" = "Negar";

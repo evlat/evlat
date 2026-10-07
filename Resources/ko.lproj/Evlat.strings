@@ -143,7 +143,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — 명령을 그대로 씁니다(이미 있는 evlat을 대체하니, 먼저 command -v evlat으로 확인하세요):";
 "remote.command.manual.remove" = "제거하려면: Evlat의 것이라면 명령, 키, 그리고 비게 되면 그 폴더:";
 "remote.items.title" = "{name}에서 설정";
-"remote.items.body" = "터널은 길만 열어 줍니다. 서버의 에이전트가 이 바에 알리려면 서버 자체 파일에 다음이 기록되어야 합니다. 이 Mac과 같은 카드로 ssh를 통해 쓰거나, 서버에서 직접 실행할 블록을 쓰면 됩니다. 서버의 Claude Code도 이 바에 승인을 요청합니다. 서버의 Antigravity에는 훅만 설치됩니다.";
+"remote.items.body" = "터널은 길만 열어 줍니다. 서버의 에이전트가 이 바에 알리려면 서버 자체 파일에 다음이 기록되어야 합니다. 이 Mac과 같은 카드로 ssh를 통해 쓰거나, 서버에서 직접 실행할 블록을 쓰면 됩니다. 서버의 Claude Code와 Codex도 이 바에 승인을 요청합니다. 서버의 Antigravity에는 훅만 설치됩니다.";
 "remote.item.command" = "evlat 명령";
 "remote.status.notFound" = "이 서버에 없음";
 "remote.hint.install.codex" = "Codex에서 /hooks를 열고 Evlat의 훅을 신뢰하세요. 그 전에는 Codex가 훅을 실행하지 않습니다.";
@@ -242,7 +242,7 @@
 
 "card.outside" = "외부 작업";
 "card.progress" = "진행률";
-"card.approval.tool" = "Claude가 {tool} 사용을 요청합니다.";
+"card.approval.tool" = "{agent}이(가) {tool} 사용을 요청합니다.";
 "card.approval.subagent" = "하위 에이전트가 {tool} 사용을 요청합니다.";
 "card.approval.allow" = "허용";
 "card.approval.deny" = "거부";

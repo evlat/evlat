@@ -685,11 +685,13 @@ extension RemoteReadingTests {
             RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex, .antigravity: antigravity],
                                             command: .missing)).agents
         }
-        let codex = HookSettings.installing(into: [:], for: .codex)
+        let codex = LocalHooks.installing(into: [:], for: .codex, target: .server)
         let antigravity = AntigravityHooks.installing(into: [:], hooks: Antigravity().hooks)
         XCTAssertEqual(agents(try file(unit), try file(codex), try file(antigravity)),
                        [.claude: .installed, .codex: .installed, .antigravity: .installed],
                        "Antigravity's card on a server is its hooks alone")
+        XCTAssertEqual(agents(try file(unit), try file(HookSettings.installing(into: [:], for: .codex)))[.codex],
+                       .outdated, "Codex's command alone, as every server copy before its approvals")
         XCTAssertEqual(agents(try file(hooks))[.claude], .outdated, "hooks without the usage line: one press brings it")
         XCTAssertEqual(agents(try file(nil), try file(nil))[.codex], .missing)
         XCTAssertEqual(agents(try file(nil)), [.claude: .missing, .codex: .notFound, .antigravity: .notFound])

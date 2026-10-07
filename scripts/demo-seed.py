@@ -10,9 +10,9 @@ repository the demo makes, under a long folder name, and its worktree — same n
 branches, so their rows draw the branch (and number the two on one).
 
 Waits come both ways, as they do for real: approvals and questions, local
-and on a server, are held on /approval, as Claude Code's approval hook holds
-them, so their cards draw their buttons; the sandboxed ones, which have no
-approval hook, and the rest of the servers' are only heard.
+and on a server, are held on /approval (a server's Codex on /approval/codex),
+as the approval hooks hold them, so their cards draw their buttons; the
+sandboxed ones, which have no approval hook, are only heard.
 """
 import argparse
 import datetime as dt
@@ -232,8 +232,10 @@ REMOTE = [
     ("gpu-01", "claude", 6161, "aaaaaaaa-0000-4000-8000-000000000003", "/srv/deploy/infra",
      [("UserPromptSubmit", {}), ("PermissionRequest", {"tool_name": "Bash", "tool_input": {
          "command": "terraform apply -auto-approve"}})]),
+    # A Codex permission on a server: held on Codex's own path below.
     ("10.0.4.21", "codex", 4343, "019a0000-aaaa-7000-8000-000000000004", "/home/dev/src/ops",
-     [("UserPromptSubmit", {})]),
+     [("UserPromptSubmit", {}), ("PermissionRequest", {"tool_name": "Bash", "tool_input": {
+         "command": "kubectl rollout restart deployment/ops-api -n production"}})]),
     # A question on a server: heard here, and held below like this Mac's.
     ("10.0.4.21", "claude", 4444, "aaaaaaaa-0000-4000-8000-000000000005", "/home/dev/src/docs-search",
      [("UserPromptSubmit", {}), ("PreToolUse", {"tool_name": "AskUserQuestion", "tool_input": {"questions": [{
@@ -312,21 +314,22 @@ for job in JOBS:
 # curls run on past this script; their pids go where `stop` finds them. A
 # server's goes to its machine's listener, as its channel would bring it.
 held = [
-    (PORT, {"hook_event_name": "PermissionRequest", "session_id": LOCAL[0][0], "cwd": LOCAL[0][1],
+    (PORT, "/approval", {"hook_event_name": "PermissionRequest", "session_id": LOCAL[0][0], "cwd": LOCAL[0][1],
             "tool_name": "Bash", "tool_input": {"command": BASH, "description": "Run the sandbox watcher tests"}}),
-    (PORT, {"hook_event_name": "PermissionRequest", "session_id": LOCAL[5][0], "cwd": LOCAL[5][1],
+    (PORT, "/approval", {"hook_event_name": "PermissionRequest", "session_id": LOCAL[5][0], "cwd": LOCAL[5][1],
             "tool_name": "AskUserQuestion", "tool_input": QUESTION}),
 ]
 for host, source, pid, sid, cwd, events in REMOTE:
     asking = [fields for name, fields in events
-              if source == "claude" and (name == "PermissionRequest" or fields.get("tool_name") == "AskUserQuestion")]
+              if name == "PermissionRequest" or fields.get("tool_name") == "AskUserQuestion"]
     if asking and by_host.get(host):
-        held.append((by_host[host], {"hook_event_name": "PermissionRequest", "session_id": sid, "cwd": cwd,
-                                     **asking[0]}))
+        path = "/approval" if source == "claude" else f"/approval/{source}"
+        held.append((by_host[host], path, {"hook_event_name": "PermissionRequest", "session_id": sid, "cwd": cwd,
+                                           **asking[0]}))
 with open(os.path.join(D, "held.pid"), "w") as pidfile:
-    for target, body in held:
-        where = ([f"http://127.0.0.1:{target}/approval"] if isinstance(target, int)
-                 else ["--unix-socket", target, "http://127.0.0.1:48151/approval"])
+    for target, path, body in held:
+        where = ([f"http://127.0.0.1:{target}{path}"] if isinstance(target, int)
+                 else ["--unix-socket", target, f"http://127.0.0.1:48151{path}"])
         process = subprocess.Popen(
             ["curl", "-s", "-m", "3600", "-X", "POST", *where,
              "-H", "Content-Type: application/json", "-d", json.dumps(body)],

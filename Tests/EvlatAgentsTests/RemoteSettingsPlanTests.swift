@@ -91,6 +91,36 @@ final class RemoteSettingsPlanTests: XCTestCase {
         XCTAssertFalse(String(decoding: removed.contents, as: UTF8.self).contains("/approval"), "both go")
     }
 
+    /// A server's Codex unit carries Codex's own group, on its path and its
+    /// two minutes; a server copy with the command alone, as every copy
+    /// before it, reads outdated and one press completes it, other tools'
+    /// groups left where they are.
+    func testAServersCodexUnitCarriesItsApprovalGroup() throws {
+        let channel = try XCTUnwrap(Codex().approvals)
+        let write = try XCTUnwrap(try RemoteSettings.plan(.agent(.codex), .install, original: nil))
+        let settings = try SettingsFile.parse(write.contents)
+        XCTAssertEqual(ApprovalHook.state(of: settings, for: channel), .current)
+        XCTAssertEqual(ApprovalHook.state(of: settings, for: Claude().approvals!), .missing, "not Claude's")
+        XCTAssertEqual(LocalHooks.state(of: settings, for: .codex, target: .server), .current)
+        XCTAssertEqual(LocalHooks.state(of: settings, for: .codex, target: .mac), .current,
+                       "this Mac's rule asks for the command alone")
+        var hooks = HookSettings.installing(into: [:], for: .codex)["hooks"] as? [String: Any] ?? [:]
+        hooks["PermissionRequest"] = [["hooks": [["type": "command", "command": "/usr/local/bin/other"]]]]
+            + (hooks["PermissionRequest"] as? [Any] ?? [])
+        let commandAlone = try SettingsFile.encode(["hooks": hooks])
+        XCTAssertEqual(LocalHooks.state(of: try SettingsFile.parse(commandAlone), for: .codex, target: .server),
+                       .outdated)
+        let completed = try SettingsFile.parse(
+            try XCTUnwrap(try RemoteSettings.plan(.hooks(.codex), .install, original: commandAlone)).contents)
+        XCTAssertEqual(LocalHooks.state(of: completed, for: .codex, target: .server), .current)
+        let groups = (completed["hooks"] as? [String: Any])?["PermissionRequest"] as? [[String: Any]] ?? []
+        XCTAssertEqual(groups.count, 3, "the other tool's, the command's, then ours")
+        XCTAssertEqual((groups.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String,
+                       "/usr/local/bin/other", "another tool's group keeps its index: Codex keys trust by it")
+        let removed = try XCTUnwrap(try RemoteSettings.plan(.agent(.codex), .remove, original: write.contents))
+        XCTAssertFalse(String(decoding: removed.contents, as: UTF8.self).contains("/approval"), "both go")
+    }
+
     /// An install that cannot reach current without overwriting someone
     /// else's value is refused, as the local writer refuses it.
     func testAnInstallThatCannotBeCompletedIsMalformed() {

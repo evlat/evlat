@@ -94,6 +94,10 @@ public struct SessionDetail: Equatable {
         let text: String?
         /// A subagent asked, not the session itself.
         let fromSubagent: Bool
+        /// The asking agent's name key (`AgentDisplay.nameKey`): the card
+        /// says who asks. Every held request has its route's agent
+        /// (`HeldRequest.source`); one without is never held.
+        let agentNameKey: String?
         /// A question to answer in place of Allow (`AskQuestion`).
         let question: QuestionCard?
 
@@ -102,6 +106,7 @@ public struct SessionDetail: Equatable {
             tool = request.tool
             text = request.command ?? request.subject
             fromSubagent = request.subagent != nil
+            agentNameKey = request.source?.agent.display.nameKey
             question = draft.flatMap(QuestionCard.init)
         }
 

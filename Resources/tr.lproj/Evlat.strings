@@ -145,7 +145,7 @@
 "remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
 "remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, anahtar ve boş kalırsa klasörü:";
 "remote.items.title" = "{name} sunucusuna kurulanlar";
-"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki bir ajanın bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır — bu Mac'tekiyle aynı kartlar, ssh üstünden yazılır; ya da bloğu sen sunucuda çalıştırırsın. Oradaki Claude Code onayı da bu bara sorar; Antigravity'ye yalnız hook'lar kurulur.";
+"remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki bir ajanın bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır — bu Mac'tekiyle aynı kartlar, ssh üstünden yazılır; ya da bloğu sen sunucuda çalıştırırsın. Oradaki Claude Code ve Codex onayı da bu bara sorar; Antigravity'ye yalnız hook'lar kurulur.";
 "remote.item.command" = "evlat komutu";
 "remote.status.notFound" = "Bu sunucuda bulunamadı";
 "remote.hint.install.codex" = "Codex'te /hooks'u aç ve Evlat'ın hook'larına güven: o zamana dek Codex onları çalıştırmaz.";
@@ -248,7 +248,7 @@
 /* An outside job's card (`012`): its header's kind, its progress row. */
 "card.outside" = "Dış iş";
 "card.progress" = "İlerleme";
-"card.approval.tool" = "Claude {tool} kullanmak istiyor.";
+"card.approval.tool" = "{agent}, {tool} kullanmak istiyor.";
 "card.approval.subagent" = "Bir alt ajan {tool} kullanmak istiyor.";
 "card.approval.allow" = "İzin ver";
 "card.approval.deny" = "Reddet";

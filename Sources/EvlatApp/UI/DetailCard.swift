@@ -440,7 +440,7 @@ struct DetailCard: View {
     private func permissionSection(_ approval: SessionDetail.ApprovalCard) -> some View {
         section(ask: true, gap: 10) {
             sectionTitle(L10n.t(approval.fromSubagent ? Self.approvalSubagentKey : Self.approvalToolKey,
-                                ["tool": approval.tool]))
+                                ["tool": approval.tool, "agent": approval.agentNameKey.map { L10n.t($0) } ?? ""]))
             if let text = approval.text {
                 ScrollView(.vertical, showsIndicators: true) {
                     Text(verbatim: text)

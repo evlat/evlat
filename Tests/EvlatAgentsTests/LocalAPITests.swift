@@ -75,6 +75,32 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(dispatch("GET", "/hook/claude"), .notFound)
     }
 
+    /// Each agent's approvals come in on its own path, so the listener
+    /// knows who asks without reading the body: this Mac's listener and a
+    /// machine's hold both, a sandbox's neither.
+    func testEachApprovalPathIsItsAgents() {
+        XCTAssertEqual(dispatch("POST", "/approval"), .approval(.claude))
+        XCTAssertEqual(dispatch("POST", "/approval/codex"), .approval(.codex))
+        XCTAssertEqual(dispatch("GET", "/approval/codex"), .notFound)
+        XCTAssertEqual(dispatch("POST", "/approval/antigravity"), .notFound, "no approvals, no route")
+        let body = #"{"hook_event_name":"PermissionRequest","session_id":"s-1","tool_name":"Bash","tool_input":{"command":"ls"}}"#
+        for (path, agent) in [("/approval", AgentID.claude), ("/approval/codex", .codex)] {
+            for origin in [LocalAPI.Origin.local, .machine] {
+                let outcome = LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: path, body: Data(body.utf8),
+                                                                  host: "127.0.0.1:48151"),
+                                                      listener: LocalAPI.Listener(origin: origin))
+                XCTAssertNil(outcome.response, "\(path) \(origin): held")
+                guard case .approval(let held)? = outcome.delivery else { XCTFail("\(path) \(origin)"); continue }
+                XCTAssertEqual(held.source, agent, "\(path) \(origin)")
+            }
+            let sandboxed = LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: path, body: Data(body.utf8),
+                                                                host: "127.0.0.1:48151"),
+                                                    listener: LocalAPI.Listener(origin: .sandbox))
+            XCTAssertEqual(sandboxed.response?.status, .notFound, path)
+            XCTAssertNil(sandboxed.delivery, path)
+        }
+    }
+
     // MARK: - The answers
 
     func testTheCodexRouteStampsTheEventWithItsSource() {
