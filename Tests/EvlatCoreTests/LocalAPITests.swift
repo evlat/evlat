@@ -511,6 +511,20 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(handle(request, listener: LocalAPI.Listener(origin: .machine, routes: Self.routes)).response?.status, .notFound)
     }
 
+    /// A machine's listener at its channel's end — a socket only this user
+    /// can reach — takes `/signal` with no key, a key sent or not: the
+    /// machine is the listener's, never the body's.
+    func testAMachinesSocketTakesASignalWithoutAKey() {
+        for sent in [nil, "anything"] as [String?] {
+            let outcome = handle(HTTPRequest(method: "POST", target: "/signal", body: Data(signalBody.utf8),
+                                             host: "127.0.0.1:48151", signalKey: sent),
+                                 listener: LocalAPI.Listener(origin: .machine, keylessSignal: true, routes: Self.routes))
+            XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"), sent ?? "nil")
+            guard case .signal(let report)? = outcome.delivery else { return XCTFail("no report") }
+            XCTAssertEqual(report.id, "build")
+        }
+    }
+
     /// A tunnel's listener with its machine's key answers exactly as
     /// the local one does: the key first, then the body.
     func testATunneledSignalWithTheMachinesKeyIsTheLocalRoute() {

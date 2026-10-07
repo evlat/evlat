@@ -82,8 +82,10 @@
 "remote.retry.soon" = "まもなく再試行";
 "remote.failure.authentication" = "サインインが拒否されました";
 "remote.failure.authentication.advice" = "サーバーがすべての方法（エージェントに読み込まれた鍵、パスワード）を拒否しました。ターミナルで「ssh {target}」でログインできるか確認してください。";
-"remote.failure.portBusy" = "サーバーのポート48151が使用中です";
-"remote.failure.portBusy.advice" = "サーバーが古い接続をまだ保持している可能性があります。通常は1分以内に解放されます。同じサーバー上の別のユーザーのEvlatが使用している場合もあります。";
+"remote.failure.channelBusy" = "別のEvlatがこのサーバーに接続しています";
+"remote.failure.channelBusy.advice" = "別のMacのEvlatが同じユーザーでこのサーバーに接続しています。サーバーが知らせる先は一度に1台のMacだけです。Evlatは再試行を続け、その接続が終わるとこのMacが引き継ぎます。";
+"remote.failure.forwardingRefused" = "サーバーがsshによるソケットの転送を許可していません";
+"remote.failure.forwardingRefused.advice" = "Evlatはsshが転送するソケットを通じてこのサーバーに接続しますが、サーバーのsshd_configがそれを無効にしています（AllowStreamLocalForwarding、AllowTcpForwarding、またはDisableForwarding）。サーバーの管理者に許可を依頼してください。";
 "remote.failure.hostKey" = "不明なホスト鍵";
 "remote.failure.hostKey.advice" = "ターミナルで「ssh {target}」で一度接続し、ホスト鍵を承認してください。";
 "remote.failure.hostName" = "ホストが見つかりません";
@@ -119,34 +121,32 @@
 "remote.manual.wrapping" = "すでにある場合はそのまま残し、その「command」をこれに置き換えます。{placeholder}の部分にはご自身のコマンドを入れてください（中の ' は '\\'' と書きます）：";
 "remote.manual.agent" = "{file} — この「hooks」ブロックを、既存のフックと並べてファイルに統合します：";
 "remote.manual.remove" = "削除するには、commandに{marker}を含むエントリをすべて削除し、statusLineのコマンドを元に戻します。自動セットアップがファイルを変更した場合、元のバージョンは同じフォルダに、名前に.evlat.bakを付けて保存されています。";
-"remote.manual.surface" = "これで開かれるもの：サーバー上のどのプロセスも、トンネルを通じてEvlatにフックイベントを書き込めます。フックは鍵を持ちません。evlatコマンドからの行にはこのマシンの鍵が必要で、それを読めるのはそのユーザーだけです。サーバー上の別のユーザーが先にポート48151を確保すると、あなたのイベントとコマンドの鍵はそのユーザーのMacに届きます。2台のMacが同じサーバーにコマンドをインストールすると、最後にインストールした方の鍵が有効になります。サーバーのsshd_configでGatewayPorts yesになっていると、ポートはサーバーのネットワークに開かれます。";
+"remote.manual.surface" = "これで開かれるもの：サーバー上のあなたのどのプロセスも、~/.config/evlat/runにあるソケットを通じてEvlatにフックイベントや行を書き込めます。このフォルダに入れるのはあなたのユーザーだけです。サーバーが知らせる先は一度に1台のMacだけです。別のMacのEvlatがそのソケットを保持している間、このMacは待機します。";
 "remote.copy" = "コピー";
 "remote.copied" = "コピーしました";
 
 "remote.remove" = "削除…";
-"remote.remove.confirm" = "{name}を削除しますか？トンネルが閉じ、そのセッションはバーから消えます。サーバー上のフックはそのまま残り、受け取る相手がいないまま沈黙します。先に取り除くには、「フック」の行で削除してください。サーバー上のevlatコマンドは、再インストールするまで沈黙します。その鍵はマシンと一緒に削除されます。";
+"remote.remove.confirm" = "{name}を削除しますか？トンネルが閉じ、そのセッションはバーから消えます。サーバー上のフックはそのまま残り、受け取る相手がいないまま沈黙します。先に取り除くには、「フック」の行で削除してください。サーバー上のevlatコマンドは残り、マシンを再び追加するまで沈黙します。";
 "remote.remove.cancel" = "キャンセル";
 "remote.remove.do" = "削除";
 
-"remote.command.result.installed" = "コマンドをインストールしました：~/.local/bin/evlatとこのマシンの鍵。";
-"remote.command.result.current" = "コマンドはすでに最新でした。鍵は書き直しました。";
-"remote.command.result.removed" = "コマンドを削除しました：~/.local/bin/evlatと鍵。";
+"remote.command.result.installed" = "コマンドをインストールしました：~/.local/bin/evlat。";
+"remote.command.result.current" = "コマンドはすでに最新でした。";
+"remote.command.result.removed" = "コマンドを削除しました：~/.local/bin/evlat。";
 "remote.command.result.absent" = "削除するコマンドはありませんでした。";
 "remote.command.result.foreign" = "~/.local/bin/evlatは別のものです。そのままにして、何も書き込みませんでした。";
-"remote.command.result.foreign.remove" = "鍵は削除しました。~/.local/bin/evlatは別のものなので、そのままにしました。";
+"remote.command.result.foreign.remove" = "~/.local/bin/evlatは別のものなので、そのままにしました。";
 "remote.command.result.unwritable" = "サーバーに書き込めませんでした：~/.local/binまたは~/.config/evlatに書き込み権限がありません。";
 "remote.command.result.unreachable" = "サーバーに接続できませんでした。何も変更されていません。";
 "remote.command.noCurl" = "サーバーにcurlがありません。evlatはcurlで送信するため、インストールされるまでバーには何も届きません。";
 "remote.command.try" = "サーバーの新しいセッションで試してください：evlat --list";
 "remote.command.manual.script" = "~/.local/bin/evlat — コマンド本体です。このまま書き込みます（既存のevlatは置き換わるので、先にcommand -v evlatで確認してください）：";
-"remote.command.manual.key" = "~/.config/evlat/signal.token — このマシンの鍵です。あなただけが読めるようにします：";
 "remote.command.manual.remove" = "削除するには：Evlatのものであればコマンド、鍵、そして空になったらそのフォルダを削除します：";
 "remote.items.title" = "{name}でのセットアップ";
 "remote.items.body" = "トンネルは道を開くだけです。サーバー上のエージェントがこのバーに伝えるには、サーバー自身のファイルに書き込む必要があります。このMacと同じカードを使ってsshで書き込むか、サーバーで自分で実行するブロックを使います。サーバーには承認フックはなく、Antigravityにはフックのみが入ります。";
 "remote.item.command" = "evlatコマンド";
 "remote.status.notFound" = "このサーバーにはありません";
-"remote.hint.install.claude" = "開いているClaude Codeセッションでは、一度/hooksを開くと変更が読み込まれます。";
-"remote.hint.install.codex" = "Codexが新しいフックを信頼するか尋ねます。";
+"remote.hint.install.codex" = "Codexで/hooksを開き、Evlatのフックを信頼してください。それまでCodexはフックを実行しません。";
 "remote.hint.remove.codex" = "Codexがほかのフックを信頼するか再び尋ねることがあります。";
 "remote.hint.usage" = "{agent}のステータスラインをラップします。開いているセッションは、次のメッセージから利用状況を送ります。";
 "remote.reading" = "サーバーを読み込み中…";
@@ -155,7 +155,7 @@
 "remote.combined.hint" = "手動でセットアップするサーバー向け：一度コピーして、一度貼り付けるだけ。";
 "remote.combined.title" = "{name}で一度実行";
 "remote.combined.body" = "各行のブロックをひとつにまとめたものです。フック、利用状況ライン、evlatコマンドを、サーバー上のあなた自身のシェルでまとめてセットアップします。Evlatはsshで何も書き込みません。";
-"remote.combined.whole" = "このブロックには、Evlatが読み込んだ時点のサーバーの~/.claude/settings.jsonと~/.codex/hooks.jsonの全体にEvlatの行を加えたものと、このマシンの鍵が含まれます。読み込み後に変更されたファイルには手を加えません。";
+"remote.combined.whole" = "このブロックには、Evlatが読み込んだ時点のサーバーの~/.claude/settings.jsonと~/.codex/hooks.jsonの全体にEvlatの行を加えたものが含まれます。読み込み後に変更されたファイルには手を加えません。";
 "remote.combined.check" = "実行したので確認";
 "remote.combined.checkNote" = "確認はsshで読み込むだけです。削除するには、各行の手順に従ってください。";
 
@@ -318,7 +318,7 @@
 "settings.section.agents" = "エージェント";
 "settings.section.usage" = "利用状況";
 "settings.agents.group" = "このMacのエージェント";
-"settings.agents.note" = "最初に書き込む前に、ファイルの横に.evlat.bakのコピーを残します。開いているClaudeセッションは/hooksで変更を読み込みます。";
+"settings.agents.note" = "最初に書き込む前に、ファイルの横に.evlat.bakのコピーを残します。Codexの/hooksでEvlatのフックを信頼すると、Codexはそれを実行します。開いているClaudeセッションは次のメッセージから変更を反映します。";
 "settings.section.sandboxes" = "サンドボックス";
 "settings.sandboxes.intro" = "このMacのDockerサンドボックスで動くClaude Codeのセッションも、ほかのセッションと同じようにバーに表示できます。sbxはこれまでどおり使ってください。各サンドボックスの設定はEvlatが行います。";
 "settings.sandboxes.watching" = "監視中";
@@ -549,12 +549,11 @@
 "settings.remote.note" = "マシンをクリックすると、そのサーバーでセットアップされている内容が表示されます。";
 "settings.remote.open" = "展開";
 "settings.remote.closed" = "折りたたみ";
-"settings.remote.command.detail" = "{command}\n鍵 {key}";
+"settings.remote.command.detail" = "{command}";
 "settings.remote.retry" = "再読み込み";
 "settings.remote.close" = "閉じる";
 "settings.remote.what.command" = "evlatコマンド";
 "settings.remote.what.command.remove" = "evlatコマンドを削除";
-"settings.remote.what.key" = "このマシンの鍵（あなただけが読めます）";
 "settings.remote.what.key.remove" = "鍵を削除";
 "settings.remote.path.status" = "PATHにありません";
 "settings.remote.path.note" = "サーバーの新しいシェルでevlatが見つかりません。~/.local/binがPATHにありません。";
@@ -595,7 +594,7 @@
 "setup.flow.sessions.title" = "どのエージェントを使っていますか？";
 "setup.flow.sessions.body" = "Evlatは、選んだ各エージェントの設定に通知用の小さなコマンドを追加し、利用状況のためにステータスラインをラップします。ファイルのほかの部分には触れません。設定 → エージェントでいつでも取り除けます。";
 "setup.flow.sessions.none" = "Evlatが対応しているエージェントがこのMacにありません。インストールしたら、設定 → エージェントで接続してください。";
-"setup.flow.sessions.hint" = "開いているClaudeセッションでは、一度/hooksを開くか、セッションを再起動してください。新しいセッションはすぐに表示されます。";
+"setup.flow.sessions.hint" = "開いているClaudeセッションは次のメッセージから変更を反映します。新しいセッションはすぐに表示されます。";
 "setup.flow.chat.title" = "マスコットと話す";
 "setup.flow.chat.body" = "マスコットをクリックするかショートカットを押すと、吹き出しが開き、あなた自身のclaudeで作業が実行されます。マスコットにファイルをドロップすることもできます。";
 "setup.flow.chat.hotkey.detail" = "システムが使っているキーは使えません。";

@@ -93,12 +93,19 @@ final class AntigravityUsageTests: XCTestCase {
     /// The fixed point for Antigravity, as Claude's is pinned in
     /// `StatusLineRelayTests`.
     func testTheInstalledCommandIsUnchanged() {
-        let relay = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
+        let relay = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -q -s -m 2 --noproxy "*""#
+            + #" --unix-socket "$HOME/.config/evlat/run/evlat.sock" -X POST"#
             + #" -H "Content-Type: application/json" --data-binary @-"#
             + #" http://127.0.0.1:48151/usage/antigravity >/dev/null 2>&1 &"#
         XCTAssertEqual(StatusLineRelay.command(wrapping: nil, source: .antigravity), "sh -c '" + relay + "'")
         XCTAssertEqual(StatusLineRelay.command(wrapping: "x", source: .antigravity),
                        "sh -c '" + relay + #" printf %s "$i" | sh -c "$1"' evlat-statusline 'x'"#)
+        // The relay before the socket, around the same command: Evlat's older.
+        let tcp = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
+            + #" -H "Content-Type: application/json" --data-binary @-"#
+            + #" http://127.0.0.1:48151/usage/antigravity >/dev/null 2>&1 &"#
+        XCTAssertEqual(StatusLineRelay.state(of: ["statusLine": ["command": "sh -c '" + tcp + "'"]], source: .antigravity),
+                       .outdated)
     }
 
     /// One agent's wrapper is not the other's: neither reads as installed

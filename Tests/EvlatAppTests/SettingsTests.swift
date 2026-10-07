@@ -98,7 +98,7 @@ final class SettingsTests: XCTestCase {
             loginItemFailed: { false }), lang: "en")
         let remote = RemoteMachinesModel(host: RemoteMachinesModel.Host(
             machines: { [] }, state: { _ in nil }, sessionCounts: { [:] }, add: { _ in .failure(.empty) },
-            remove: { _ in }, isStored: { true }, signalKey: { _ in nil }),
+            remove: { _ in }, isStored: { true }),
             installer: RemoteInstaller(sshPath: "/nonexistent"), lang: "en")
         return SettingsModel(host: host, setup: setup, remote: remote,
                              recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }), lang: "en")

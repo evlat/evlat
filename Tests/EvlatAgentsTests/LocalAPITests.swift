@@ -102,23 +102,86 @@ final class LocalAPITests: XCTestCase {
 
     // MARK: - The installed command
 
-    /// **The golden string.** This set installs nothing: the command below is
-    /// already sitting in the user's `~/.claude/settings.json` and
-    /// `~/.codex/hooks.json`, and nothing else in v2 checks that v2 still
-    /// answers it. The literals are written out by hand, port and path
-    /// included, precisely so that a change anywhere in the derivation —
-    /// `hookPath`, `defaultPort`, a header name, a shell quote — breaks here
-    /// instead of in a session that silently stops reporting.
-    ///
-    /// Both were read back from the installed files on 2026-09-22 and matched
-    /// byte for byte.
+    /// **The golden string.** The command below is what sits in the user's
+    /// `~/.claude/settings.json` and `~/.codex/hooks.json` once installed,
+    /// and on a server the same. The literals are written out by hand, path
+    /// and socket included, precisely so that a change anywhere in the
+    /// derivation — `hookPath`, `relativePath`, a header name, a shell
+    /// quote — breaks here instead of in a session that silently stops
+    /// reporting.
     func testTheInstalledHookCommandIsUnchanged() {
         XCTAssertEqual(
             LocalAPI.installedHookCommand(for: .claude),
-            "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true")
+            "curl -q -s -m 2 --noproxy '*' --unix-socket \"$HOME/.config/evlat/run/evlat.sock\" -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true")
         XCTAssertEqual(
             LocalAPI.installedHookCommand(for: .codex),
-            "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook/codex >/dev/null 2>&1 || true")
+            "curl -q -s -m 2 --noproxy '*' --unix-socket \"$HOME/.config/evlat/run/evlat.sock\" -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook/codex >/dev/null 2>&1 || true")
+    }
+
+    /// The bytes before the socket, as every copy of Evlat until it wrote
+    /// the ones above: what a card reads as Evlat's older command
+    /// (`HookSettingsTests`), never as someone else's.
+    static let tcpCommand = [
+        "claude": "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true",
+        "codex": "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook/codex >/dev/null 2>&1 || true",
+    ]
+
+    /// A shell runs the installed command as a hook would: the body on
+    /// stdin, the socket found under `$HOME`. It reaches the listener with
+    /// its headers and the body byte for byte, prints nothing and exits 0.
+    func testTheInstalledCommandReachesTheSocketUnderTheHome() throws {
+        let home = try SocketHome()
+        defer { home.remove() }
+        let listener = try home.listen()
+        let body = Data(#"{"session_id":"s","hook_event_name":"Stop","note":"it's"}"#.utf8)
+        let result = try runHook(LocalAPI.installedHookCommand(for: .codex), body: body, home: home)
+        XCTAssertEqual(result.output, Data(), "nothing on stdout or stderr")
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(listener.body(), body)
+        let head = try XCTUnwrap(listener.requestHead())
+        XCTAssertTrue(head.hasPrefix("POST /hook/codex HTTP/1.1"), head)
+        XCTAssertTrue(head.contains("Host: 127.0.0.1:48151"), "a host the route reads as loopback")
+        XCTAssertTrue(head.contains("X-Evlat-Pid: "), head)
+    }
+
+    /// No socket — Evlat closed, or never on this machine — and a socket
+    /// that never answers: silent, exit 0, and within the command's own
+    /// bound.
+    func testTheInstalledCommandIsSilentAndQuickWithoutEvlat() throws {
+        let home = try SocketHome()
+        defer { home.remove() }
+        let command = LocalAPI.installedHookCommand(for: .claude)
+        let missing = try runHook(command, body: Data("{}".utf8), home: home)
+        XCTAssertEqual(missing.output, Data())
+        XCTAssertEqual(missing.status, 0)
+        XCTAssertLessThan(missing.seconds, 1, "no socket fails at once")
+        let silent = try home.listen(answer: false)
+        defer { silent.close() }
+        let held = try runHook(command, body: Data("{}".utf8), home: home)
+        XCTAssertEqual(held.output, Data())
+        XCTAssertEqual(held.status, 0)
+        XCTAssertLessThan(held.seconds, 4, "`-m 2` bounds a socket that never answers")
+    }
+
+    private struct HookRun { let output: Data; let status: Int32; let seconds: TimeInterval }
+
+    /// `sh -c <command>` with `body` on stdin, stdout and stderr together.
+    private func runHook(_ command: String, body: Data, home: SocketHome) throws -> HookRun {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = home.environment
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = output
+        let start = Date()
+        try process.run()
+        input.fileHandleForWriting.write(body)
+        try input.fileHandleForWriting.close()
+        let printed = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return HookRun(output: printed, status: process.terminationStatus, seconds: Date().timeIntervalSince(start))
     }
 
     /// What the command promises about itself: it stays silent, it gives up

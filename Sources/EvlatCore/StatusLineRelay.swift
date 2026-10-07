@@ -17,12 +17,21 @@ import Foundation
 /// are the wrapper's. With no original the wrapper only relays; its empty
 /// output is the empty status line Claude Code draws without one.
 ///
-/// The installed string is a fixed point like the hook command: it carries
-/// `LocalAPI.defaultPort`, never `EVLAT_PORT`, and its golden test pins it.
-/// Anything that contains the marker but is not exactly a wrapper this code
-/// would write is `modified`: neither installed over nor taken apart.
+/// The installed string is a fixed point like the hook command: it speaks
+/// to the socket under the home where it runs (`EvlatSocket.Curl.homeSocket`)
+/// and its golden test pins it. A wrapper an earlier copy wrote — the same
+/// shape around the loopback port's relay (`heads`) — is Evlat's older one,
+/// `outdated`: an install takes its original out and wraps it again.
+/// Anything else that contains the marker but is not exactly a wrapper this
+/// code would write is `modified`: neither installed over nor taken apart.
 public enum StatusLineRelay {
-    public enum State: Equatable { case missing, current, modified }
+    public enum State: Equatable {
+        case missing, current, outdated, modified
+
+        /// A wrapper Evlat wrote, today's or an earlier copy's: what a
+        /// removal takes out.
+        public var isEvlats: Bool { self == .current || self == .outdated }
+    }
 
     /// `$0` of the wrapper's shell; it names the line in `ps`.
     static let name = "evlat-statusline"
@@ -42,15 +51,33 @@ public enum StatusLineRelay {
         source.integration.relay?.stacksWithDefault ?? false
     }
 
-    private static func relay(port: UInt16, _ source: some Agent) -> String {
+    /// The relay as it is written now. Inside the wrapper's single quotes,
+    /// so every quote in it is a double one: `--noproxy "*"` keeps the `*`
+    /// from the inner shell, `"$HOME/…"` expands there.
+    private static func relay(_ source: some Agent) -> String {
+        let curl = EvlatSocket.Curl.self
+        return #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | "#
+            + "\(curl.program) -s -m 2 --noproxy \"*\" \(curl.homeSocket) -X POST"
+            + #" -H "Content-Type: application/json" --data-binary @-"#
+            + " \(curl.url(path(source) ?? "")) >/dev/null 2>&1 &"
+    }
+
+    /// The relay every copy wrote before the socket: the loopback port.
+    /// Read, never written; its wrapper is `outdated`.
+    private static func tcpRelay(_ source: some Agent) -> String {
         #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
             + #" -H "Content-Type: application/json" --data-binary @-"#
-            + " http://127.0.0.1:\(port)\(path(source) ?? "") >/dev/null 2>&1 &"
+            + " http://127.0.0.1:\(LocalAPI.defaultPort)\(path(source) ?? "") >/dev/null 2>&1 &"
+    }
+
+    /// The relays a wrapper of Evlat's can carry, today's first.
+    private static func relays(_ source: some Agent) -> [String] {
+        [relay(source), tcpRelay(source)]
     }
 
     /// Everything before the quoted original.
-    private static func head(port: UInt16, _ source: some Agent) -> String {
-        "sh -c '" + relay(port: port, source) + #" printf %s "$i" | sh -c "$1"' "# + name + " "
+    private static func head(_ relay: String) -> String {
+        "sh -c '" + relay + #" printf %s "$i" | sh -c "$1"' "# + name + " "
     }
 
     /// A single-quoted shell word: each `'` closes, is escaped and reopens.
@@ -59,17 +86,37 @@ public enum StatusLineRelay {
     }
 
     /// The wrapper around `original`; `nil` when there was no command.
-    public static func command(wrapping original: String?, port: UInt16 = LocalAPI.defaultPort,
-                               source: some Agent) -> String {
-        guard let original else { return "sh -c '" + relay(port: port, source) + "'" }
-        return head(port: port, source) + quoted(original)
+    public static func command(wrapping original: String?, source: some Agent) -> String {
+        command(relay(source), wrapping: original)
     }
 
-    /// What `command` wraps: `.some(nil)` for the relay alone, `nil` when it
-    /// is not exactly a wrapper `command(wrapping:)` writes.
-    static func original(in command: String, source: some Agent) -> String?? {
-        if command == self.command(wrapping: nil, source: source) { return .some(nil) }
-        let head = head(port: LocalAPI.defaultPort, source)
+    private static func command(_ relay: String, wrapping original: String?) -> String {
+        guard let original else { return "sh -c '" + relay + "'" }
+        return head(relay) + quoted(original)
+    }
+
+    /// A wrapper of Evlat's, taken apart.
+    struct Unwrapped: Equatable {
+        /// What it wraps; `nil` for the relay alone.
+        let original: String?
+        /// Today's relay; `false`: an earlier copy's (`tcpRelay`).
+        let current: Bool
+    }
+
+    /// What `command` wraps, and with which relay; `nil` when it is not
+    /// exactly a wrapper some copy of `command(wrapping:)` writes.
+    static func original(in command: String, source: some Agent) -> Unwrapped? {
+        for (index, relay) in relays(source).enumerated() {
+            if let original = original(in: command, relay: relay) {
+                return Unwrapped(original: original, current: index == 0)
+            }
+        }
+        return nil
+    }
+
+    private static func original(in command: String, relay: String) -> String?? {
+        if command == self.command(relay, wrapping: nil) { return .some(nil) }
+        let head = head(relay)
         guard command.hasPrefix(head) else { return nil }
         let word = String(command.dropFirst(head.count))
         guard word.count >= 2, word.hasPrefix("'"), word.hasSuffix("'") else { return nil }
@@ -83,7 +130,8 @@ public enum StatusLineRelay {
     public static func state(of settings: [String: Any], source: some Agent) -> State {
         guard path(source) != nil, let line = settings["statusLine"] as? [String: Any],
               let command = line["command"] as? String, command.contains(marker(for: source)) else { return .missing }
-        return original(in: command, source: source) == nil ? .modified : .current
+        guard let unwrapped = original(in: command, source: source) else { return .modified }
+        return unwrapped.current ? .current : .outdated
     }
 
     /// The command is wrapped in place; `padding`, `refreshInterval` and any
@@ -110,6 +158,14 @@ public enum StatusLineRelay {
         switch state(of: settings, source: source) {
         case .current: return settings
         case .modified: return nil
+        case .outdated:
+            // An earlier copy's wrapper: its original wrapped again, every
+            // neighbour — `type`, `stack_with_default` — left as it was.
+            guard let command = line["command"] as? String,
+                  let unwrapped = original(in: command, source: source) else { return nil }
+            line["command"] = self.command(wrapping: unwrapped.original, source: source)
+            result["statusLine"] = line
+            return result
         case .missing: break
         }
         if let type = line["type"], type as? String != "command" { return nil }
@@ -135,8 +191,8 @@ public enum StatusLineRelay {
     public static func removing(from settings: [String: Any], source: some Agent) -> [String: Any]? {
         guard path(source) != nil, var line = settings["statusLine"] as? [String: Any],
               let command = line["command"] as? String, command.contains(marker(for: source)) else { return settings }
-        guard let original = original(in: command, source: source) else { return nil }
-        if let original {
+        guard let unwrapped = original(in: command, source: source) else { return nil }
+        if let original = unwrapped.original {
             line["command"] = original
         } else {
             line["command"] = nil
@@ -173,16 +229,19 @@ public enum StatusLineRelay {
         state(of: try SettingsFile.read(url), source: source)
     }
 
-    /// Every install that writes first keeps the `statusLine` it is about to
-    /// wrap (`null` when there was none) in `settings.json.statusline.evlat.bak`,
+    /// Every install that wraps keeps the `statusLine` it is about to wrap
+    /// (`null` when there was none) in `settings.json.statusline.evlat.bak`,
     /// overwriting the last one: the general `.evlat.bak` is taken only once,
-    /// and may predate the command the user has now.
+    /// and may predate the command the user has now. Moving an earlier
+    /// copy's wrapper takes none: the backup it has holds the user's line
+    /// from before any wrapper, and the wrapper is not worth keeping.
     ///
     /// A refusal writes nothing and is `malformed`, as for the hooks.
     @discardableResult
     public static func install(at url: URL, source: some Agent) throws -> SettingsFile.Outcome {
         let backup = url.appendingPathExtension(backupExtension)
         let outcome = try SettingsFile.apply(at: url, backUp: { settings, mode in
+            guard state(of: settings, source: source) == .missing else { return }
             try SettingsFile.replace(backup, with: try backupContents(of: settings), mode: mode)
         }) { installing(into: $0, source: source) ?? $0 }
         if outcome == .unchanged, try state(at: url, source: source) != .current {

@@ -83,8 +83,10 @@
 "remote.retry.soon" = "nova tentativa em instantes";
 "remote.failure.authentication" = "login recusado";
 "remote.failure.authentication.advice" = "O servidor recusou todas as formas de entrada: a chave carregada no seu agente ssh ou a senha. Confira se “ssh {target}” faz login pelo Terminal.";
-"remote.failure.portBusy" = "a porta 48151 está ocupada no servidor";
-"remote.failure.portBusy.advice" = "O servidor ainda pode estar segurando uma conexão antiga; em geral ele a libera em até um minuto. O Evlat de outro usuário no mesmo servidor também pode ocupá-la.";
+"remote.failure.channelBusy" = "outro Evlat atende este servidor";
+"remote.failure.channelBusy.advice" = "Um Evlat em outro Mac está conectado a este servidor com o mesmo usuário, e um servidor avisa um Mac por vez. O Evlat continua tentando: este Mac assume quando essa conexão terminar.";
+"remote.failure.forwardingRefused" = "o servidor não deixa o ssh encaminhar um socket";
+"remote.failure.forwardingRefused.advice" = "O Evlat chega a este servidor por um socket que o ssh encaminha, e o sshd_config do servidor desativa isso (AllowStreamLocalForwarding, AllowTcpForwarding ou DisableForwarding). Peça ao administrador do servidor que permita.";
 "remote.failure.hostKey" = "chave do host desconhecida";
 "remote.failure.hostKey.advice" = "Conecte-se uma vez pelo Terminal com “ssh {target}” e aceite a chave do host.";
 "remote.failure.hostName" = "host não encontrado";
@@ -120,34 +122,32 @@
 "remote.manual.wrapping" = "Se já tiver, mantenha-a e defina o “command” dela como isto, com o seu comando no lugar de {placeholder} (um ' dentro dele é escrito '\\''):";
 "remote.manual.agent" = "{file}: mescle este bloco “hooks” ao arquivo, ao lado dos hooks que você já tem:";
 "remote.manual.remove" = "Para remover: apague todas as entradas cujo comando contém {marker} e restaure o seu comando de statusLine. Se a configuração automática alterou um arquivo, a primeira versão dele está na mesma pasta, com .evlat.bak acrescentado ao nome.";
-"remote.manual.surface" = "O que isto abre: qualquer processo no servidor pode enviar eventos de hook ao Evlat pelo túnel, pois os hooks não levam chave. As linhas do comando evlat precisam da chave desta máquina, que só o usuário dela pode ler. Se outro usuário do servidor ocupar a porta 48151 antes, seus eventos e a chave do comando vão para o Mac dele. Se dois Macs instalarem o comando no mesmo servidor, vale a chave do último. Com GatewayPorts yes no sshd_config do servidor, a porta fica aberta para a rede do servidor.";
+"remote.manual.surface" = "O que isto abre: qualquer processo seu no servidor pode enviar eventos de hook e linhas ao Evlat pelo socket em ~/.config/evlat/run, uma pasta em que só o seu usuário pode entrar. Um servidor avisa um Mac por vez: enquanto o Evlat de outro Mac segura esse socket, este espera.";
 "remote.copy" = "Copiar";
 "remote.copied" = "Copiado";
 
 "remote.remove" = "Remover…";
-"remote.remove.confirm" = "Remover {name}? O túnel se fecha e as sessões dele saem da barra. Os hooks no servidor continuam onde estão e ficam mudos, sem ninguém ouvindo; para tirá-los antes, remova-os na linha Hooks. O comando evlat no servidor fica mudo até ser instalado de novo: a chave dele vai embora com a máquina.";
+"remote.remove.confirm" = "Remover {name}? O túnel se fecha e as sessões dele saem da barra. Os hooks no servidor continuam onde estão e ficam mudos, sem ninguém ouvindo; para tirá-los antes, remova-os na linha Hooks. O comando evlat no servidor continua lá, mudo até a máquina ser adicionada de novo.";
 "remote.remove.cancel" = "Cancelar";
 "remote.remove.do" = "Remover";
 
-"remote.command.result.installed" = "Comando instalado: ~/.local/bin/evlat e a chave desta máquina.";
-"remote.command.result.current" = "O comando já estava atualizado; a chave foi gravada de novo.";
-"remote.command.result.removed" = "Comando removido: ~/.local/bin/evlat e a chave.";
+"remote.command.result.installed" = "Comando instalado: ~/.local/bin/evlat.";
+"remote.command.result.current" = "O comando já estava atualizado.";
+"remote.command.result.removed" = "Comando removido: ~/.local/bin/evlat.";
 "remote.command.result.absent" = "Não havia comando para remover.";
 "remote.command.result.foreign" = "O ~/.local/bin/evlat é de outra origem; ficou como estava e nada foi gravado.";
-"remote.command.result.foreign.remove" = "A chave foi removida; o ~/.local/bin/evlat é de outra origem e ficou como estava.";
+"remote.command.result.foreign.remove" = "O ~/.local/bin/evlat é de outra origem e ficou como estava.";
 "remote.command.result.unwritable" = "Não foi possível gravar no servidor: ~/.local/bin ou ~/.config/evlat não aceita gravação.";
 "remote.command.result.unreachable" = "Não foi possível acessar o servidor; nada foi alterado.";
 "remote.command.noCurl" = "O curl não está no servidor: o evlat envia com curl, então nada chega à barra até ele ser instalado.";
 "remote.command.try" = "Teste numa nova sessão no servidor: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat: o comando, gravado como está (substitui um evlat que já esteja lá; confira antes com command -v evlat):";
-"remote.command.manual.key" = "~/.config/evlat/signal.token: a chave desta máquina, legível só por você:";
 "remote.command.manual.remove" = "Para remover: o comando, se for do Evlat, a chave e a pasta dela, se ficar vazia:";
 "remote.items.title" = "Configurado em {name}";
 "remote.items.body" = "O túnel só abre o caminho. Para que um agente no servidor avise esta barra, isto é gravado nos arquivos do próprio servidor: os mesmos cartões deste Mac, gravados por ssh, ou um bloco que você mesmo roda no servidor. Um servidor não tem hook de aprovação, e o Antigravity dele recebe só hooks.";
 "remote.item.command" = "Comando evlat";
 "remote.status.notFound" = "Não está neste servidor";
-"remote.hint.install.claude" = "Nas sessões abertas do Claude Code, abra /hooks uma vez para carregar a mudança.";
-"remote.hint.install.codex" = "O Codex pede que você confie nos novos hooks.";
+"remote.hint.install.codex" = "No Codex, abra /hooks e confie nos hooks do Evlat: até lá, o Codex não os executa.";
 "remote.hint.remove.codex" = "O Codex pode pedir de novo que você confie nos seus outros hooks.";
 "remote.hint.usage" = "Envolve a linha de status do {agent}; as sessões abertas passam a enviar o uso a partir da próxima mensagem.";
 "remote.reading" = "Lendo o servidor…";
@@ -156,7 +156,7 @@
 "remote.combined.hint" = "Para um servidor configurado à mão: uma cópia, uma colagem.";
 "remote.combined.title" = "Rode uma vez em {name}";
 "remote.combined.body" = "Os blocos das linhas num só: hooks, linha de uso e o comando evlat são configurados juntos, no seu próprio shell no servidor. O Evlat não grava nada por ssh.";
-"remote.combined.whole" = "Este bloco leva o ~/.claude/settings.json e o ~/.codex/hooks.json inteiros do servidor, como o Evlat acabou de lê-los, com as linhas do Evlat acrescentadas, e a chave desta máquina. Um arquivo alterado depois da leitura fica intacto.";
+"remote.combined.whole" = "Este bloco leva o ~/.claude/settings.json e o ~/.codex/hooks.json inteiros do servidor, como o Evlat acabou de lê-los, com as linhas do Evlat acrescentadas. Um arquivo alterado depois da leitura fica intacto.";
 "remote.combined.check" = "Já rodei, verificar";
 "remote.combined.checkNote" = "A verificação só lê, por ssh. Para remover, valem as instruções de cada linha.";
 
@@ -319,7 +319,7 @@
 "settings.section.agents" = "Agentes";
 "settings.section.usage" = "Uso";
 "settings.agents.group" = "Agentes neste Mac";
-"settings.agents.note" = "Antes da primeira gravação, uma cópia .evlat.bak é guardada ao lado do arquivo. As sessões abertas do Claude carregam a mudança com /hooks.";
+"settings.agents.note" = "Antes da primeira gravação, uma cópia .evlat.bak é guardada ao lado do arquivo. O Codex executa os hooks do Evlat quando você confia neles no /hooks dele; as sessões abertas do Claude recebem a mudança na próxima mensagem.";
 "settings.section.sandboxes" = "Sandboxes";
 "settings.sandboxes.intro" = "Sessões do Claude Code rodando numa sandbox do Docker neste Mac podem aparecer na barra como qualquer outra. Continue usando o sbx como sempre: o Evlat prepara cada sandbox sozinho.";
 "settings.sandboxes.watching" = "Observando";
@@ -550,12 +550,11 @@
 "settings.remote.note" = "Clique numa máquina para ver o que está configurado naquele servidor.";
 "settings.remote.open" = "aberto";
 "settings.remote.closed" = "fechado";
-"settings.remote.command.detail" = "{command}\nchave {key}";
+"settings.remote.command.detail" = "{command}";
 "settings.remote.retry" = "Ler de novo";
 "settings.remote.close" = "Fechar";
 "settings.remote.what.command" = "o comando evlat";
 "settings.remote.what.command.remove" = "o comando evlat é removido";
-"settings.remote.what.key" = "a chave desta máquina, legível só por você";
 "settings.remote.what.key.remove" = "a chave é removida";
 "settings.remote.path.status" = "Fora do PATH";
 "settings.remote.path.note" = "Um novo shell no servidor não encontra o evlat: ~/.local/bin não está no PATH dele.";
@@ -596,7 +595,7 @@
 "setup.flow.sessions.title" = "Quais agentes você usa?";
 "setup.flow.sessions.body" = "O Evlat adiciona um pequeno comando de aviso aos ajustes de cada agente escolhido e envolve a linha de status dele para o uso; o resto do arquivo fica intacto. Você pode tirar isso quando quiser em Ajustes → Agentes.";
 "setup.flow.sessions.none" = "Nenhum agente que o Evlat conhece está neste Mac. Quando um for instalado, conecte-o em Ajustes → Agentes.";
-"setup.flow.sessions.hint" = "Nas sessões abertas do Claude, abra /hooks uma vez ou reinicie a sessão; as novas aparecem na hora.";
+"setup.flow.sessions.hint" = "As sessões abertas do Claude recebem a mudança na próxima mensagem; as novas aparecem na hora.";
 "setup.flow.chat.title" = "Fale com o mascote";
 "setup.flow.chat.body" = "Clique no mascote ou pressione o atalho: um balão se abre e o trabalho roda no seu próprio claude. Você pode soltar um arquivo no mascote.";
 "setup.flow.chat.hotkey.detail" = "Uma tecla usada pelo sistema não é aceita.";

@@ -34,43 +34,44 @@ final class RemoteTunnelsTests: XCTestCase {
         held = []
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.removeItem(atPath: sockets)
+        try? FileManager.default.removeItem(atPath: serverHome)
     }
 
     private enum Mode {
-        /// `exec cat >/dev/null`: up until its stdin closes.
+        /// The master prints its mark and holds its stdin; the forward is
+        /// made.
         case connect
         /// One stderr line, then exit 255 — how `ssh` fails.
         case fail(String)
+        /// The master holds its stdin and never prints its mark.
+        case silent
+        /// The forward fails as a server without socket forwarding fails it.
+        case refused
     }
 
-    /// The fake and the file its arguments land in, one run per block.
+    /// The server's home the fake's calls run in: short, its socket under it.
+    private var serverHome: String { sockets + "-home" }
+    /// The server's socket, where the channel ends on the server.
+    private var serverSocket: String { serverHome + "/" + EvlatSocket.relativePath }
+
+    /// The fake and the file the masters' arguments land in, one run per
+    /// block (the calls over them in `<log>.calls`).
     private func fakeSSH(_ mode: Mode) throws -> (path: String, log: URL) {
         let log = directory.appendingPathComponent("args.log")
-        let script = directory.appendingPathComponent("fake-ssh")
-        let tail: String
+        var environment: [String: String] = [:]
         switch mode {
-        case .connect: tail = "exec cat >/dev/null"
-        case .fail(let line): tail = "echo '\(line)' >&2\nexit 255"
+        case .connect: break
+        case .fail(let line): environment["FAKE_SSH_FAIL"] = line
+        case .silent: environment["FAKE_SSH_MARK"] = "none"
+        case .refused: environment["FAKE_SSH_FORWARD"] = "refused"
         }
-        try """
-            #!/bin/sh
-            \(FreshExecutable.warmLine)
-            { echo '--- run'; for a in "$@"; do printf '%s\\n' "$a"; done; } >> '\(log.path)'
-            printf '%s\\n' "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" "HOME=$HOME" >> '\(log.path).env'
-            \(tail)
-
-            """.write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        FreshExecutable.warm(script.path)
-        return (script.path, log)
+        let path = try FakeSSH.make(in: directory, home: serverHome, log: log, environment: environment)
+        return (path, log)
     }
 
-    private func runs(in log: URL) -> [[String]] {
-        guard let text = try? String(contentsOf: log, encoding: .utf8) else { return [] }
-        return text.components(separatedBy: "--- run\n").dropFirst().map {
-            $0.split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
-        }
-    }
+    private func runs(in log: URL) -> [[String]] { FakeSSH.runs(in: log) }
+
+    private func calls(in log: URL) -> [[String]] { FakeSSH.runs(in: log, calls: true) }
 
     private func environment(in log: URL) -> [String] {
         ((try? String(contentsOf: URL(fileURLWithPath: log.path + ".env"), encoding: .utf8)) ?? "")
@@ -78,19 +79,18 @@ final class RemoteTunnelsTests: XCTestCase {
     }
 
     private let machine = RemoteMachine(id: "fake", target: "fake")!
-    private let key = String(repeating: "a", count: 64)
     /// What `ssh` is started with, besides the tunnel's own variables.
     private let base = ["SSH_AUTH_SOCK": "/private/tmp/evlat-test-agent.sock", "HOME": "/Users/ben",
                         "PATH": "/usr/bin:/bin"]
 
     private func make(ssh path: String, registry: Registry = Registry(),
                       workspace: NotificationCenter = NotificationCenter(),
-                      confirmAfter: TimeInterval = 0.2,
+                      channelDeadline: TimeInterval = 10,
                       schedule: RemoteTunnels.Schedule? = nil) -> RemoteTunnels {
         let made = RemoteTunnels(registry: registry, sshPath: path, platform: .unknown,
                                  now: Date.init, socketDirectory: sockets, environment: base,
                                  workspace: workspace,
-                                 confirmAfter: confirmAfter,
+                                 channelDeadline: channelDeadline,
                                  schedule: schedule ?? RemoteTunnels.mainQueueSchedule,
                                  onChange: {})
         tunnels = made
@@ -104,26 +104,50 @@ final class RemoteTunnelsTests: XCTestCase {
         wait(for: [done], timeout: timeout)
     }
 
+    /// The machine's end of the channel, once its listener is up.
+    private func endpoint(_ tunnels: RemoteTunnels, _ id: String = "fake") throws -> String {
+        guard case .listeningAt(let path)? = tunnels.listenerStatus(of: id) else {
+            throw XCTSkip("the machine's listener is not up: \(tunnels.listenerStatus(of: id)?.text ?? "none")")
+        }
+        return path
+    }
+
     // MARK: - Connecting
 
-    func testAMachineConnectsThroughTheFakeSSH() throws {
+    /// The order is the channel's: the master with its mark, then over it
+    /// the probe with the reading, then the forward of the server's socket
+    /// onto the machine's own listener. Only then connected.
+    func testAMachineConnectsThroughItsChannel() throws {
         let fake = try fakeSSH(.connect)
         let tunnels = make(ssh: fake.path)
-        tunnels.add(machine, key: key)
+        var readings: [String] = []
+        tunnels.onReading = { readings.append($0) }
+        tunnels.add(machine)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
 
         let run = try XCTUnwrap(runs(in: fake.log).first)
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
-        }
+        let local = try endpoint(tunnels)
         let socket = try XCTUnwrap(RemoteTunnel.controlPath(directory: sockets, machineID: "fake"),
                                    "the test's socket directory is short enough for a master")
+        XCTAssertEqual(local, RemoteTunnel.channelPath(directory: sockets, machineID: "fake"))
         XCTAssertEqual(tunnels.controlPath(of: "fake"), socket)
-        XCTAssertEqual(run, RemoteTunnel.arguments(target: "fake", localPort: port, controlPath: socket),
-                       "remote 48151 onto the machine's own listener, the target after --")
-        XCTAssertNotEqual(port, LocalAPI.defaultPort)
-        XCTAssertEqual(environment(in: fake.log),
-                       ["SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock", "HOME=/Users/ben"],
+        let mark = try XCTUnwrap(run.last?.components(separatedBy: ";").first?.dropFirst("echo ".count))
+        XCTAssertEqual(run, RemoteTunnel.arguments(target: "fake", controlPath: socket, mark: String(mark)),
+                       "a master of Evlat's own with no forward of its own, the target after --")
+        XCTAssertTrue(mark.hasPrefix("evlat-channel-"))
+
+        let steps = calls(in: fake.log)
+        XCTAssertEqual(steps.count, 2, "the probe, then the forward")
+        XCTAssertEqual(steps.first, RemoteSettings.arguments(target: "fake", controlPath: socket))
+        XCTAssertEqual(steps.last, RemoteTunnel.forwardArguments(target: "fake", controlPath: socket,
+                                                                 remote: serverSocket, local: local))
+        XCTAssertEqual(readings, ["fake"], "the probe's call read the machine")
+        XCTAssertEqual(tunnels.reading(of: "fake")?.channel?.socket, .free)
+        XCTAssertEqual(tunnels.reading(of: "fake")?.command, .missing)
+        let made = try FileManager.default.attributesOfItem(atPath: serverHome + "/.config/evlat/run")
+        XCTAssertEqual(made[.posixPermissions] as? Int, 0o700, "the probe made the server's folder the user's alone")
+
+        XCTAssertEqual(environment(in: fake.log).first, "SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock",
                        "ssh sees Evlat's environment, the agent included")
         let mode = try FileManager.default.attributesOfItem(atPath: sockets)[.posixPermissions] as? Int
         XCTAssertEqual(mode, 0o700)
@@ -134,9 +158,9 @@ final class RemoteTunnelsTests: XCTestCase {
 
     /// A socket file left by a master that is gone (`kill -9`) is cleared
     /// before the new master starts; one that answers belongs to a running
-    /// master — another Evlat's — and is left alone, the tunnel then running
-    /// without a master of its own.
-    func testAStaleSocketIsClearedAndALiveOneIsLeftAlone() throws {
+    /// master — another Evlat's — and is left alone: with no master of its
+    /// own there is no channel, and the try waits.
+    func testAStaleMasterSocketIsClearedAndALiveOneIsLeftAlone() throws {
         let socket = try XCTUnwrap(RemoteTunnel.controlPath(directory: sockets, machineID: "fake"))
         try FileManager.default.createDirectory(atPath: sockets, withIntermediateDirectories: true)
         Darwin.close(try bindSocket(at: socket, listening: false))
@@ -144,7 +168,7 @@ final class RemoteTunnelsTests: XCTestCase {
 
         let fake = try fakeSSH(.connect)
         var tunnels = make(ssh: fake.path)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
         XCTAssertFalse(FileManager.default.fileExists(atPath: socket), "the stale file is gone")
         XCTAssertEqual(runs(in: fake.log).first?.contains("-M"), true)
@@ -153,14 +177,13 @@ final class RemoteTunnelsTests: XCTestCase {
         held.append(try bindSocket(at: socket, listening: true))
         let other = try fakeSSH(.connect)
         try FileManager.default.removeItem(at: other.log)
-        tunnels = make(ssh: other.path)
-        tunnels.add(machine, key: key)
-        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
+        tunnels = make(ssh: other.path, schedule: { _, _ in {} })
+        tunnels.add(machine)
+        waitUntil("waiting") {
+            if case .waiting(_, .other)? = tunnels.state(of: "fake") { return true }
+            return false
         }
-        XCTAssertEqual(runs(in: other.log).first, RemoteTunnel.arguments(target: "fake", localPort: port),
-                       "no master of its own beside a live one")
+        XCTAssertEqual(runs(in: other.log), [], "no ssh beside another's live master")
         XCTAssertNil(tunnels.controlPath(of: "fake"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: socket), "a live socket is not touched")
     }
@@ -184,21 +207,71 @@ final class RemoteTunnelsTests: XCTestCase {
         return fd
     }
 
+    /// Another Evlat's channel answers on the server's socket: the probe
+    /// leaves it, no forward is asked, the master closes and the try waits
+    /// as `channelBusy`. A socket that refuses is a dead one's: cleared,
+    /// and the channel is made over it.
+    func testAnAnsweringServerSocketIsLeftAloneAndADeadOneIsCleared() throws {
+        try FileManager.default.createDirectory(atPath: (serverSocket as NSString).deletingLastPathComponent,
+                                                withIntermediateDirectories: true)
+        let other = HookListener(transport: .unix(serverSocket), origin: .machine) { _ in }
+        other.start()
+        defer { other.stop() }
+        guard case .listeningAt = other.awaitSettled(timeout: 5) else {
+            throw XCTSkip("the other Evlat's socket did not come up: \(other.status.text)")
+        }
+        let fake = try fakeSSH(.connect)
+        var tunnels = make(ssh: fake.path, schedule: { _, _ in {} })
+        tunnels.add(machine)
+        waitUntil("busy", timeout: 15) {
+            if case .waiting(_, .channelBusy)? = tunnels.state(of: "fake") { return true }
+            return false
+        }
+        XCTAssertEqual(calls(in: fake.log).count, 1, "the probe, and no forward")
+        XCTAssertEqual(tunnels.reading(of: "fake")?.channel?.socket, .busy)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: serverSocket), "another Evlat's socket stays")
+        tunnels.stopAll()
+        other.stop()
+
+        // Its owner gone, its file stays — as `sshd` leaves one.
+        Darwin.close(try bindSocket(at: serverSocket, listening: false))
+        try FileManager.default.removeItem(at: fake.log.appendingPathExtension("calls"))
+        tunnels = make(ssh: fake.path)
+        tunnels.add(machine)
+        waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
+        XCTAssertEqual(tunnels.reading(of: "fake")?.channel?.socket, .cleared)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: serverSocket), "the dead file went")
+        XCTAssertEqual(calls(in: fake.log).count, 2)
+    }
+
+    /// The probe found the socket free, the forward failed: the server
+    /// allows no socket forwarding.
+    func testARefusedForwardIsForwardingRefused() throws {
+        let fake = try fakeSSH(.refused)
+        let tunnels = make(ssh: fake.path, schedule: { _, _ in {} })
+        tunnels.add(machine)
+        waitUntil("refused", timeout: 15) {
+            if case .waiting(_, .forwardingRefused)? = tunnels.state(of: "fake") { return true }
+            return false
+        }
+        XCTAssertEqual(calls(in: fake.log).count, 2, "the probe, then the forward")
+    }
+
     func testAFailureLineWaitsAndRetriesOnTheSchedule() throws {
-        let fake = try fakeSSH(.fail("Error: remote port forwarding failed for listen port 48151"))
+        let fake = try fakeSSH(.fail("ssh: connect to host fake port 22: Connection refused"))
         var delays: [TimeInterval] = []
         var retries: [() -> Void] = []
         let tunnels = make(ssh: fake.path, schedule: { delay, run in
-            // The confirmation is not the schedule under test.
-            if delay != 0.2 {
+            // The channel's deadline is not the schedule under test.
+            if delay != 10 {
                 delays.append(delay)
                 retries.append(run)
             }
             return {}
         })
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("waiting") {
-            if case .waiting(_, .portBusy)? = tunnels.state(of: "fake") { return true }
+            if case .waiting(_, .unreachable)? = tunnels.state(of: "fake") { return true }
             return false
         }
         XCTAssertEqual(delays, [2])
@@ -223,11 +296,24 @@ final class RemoteTunnelsTests: XCTestCase {
         wait(for: [exited], timeout: 5)
     }
 
+    /// The mark is a line of its own, found behind a login script's words;
+    /// a line that only holds it is not it.
+    func testTheMarkIsFoundBehindALoginScriptsWords() {
+        let scanner = MarkScanner(mark: "evlat-channel-N")
+        XCTAssertFalse(scanner.feed(Data("Welcome\nlast login: evlat-channel-N\nevlat-chan".utf8)))
+        XCTAssertTrue(scanner.feed(Data("nel-N\r\nmore".utf8)))
+        XCTAssertFalse(scanner.feed(Data("\nevlat-channel-N\n".utf8)), "once")
+        XCTAssertFalse(MarkScanner(mark: nil).feed(Data("evlat-channel-N\n".utf8)))
+        let chatty = MarkScanner(mark: "m")
+        XCTAssertFalse(chatty.feed(Data(repeating: 0x41, count: 100_000)))
+        XCTAssertTrue(chatty.feed(Data("\nm\n".utf8)), "a long line before it costs bounded memory")
+    }
+
     func testSleepClosesTheProcessAndWakeOpensItAtOnce() throws {
         let fake = try fakeSSH(.connect)
         let workspace = NotificationCenter()
         let tunnels = make(ssh: fake.path, workspace: workspace)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
 
         workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
@@ -240,27 +326,53 @@ final class RemoteTunnelsTests: XCTestCase {
         waitUntil("connected again") { tunnels.state(of: "fake")?.isConnected == true }
     }
 
+    /// `$TMPDIR` is swept: a channel's end gone from under its listener is
+    /// bound again before the next try, so the forward never carries events
+    /// to a path nobody listens on.
+    func testASweptChannelEndIsBoundAgainBeforeTheNextTry() throws {
+        let fake = try fakeSSH(.connect)
+        let registry = Registry()
+        let tunnels = make(ssh: fake.path, registry: registry)
+        tunnels.add(machine)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        let local = try endpoint(tunnels)
+        try FileManager.default.removeItem(atPath: local)
+        tunnels.sleep()
+        tunnels.wake()
+        waitUntil("connected again", timeout: 15) {
+            tunnels.state(of: "fake")?.isConnected == true && FileManager.default.fileExists(atPath: local)
+        }
+        XCTAssertEqual(post("/hook", to: local, body: #"{"hook_event_name":"UserPromptSubmit","session_id":"s-4"}"#), 200)
+        waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "remote:fake:s-4" } }
+    }
+
     // MARK: - What arrives
 
-    /// The hand-off from the tunnel: the first request marks the link up
+    /// What the server's side posts, sent to the machine's end here as the
+    /// channel would carry it.
+    private func post(_ route: String, to path: String, body: String,
+                      headers: [(String, String)] = []) -> Int {
+        guard case .status(let code, _) = UnixHTTP.send(route, socket: path,
+                                                        headers: [("Content-Type", "application/json")] + headers,
+                                                        body: Data(body.utf8), timeout: 5) else { return -1 }
+        return code
+    }
+
+    /// The hand-off from the channel: the first request marks the link up
     /// **before** the event lands, so the row is live, not dimmed as
     /// "not heard since the link came up".
     func testATunneledHookBecomesALiveRemoteRowWithoutAPid() throws {
-        let fake = try fakeSSH(.connect)
+        // A master that never says it is up: only the request can.
+        let fake = try fakeSSH(.silent)
         let registry = Registry()
-        // Long enough that only the request can mark the link up.
-        let tunnels = make(ssh: fake.path, registry: registry, confirmAfter: 60)
-        tunnels.add(machine, key: key)
+        let tunnels = make(ssh: fake.path, registry: registry, channelDeadline: 60)
+        tunnels.add(machine)
         waitUntil("launched") { self.runs(in: fake.log).count == 1 }
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
-        }
+        let local = try endpoint(tunnels)
 
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook")!)
-        request.httpMethod = "POST"
-        request.setValue("4242", forHTTPHeaderField: "X-Evlat-Pid")
-        request.httpBody = Data(#"{"hook_event_name":"PermissionRequest","session_id":"s-1","evlat_pid":"99"}"#.utf8)
-        XCTAssertEqual(send(request), 200)
+        XCTAssertEqual(post("/hook", to: local,
+                            body: #"{"hook_event_name":"PermissionRequest","session_id":"s-1","evlat_pid":"99"}"#,
+                            headers: [("X-Evlat-Pid", "4242")]), 200)
 
         waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "remote:fake:s-1" } }
         let row = try XCTUnwrap(registry.snapshot().ordered.first { $0.entity == "remote:fake:s-1" })
@@ -278,16 +390,11 @@ final class RemoteTunnelsTests: XCTestCase {
         let fake = try fakeSSH(.connect)
         let registry = Registry()
         let tunnels = make(ssh: fake.path, registry: registry)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
-        }
+        let local = try endpoint(tunnels)
         func post(_ source: some Agent, _ body: String) -> Int {
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(source.statusLineUsage!.path)")!)
-            request.httpMethod = "POST"
-            request.httpBody = Data(body.utf8)
-            return send(request)
+            self.post(source.statusLineUsage!.path, to: local, body: body)
         }
         let reset = Int(Date().timeIntervalSince1970) + 3600
         XCTAssertEqual(post(.claude, #"{"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":\#(reset)}}}"#), 200)
@@ -314,15 +421,10 @@ final class RemoteTunnelsTests: XCTestCase {
         let tunnels = make(ssh: fake.path, registry: registry)
         registry.machineSources = { [weak tunnels] in tunnels?.enabledAgents(of: $0) }
         registry.enabledSources = { [] }
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
-        }
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook")!)
-        request.httpMethod = "POST"
-        request.httpBody = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s-3"}"#.utf8)
-        XCTAssertEqual(send(request), 200)
+        let local = try endpoint(tunnels)
+        XCTAssertEqual(post("/hook", to: local, body: #"{"hook_event_name":"UserPromptSubmit","session_id":"s-3"}"#), 200)
         waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "remote:fake:s-3" } }
         XCTAssertEqual(registry.snapshot().ordered.first?.machine?.id, "fake",
                        "this Mac's empty set does not hide a machine's row")
@@ -338,15 +440,10 @@ final class RemoteTunnelsTests: XCTestCase {
         let fake = try fakeSSH(.connect)
         let registry = Registry()
         let tunnels = make(ssh: fake.path, registry: registry)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
-        }
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook")!)
-        request.httpMethod = "POST"
-        request.httpBody = Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s-2"}"#.utf8)
-        XCTAssertEqual(send(request), 200)
+        let local = try endpoint(tunnels)
+        XCTAssertEqual(post("/hook", to: local, body: #"{"hook_event_name":"UserPromptSubmit","session_id":"s-2"}"#), 200)
         waitUntil("row") { !registry.snapshot().ordered.isEmpty }
         let pid = try XCTUnwrap(tunnels.processIdentifier(of: "fake"))
 
@@ -354,42 +451,23 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertEqual(registry.snapshot().ordered, [])
         XCTAssertNil(tunnels.state(of: "fake"))
         waitUntil("process gone") { kill(pid, 0) != 0 }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: local), "the machine's end goes with it")
     }
 
-    /// With its machine's key a tunnel's `/signal` becomes that
-    /// machine's outside row — namespaced, named after the machine, live while
-    /// the tunnel is up, dimmed when it goes, gone with the machine. Without
-    /// the key, with a wrong one or with another machine's, `403` and no row.
-    func testAKeyedSignalThroughTheTunnelIsTheMachinesRow() throws {
+    /// A `/signal` through the channel is that machine's outside row —
+    /// namespaced, named after the machine, live while the tunnel is up,
+    /// dimmed when it goes, gone with the machine. No key: the channel's
+    /// end is this user's alone, and a key sent is not read.
+    func testASignalThroughTheChannelIsTheMachinesRow() throws {
         let fake = try fakeSSH(.connect)
         let registry = Registry()
         let tunnels = make(ssh: fake.path, registry: registry)
-        let other = try XCTUnwrap(RemoteMachine(id: "other", target: "other"))
-        let otherKey = String(repeating: "b", count: 64)
-        tunnels.add(machine, key: key)
-        tunnels.add(other, key: otherKey)
-        XCTAssertEqual(tunnels.signalKey(of: "fake"), key)
-        waitUntil("connected") {
-            tunnels.state(of: "fake")?.isConnected == true && tunnels.state(of: "other")?.isConnected == true
-        }
-        guard case .listening(let port)? = tunnels.listenerStatus(of: "fake") else {
-            return XCTFail("the machine's listener is not up")
-        }
+        tunnels.add(machine)
+        waitUntil("connected") { tunnels.state(of: "fake")?.isConnected == true }
+        let local = try endpoint(tunnels)
         let body = #"{"id":"x","ttl":60,"phase":"working","label":"build","sender":"npm"}"#
-        func post(_ key: String?) -> Int {
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(SignalReport.path)")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if let key { request.setValue(key, forHTTPHeaderField: SignalReport.keyHeader) }
-            request.httpBody = Data(body.utf8)
-            return send(request)
-        }
-        XCTAssertEqual(post(nil), 403)
-        XCTAssertEqual(post(String(repeating: "c", count: 64)), 403)
-        XCTAssertEqual(post(otherKey), 403, "another machine's key does not open this one")
-        XCTAssertEqual(registry.snapshot().ordered, [], "a refused request leaves no row")
-
-        XCTAssertEqual(post(key), 200)
+        XCTAssertEqual(post(SignalReport.path, to: local, body: body,
+                            headers: [(SignalReport.keyHeader, String(repeating: "c", count: 64))]), 200)
         waitUntil("row") { registry.snapshot().ordered.contains { $0.entity == "signal:fake:x" } }
         let row = try XCTUnwrap(registry.snapshot().ordered.first { $0.entity == "signal:fake:x" })
         XCTAssertEqual(row.kind, .custom)
@@ -406,7 +484,6 @@ final class RemoteTunnelsTests: XCTestCase {
 
         tunnels.remove(id: "fake")
         XCTAssertFalse(registry.snapshot().ordered.contains { $0.entity.hasPrefix("signal:fake:") })
-        XCTAssertNil(tunnels.signalKey(of: "fake"))
     }
 
     // MARK: - Asking for a password
@@ -414,12 +491,9 @@ final class RemoteTunnelsTests: XCTestCase {
     /// `Tests/Fixtures/fake-ssh`, copied and warmed: the fake that asks its
     /// askpass. Configured through the environment `ssh` is started with.
     private func promptingSSH() throws -> (path: String, log: URL) {
-        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/fake-ssh")
-        let copy = directory.appendingPathComponent("fake-ssh-prompting")
-        try FileManager.default.copyItem(at: fixture, to: copy)
-        FreshExecutable.warm(copy.path)
-        return (copy.path, directory.appendingPathComponent("prompting.log"))
+        let log = directory.appendingPathComponent("prompting.log")
+        let path = try FakeSSH.make(in: directory, name: "fake-ssh-prompting", home: serverHome)
+        return (path, log)
     }
 
     /// The built binary: the helper `ssh` runs.
@@ -433,7 +507,7 @@ final class RemoteTunnelsTests: XCTestCase {
 
     private func makeAsking(ssh path: String, log: URL, environment extra: [String: String],
                             store: SSHPasswordStore = MemoryPasswordStore(),
-                            port: Bool = true, confirmAfter: TimeInterval = 0.2,
+                            port: Bool = true, channelDeadline: TimeInterval = 10,
                             settled: @escaping () -> Bool = { true }) throws -> RemoteTunnels {
         var tunnelsRef: RemoteTunnels?
         // Evlat's socket beside the masters': the directory is short.
@@ -449,7 +523,7 @@ final class RemoteTunnelsTests: XCTestCase {
         environment["FAKE_SSH_LOG"] = log.path
         let made = RemoteTunnels(registry: Registry(), sshPath: path, platform: .unknown,
                                  now: Date.init, socketDirectory: sockets, environment: environment,
-                                 workspace: NotificationCenter(), confirmAfter: confirmAfter,
+                                 workspace: NotificationCenter(), channelDeadline: channelDeadline,
                                  askpass: RemoteTunnels.AskpassRoute(binary: helper, socket: { port ? bound : nil },
                                                                      settled: settled),
                                  store: store, onChange: {})
@@ -476,7 +550,7 @@ final class RemoteTunnelsTests: XCTestCase {
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
                                                    "FAKE_SSH_PROMPT2": passwordPrompt],
                                      store: store)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("stopped for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: true) }
         XCTAssertEqual(askpassLines(fake.log), ["askpass 0 s3cr€t", "askpass 1 "])
         XCTAssertEqual(runs(in: fake.log).count, 1, "a refused password is not sent again")
@@ -504,7 +578,7 @@ final class RemoteTunnelsTests: XCTestCase {
             Are you sure you want to continue connecting (yes/no/[fingerprint])?
             """
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: ["FAKE_SSH_PROMPT1": question])
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("waiting", timeout: 15) {
             if case .waiting(_, .hostKey)? = tunnels.state(of: "fake") { return true }
             return false
@@ -518,7 +592,7 @@ final class RemoteTunnelsTests: XCTestCase {
     func testTheAgentIsKeptAndAskpassComesOnlyWithAPort() throws {
         let fake = try promptingSSH()
         var tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:])
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
         XCTAssertEqual(environment(in: fake.log), [
             "SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock",
@@ -530,7 +604,7 @@ final class RemoteTunnelsTests: XCTestCase {
         try FileManager.default.removeItem(atPath: fake.log.path + ".env")
         try FileManager.default.removeItem(at: fake.log)
         tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:], port: false)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
         XCTAssertEqual(environment(in: fake.log), [
             "SSH_AUTH_SOCK=/private/tmp/evlat-test-agent.sock",
@@ -550,9 +624,9 @@ final class RemoteTunnelsTests: XCTestCase {
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "typed"],
                                      // Longer than the helper takes to ask: the
                                      // question, not the clock, holds it.
-                                     store: store, confirmAfter: 3)
+                                     store: store)
         tunnels.onPromptsChanged = { changes += 1 }
-        tunnels.add(machine, key: key, interactive: true)
+        tunnels.add(machine, interactive: true)
         waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
         let prompt = try XCTUnwrap(tunnels.prompts.first)
         XCTAssertEqual(prompt.text, passwordPrompt, "the prompt as ssh wrote it")
@@ -576,9 +650,8 @@ final class RemoteTunnelsTests: XCTestCase {
     /// prompt goes, and the helper is answered — nothing is left waiting.
     func testAnEndingTryLetsItsHeldQuestionGo() throws {
         let fake = try promptingSSH()
-        let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: ["FAKE_SSH_PROMPT1": passwordPrompt],
-                                     confirmAfter: 3)
-        tunnels.add(machine, key: key, interactive: true)
+        let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: ["FAKE_SSH_PROMPT1": passwordPrompt])
+        tunnels.add(machine, interactive: true)
         waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
         tunnels.sleep()
         waitUntil("the question went with the try", timeout: 15) { tunnels.prompts.isEmpty }
@@ -636,8 +709,8 @@ final class RemoteTunnelsTests: XCTestCase {
         let store = RecordingStore()
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "right"],
-                                     store: store, confirmAfter: 3)
-        tunnels.add(machine, key: key, interactive: true)
+                                     store: store)
+        tunnels.add(machine, interactive: true)
         waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
         XCTAssertEqual(store.calls, [], "nothing is written while the question waits")
 
@@ -655,8 +728,8 @@ final class RemoteTunnelsTests: XCTestCase {
         let store = RecordingStore(["fake": "old"], prompt: "ben@old's password: ")
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt],
-                                     store: store, confirmAfter: 3)
-        tunnels.add(machine, key: key, interactive: true)
+                                     store: store)
+        tunnels.add(machine, interactive: true)
         waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
         tunnels.answer(try XCTUnwrap(tunnels.prompts.first).id, with: "typed", remember: false)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
@@ -673,7 +746,7 @@ final class RemoteTunnelsTests: XCTestCase {
                                      environment: ["FAKE_SSH_PROMPT1": "jim@jump's password: ",
                                                    "FAKE_SSH_PROMPT2": passwordPrompt],
                                      store: store)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("stopped for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: false) }
         XCTAssertEqual(askpassLines(fake.log), ["askpass 1 "])
         XCTAssertEqual(store.calls, [], "the stored password stays")
@@ -688,7 +761,7 @@ final class RemoteTunnelsTests: XCTestCase {
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt,
                                                    "FAKE_SSH_PROMPT2": "Verification code: "],
                                      store: store)
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("stopped for the user", timeout: 15) { tunnels.state(of: "fake") == .needsUser(rejected: false) }
         XCTAssertEqual(askpassLines(fake.log), ["askpass 0 s3cr€t", "askpass 1 "])
         XCTAssertEqual(store.calls, [])
@@ -700,10 +773,10 @@ final class RemoteTunnelsTests: XCTestCase {
         let store = RecordingStore(["fake": "s3cr€t"])
         let made = RemoteTunnels(registry: Registry(), sshPath: fake.path, platform: .unknown,
                                  now: Date.init, socketDirectory: sockets, environment: base,
-                                 workspace: NotificationCenter(), confirmAfter: 0.2,
+                                 workspace: NotificationCenter(),
                                  store: store, onChange: {})
         tunnels = made
-        made.add(machine, key: key)
+        made.add(machine)
         waitUntil("connected") { made.state(of: "fake")?.isConnected == true }
         made.remove(id: "fake")
         XCTAssertEqual(store.calls, ["delete fake"])
@@ -721,7 +794,7 @@ final class RemoteTunnelsTests: XCTestCase {
                                      store: store)
         var asked = false
         tunnels.onPromptsChanged = { asked = true }
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
         tunnels.sleep()
         waitUntil("process gone") { tunnels.isProcessRunning(of: "fake") == false }
@@ -741,8 +814,8 @@ final class RemoteTunnelsTests: XCTestCase {
         let fake = try promptingSSH()
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log,
                                      environment: ["FAKE_SSH_PROMPT1": passwordPrompt, "FAKE_SSH_PASSWORD": "typed"],
-                                     store: RecordingStore(), confirmAfter: 3)
-        tunnels.add(machine, key: key, interactive: true)
+                                     store: RecordingStore())
+        tunnels.add(machine, interactive: true)
         waitUntil("asked", timeout: 15) { tunnels.prompts.count == 1 }
         tunnels.answer(try XCTUnwrap(tunnels.prompts.first).id, with: "typed", remember: false)
         waitUntil("connected", timeout: 15) { tunnels.state(of: "fake")?.isConnected == true }
@@ -763,9 +836,9 @@ final class RemoteTunnelsTests: XCTestCase {
         let fake = try promptingSSH()
         var settled = false
         let tunnels = try makeAsking(ssh: fake.path, log: fake.log, environment: [:], settled: { settled })
-        tunnels.add(machine, key: key)
+        tunnels.add(machine)
         waitUntil("the machine's listener is up") {
-            if case .listening? = tunnels.listenerStatus(of: "fake") { return true }
+            if case .listeningAt? = tunnels.listenerStatus(of: "fake") { return true }
             return false
         }
         // The listener's report reaches the main queue after its status.
@@ -848,18 +921,5 @@ final class RemoteTunnelsTests: XCTestCase {
         XCTAssertEqual(lines.first, "remote machines: 1 (from EVLAT_MACHINES)")
         XCTAssertTrue(lines.contains { $0.contains("machine  devbox  → ben@devbox") })
         XCTAssertTrue(lines.contains { $0.contains("-x ignored") })
-    }
-
-    private func send(_ request: URLRequest) -> Int {
-        var request = request
-        request.timeoutInterval = 5
-        let semaphore = DispatchSemaphore(value: 0)
-        var status = -1
-        URLSession(configuration: .ephemeral).dataTask(with: request) { _, response, _ in
-            status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            semaphore.signal()
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + 10)
-        return status
     }
 }

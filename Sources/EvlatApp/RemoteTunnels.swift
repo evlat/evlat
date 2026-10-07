@@ -2,13 +2,15 @@ import AppKit
 import EvlatCore
 import EvlatAgents
 
-/// The remote machines' transport: per machine, a loopback listener and the
-/// `ssh` process that carries the server's `127.0.0.1:48151` onto it.
+/// The remote machines' transport: per machine, a listener on a socket of
+/// its own (`RemoteTunnel.channelPath`), the `ssh` master, and the channel
+/// over it that carries the server's socket onto that listener.
 ///
 /// Everything with a rule in it is `EvlatCore.RemoteTunnel` — arguments,
-/// schedule, failure classes, the state machine. What is left here is what
-/// the core must not touch: the socket, the process, the pipes and the
-/// workspace's sleep notifications.
+/// schedule, failure classes, the probe, the state machine. What is left here
+/// is what the core must not touch: the socket, the process, the pipes, the
+/// calls over the master (`RemoteInstaller`) and the workspace's sleep
+/// notifications.
 ///
 /// **Main queue only**, like the providers it feeds: the listener delivers on
 /// the main queue, the process's exit is hopped there, and the notifications
@@ -34,14 +36,14 @@ final class RemoteTunnels {
         var usage: [AgentID: StatusLineUsageProvider] = [:]
         /// The machine's outside rows, namespaced by its id.
         let signals: SignalsProvider
-        /// What the machine's `/signal` asks for; fixed for the link's life.
-        let signalKey: String
         var listener: HookListener?
         var tunnel: RemoteTunnel?
         var process: SSHProcess?
-        /// The listener's bound port, once it has one; `ssh` is not started
-        /// before, since the port is in its arguments.
-        var port: UInt16?
+        /// The listener's bound socket — the channel's end here — once it
+        /// has one; `ssh` is not started before, since the forward names it.
+        var endpoint: String?
+        /// What the channel's last probe read on the server.
+        var reading: RemoteSettings.Reading?
         /// The socket the running process is master on; `nil` when it runs
         /// without one.
         var controlPath: String?
@@ -64,11 +66,10 @@ final class RemoteTunnels {
         /// whether to keep it: in memory for the try alone, stored once connected.
         var typed: (password: String, prompt: String, remember: Bool)?
 
-        init(machine: RemoteMachine, hooks: HooksProvider, signals: SignalsProvider, signalKey: String) {
+        init(machine: RemoteMachine, hooks: HooksProvider, signals: SignalsProvider) {
             self.machine = machine
             self.hooks = hooks
             self.signals = signals
-            self.signalKey = signalKey
         }
     }
 
@@ -78,7 +79,8 @@ final class RemoteTunnels {
     private let environment: [String: String]
     private let platform: Platform
     private let now: () -> Date
-    private let confirmAfter: TimeInterval
+    private let channelDeadline: TimeInterval
+    private let installer: RemoteInstaller
     private let schedule: Schedule
     private let onChange: () -> Void
     private var links: [String: Link] = [:]
@@ -111,6 +113,8 @@ final class RemoteTunnels {
     var onPromptsChanged: () -> Void = {}
     /// Answers a held `/askpass` request (`HookListener.answer`).
     var respond: (String, LocalAPI.Response) -> Void = { _, _ in }
+    /// A machine was read by its channel's probe (`reading(of:)`).
+    var onReading: (String) -> Void = { _ in }
 
     /// What `ssh` needs to ask Evlat: the helper (this binary) and the
     /// socket of the listener that holds `/askpass`. Without a socket, no
@@ -127,20 +131,24 @@ final class RemoteTunnels {
 
     /// `sshPath` is handed in, never looked up here: a test gives the fake's
     /// path, and only `AppController` reads `EVLAT_SSH`. `socketDirectory`
-    /// holds the masters' sockets, one per machine; a path, never a constant
-    /// here, and short (`RemoteTunnel.socketPathLimit`). `environment` is
-    /// what `ssh` is started with, the tunnel's own variables added.
+    /// holds the masters' sockets and the channels' ends, two per machine; a
+    /// path, never a constant here, and short (`RemoteTunnel.socketPathLimit`).
+    /// `environment` is what `ssh` is started with, the tunnel's own
+    /// variables added. `installer` runs the calls over a master — the
+    /// settings window's own (`RemoteInstaller.channel`, `forward`).
     /// `onChange` is called whenever a row may read differently — an arrival
     /// or a link change.
     init(registry: Registry, sshPath: String, platform: Platform, now: @escaping () -> Date,
          socketDirectory: String,
          environment: [String: String] = ProcessInfo.processInfo.environment,
          workspace: NotificationCenter = NSWorkspace.shared.notificationCenter,
-         confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter,
+         channelDeadline: TimeInterval = RemoteTunnel.defaultChannelDeadline,
          schedule: @escaping Schedule = RemoteTunnels.mainQueueSchedule,
          askpass: AskpassRoute? = nil,
          store: SSHPasswordStore = MemoryPasswordStore(),
+         installer: RemoteInstaller? = nil,
          onChange: @escaping () -> Void) {
+        self.installer = installer ?? RemoteInstaller(sshPath: sshPath)
         self.registry = registry
         self.askpass = askpass
         self.store = store
@@ -150,10 +158,10 @@ final class RemoteTunnels {
         self.platform = platform
         self.now = now
         self.workspace = workspace
-        self.confirmAfter = confirmAfter
+        self.channelDeadline = channelDeadline
         self.schedule = schedule
         self.onChange = onChange
-        // Closed before sleep so the server lets go of the remote port at
+        // Closed before sleep so the server lets go of the channel at
         // once; reopened on wake without waiting out a pending retry.
         observers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification,
                                                object: nil, queue: .main) { [weak self] _ in
@@ -193,9 +201,9 @@ final class RemoteTunnels {
         return link.controlPath
     }
 
-    /// The key the machine's `/signal` asks for; what its server's command
-    /// is installed with.
-    func signalKey(of id: String) -> String? { links[id]?.signalKey }
+    /// What the machine's channel read on the server when it was last made
+    /// (`RemoteSettings.readingScript`, probing); `nil` before.
+    func reading(of id: String) -> RemoteSettings.Reading? { links[id]?.reading }
 
     /// The machine's enabled agents (`RemoteMachine.enabledAgents`); `nil`
     /// for no such machine, or while it follows every agent.
@@ -241,20 +249,18 @@ final class RemoteTunnels {
     /// Registers the machine's providers and opens its tunnel as soon as its
     /// listener is bound. A machine already present is left as it is.
     ///
-    /// `key` is the machine's own (`RemoteMachine.signalKeys`): its listener
-    /// answers `/signal` with it and with no other — not this Mac's, not
-    /// another machine's. Required, so no machine's listener is left with a
-    /// `/signal` that silently answers `404`.
+    /// Its listener is the channel's end, a socket in the masters' folder
+    /// that only this user can enter: `/signal` there takes no key, and
+    /// what arrives is the machine's — the listener says so, never the body.
     ///
     /// `interactive`: the first try asks the user (a machine just added);
     /// one restored at launch tries quietly.
-    func add(_ machine: RemoteMachine, key: String, interactive: Bool = false) {
+    func add(_ machine: RemoteMachine, interactive: Bool = false) {
         guard links[machine.id] == nil else { return }
         let link = Link(machine: machine,
                         hooks: HooksProvider(platform: platform, machine: machine.identity,
                                              isQuestion: Agents.isQuestion),
-                        signals: SignalsProvider(now: now, machine: machine.identity),
-                        signalKey: key)
+                        signals: SignalsProvider(now: now, machine: machine.identity))
         link.startInteractive = interactive
         let tunnel = RemoteTunnel(effects: RemoteTunnel.Effects(
             launch: { [weak self, weak link] generation in
@@ -264,7 +270,15 @@ final class RemoteTunnels {
             terminate: { [weak link] in link?.process?.terminate() },
             now: now,
             schedule: schedule,
-            hasStoredPassword: { [weak link] in link?.hasStoredPassword ?? false }), confirmAfter: confirmAfter)
+            hasStoredPassword: { [weak link] in link?.hasStoredPassword ?? false },
+            probe: { [weak self, weak link] generation in
+                guard let self, let link else { return }
+                self.probe(link, generation: generation)
+            },
+            forward: { [weak self, weak link] generation, remote in
+                guard let self, let link else { return }
+                self.forward(link, generation: generation, remote: remote)
+            }), channelDeadline: channelDeadline)
         let onChange = self.onChange
         tunnel.onChange = { [weak self, weak link] state in
             guard let link else { return }
@@ -280,18 +294,32 @@ final class RemoteTunnels {
             onChange()
         }
         link.tunnel = tunnel
-        link.listener = HookListener(
-            port: 0,
+        guard let endpoint = RemoteTunnel.channelPath(directory: socketDirectory, machineID: machine.id) else {
+            // No end here, no channel: the machine is listed and stays
+            // stopped, which `--list` says.
+            NSLog("Evlat: machine %@ has no channel: %@ is too long for a socket", machine.name, socketDirectory)
+            register(link)
+            return
+        }
+        link.listener = makeListener(for: link, at: endpoint)
+        register(link)
+        link.listener?.start()
+    }
+
+    /// The machine's listener at its channel's end.
+    private func makeListener(for link: Link, at endpoint: String) -> HookListener {
+        let onChange = self.onChange
+        return HookListener(
+            transport: .unix(endpoint),
             origin: .machine,
-            signalKey: { _ in key },
             onStatus: { [weak self, weak link] status in
                 guard let link else { return }
                 switch status {
-                case .listening(let port) where link.port == nil:
-                    link.port = port
-                    NSLog("Evlat: machine %@ listening on 127.0.0.1:%d", link.machine.name, Int(port))
+                case .listeningAt(let path) where link.endpoint == nil:
+                    link.endpoint = path
+                    NSLog("Evlat: machine %@ listening on %@", link.machine.name, path)
                     self?.startIfReady(link)
-                case .unavailable:
+                case .unavailable, .unavailableAt:
                     NSLog("Evlat: machine %@ listener %@", link.machine.name, status.text)
                 default:
                     break
@@ -312,9 +340,9 @@ final class RemoteTunnels {
                 // (`LocalAPI`): a remote machine never puts a card in front
                 // of this user, nor asks for a password.
                 case .permission, .approval, .askpass: break
-                // The machine's own outside row: the listener has
-                // already checked the machine's key. A dropped row is said on
-                // stderr like a local one, with the machine's name.
+                // The machine's own outside row: the listener is the
+                // machine's. A dropped row is said on stderr like a local
+                // one, with the machine's name.
                 case .signal(let report):
                     if case .dropped(let limit) = link.signals.apply(report) {
                         FileHandle.standardError.write(Data(AppController.droppedSignalLine(
@@ -323,13 +351,33 @@ final class RemoteTunnels {
                 }
                 onChange()
             })
+    }
+
+    /// The channel's end is still there to forward to. `$TMPDIR` is swept,
+    /// and a socket file gone takes its listener with it unheard — the
+    /// forward is made all the same (`ssh` does not look), and every event
+    /// would then fail to land while the row reads connected. A missing
+    /// file gets a new listener; this try ends, and the next, on the
+    /// schedule, finds it bound.
+    private func endpointIsThere(_ link: Link) -> Bool {
+        guard let endpoint = link.endpoint else { return false }
+        if UnixSocket.identity(of: endpoint) != nil { return true }
+        NSLog("Evlat: machine %@ lost its socket %@; listening again", link.machine.name, endpoint)
+        link.listener?.stop()
+        let listener = makeListener(for: link, at: endpoint)
+        link.listener = listener
+        listener.start()
+        return false
+    }
+
+    private func register(_ link: Link) {
+        let machine = link.machine
         links[machine.id] = link
         order.append(machine.id)
         registry.register(link.hooks)
         syncUsage(link)
         registry.register(link.signals)
         store.password(for: machine.id) { [weak link] password in link?.hasStoredPassword = password != nil }
-        link.listener?.start()
     }
 
     /// Closes the machine's tunnel and listener and takes its rows away.
@@ -358,10 +406,10 @@ final class RemoteTunnels {
         order.compactMap { links[$0] }.forEach(startIfReady)
     }
 
-    /// The first try, once the machine's listener has its port and this
+    /// The first try, once the machine's listener has its socket and this
     /// Mac's listener is settled — whichever comes last starts it.
     private func startIfReady(_ link: Link) {
-        guard !link.started, link.port != nil, askpass?.settled() ?? true else { return }
+        guard !link.started, link.endpoint != nil, askpass?.settled() ?? true else { return }
         link.started = true
         link.tunnel?.start(interactive: link.startInteractive)
     }
@@ -380,18 +428,33 @@ final class RemoteTunnels {
     }
 
     private func launch(_ link: Link, generation: Int) {
-        guard let port = link.port, let tunnel = link.tunnel else { return }
+        guard link.endpoint != nil, let tunnel = link.tunnel else { return }
+        guard endpointIsThere(link) else {
+            link.process = nil
+            tunnel.exited(generation: generation, stderr: "")
+            return
+        }
         let controlPath = masterSocket(for: link.machine)
         link.controlPath = controlPath
         link.generation = generation
         link.usedStoredPassword = false
         link.sentStoredPassword = false
         link.typed = nil
+        // No master, no channel: the try ends at once, as `other`, and
+        // waits on the schedule — the next may find the socket free.
+        guard let controlPath else {
+            link.process = nil
+            tunnel.exited(generation: generation, stderr: "")
+            return
+        }
         let asking = askpassEnvironment(for: link, generation: generation)
+        let mark = RemoteTunnel.mark(nonce: UUID().uuidString)
         let process = SSHProcess(path: sshPath,
-                                 arguments: RemoteTunnel.arguments(target: link.machine.target, localPort: port,
-                                                                   controlPath: controlPath, askpass: asking != nil),
-                                 environment: RemoteTunnel.environment(base: environment, askpass: asking)) {
+                                 arguments: RemoteTunnel.arguments(target: link.machine.target, controlPath: controlPath,
+                                                                   mark: mark, askpass: asking != nil),
+                                 environment: RemoteTunnel.environment(base: environment, askpass: asking),
+                                 mark: mark,
+                                 onMark: { [weak tunnel] in tunnel?.marked(generation: generation) }) {
             [weak self, weak link, weak tunnel] stderr in
             // The try's questions go with it, before the tunnel hears why.
             if let self, let link { self.endAttempt(of: link, generation: generation) }
@@ -401,6 +464,40 @@ final class RemoteTunnels {
         if let failure = process.run() {
             endAttempt(of: link, generation: generation)
             tunnel.exited(generation: generation, stderr: failure)
+        }
+    }
+
+    /// The probe and the machine's reading, in one call over the master;
+    /// the reading is kept whatever the probe says.
+    private func probe(_ link: Link, generation: Int) {
+        guard let controlPath = link.controlPath else {
+            link.tunnel?.probed(generation: generation, channel: nil)
+            return
+        }
+        installer.channel(target: link.machine.target, controlPath: controlPath) { [weak self, weak link] result in
+            guard let self, let link, self.links[link.machine.id] === link else { return }
+            var channel: RemoteTunnel.Channel?
+            if case .success(let reading) = result {
+                link.reading = reading
+                channel = reading.channel
+                self.onReading(link.machine.id)
+            }
+            if let channel {
+                NSLog("Evlat: machine %@ channel %@ (curl %@)", link.machine.name, channel.socket.rawValue,
+                      channel.curl.rawValue)
+            }
+            link.tunnel?.probed(generation: generation, channel: channel)
+        }
+    }
+
+    private func forward(_ link: Link, generation: Int, remote: String) {
+        guard let controlPath = link.controlPath, let endpoint = link.endpoint else {
+            link.tunnel?.forwarded(generation: generation, made: false)
+            return
+        }
+        installer.forward(target: link.machine.target, controlPath: controlPath, remote: remote, local: endpoint) {
+            [weak link] made in
+            link?.tunnel?.forwarded(generation: generation, made: made)
         }
     }
 
@@ -570,8 +667,8 @@ extension RemoteTunnels {
     }
 }
 
-/// One `ssh` process: stdin a pipe this process holds open, stdout thrown
-/// away, the tail of stderr kept for the failure class.
+/// One `ssh` process: stdin a pipe this process holds open, stdout read for
+/// the master's mark, the tail of stderr kept for the failure class.
 ///
 /// The stdin pipe is the tunnel's dead man's switch. Nothing is ever written
 /// to it; when this process ends — `kill -9` included — the kernel closes our
@@ -579,20 +676,27 @@ extension RemoteTunnels {
 final class SSHProcess {
     private let process = Process()
     private let input = Pipe()
+    private let output = Pipe()
     private let errors = Pipe()
     private let tail = StderrTail()
     private let onExit: (String) -> Void
+    private let mark: String?
+    private let onMark: () -> Void
 
-    /// `onExit` is called once, on the main queue, with the tail of stderr.
+    /// `onExit` is called once, on the main queue, with the tail of stderr;
+    /// `onMark` once, on the main queue, when a line of stdout is `mark`.
     /// `environment` `nil` is this process's own.
     init(path: String, arguments: [String], environment: [String: String]? = nil,
+         mark: String? = nil, onMark: @escaping () -> Void = {},
          onExit: @escaping (String) -> Void) {
         self.onExit = onExit
+        self.mark = mark
+        self.onMark = onMark
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
         if let environment { process.environment = environment }
         process.standardInput = input
-        process.standardOutput = FileHandle.nullDevice
+        process.standardOutput = output
         process.standardError = errors
     }
 
@@ -611,6 +715,19 @@ final class SSHProcess {
             handle.readabilityHandler = nil
             if tail.finish() { stderrClosed.signal() }
         }
+        // stdout is read to its end, the mark or not: a login script that
+        // talks must never fill the pipe and stall the master. Before the
+        // mark the lines are looked at, bounded; after it, dropped.
+        let scanner = MarkScanner(mark: mark)
+        let onMark = self.onMark
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            if scanner.feed(data) { DispatchQueue.main.async { onMark() } }
+        }
         let onExit = self.onExit
         process.terminationHandler = { _ in
             // The exit can be reported before the last of stderr is read;
@@ -624,6 +741,7 @@ final class SSHProcess {
             return nil
         } catch {
             errors.fileHandleForReading.readabilityHandler = nil
+            output.fileHandleForReading.readabilityHandler = nil
             return error.localizedDescription
         }
     }
@@ -639,6 +757,39 @@ final class SSHProcess {
     func terminate() {
         closeInput()
         if process.isRunning { process.terminate() }
+    }
+}
+
+/// Finds a line that is exactly `mark` in a stream fed in chunks, once.
+/// Written from the pipe's reading thread only.
+final class MarkScanner {
+    private let mark: Data?
+    private var pending = Data()
+    private var found = false
+    /// A line longer than this before the mark is not the mark: its start is
+    /// let go, so a talking login script costs bounded memory.
+    private static let limit = 4096
+
+    init(mark: String?) {
+        self.mark = mark.map { Data($0.utf8) }
+    }
+
+    /// `true` the one time the mark's line completes.
+    func feed(_ chunk: Data) -> Bool {
+        guard let mark, !found else { return false }
+        pending.append(chunk)
+        while let newline = pending.firstIndex(of: 0x0A) {
+            var line = pending[pending.startIndex..<newline]
+            if line.last == 0x0D { line = line.dropLast() }
+            pending = Data(pending[pending.index(after: newline)...])
+            if line == mark {
+                found = true
+                pending = Data()
+                return true
+            }
+        }
+        if pending.count > Self.limit { pending = Data(pending.suffix(mark.count)) }
+        return false
     }
 }
 

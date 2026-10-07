@@ -57,12 +57,13 @@ done
 EVLAT_PORT=$PORT EVLAT_HOME="$DIR/home" EVLAT_SESSIONS="$DIR/sessions" EVLAT_CHATS="$DIR/chats" \
 EVLAT_EDGE=$EDGE EVLAT_BODY=always \
 EVLAT_MACHINES="dev@10.0.4.21,ubuntu@192.168.1.217,deploy@gpu-01.eu-central.internal.example.com" \
-EVLAT_SSH="$ROOT/Tests/Fixtures/fake-ssh" FAKE_SSH_LOG="$DIR/ssh.log" \
+EVLAT_SSH="$ROOT/Tests/Fixtures/fake-ssh" FAKE_SSH_LOG="$DIR/ssh.log" FAKE_SSH_HOME="$DIR/server" \
 EVLAT_SANDBOXES=on EVLAT_SANDBOX_PORT=$SANDBOX_PORT \
     nohup "$ROOT/.build/debug/Evlat" > "$DIR/evlat.log" 2>&1 </dev/null &
 echo $! > "$DIR/evlat.pid"
 
-# Ready once it answers; the machines' listeners are logged by then.
+# Ready once it answers; the machines' listeners are logged by then, and
+# their channels — master, probe over it in $DIR/server, forward — follow.
 tries=0
 until curl -s -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; do
     tries=$((tries + 1))

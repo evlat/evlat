@@ -3,13 +3,19 @@ import EvlatCore
 import EvlatAgents
 
 /// Runs `RemoteSettings`' scripts over `ssh` — per change, read → plan →
-/// write — and `RemoteCommand`'s, one call each; and the machine's one
-/// read-only call (`RemoteSettings.readingScript`).
+/// write — and `RemoteCommand`'s, one call each; the machine's one
+/// read-only call (`RemoteSettings.readingScript`); and the tunnels' channel
+/// steps (`RemoteTunnel`): the probe with its reading, and the forward.
 ///
-/// The work runs on its own queue, never the main one: `ssh` can take
+/// The work runs on its own serial queue, never the main one: `ssh` can take
 /// `ConnectTimeout` to fail. The result is delivered on the main queue, and
 /// one machine runs one job at a time — a second is refused, not queued, so
-/// two writes can never race on the same server file.
+/// two writes can never race on the same server file. A channel step takes
+/// no lock — the user's press is never refused for it — and runs on a queue
+/// of its own: behind another machine's job it would wait out that job's
+/// `ConnectTimeout` and miss its own deadline. What it shares with a write
+/// is harmless: its read finds a file that changed while it was read
+/// unreadable, and it touches no settings file.
 ///
 /// **Main queue only** for `run` and `isBusy`, like the window that calls it.
 final class RemoteInstaller {
@@ -18,6 +24,9 @@ final class RemoteInstaller {
 
     private let sshPath: String
     private let queue: DispatchQueue
+    /// The tunnels' channel steps; one at a time per machine already
+    /// (`RemoteTunnel`), side by side across machines.
+    private let channels = DispatchQueue(label: "evlat.remote-channel", attributes: .concurrent)
     private var busy: Set<String> = []
 
     /// Called on the work queue between a change's read and its write; the
@@ -61,18 +70,18 @@ final class RemoteInstaller {
         }
     }
 
-    /// Installs or removes the server's `evlat` and its key on `target`,
-    /// under the same one-job-per-machine lock as the settings: the buttons
-    /// of both go off together. `pathLine`, on a removal: the startup file
-    /// whose Evlat `PATH` line goes with the command, in the same job, once
-    /// the command is gone.
+    /// Installs or removes the server's `evlat` on `target`, under the same
+    /// one-job-per-machine lock as the settings: the buttons of both go off
+    /// together. `pathLine`, on a removal: the startup file whose Evlat
+    /// `PATH` line goes with the command, in the same job, once the command
+    /// is gone.
     @discardableResult
-    func runCommand(_ action: RemoteSettings.Action, key: String, pathLine: String? = nil,
+    func runCommand(_ action: RemoteSettings.Action, pathLine: String? = nil,
                     machine: String, target: String, controlPath: String? = nil,
                     completion: @escaping (CommandResult, Result?) -> Void) -> Bool {
         let sshPath = self.sshPath
         return start(machine: machine, completion: { (both: (CommandResult, Result?)) in completion(both.0, both.1) }) {
-            let command = Self.applyCommand(action, key: key, target: target, ssh: sshPath,
+            let command = Self.applyCommand(action, target: target, ssh: sshPath,
                                             controlPath: controlPath)
             guard action == .remove, case .success = command, let pathLine else { return (command, Result?.none) }
             return (command, Self.apply(.pathLine(pathLine), .remove, target: target, ssh: sshPath,
@@ -92,13 +101,41 @@ final class RemoteInstaller {
         }
     }
 
+    /// The tunnel's probe and the machine's reading, in one call over its
+    /// master (`RemoteSettings.readingScript`, `probing`). `deadline`: a
+    /// call over a master is not bounded by `ConnectTimeout`.
+    func channel(target: String, controlPath: String, deadline: TimeInterval = 20,
+                 completion: @escaping (Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure>) -> Void) {
+        let sshPath = self.sshPath
+        channels.async {
+            let result = Self.applyRead(target: target, ssh: sshPath, controlPath: controlPath, probing: true,
+                                        deadline: deadline)
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
+    /// The channel's forward, asked of the running master
+    /// (`RemoteTunnel.forwardArguments`): `true` when it was made.
+    func forward(target: String, controlPath: String, remote: String, local: String, deadline: TimeInterval = 10,
+                 completion: @escaping (Bool) -> Void) {
+        let sshPath = self.sshPath
+        channels.async {
+            let arguments = RemoteTunnel.forwardArguments(target: target, controlPath: controlPath,
+                                                          remote: remote, local: local)
+            let made = (try? Self.run(sshPath, arguments, script: "", deadline: deadline))?.status == 0
+            DispatchQueue.main.async { completion(made) }
+        }
+    }
+
     /// The read's one call, synchronously.
     static func applyRead(target: String, ssh: String, controlPath: String? = nil,
-                          patience: Int = RemotePath.patience) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
+                          patience: Int = RemotePath.patience, probing: Bool = false,
+                          deadline: TimeInterval? = nil) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
         let nonce = UUID().uuidString
         guard let answer = try? run(ssh, RemoteSettings.arguments(target: target, controlPath: controlPath),
                                     script: RemoteSettings.readingScript(nonce: nonce, agents: Agents.all,
-                                                                       patience: patience)) else {
+                                                                       patience: patience, probing: probing),
+                                    deadline: deadline) else {
             return .failure(.unreachable)
         }
         do {
@@ -125,11 +162,11 @@ final class RemoteInstaller {
     }
 
     /// The command's one call, synchronously.
-    static func applyCommand(_ action: RemoteSettings.Action, key: String,
+    static func applyCommand(_ action: RemoteSettings.Action,
                              target: String, ssh: String, controlPath: String? = nil) -> CommandResult {
         let nonce = UUID().uuidString
         let script = action == .install
-            ? RemoteCommand.installScript(key: key, nonce: nonce)
+            ? RemoteCommand.installScript(nonce: nonce)
             : RemoteCommand.removeScript(nonce: nonce)
         guard let answer = try? run(ssh, RemoteSettings.arguments(target: target, controlPath: controlPath),
                                     script: script) else {

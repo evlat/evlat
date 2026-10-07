@@ -70,7 +70,8 @@ final class AntigravityHooksTests: XCTestCase {
     /// because the body does not name it.
     func testTheInstalledCommandNamesItsEvent() {
         XCTAssertEqual(LocalAPI.installedHookCommand(for: .antigravity, event: "Stop"),
-                       "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H 'X-Evlat-Event: Stop'"
+                       "curl -q -s -m 2 --noproxy '*' --unix-socket \"$HOME/.config/evlat/run/evlat.sock\""
+                           + " -X POST -H 'Content-Type: application/json' -H 'X-Evlat-Event: Stop'"
                            + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
                            + " --data-binary @- http://127.0.0.1:48151/hook/antigravity >/dev/null 2>&1 || true")
         XCTAssertEqual(LocalAPI.installedHookCommand(for: .claude, event: "Stop"),
@@ -117,6 +118,37 @@ final class AntigravityHooksTests: XCTestCase {
         let file = Antigravity().hooksFile(home: fresh)
         XCTAssertEqual(try LocalHooks.install(at: file, for: .antigravity), .written)
         XCTAssertEqual(try LocalHooks.state(at: file, for: .antigravity), .current)
+    }
+
+    /// The entry before the socket — the same shape, each event's command
+    /// in the TCP bytes — is Evlat's older one: outdated, and an install
+    /// rewrites it in place beside another tool's entry.
+    func testTheEntryBeforeTheSocketReadsOutdatedAndIsReplaced() throws {
+        var entry = AntigravityHooks.installed(hooks: Antigravity().hooks)
+        func tcp(_ event: String) -> String {
+            "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H 'X-Evlat-Event: \(event)'"
+                + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
+                + " --data-binary @- http://127.0.0.1:48151/hook/antigravity >/dev/null 2>&1 || true"
+        }
+        for event in Antigravity().hooks.events {
+            guard var list = entry[event] as? [[String: Any]], var first = list.first else { continue }
+            if var hooks = first["hooks"] as? [[String: Any]], !hooks.isEmpty {
+                hooks[0]["command"] = tcp(event)
+                first["hooks"] = hooks
+            } else {
+                first["command"] = tcp(event)
+            }
+            list[0] = first
+            entry[event] = list
+        }
+        let old: [String: Any] = ["their-hook": ["enabled": true], "evlat": entry]
+        XCTAssertEqual(AntigravityHooks.state(of: old, hooks: Antigravity().hooks), .outdated)
+        try JSONSerialization.data(withJSONObject: old).write(to: file)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .antigravity), .outdated)
+        XCTAssertEqual(try LocalHooks.install(at: file, for: .antigravity), .written)
+        XCTAssertEqual(try LocalHooks.state(at: file, for: .antigravity), .current)
+        let installed = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertNotNil(installed["their-hook"], "another tool's entry stays")
     }
 
     func testAChangedEntryReadsOutdated() {

@@ -121,6 +121,31 @@ final class HookSettingsTests: XCTestCase {
         XCTAssertEqual(HookSettings.state(of: ["hooks": oldOne], for: source), .outdated)
     }
 
+    /// The command before the socket is Evlat's older one on every agent:
+    /// outdated, never missing or someone else's — and an install replaces
+    /// it in place, other tools' groups at their index.
+    func testTheCommandBeforeTheSocketReadsOutdatedAndIsReplacedInPlace() throws {
+        for source in [Claude() as any Agent, Codex()] {
+            let tcp = try XCTUnwrap(LocalAPITests.tcpCommand[source.id.rawValue])
+            var hooks: [String: Any] = [:]
+            for event in source.hooks.events { hooks[event] = [foreignGroup("other"), evlatGroup(tcp)] }
+            let old: [String: Any] = ["hooks": hooks]
+            XCTAssertEqual(HookSettings.state(of: old, for: source), .outdated, source.id.rawValue)
+            let url = try settingsFile(source)
+            try JSONSerialization.data(withJSONObject: old).write(to: url)
+            XCTAssertEqual(try HookSettings.install(at: url, for: source), .written)
+            let installed = try json(url)
+            XCTAssertEqual(HookSettings.state(of: installed, for: source), .current, source.id.rawValue)
+            for event in source.hooks.events {
+                let list = groups(installed, event)
+                XCTAssertEqual(list.count, 2, event)
+                XCTAssertTrue(NSDictionary(dictionary: list[0] as! [String: Any]).isEqual(to: foreignGroup("other")))
+                XCTAssertTrue(NSDictionary(dictionary: list[1] as! [String: Any])
+                    .isEqual(to: evlatGroup(LocalAPI.installedHookCommand(for: source))))
+            }
+        }
+    }
+
     func testNothingInstalledReadsMissing() {
         XCTAssertEqual(HookSettings.state(of: [:], for: .claude), .missing)
         XCTAssertEqual(HookSettings.state(of: ["hooks": ["Stop": [foreignGroup("other")]]], for: .codex),

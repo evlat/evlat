@@ -82,8 +82,10 @@
 "remote.retry.soon" = "곧 재시도";
 "remote.failure.authentication" = "로그인 거부됨";
 "remote.failure.authentication.advice" = "서버가 에이전트에 로드된 키와 비밀번호를 모두 거부했습니다. 터미널에서 “ssh {target}” 명령으로 로그인되는지 확인하세요.";
-"remote.failure.portBusy" = "서버의 48151 포트가 사용 중";
-"remote.failure.portBusy.advice" = "서버가 이전 연결을 아직 붙잡고 있을 수 있습니다. 보통 1분 안에 풀립니다. 같은 서버의 다른 사용자가 실행한 Evlat이 사용 중일 수도 있습니다.";
+"remote.failure.channelBusy" = "다른 Evlat이 이 서버에 연결됨";
+"remote.failure.channelBusy.advice" = "다른 Mac의 Evlat이 같은 사용자로 이 서버에 연결되어 있고, 서버는 한 번에 한 Mac에만 알립니다. Evlat은 계속 재시도하며, 그 연결이 끝나면 이 Mac이 이어받습니다.";
+"remote.failure.forwardingRefused" = "서버가 ssh의 소켓 전달을 허용하지 않음";
+"remote.failure.forwardingRefused.advice" = "Evlat은 ssh가 전달하는 소켓을 통해 이 서버에 연결하는데, 서버의 sshd_config가 이를 꺼 두었습니다(AllowStreamLocalForwarding, AllowTcpForwarding 또는 DisableForwarding). 서버 관리자에게 허용해 달라고 요청하세요.";
 "remote.failure.hostKey" = "알 수 없는 호스트 키";
 "remote.failure.hostKey.advice" = "터미널에서 “ssh {target}” 명령으로 한 번 접속해 호스트 키를 수락하세요.";
 "remote.failure.hostName" = "호스트를 찾을 수 없음";
@@ -119,34 +121,32 @@
 "remote.manual.wrapping" = "이미 있다면 그대로 두고 “command”를 다음으로 바꾸세요. {placeholder} 자리에는 원래 명령을 넣습니다(명령 안의 '는 '\\''로 씁니다):";
 "remote.manual.agent" = "{file} — 이 “hooks” 블록을 기존 훅 옆에 병합하세요:";
 "remote.manual.remove" = "제거하려면 명령에 {marker} 표시가 들어간 항목을 모두 삭제하고, 원래 statusLine 명령을 되돌려 놓으세요. 자동 설정이 파일을 바꿨다면, 원본이 같은 폴더에 이름 뒤에 .evlat.bak이 붙은 채로 있습니다.";
-"remote.manual.surface" = "이것이 여는 것: 서버의 모든 프로세스가 터널을 통해 Evlat에 훅 이벤트를 보낼 수 있습니다. 훅에는 키가 없습니다. evlat 명령의 행에는 이 머신의 키가 필요하며, 그 키는 해당 사용자만 읽을 수 있습니다. 서버의 다른 사용자가 48151 포트를 먼저 차지하면, 내 이벤트와 명령의 키가 그 사람의 Mac으로 갑니다. 한 서버에 두 Mac이 명령을 설치하면 마지막에 설치한 쪽의 키가 적용됩니다. 서버의 sshd_config에 GatewayPorts yes가 있으면 포트가 서버의 네트워크에 열립니다.";
+"remote.manual.surface" = "이것이 여는 것: 서버에 있는 내 프로세스는 모두 ~/.config/evlat/run의 소켓을 통해 Evlat에 훅 이벤트와 행을 쓸 수 있습니다. 이 폴더에는 내 사용자만 들어갈 수 있습니다. 서버는 한 번에 한 Mac에만 알립니다. 다른 Mac의 Evlat이 그 소켓을 잡고 있는 동안 이 Mac은 기다립니다.";
 "remote.copy" = "복사";
 "remote.copied" = "복사됨";
 
 "remote.remove" = "제거…";
-"remote.remove.confirm" = "{name} 머신을 제거할까요? 터널이 닫히고 그 세션들이 바에서 사라집니다. 서버의 훅은 그대로 남아, 듣는 이 없이 조용해집니다. 먼저 빼려면 훅 행에서 제거하세요. 서버의 evlat 명령은 다시 설치할 때까지 조용합니다. 키가 머신과 함께 사라지기 때문입니다.";
+"remote.remove.confirm" = "{name} 머신을 제거할까요? 터널이 닫히고 그 세션들이 바에서 사라집니다. 서버의 훅은 그대로 남아, 듣는 이 없이 조용해집니다. 먼저 빼려면 훅 행에서 제거하세요. 서버의 evlat 명령은 남아 있고, 머신을 다시 추가할 때까지 조용합니다.";
 "remote.remove.cancel" = "취소";
 "remote.remove.do" = "제거";
 
-"remote.command.result.installed" = "명령 설치됨: ~/.local/bin/evlat과 이 머신의 키.";
-"remote.command.result.current" = "명령은 이미 최신 상태였습니다. 키는 다시 썼습니다.";
-"remote.command.result.removed" = "명령 제거됨: ~/.local/bin/evlat과 키.";
+"remote.command.result.installed" = "명령 설치됨: ~/.local/bin/evlat.";
+"remote.command.result.current" = "명령은 이미 최신 상태였습니다.";
+"remote.command.result.removed" = "명령 제거됨: ~/.local/bin/evlat.";
 "remote.command.result.absent" = "제거할 명령이 없었습니다.";
 "remote.command.result.foreign" = "~/.local/bin/evlat은 Evlat의 것이 아닙니다. 그대로 두고 아무것도 쓰지 않았습니다.";
-"remote.command.result.foreign.remove" = "키는 제거했습니다. ~/.local/bin/evlat은 Evlat의 것이 아니라서 그대로 두었습니다.";
+"remote.command.result.foreign.remove" = "~/.local/bin/evlat은 Evlat의 것이 아니라서 그대로 두었습니다.";
 "remote.command.result.unwritable" = "서버에 쓸 수 없습니다. ~/.local/bin 또는 ~/.config/evlat에 쓰기 권한이 없습니다.";
 "remote.command.result.unreachable" = "서버에 연결할 수 없습니다. 아무것도 바꾸지 않았습니다.";
 "remote.command.noCurl" = "서버에 curl이 없습니다. evlat은 curl로 보내므로, curl을 설치하기 전까지는 바에 아무것도 오지 않습니다.";
 "remote.command.try" = "서버의 새 세션에서 시험해 보세요: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — 명령을 그대로 씁니다(이미 있는 evlat을 대체하니, 먼저 command -v evlat으로 확인하세요):";
-"remote.command.manual.key" = "~/.config/evlat/signal.token — 나만 읽을 수 있는 이 머신의 키:";
 "remote.command.manual.remove" = "제거하려면: Evlat의 것이라면 명령, 키, 그리고 비게 되면 그 폴더:";
 "remote.items.title" = "{name}에서 설정";
 "remote.items.body" = "터널은 길만 열어 줍니다. 서버의 에이전트가 이 바에 알리려면 서버 자체 파일에 다음이 기록되어야 합니다. 이 Mac과 같은 카드로 ssh를 통해 쓰거나, 서버에서 직접 실행할 블록을 쓰면 됩니다. 서버에는 승인 훅이 없고, 서버의 Antigravity에는 훅만 설치됩니다.";
 "remote.item.command" = "evlat 명령";
 "remote.status.notFound" = "이 서버에 없음";
-"remote.hint.install.claude" = "열려 있는 Claude Code 세션에서는 /hooks를 한 번 열어 변경 사항을 불러오세요.";
-"remote.hint.install.codex" = "Codex가 새 훅을 신뢰할지 묻습니다.";
+"remote.hint.install.codex" = "Codex에서 /hooks를 열고 Evlat의 훅을 신뢰하세요. 그 전에는 Codex가 훅을 실행하지 않습니다.";
 "remote.hint.remove.codex" = "Codex가 다른 훅을 신뢰할지 다시 물을 수 있습니다.";
 "remote.hint.usage" = "{agent}의 상태 라인을 감쌉니다. 열려 있는 세션은 다음 메시지부터 사용량을 전달합니다.";
 "remote.reading" = "서버를 읽는 중…";
@@ -155,7 +155,7 @@
 "remote.combined.hint" = "직접 설정하는 서버용: 한 번 복사, 한 번 붙여넣기.";
 "remote.combined.title" = "{name}에서 한 번 실행";
 "remote.combined.body" = "각 행의 블록을 하나로 합친 것입니다. 훅, 사용량 라인, evlat 명령이 서버의 내 셸에서 한꺼번에 설정됩니다. Evlat은 ssh로 아무것도 쓰지 않습니다.";
-"remote.combined.whole" = "이 블록에는 Evlat이 방금 읽은 서버의 ~/.claude/settings.json과 ~/.codex/hooks.json 전체에 Evlat의 줄을 더한 내용과, 이 머신의 키가 들어 있습니다. 읽은 뒤에 바뀐 파일은 건드리지 않습니다.";
+"remote.combined.whole" = "이 블록에는 Evlat이 방금 읽은 서버의 ~/.claude/settings.json과 ~/.codex/hooks.json 전체에 Evlat의 줄을 더한 내용이 들어 있습니다. 읽은 뒤에 바뀐 파일은 건드리지 않습니다.";
 "remote.combined.check" = "실행했어요, 확인";
 "remote.combined.checkNote" = "확인은 ssh로 읽기만 합니다. 제거는 각 행의 안내를 따르세요.";
 
@@ -318,7 +318,7 @@
 "settings.section.agents" = "에이전트";
 "settings.section.usage" = "사용량";
 "settings.agents.group" = "이 Mac의 에이전트";
-"settings.agents.note" = "처음 쓰기 전에 파일 옆에 .evlat.bak 사본을 남깁니다. 열려 있는 Claude 세션은 /hooks로 변경 사항을 불러옵니다.";
+"settings.agents.note" = "처음 쓰기 전에 파일 옆에 .evlat.bak 사본을 남깁니다. Codex의 /hooks에서 Evlat의 훅을 신뢰하면 Codex가 실행합니다. 열려 있는 Claude 세션은 다음 메시지부터 변경 사항을 반영합니다.";
 "settings.section.sandboxes" = "샌드박스";
 "settings.sandboxes.intro" = "이 Mac의 Docker 샌드박스에서 실행되는 Claude Code 세션도 다른 세션처럼 바에 표시될 수 있습니다. sbx는 평소처럼 쓰세요. 각 샌드박스는 Evlat이 알아서 설정합니다.";
 "settings.sandboxes.watching" = "감시 중";
@@ -549,12 +549,11 @@
 "settings.remote.note" = "머신을 클릭하면 그 서버에 무엇이 설정되어 있는지 볼 수 있습니다.";
 "settings.remote.open" = "열림";
 "settings.remote.closed" = "닫힘";
-"settings.remote.command.detail" = "{command}\n키 {key}";
+"settings.remote.command.detail" = "{command}";
 "settings.remote.retry" = "다시 읽기";
 "settings.remote.close" = "닫기";
 "settings.remote.what.command" = "evlat 명령";
 "settings.remote.what.command.remove" = "evlat 명령 제거";
-"settings.remote.what.key" = "나만 읽을 수 있는 이 머신의 키";
 "settings.remote.what.key.remove" = "키 제거";
 "settings.remote.path.status" = "PATH에 없음";
 "settings.remote.path.note" = "서버의 새 셸이 evlat을 찾지 못합니다. ~/.local/bin이 PATH에 없습니다.";
@@ -595,7 +594,7 @@
 "setup.flow.sessions.title" = "어떤 에이전트를 쓰나요?";
 "setup.flow.sessions.body" = "Evlat은 선택한 각 에이전트의 설정에 알림용 작은 명령을 추가하고, 사용량을 위해 상태 라인을 감쌉니다. 파일의 나머지는 건드리지 않습니다. 언제든 설정 → 에이전트에서 뺄 수 있습니다.";
 "setup.flow.sessions.none" = "이 Mac에 Evlat이 아는 에이전트가 없습니다. 하나를 설치하면 설정 → 에이전트에서 연결하세요.";
-"setup.flow.sessions.hint" = "열려 있는 Claude 세션에서는 /hooks를 한 번 열거나 세션을 다시 시작하세요. 새 세션은 바로 나타납니다.";
+"setup.flow.sessions.hint" = "열려 있는 Claude 세션은 다음 메시지부터 변경 사항을 반영합니다. 새 세션은 바로 나타납니다.";
 "setup.flow.chat.title" = "마스코트와 대화하기";
 "setup.flow.chat.body" = "마스코트를 클릭하거나 단축키를 누르면 말풍선이 열리고, 내 claude로 작업이 실행됩니다. 마스코트에 파일을 끌어다 놓을 수도 있습니다.";
 "setup.flow.chat.hotkey.detail" = "시스템이 쓰는 키는 사용할 수 없습니다.";

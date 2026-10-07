@@ -82,8 +82,10 @@
 "remote.retry.soon" = "即將重試";
 "remote.failure.authentication" = "登入遭拒";
 "remote.failure.authentication.advice" = "伺服器拒絕了所有登入方式：agent 中載入的金鑰或密碼。請確認在「終端機」中執行「ssh {target}」可以登入。";
-"remote.failure.portBusy" = "伺服器上的 48151 埠已被占用";
-"remote.failure.portBusy.advice" = "伺服器可能還保留著舊連線，通常一分鐘內會釋放。同一台伺服器上其他使用者的 Evlat 也可能占用它。";
+"remote.failure.channelBusy" = "另一個 Evlat 正在回應這台伺服器";
+"remote.failure.channelBusy.advice" = "另一台 Mac 上的 Evlat 以同一位使用者連到這台伺服器，而一台伺服器同一時間只通知一台 Mac。Evlat 會持續重試：那個連線結束後，這台 Mac 就會接手。";
+"remote.failure.forwardingRefused" = "伺服器不允許 ssh 轉送 socket";
+"remote.failure.forwardingRefused.advice" = "Evlat 透過 ssh 轉送的 socket 連到這台伺服器，而伺服器的 sshd_config 關閉了這項功能（AllowStreamLocalForwarding、AllowTcpForwarding 或 DisableForwarding）。請向伺服器的管理員要求開放。";
 "remote.failure.hostKey" = "不明的主機金鑰";
 "remote.failure.hostKey.advice" = "請先在「終端機」中以「ssh {target}」連線一次，並接受主機金鑰。";
 "remote.failure.hostName" = "找不到主機";
@@ -119,34 +121,32 @@
 "remote.manual.wrapping" = "如果已經有了，請保留它，並把它的「command」設為以下內容，用你的指令取代 {placeholder}（其中的 ' 要寫成 '\\''）：";
 "remote.manual.agent" = "{file}——把這個「hooks」區塊合併到檔案中，和你既有的 hook 並存：";
 "remote.manual.remove" = "若要移除：刪除所有指令中含有 {marker} 的項目，並把你原本的 statusLine 指令放回去。若自動設定曾更改某個檔案，它的原始版本就在同一個資料夾，檔名後加上 .evlat.bak。";
-"remote.manual.surface" = "這會開放什麼：伺服器上的任何程序都能透過通道把 hook 事件寫給 Evlat——hook 不帶金鑰。來自 evlat 指令的項目需要這台機器的金鑰，只有它的使用者能讀取。如果伺服器上另一位使用者先占用了 48151 埠，你的事件和指令的金鑰就會送到他的 Mac。如果兩台 Mac 在同一台伺服器上安裝指令，以最後一台的金鑰為準。若伺服器的 sshd_config 中設定了 GatewayPorts yes，此埠會對伺服器所在的網路開放。";
+"remote.manual.surface" = "這會開放什麼：你在伺服器上的任何程序都能透過 ~/.config/evlat/run 中的 socket 把 hook 事件和項目寫給 Evlat，這個資料夾只有你的使用者能進入。一台伺服器同一時間只通知一台 Mac：另一台 Mac 的 Evlat 占用這個 socket 時，這台會等待。";
 "remote.copy" = "拷貝";
 "remote.copied" = "已拷貝";
 
 "remote.remove" = "移除…";
-"remote.remove.confirm" = "要移除 {name} 嗎？通道會關閉，它的工作階段會離開長條。伺服器上的 hook 會留在原處，沒有人接收而保持安靜——若要先移除它們，請在 Hook 那一列移除。伺服器上的 evlat 指令在重新安裝前都不會發出任何訊號：它的金鑰會隨機器一起移除。";
+"remote.remove.confirm" = "要移除 {name} 嗎？通道會關閉，它的工作階段會離開長條。伺服器上的 hook 會留在原處，沒有人接收而保持安靜——若要先移除它們，請在 Hook 那一列移除。伺服器上的 evlat 指令會留著，在重新加入這台機器前都不會發出任何訊號。";
 "remote.remove.cancel" = "取消";
 "remote.remove.do" = "移除";
 
-"remote.command.result.installed" = "已安裝指令：~/.local/bin/evlat 和這台機器的金鑰。";
-"remote.command.result.current" = "指令已是最新；金鑰已重新寫入。";
-"remote.command.result.removed" = "已移除指令：~/.local/bin/evlat 和金鑰。";
+"remote.command.result.installed" = "已安裝指令：~/.local/bin/evlat。";
+"remote.command.result.current" = "指令已是最新。";
+"remote.command.result.removed" = "已移除指令：~/.local/bin/evlat。";
 "remote.command.result.absent" = "沒有可移除的指令。";
 "remote.command.result.foreign" = "~/.local/bin/evlat 屬於其他程式；保持原樣，未寫入任何內容。";
-"remote.command.result.foreign.remove" = "已移除金鑰；~/.local/bin/evlat 屬於其他程式，保持原樣。";
+"remote.command.result.foreign.remove" = "~/.local/bin/evlat 屬於其他程式，保持原樣。";
 "remote.command.result.unwritable" = "無法在伺服器上寫入：~/.local/bin 或 ~/.config/evlat 不可寫入。";
 "remote.command.result.unreachable" = "無法連到伺服器；沒有做任何更動。";
 "remote.command.noCurl" = "伺服器上沒有 curl：evlat 透過 curl 傳送，因此在安裝 curl 之前，長條收不到任何內容。";
 "remote.command.try" = "在伺服器上開一個新的工作階段試試：evlat --list。";
 "remote.command.manual.script" = "~/.local/bin/evlat——指令本身，照原樣寫入（會取代已存在的 evlat；請先用 command -v evlat 確認）：";
-"remote.command.manual.key" = "~/.config/evlat/signal.token——這台機器的金鑰，只有你能讀取：";
 "remote.command.manual.remove" = "若要移除：指令（若屬於 Evlat）、金鑰，以及變空的資料夾：";
 "remote.items.title" = "在 {name} 上設定";
 "remote.items.body" = "通道只負責打通路徑。要讓伺服器上的 Agent 通知這條長條，需要把以下內容寫進伺服器自己的檔案——和這台 Mac 相同的卡片，透過 ssh 寫入；或是一段你自己在伺服器上執行的程式碼。伺服器沒有核准 hook，其上的 Antigravity 只會安裝 hook。";
 "remote.item.command" = "evlat 指令";
 "remote.status.notFound" = "這台伺服器上沒有";
-"remote.hint.install.claude" = "在已開啟的 Claude Code 工作階段中，開啟一次 /hooks 以載入變更。";
-"remote.hint.install.codex" = "Codex 會請你信任新的 hook。";
+"remote.hint.install.codex" = "在 Codex 中開啟 /hooks 並信任 Evlat 的 hook：在此之前 Codex 不會執行它們。";
 "remote.hint.remove.codex" = "Codex 可能會再次請你信任其他 hook。";
 "remote.hint.usage" = "包裝你的 {agent} 狀態列；已開啟的工作階段會從下一則訊息開始回報用量。";
 "remote.reading" = "正在讀取伺服器…";
@@ -155,7 +155,7 @@
 "remote.combined.hint" = "適用於手動設定的伺服器：拷貝一次，貼上一次。";
 "remote.combined.title" = "在 {name} 上執行一次";
 "remote.combined.body" = "各列的區塊合而為一：hook、用量列和 evlat 指令會在你自己於伺服器上的 shell 中一起設定。Evlat 不會透過 ssh 寫入任何內容。";
-"remote.combined.whole" = "這個區塊包含 Evlat 剛讀到的伺服器完整 ~/.claude/settings.json 和 ~/.codex/hooks.json，加上 Evlat 的設定行，以及這台機器的金鑰。讀取後有變動的檔案會保持原樣。";
+"remote.combined.whole" = "這個區塊包含 Evlat 剛讀到的伺服器完整 ~/.claude/settings.json 和 ~/.codex/hooks.json，加上 Evlat 的設定行。讀取後有變動的檔案會保持原樣。";
 "remote.combined.check" = "我已執行，檢查";
 "remote.combined.checkNote" = "檢查只會透過 ssh 讀取。若要移除，請依照各列自己的說明。";
 
@@ -318,7 +318,7 @@
 "settings.section.agents" = "Agent";
 "settings.section.usage" = "用量";
 "settings.agents.group" = "這台 Mac 上的 Agent";
-"settings.agents.note" = "第一次寫入前，會在檔案旁保留一份 .evlat.bak 副本。已開啟的 Claude 工作階段可用 /hooks 載入變更。";
+"settings.agents.note" = "第一次寫入前，會在檔案旁保留一份 .evlat.bak 副本。在 Codex 的 /hooks 中信任 Evlat 的 hook 後，Codex 才會執行它們；已開啟的 Claude 工作階段會在下一則訊息時載入變更。";
 "settings.section.sandboxes" = "沙盒";
 "settings.sandboxes.intro" = "在這台 Mac 的 Docker 沙盒裡執行的 Claude Code 工作階段，也能像其他工作階段一樣顯示在長條上。照常使用 sbx 即可：Evlat 會自己設定每個沙盒。";
 "settings.sandboxes.watching" = "正在監看";
@@ -549,12 +549,11 @@
 "settings.remote.note" = "按一下機器，查看那台伺服器上設定了什麼。";
 "settings.remote.open" = "展開";
 "settings.remote.closed" = "收合";
-"settings.remote.command.detail" = "{command}\n金鑰 {key}";
+"settings.remote.command.detail" = "{command}";
 "settings.remote.retry" = "重新讀取";
 "settings.remote.close" = "關閉";
 "settings.remote.what.command" = "evlat 指令";
 "settings.remote.what.command.remove" = "移除 evlat 指令";
-"settings.remote.what.key" = "這台機器的金鑰，只有你能讀取";
 "settings.remote.what.key.remove" = "移除金鑰";
 "settings.remote.path.status" = "不在 PATH 中";
 "settings.remote.path.note" = "伺服器上的新 shell 找不到 evlat：~/.local/bin 不在它的 PATH 中。";
@@ -595,7 +594,7 @@
 "setup.flow.sessions.title" = "你使用哪些 Agent？";
 "setup.flow.sessions.body" = "Evlat 會在每個所選 Agent 的設定中加入一個小小的通知指令，並包裝它的狀態列以取得用量；檔案的其餘部分不會被更動。你隨時可以在「設定」→「Agent」中移除。";
 "setup.flow.sessions.none" = "這台 Mac 上沒有 Evlat 認得的 Agent。安裝後，請在「設定」→「Agent」中連接。";
-"setup.flow.sessions.hint" = "在已開啟的 Claude 工作階段中，開啟一次 /hooks 或重新啟動工作階段；新的工作階段會立刻出現。";
+"setup.flow.sessions.hint" = "已開啟的 Claude 工作階段會在下一則訊息時載入變更；新的工作階段會立刻出現。";
 "setup.flow.chat.title" = "和吉祥物對話";
 "setup.flow.chat.body" = "按一下吉祥物或按下快速鍵：對話泡泡會打開，工作由你自己的 claude 執行。你可以把檔案拖到吉祥物上。";
 "setup.flow.chat.hotkey.detail" = "不接受系統已使用的按鍵。";

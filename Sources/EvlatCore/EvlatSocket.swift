@@ -70,6 +70,13 @@ public enum EvlatSocket {
             "--unix-socket " + quoted(path)
         }
 
+        /// `--unix-socket "$HOME/<relativePath>"`: the installed commands'
+        /// socket, read where the command runs — this Mac or a server — so
+        /// one string serves both. Double quotes: `$HOME` expands when the
+        /// hook runs, a space in it stays one word, and the words fit inside
+        /// a single-quoted `sh -c '…'` (the status line relay).
+        public static let homeSocket = "--unix-socket \"$HOME/\(relativePath)\""
+
         /// The URL a request names. With `--unix-socket` the host only fills
         /// `Host:`, which must read as loopback (`LocalAPI.isLoopback`).
         public static func url(_ route: String) -> String {

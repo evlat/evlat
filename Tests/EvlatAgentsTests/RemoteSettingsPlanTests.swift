@@ -41,6 +41,40 @@ final class RemoteSettingsPlanTests: XCTestCase {
 
     /// A server's hooks are this Mac's transformation without the approval
     /// hook: its route is `404` through a tunnel.
+    /// A server's file from before the socket: its hooks and its usage line
+    /// read as Evlat's older ones, and the unit's one press moves both in
+    /// place — other tools' groups at their index, no new backup for the
+    /// line, which keeps the user's command from before any wrapper.
+    func testAServersOlderUnitReadsOutdatedAndOnePressMovesIt() throws {
+        let tcp = try XCTUnwrap(LocalAPITests.tcpCommand["claude"])
+        var hooks: [String: Any] = [:]
+        for event in Claude().hooks.events {
+            hooks[event] = [["hooks": [["type": "command", "command": "/usr/local/bin/other"]]],
+                            ["hooks": [["type": "command", "command": tcp, "timeout": 5]]]]
+        }
+        let line = StatusLineRelayTests.wrapper(StatusLineRelayTests.tcpRelay, "bash ~/s.sh")
+        let old = try SettingsFile.encode(["hooks": hooks, "statusLine": ["type": "command", "command": line]])
+        let reading = RemoteSettings.Reading(files: [.claude: .success(RemoteSettings.Snapshot(bytes: old, checksum: "1 2"))],
+                                             command: .missing)
+        XCTAssertEqual(reading.hooks(.claude), .state(.outdated))
+        XCTAssertEqual(reading.statusLine(.claude), .state(.outdated))
+        guard case .state(let unit) = reading.unit(.claude) else { return XCTFail("no unit") }
+        XCTAssertEqual(unit.status, .outdated)
+        XCTAssertTrue(unit.installsRelay)
+
+        let write = try XCTUnwrap(try RemoteSettings.plan(.agent(.claude), .install, original: old))
+        XCTAssertNil(write.backup, "moving the older line takes no backup")
+        let settings = try SettingsFile.parse(write.contents)
+        XCTAssertEqual(LocalHooks.state(of: settings, for: .claude, approvals: false), .current)
+        XCTAssertEqual(StatusLineRelay.state(of: settings, source: .claude), .current)
+        XCTAssertEqual((settings["statusLine"] as? [String: Any])?["command"] as? String,
+                       StatusLineRelay.command(wrapping: "bash ~/s.sh", source: .claude))
+        let stop = ((settings["hooks"] as? [String: Any])?["Stop"] as? [[String: Any]]) ?? []
+        XCTAssertEqual((stop.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String, "/usr/local/bin/other",
+                       "another tool's group keeps its index")
+        XCTAssertNil(try RemoteSettings.plan(.agent(.claude), .install, original: write.contents), "then current")
+    }
+
     func testAServersHooksNeverCarryTheApprovalHook() throws {
         let write = try XCTUnwrap(try RemoteSettings.plan(.hooks(.claude), .install, original: nil))
         XCTAssertFalse(String(decoding: write.contents, as: UTF8.self).contains("/approval"))

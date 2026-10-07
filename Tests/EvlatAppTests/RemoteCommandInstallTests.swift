@@ -11,8 +11,8 @@ import XCTest
 /// in a second temporary home, they leave the automatic install's bytes and
 /// modes.
 final class RemoteCommandInstallTests: XCTestCase {
+    /// Version 1's key, as a server set up by it has it.
     private let key = String(repeating: "c3", count: 32)
-    private let otherKey = String(repeating: "7e", count: 32)
     private var root: URL!
     /// The server's `$HOME`.
     private var remote: URL!
@@ -48,6 +48,8 @@ final class RemoteCommandInstallTests: XCTestCase {
         case unreachable
         /// A server without `curl`: `PATH` holds only the tools the scripts use.
         case noCurl
+        /// A server whose `curl` is older than `--unix-socket` (7.40).
+        case oldCurl
     }
 
     /// A fresh server home and a fake `ssh` for `shell`, under `umask 022`.
@@ -62,13 +64,20 @@ final class RemoteCommandInstallTests: XCTestCase {
         case .run: body = exec
         case .banner: body = "echo 'Welcome to devbox'\nprintf 'x 1 1\\n'\n\(exec)"
         case .unreachable: body = "echo 'ssh: connect to host fake port 22: Connection refused' >&2\nexit 255"
-        case .noCurl:
+        case .noCurl, .oldCurl:
             let tools = run.appendingPathComponent("tools", isDirectory: true)
             try FileManager.default.createDirectory(at: tools, withIntermediateDirectories: true)
             for tool in ["mkdir", "chmod", "mv", "rm", "rmdir", "cat", "sed", "ls"] {
                 let path = ["/bin/\(tool)", "/usr/bin/\(tool)"].first { FileManager.default.isExecutableFile(atPath: $0) }
                 try FileManager.default.createSymbolicLink(atPath: tools.appendingPathComponent(tool).path,
                                                            withDestinationPath: try XCTUnwrap(path, tool))
+            }
+            if mode == .oldCurl {
+                // What curl before 7.40 says to an option it does not know.
+                let curl = tools.appendingPathComponent("curl")
+                try "#!/bin/sh\necho 'curl: option --unix-socket: is unknown' >&2\nexit 2\n"
+                    .write(to: curl, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: curl.path)
             }
             body = "PATH='\(tools.path)'\nexport PATH\n\(exec)"
         }
@@ -92,12 +101,20 @@ final class RemoteCommandInstallTests: XCTestCase {
     private func keyFile(_ home: URL) -> URL { home.appendingPathComponent(RemoteCommand.keyPath) }
     private func keyFolder(_ home: URL) -> URL { keyFile(home).deletingLastPathComponent() }
 
-    private func install(_ ssh: String, key: String? = nil) -> RemoteInstaller.CommandResult {
-        RemoteInstaller.applyCommand(.install, key: key ?? self.key, target: "fake", ssh: ssh)
+    private func install(_ ssh: String) -> RemoteInstaller.CommandResult {
+        RemoteInstaller.applyCommand(.install, target: "fake", ssh: ssh)
     }
 
     private func remove(_ ssh: String) -> RemoteInstaller.CommandResult {
-        RemoteInstaller.applyCommand(.remove, key: key, target: "fake", ssh: ssh)
+        RemoteInstaller.applyCommand(.remove, target: "fake", ssh: ssh)
+    }
+
+    /// Version 1's key on the server, as it left it.
+    private func seedKey(_ home: URL) throws {
+        try FileManager.default.createDirectory(at: keyFolder(home), withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try Data("\(key)\n".utf8).write(to: keyFile(home))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyFile(home).path)
     }
 
     private func bytes(_ url: URL) -> Data? { FileManager.default.contents(atPath: url.path) }
@@ -148,66 +165,50 @@ final class RemoteCommandInstallTests: XCTestCase {
 
     // MARK: - Installing
 
-    func testAnInstallWritesTheMarkedCommandAndTheKey() throws {
+    func testAnInstallWritesTheMarkedCommandAndNoKey() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)
             XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
             XCTAssertEqual(bytes(command(remote)), Data(RemoteCommand.script.utf8), shell)
             XCTAssertEqual(try mode(command(remote)), 0o755, shell)
-            XCTAssertEqual(bytes(keyFile(remote)), Data("\(key)\n".utf8), shell)
-            XCTAssertEqual(try mode(keyFile(remote)), 0o600, "\(shell): the key, under umask 022")
-            XCTAssertEqual(try mode(keyFolder(remote)), 0o700, "\(shell): its folder")
-            let left = try FileManager.default.contentsOfDirectory(atPath: bin(remote).path)
-                + FileManager.default.contentsOfDirectory(atPath: keyFolder(remote).path)
-            XCTAssertEqual(left.sorted(), ["evlat", "signal.token"], "\(shell): no temporary file stays")
+            XCTAssertFalse(exists(keyFile(remote)), "\(shell): no key: the socket's folder guards it")
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: bin(remote).path), ["evlat"],
+                           "\(shell): no temporary file stays")
         }
     }
 
-    func testALooseKeyFileAndFolderAreTightened() throws {
+    /// A server set up by version 1: its key goes with the install —
+    /// nothing reads it, and a secret is not left behind. A link at its
+    /// path goes, never followed.
+    func testAnInstallTakesVersionOnesKeyAway() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)
-            try FileManager.default.createDirectory(at: keyFolder(remote), withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o755])
-            try Data("\(otherKey)\n".utf8).write(to: keyFile(remote))
-            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: keyFile(remote).path)
+            try seedKey(remote)
+            let neighbour = keyFolder(remote).appendingPathComponent("run", isDirectory: true)
+            try FileManager.default.createDirectory(at: neighbour, withIntermediateDirectories: true)
             XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
-            XCTAssertEqual(bytes(keyFile(remote)), Data("\(key)\n".utf8), shell)
-            XCTAssertEqual(try mode(keyFile(remote)), 0o600, shell)
-            XCTAssertEqual(try mode(keyFolder(remote)), 0o700, shell)
-        }
-    }
+            XCTAssertFalse(exists(keyFile(remote)), shell)
+            XCTAssertTrue(exists(neighbour), "\(shell): the folder's other contents stay")
 
-    /// A link at the key's path (a dotfiles tool's, say) is replaced, never
-    /// followed: `mv` onto a link to a folder would put the key inside it and
-    /// `chmod 600` would lock that folder.
-    func testALinkAtTheKeysPathIsReplacedNotFollowed() throws {
-        for shell in shells {
-            let ssh = try setUp(shell: shell)
+            let linked = try setUp(shell: shell)
             let elsewhere = remote.appendingPathComponent("elsewhere", isDirectory: true)
             try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o755])
             try FileManager.default.createDirectory(at: keyFolder(remote), withIntermediateDirectories: true)
             try FileManager.default.createSymbolicLink(at: keyFile(remote), withDestinationURL: elsewhere)
-            XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
-            XCTAssertEqual(bytes(keyFile(remote)), Data("\(key)\n".utf8), shell)
-            XCTAssertEqual(try mode(keyFile(remote)), 0o600, shell)
-            XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: keyFile(remote).path),
-                         "\(shell): the key is a file, not a link")
+            XCTAssertEqual(install(linked), .success(.init(wrote: true, curl: true)), shell)
+            XCTAssertFalse(exists(keyFile(remote)), "\(shell): the link went")
             XCTAssertEqual(try mode(elsewhere), 0o755, "\(shell): the linked folder is untouched")
-            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path), [], shell)
         }
     }
 
-    func testASecondInstallLeavesTheCommandAndWritesTheKey() throws {
+    func testASecondInstallLeavesTheCommand() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)
             XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
             let first = try inode(command(remote))
-            XCTAssertEqual(install(ssh, key: otherKey), .success(.init(wrote: false, curl: true)),
-                           "\(shell): the command is current")
+            XCTAssertEqual(install(ssh), .success(.init(wrote: false, curl: true)), "\(shell): the command is current")
             XCTAssertEqual(try inode(command(remote)), first, "\(shell): not written again")
-            XCTAssertEqual(bytes(keyFile(remote)), Data("\(otherKey)\n".utf8), "\(shell): the key always is")
-            XCTAssertEqual(try mode(keyFile(remote)), 0o600, shell)
         }
     }
 
@@ -255,11 +256,15 @@ final class RemoteCommandInstallTests: XCTestCase {
         }
     }
 
-    func testWithoutCurlTheInstallSaysSo() throws {
+    /// No `curl`, or one too old to reach a socket: the command is
+    /// written, and the report says it will send nothing.
+    func testWithoutACurlThatReachesASocketTheInstallSaysSo() throws {
         for shell in shells {
-            let ssh = try setUp(shell: shell, mode: .noCurl)
-            XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: false)), shell)
-            XCTAssertEqual(bytes(command(remote)), Data(RemoteCommand.script.utf8), shell)
+            for mode in [Mode.noCurl, .oldCurl] {
+                let ssh = try setUp(shell: shell, mode: mode)
+                XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: false)), "\(shell): \(mode)")
+                XCTAssertEqual(bytes(command(remote)), Data(RemoteCommand.script.utf8), shell)
+            }
         }
     }
 
@@ -280,21 +285,20 @@ final class RemoteCommandInstallTests: XCTestCase {
         }
     }
 
-    func testTheKeyIsInNoArgv() throws {
+    func testTheScriptTravelsOnStdin() throws {
         let ssh = try setUp(shell: "/bin/sh")
         XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)))
         XCTAssertFalse(argv.isEmpty, "the fake recorded its argv")
-        XCTAssertFalse(argv.contains(key), "the key travels on stdin")
         XCTAssertTrue(argv.hasSuffix("fake\nsh -s\n"), argv)
-        XCTAssertFalse(RemoteCommand.removeScript(nonce: "n").contains(key))
     }
 
     // MARK: - Removing
 
-    func testRemovingTakesBothFilesAndTheEmptyFolder() throws {
+    func testRemovingTakesTheCommandVersionOnesKeyAndTheEmptyFolder() throws {
         for shell in shells {
             let ssh = try setUp(shell: shell)
             XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
+            try seedKey(remote)
             XCTAssertEqual(remove(ssh), .success(.init(wrote: true, curl: true)), shell)
             XCTAssertFalse(exists(command(remote)), shell)
             XCTAssertFalse(exists(keyFile(remote)), shell)
@@ -322,14 +326,16 @@ final class RemoteCommandInstallTests: XCTestCase {
     // MARK: - End to end
 
     /// The installed command, run as a user on the server would, says "ok"
-    /// to a listener holding the machine's key — `EVLAT_PORT` standing in
-    /// for the tunnel.
-    func testTheInstalledCommandIsHeardWithTheInstalledKey() throws {
-        let key = self.key
-        let listener = HookListener(port: 0, origin: .machine, signalKey: { _ in key }) { _ in }
+    /// to a machine's listener at the socket — `EVLAT_SOCKET` standing in for
+    /// the one under the server's home, which the channel carries here.
+    func testTheInstalledCommandIsHeardThroughTheSocket() throws {
+        let directory = "/tmp/evlat-" + UUID().uuidString.prefix(8).lowercased()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let socket = directory + "/evlat.sock"
+        let listener = HookListener(transport: .unix(socket), origin: .machine) { _ in }
         listener.start()
         defer { listener.stop() }
-        guard case .listening(let port) = listener.awaitSettled(timeout: 5) else {
+        guard case .listeningAt = listener.awaitSettled(timeout: 5) else {
             throw XCTSkip("listener did not come up: \(listener.status.text)")
         }
         for shell in shells {
@@ -340,7 +346,7 @@ final class RemoteCommandInstallTests: XCTestCase {
             process.arguments = [command(remote).path, "--list"]
             var environment = ProcessInfo.processInfo.environment
             environment["HOME"] = remote.path
-            environment["EVLAT_PORT"] = String(port)
+            environment["EVLAT_SOCKET"] = socket
             process.environment = environment
             let output = Pipe()
             process.standardOutput = output
@@ -359,27 +365,20 @@ final class RemoteCommandInstallTests: XCTestCase {
     // MARK: - By hand
 
     func testTheManualBlocksWriteWhatTheAutomaticInstallWrites() throws {
-        let manual = RemoteCommand.manual(key: key)
+        let manual = RemoteCommand.manual()
         for shell in shells {
             let ssh = try setUp(shell: shell)
             XCTAssertEqual(install(ssh), .success(.init(wrote: true, curl: true)), shell)
             let hand = remote.deletingLastPathComponent().appendingPathComponent("hand", isDirectory: true)
             try FileManager.default.createDirectory(at: hand, withIntermediateDirectories: true)
+            try seedKey(hand)
 
             XCTAssertEqual(try sh(shell, manual.script, home: hand).status, 0, shell)
             XCTAssertEqual(bytes(command(hand)), bytes(command(remote)), "\(shell): the same bytes")
             XCTAssertEqual(try mode(command(hand)), 0o755, shell)
+            XCTAssertFalse(exists(keyFile(hand)), "\(shell): version 1's key goes, as the install takes it")
 
-            // Over a loose file, as a redirection alone would keep it.
-            try FileManager.default.createDirectory(at: keyFolder(hand), withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o755])
-            try Data("old\n".utf8).write(to: keyFile(hand))
-            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: keyFile(hand).path)
-            XCTAssertEqual(try sh(shell, manual.key, home: hand).status, 0, shell)
-            XCTAssertEqual(bytes(keyFile(hand)), bytes(keyFile(remote)), "\(shell): the same key line")
-            XCTAssertEqual(try mode(keyFile(hand)), 0o600, shell)
-            XCTAssertEqual(try mode(keyFolder(hand)), 0o700, shell)
-
+            try seedKey(hand)
             XCTAssertEqual(try sh(shell, manual.remove, home: hand).status, 0, shell)
             XCTAssertFalse(exists(command(hand)), shell)
             XCTAssertFalse(exists(keyFile(hand)), shell)
@@ -391,10 +390,7 @@ final class RemoteCommandInstallTests: XCTestCase {
     func testTheHeredocDelimiterIsNoLineOfTheScript() {
         let lines = RemoteCommand.script.split(separator: "\n", omittingEmptySubsequences: false)
         XCTAssertFalse(lines.contains { $0 == RemoteCommand.delimiter[...] })
-        let manual = RemoteCommand.manual(key: key)
+        let manual = RemoteCommand.manual()
         XCTAssertTrue(manual.script.contains("<<'\(RemoteCommand.delimiter)'"), "a quoted delimiter: no expansion")
-        XCTAssertFalse(manual.script.contains(key), "the key has its own block")
-        XCTAssertFalse(manual.remove.contains(key))
-        XCTAssertTrue(manual.key.contains(key))
     }
 }

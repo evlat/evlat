@@ -46,6 +46,7 @@ final class RemoteMachinesTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.removeItem(atPath: sockets)
+        try? FileManager.default.removeItem(atPath: serverHome)
     }
 
     // MARK: - Helpers
@@ -57,17 +58,13 @@ final class RemoteMachinesTests: XCTestCase {
         case fail(String)
     }
 
+    /// The server's home the fake's calls run in: short, its socket under it.
+    private var serverHome: String { sockets + "-home" }
+
     private func fakeSSH(_ mode: Mode, name: String = "fake-ssh") throws -> String {
-        let script = directory.appendingPathComponent(name)
-        let tail: String
-        switch mode {
-        case .connect: tail = "exec cat >/dev/null"
-        case .fail(let line): tail = "echo '\(line)' >&2\nexit 255"
-        }
-        try "#!/bin/sh\n\(FreshExecutable.warmLine)\n\(tail)\n".write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        FreshExecutable.warm(script.path)
-        return script.path
+        var environment: [String: String] = [:]
+        if case .fail(let line) = mode { environment["FAKE_SSH_FAIL"] = line }
+        return try FakeSSH.make(in: directory, name: name, home: serverHome, environment: environment)
     }
 
     /// A controller whose tunnels run the fake; `stored` says whether its
@@ -77,7 +74,7 @@ final class RemoteMachinesTests: XCTestCase {
         let controller = AppController(defaults: defaults)
         controller.startRemoteTunnels(
             configuration: RemoteMachine.Configuration(machines: machines, fromEnvironment: !stored, rejected: []),
-            sshPath: ssh, socketDirectory: sockets, confirmAfter: 0.2)
+            sshPath: ssh, socketDirectory: sockets, channelDeadline: 10)
         controllers.append(controller)
         return controller
     }
@@ -95,7 +92,6 @@ final class RemoteMachinesTests: XCTestCase {
         var machines: [RemoteMachine] = []
         var states: [String: RemoteTunnel.State] = [:]
         var counts: [String: Int] = [:]
-        var keys: [String: String] = [:]
         var retried: [String] = []
         var password: Set<String> = []
         var sockets: [String: String] = [:]
@@ -117,7 +113,6 @@ final class RemoteMachinesTests: XCTestCase {
                 recorder.machines.removeAll { $0.id == id }
             },
             isStored: { stored },
-            signalKey: { recorder.keys[$0] },
             controlPath: { recorder.sockets[$0] },
             retryByUser: { recorder.retried.append($0) },
             asksForPassword: { recorder.password.contains($0) })
@@ -232,55 +227,20 @@ final class RemoteMachinesTests: XCTestCase {
 
     // MARK: - Signal keys
 
-    private func storedKeys() -> [String: String]? {
-        defaults.dictionary(forKey: RemoteMachine.signalKeysStorageKey) as? [String: String]
-    }
-
-    func testAnAddedMachineGetsAKeyAndRemovingItDropsTheKey() throws {
+    /// The machines' `/signal` keys of an earlier version are neither read
+    /// nor written nor removed: the channel's end needs none, and a stored
+    /// value is left where it is.
+    func testTheMachinesKeysAreLeftAsTheyWere() throws {
         let ssh = try fakeSSH(.connect)
-        let controller = controller(ssh: ssh)
+        let kept: [String: String] = ["old": String(repeating: "d", count: 64), "gone": String(repeating: "e", count: 64)]
+        defaults.set(kept, forKey: RemoteMachine.signalKeysStorageKey)
+        let controller = controller(ssh: ssh, machines: [try XCTUnwrap(RemoteMachine(id: "old", target: "old"))])
         let model = model(controller, ssh: ssh)
         model.draft = "devbox"
         model.add()
-        let id = try XCTUnwrap(model.selection)
-        let key = try XCTUnwrap(storedKeys()?[id])
-        XCTAssertTrue(RemoteMachine.isSignalKey(key), "64 hex digits")
-        XCTAssertEqual(controller.remote?.signalKey(of: id), key, "the listener has the stored key")
-
-        model.draft = "devbox"
-        model.add()
-        XCTAssertEqual(storedKeys()?[id], key, "the same target again makes no new key")
-
         model.askToRemove()
         model.confirmRemoval()
-        XCTAssertEqual(storedKeys(), [:])
-    }
-
-    func testAStoredMachineWithoutAKeyGetsOneAtLaunchAndAKeptKeyStays() throws {
-        let ssh = try fakeSSH(.connect)
-        let old = try XCTUnwrap(RemoteMachine(id: "old", target: "old"))
-        let keyed = try XCTUnwrap(RemoteMachine(id: "keyed", target: "keyed"))
-        let kept = String(repeating: "d", count: 64)
-        defaults.set(["keyed": kept, "gone": kept], forKey: RemoteMachine.signalKeysStorageKey)
-        let controller = controller(ssh: ssh, machines: [old, keyed])
-        let keys = try XCTUnwrap(storedKeys())
-        XCTAssertEqual(Set(keys.keys), ["old", "keyed"], "made for the old machine, dropped for the gone one")
-        XCTAssertEqual(keys["keyed"], kept)
-        XCTAssertTrue(RemoteMachine.isSignalKey(try XCTUnwrap(keys["old"])))
-        XCTAssertEqual(controller.remote?.signalKey(of: "old"), keys["old"])
-    }
-
-    func testTheEnvironmentsMachineKeysStayInMemory() throws {
-        let ssh = try fakeSSH(.connect)
-        let machine = try XCTUnwrap(RemoteMachine(id: "fake", target: "fake"))
-        let controller = controller(ssh: ssh, stored: false, machines: [machine])
-        XCTAssertTrue(RemoteMachine.isSignalKey(try XCTUnwrap(controller.remote?.signalKey(of: "fake"))))
-        let model = model(controller, ssh: ssh)
-        model.draft = "devbox"
-        model.add()
-        let id = try XCTUnwrap(model.selection)
-        XCTAssertNotNil(controller.remote?.signalKey(of: id))
-        XCTAssertNil(defaults.object(forKey: RemoteMachine.signalKeysStorageKey), "never written")
+        XCTAssertEqual(defaults.dictionary(forKey: RemoteMachine.signalKeysStorageKey) as? [String: String], kept)
     }
 
     /// A machine's switches are stored on its entry with the list; the
@@ -340,8 +300,8 @@ final class RemoteMachinesTests: XCTestCase {
             [(.hooks(.claude), .success(.written)), (.hooks(.codex), .failure(.file(.noDirectory)))],
             .install, in: "tr")
         XCTAssertEqual(installed.line, "Claude Code: kuruldu · Codex: kurulu değil (klasör yok)")
-        XCTAssertEqual(installed.hints, [L10n.t("remote.hint.install.claude", in: "tr")],
-                       "the agent's own hint: open /hooks once")
+        XCTAssertEqual(installed.hints, [],
+                       "Claude Code takes changed hooks at its next message (measured): nothing to say")
         XCTAssertFalse(installed.trouble, "Codex not being there is not a failure")
 
         let again = RemoteMachinesModel.outcome(
@@ -361,8 +321,11 @@ final class RemoteMachinesTests: XCTestCase {
     func testAUnitsLineNamesItsAgentAndItsHints() {
         let claude = RemoteMachinesModel.outcome([(.agent(.claude), .success(.written))], .install, in: "en")
         XCTAssertEqual(claude.line, "Claude Code: installed")
-        XCTAssertEqual(claude.hints, [L10n.t("remote.hint.install.claude", in: "en"),
-                                      L10n.t("remote.hint.usage", ["agent": "Claude Code"], in: "en")])
+        XCTAssertEqual(claude.hints, [L10n.t("remote.hint.usage", ["agent": "Claude Code"], in: "en")])
+        let codexInstalled = RemoteMachinesModel.outcome([(.agent(.codex), .success(.written))], .install, in: "en")
+        XCTAssertEqual(codexInstalled.hints, [L10n.t("remote.hint.install.codex", in: "en")],
+                       "Codex runs changed hooks only once trusted in /hooks")
+        XCTAssertTrue(codexInstalled.hints.first?.contains("/hooks") == true)
         let antigravity = RemoteMachinesModel.outcome([(.agent(.antigravity), .success(.written))], .install,
                                                       in: "en")
         XCTAssertEqual(antigravity.hints, [], "nothing measured, nothing said; no usage line on a server")
@@ -380,9 +343,6 @@ final class RemoteMachinesTests: XCTestCase {
         model.draft = "devbox"
         model.add()
         let id = try XCTUnwrap(model.selection)
-        model.runCommand(.install)
-        XCTAssertFalse(model.isBusy(id), "no key, no job")
-        recorder.keys[id] = String(repeating: "ab", count: 32)
 
         model.run(.install(.claude))
         model.runCommand(.install)   // refused: the machine has a job
@@ -430,34 +390,23 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertEqual(removed.hints, [])
     }
 
-    func testTheKeyBlockIsMaskedAndCopiesTheRealKey() throws {
+    /// The command's blocks are the script and the way back, in the same
+    /// bytes as the automatic install; nothing in them is a secret.
+    func testTheCommandsBlocksAreTheScriptAndTheWayBack() throws {
         let recorder = Recorder()
         let model = RemoteMachinesModel(host: host(recorder), installer: RemoteInstaller(sshPath: "/nonexistent"),
                                         pasteboard: pasteboard, lang: "en")
         model.draft = "devbox"
         model.add()
         let id = try XCTUnwrap(model.selection)
-        XCTAssertEqual(model.commandBlocks(for: id), [], "no key, nothing to paste")
-        let key = String(repeating: "5f", count: 32)
-        recorder.keys[id] = key
-
         let blocks = model.commandBlocks(for: id)
-        let manual = RemoteCommand.manual(key: key)
-        XCTAssertEqual(blocks.map(\.id), ["command.script", "command.key", "command.remove"])
-        XCTAssertEqual(blocks.map(\.text), [manual.script, manual.key, manual.remove])
-        XCTAssertEqual(blocks[0].shown, blocks[0].text)
-        XCTAssertFalse(blocks[1].shown.contains(key), "the key is not drawn")
-        XCTAssertFalse(blocks[1].shown.contains(String(key.prefix(8))))
-        XCTAssertTrue(blocks[1].shown.contains(RemoteCommand.keyPath), "the rest of the line is")
-
-        model.copy(blocks[1])
-        XCTAssertEqual(pasteboard.string(forType: .string), manual.key, "the real key is copied")
-        XCTAssertNotNil(pasteboard.data(forType: RemoteMachinesModel.concealedType),
-                        "marked concealed: clipboard managers keep no history of the key")
+        let manual = RemoteCommand.manual()
+        XCTAssertEqual(blocks.map(\.id), ["command.script", "command.remove"])
+        XCTAssertEqual(blocks.map(\.text), [manual.script, manual.remove])
+        XCTAssertEqual(blocks.map(\.shown), blocks.map(\.text), "drawn as they are")
         model.copy(blocks[0])
+        XCTAssertEqual(pasteboard.string(forType: .string), manual.script)
         XCTAssertNil(pasteboard.data(forType: RemoteMachinesModel.concealedType), "the script is no secret")
-        model.copy(blocks[1])
-        XCTAssertEqual(model.copied, "command.key")
     }
 
     func testAJobIsOneAgentsUnit() {
@@ -486,8 +435,8 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertEqual(text(nil), "not connected")
         XCTAssertEqual(text(.waiting(retryAt: now.addingTimeInterval(150), failure: .authentication), "tr"),
                        "kimlik doğrulama başarısız · 2 dk sonra yeniden denenecek")
-        XCTAssertEqual(text(.waiting(retryAt: now.addingTimeInterval(20), failure: .portBusy)),
-                       "port 48151 is taken on the server · retrying shortly")
+        XCTAssertEqual(text(.waiting(retryAt: now.addingTimeInterval(20), failure: .channelBusy)),
+                       "another Evlat answers this server · retrying shortly")
 
         let failing = RemoteMachinesModel.status(.waiting(retryAt: now, failure: .hostKey),
                                                  sessions: 0, now: now, in: "en", target: "me@devbox")
@@ -554,8 +503,8 @@ final class RemoteMachinesTests: XCTestCase {
     }
 
     func testEveryTunnelFailureHasALineAndAdvice() {
-        let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable,
-                                                .passwordNeeded, .other]
+        let failures: [RemoteTunnel.Failure] = [.authentication, .channelBusy, .forwardingRefused, .hostKey,
+                                                .hostName, .unreachable, .passwordNeeded, .other]
         let lines = Set(failures.map(RemoteMachinesModel.failureKey))
         let advice = Set(failures.map(RemoteMachinesModel.adviceKey))
         XCTAssertEqual(lines.count, failures.count)
@@ -579,7 +528,8 @@ final class RemoteMachinesTests: XCTestCase {
 
     func testEveryKeyIsInBothTables() {
         // An agent's own hints are looked up, not listed: the ones written.
-        let hints = ["remote.hint.install.claude", "remote.hint.install.codex", "remote.hint.remove.codex"]
+        // Claude Code has none: it takes changed hooks at its next message.
+        let hints = ["remote.hint.install.codex", "remote.hint.remove.codex"]
         for lang in ["en", "tr"] {
             for key in RemoteMachinesModel.keys + hints {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
@@ -741,7 +691,7 @@ final class RemoteMachinesTests: XCTestCase {
         let ssh = try fakeSSH(.connect)
         controller.startRemoteTunnels(configuration: RemoteMachine.Configuration(
             machines: [try XCTUnwrap(RemoteMachine(id: "m1", target: "devbox"))], fromEnvironment: true, rejected: []),
-            sshPath: ssh, socketDirectory: sockets, confirmAfter: 0.2)
+            sshPath: ssh, socketDirectory: sockets, channelDeadline: 10)
         controller.openSettings(section: .remote)
         let window = try XCTUnwrap(controller.settingsWindow)
         let model = try XCTUnwrap(controller.settings?.remote)

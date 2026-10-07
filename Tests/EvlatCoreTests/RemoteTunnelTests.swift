@@ -8,32 +8,10 @@ final class RemoteTunnelTests: XCTestCase {
     // MARK: - Targets
 
     func testTheArgumentsAreTheWholeList() {
-        XCTAssertEqual(RemoteTunnel.arguments(target: "ben@devbox", localPort: 50123), [
+        XCTAssertEqual(RemoteTunnel.arguments(target: "ben@devbox", controlPath: "/tmp/e/d8ca92b2",
+                                              mark: "evlat-channel-N"), [
             "-T",
             "-o", "BatchMode=yes",
-            "-o", "ExitOnForwardFailure=yes",
-            "-o", "ServerAliveInterval=15",
-            "-o", "ServerAliveCountMax=3",
-            "-o", "ConnectTimeout=10",
-            "-o", "ControlMaster=no",
-            "-o", "ControlPath=none",
-            // A host's config must not replace the command or empty its stdin.
-            "-o", "RemoteCommand=none",
-            "-o", "StdinNull=no",
-            "-o", "ForkAfterAuthentication=no",
-            // The remote end is the port the installed command names, the
-            // local end the machine's own listener.
-            "-R", "127.0.0.1:48151:127.0.0.1:50123",
-            "--", "ben@devbox", "cat >/dev/null",
-        ])
-    }
-
-    func testWithASocketTheTunnelIsEvlatsOwnMaster() {
-        XCTAssertEqual(RemoteTunnel.arguments(target: "ben@devbox", localPort: 50123,
-                                              controlPath: "/tmp/e/d8ca92b2"), [
-            "-T",
-            "-o", "BatchMode=yes",
-            "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=15",
             "-o", "ServerAliveCountMax=3",
             "-o", "ConnectTimeout=10",
@@ -43,24 +21,41 @@ final class RemoteTunnelTests: XCTestCase {
             "-M",
             "-S", "/tmp/e/d8ca92b2",
             "-o", "ControlPersist=no",
+            // A host's config must not replace the command or empty its stdin.
             "-o", "RemoteCommand=none",
             "-o", "StdinNull=no",
             "-o", "ForkAfterAuthentication=no",
-            "-R", "127.0.0.1:48151:127.0.0.1:50123",
-            "--", "ben@devbox", "cat >/dev/null",
+            // No `-R` here: the master would remember a forward that failed.
+            "--", "ben@devbox", "echo evlat-channel-N; exec cat >/dev/null",
         ])
-        XCTAssertEqual(RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: nil),
-                       RemoteTunnel.arguments(target: "devbox", localPort: 1), "no socket, today's list")
-        XCTAssertEqual(RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: "/s").filter { $0 == "-M" }.count,
+        XCTAssertEqual(RemoteTunnel.arguments(target: "devbox", controlPath: "/s", mark: "m").filter { $0 == "-M" }.count,
                        1, "a second -M would make it ControlMaster=ask")
+        XCTAssertFalse(RemoteTunnel.arguments(target: "devbox", controlPath: "/s", mark: "m").contains("-R"))
+        XCTAssertEqual(RemoteTunnel.mark(nonce: "N"), "evlat-channel-N")
+    }
+
+    /// The forward, as measured over a master (OpenSSH 9.6p1 server, 10.2p1
+    /// client): socket to socket, the server's end absolute.
+    func testTheForwardIsAskedOfTheMasterOnly() {
+        XCTAssertEqual(RemoteTunnel.forwardArguments(target: "ben@devbox", controlPath: "/tmp/e/d8ca92b2",
+                                                     remote: "/home/ben/.config/evlat/run/evlat.sock",
+                                                     local: "/tmp/e/d8ca92b2.sock"), [
+            "-S", "/tmp/e/d8ca92b2",
+            "-o", "ControlMaster=no",
+            // A master that has gone is no call, never a login of its own.
+            "-o", "ProxyCommand=/usr/bin/false",
+            "-O", "forward",
+            "-R", "/home/ben/.config/evlat/run/evlat.sock:/tmp/e/d8ca92b2.sock",
+            "--", "ben@devbox",
+        ])
     }
 
     /// With an askpass to ask, `ssh` may prompt — once per method — and
     /// the prompt goes to Evlat; without one it never prompts at all: a
     /// controlling terminal would otherwise be asked.
     func testWithAnAskpassSSHMayPromptOnce() {
-        let plain = RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: "/s")
-        let asking = RemoteTunnel.arguments(target: "devbox", localPort: 1, controlPath: "/s", askpass: true)
+        let plain = RemoteTunnel.arguments(target: "devbox", controlPath: "/s", mark: "m")
+        let asking = RemoteTunnel.arguments(target: "devbox", controlPath: "/s", mark: "m", askpass: true)
         XCTAssertTrue(plain.contains("BatchMode=yes"))
         XCTAssertFalse(plain.contains("NumberOfPasswordPrompts=1"))
         XCTAssertFalse(asking.contains("BatchMode=yes"))
@@ -68,7 +63,7 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertTrue(asking.contains("NumberOfPasswordPrompts=1"))
         XCTAssertEqual(asking.filter { $0 != "BatchMode=no" && $0 != "NumberOfPasswordPrompts=1" && $0 != "-o" },
                        plain.filter { $0 != "BatchMode=yes" && $0 != "-o" }, "nothing else moves")
-        XCTAssertEqual(Array(asking.suffix(3)), ["--", "devbox", "cat >/dev/null"])
+        XCTAssertEqual(Array(asking.suffix(3)), ["--", "devbox", "echo m; exec cat >/dev/null"])
     }
 
     func testTheSocketPathIsShortAndTheSameOnEveryLaunch() {
@@ -87,6 +82,35 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertNil(RemoteTunnel.controlPath(directory: "", machineID: "x"))
     }
 
+    /// The channel's end here sits beside the master's socket, and only
+    /// an address's limit applies: `ssh` connects to it, it does not bind.
+    func testTheChannelsEndIsTheMastersPathWithSock() {
+        XCTAssertEqual(RemoteTunnel.channelPath(directory: "/tmp/e", machineID: "ben@devbox"), "/tmp/e/d8ca92b2.sock")
+        let fits = "/" + String(repeating: "d", count: 103 - 15)
+        XCTAssertEqual(RemoteTunnel.channelPath(directory: fits, machineID: "x")?.utf8.count, 103)
+        XCTAssertNil(RemoteTunnel.channelPath(directory: fits + "d", machineID: "x"), "one byte over")
+        XCTAssertNil(RemoteTunnel.channelPath(directory: "/tmp/a:b", machineID: "x"), "-R reads a colon as its separator")
+    }
+
+    // MARK: - The probe
+
+    func testTheProbesLineIsReadBehindABanner() {
+        let output = Data("""
+            Welcome to devbox
+            N2 channel busy ok /x
+            N channel cleared ok /home/ben smith/.config/evlat/run/evlat.sock
+            N command 0 missing -
+
+            """.utf8)
+        XCTAssertEqual(RemoteTunnel.channel(output: output, nonce: "N"),
+                       RemoteTunnel.Channel(socket: .cleared, curl: .ok,
+                                            path: "/home/ben smith/.config/evlat/run/evlat.sock"))
+        XCTAssertEqual(RemoteTunnel.channel(output: Data("N channel homeless none \n".utf8), nonce: "N"),
+                       RemoteTunnel.Channel(socket: .homeless, curl: .none, path: ""))
+        XCTAssertNil(RemoteTunnel.channel(output: Data("N channel odd ok /x\n".utf8), nonce: "N"))
+        XCTAssertNil(RemoteTunnel.channel(output: Data(), nonce: "N"))
+    }
+
     func testTheEnvironmentIsAddedToEvlatsOwn() {
         let base = ["SSH_AUTH_SOCK": "/private/tmp/agent.sock", "PATH": "/usr/bin", "HOME": "/Users/ben"]
         XCTAssertEqual(RemoteTunnel.environment(base: base, askpass: nil), base, "the agent is kept")
@@ -98,7 +122,7 @@ final class RemoteTunnelTests: XCTestCase {
     }
 
     func testTheTargetComesAfterTheOptionTerminator() throws {
-        let arguments = RemoteTunnel.arguments(target: "devbox", localPort: 1)
+        let arguments = RemoteTunnel.arguments(target: "devbox", controlPath: "/s", mark: "m")
         let terminator = try XCTUnwrap(arguments.firstIndex(of: "--"))
         XCTAssertEqual(arguments[terminator + 1], "devbox")
         XCTAssertEqual(arguments.count, terminator + 3, "only the target and the remote command follow")
@@ -216,7 +240,9 @@ final class RemoteTunnelTests: XCTestCase {
     func testEachOpenSSHLineIsClassified() {
         let samples: [(String, RemoteTunnel.Failure)] = [
             ("ben@devbox: Permission denied (publickey).", .authentication),
-            ("Error: remote port forwarding failed for listen port 48151", .portBusy),
+            // A refused forward's line says nothing on its own: the probe
+            // before it decides between busy and refused.
+            ("mux_client_forward: forwarding request failed: remote port forwarding failed for listen path /x", .other),
             ("Host key verification failed.", .hostKey),
             ("ssh: Could not resolve hostname devbox: nodename nor servname provided, or not known", .hostName),
             ("ssh: connect to host devbox port 22: Connection refused", .unreachable),
@@ -231,8 +257,8 @@ final class RemoteTunnelTests: XCTestCase {
         // A warning ahead of the line that matters does not decide it.
         XCTAssertEqual(RemoteTunnel.classify(stderr: """
             Warning: Permanently added 'devbox' (ED25519) to the list of known hosts.
-            Error: remote port forwarding failed for listen port 48151
-            """), .portBusy)
+            Host key verification failed.
+            """), .hostKey)
     }
 
     // MARK: - Schedule
@@ -256,6 +282,8 @@ final class RemoteTunnelTests: XCTestCase {
         /// What a launch does: nothing (a process now runs) by default.
         var onLaunch: (Int) -> Void = { _ in }
         var stored = false
+        var probes: [Int] = []
+        var forwards: [(generation: Int, remote: String)] = []
 
         lazy var tunnel: RemoteTunnel = {
             let tunnel = RemoteTunnel(effects: RemoteTunnel.Effects(
@@ -270,10 +298,22 @@ final class RemoteTunnelTests: XCTestCase {
                     self.scheduled.append((delay, run, false))
                     return { [unowned self] in self.scheduled[index].cancelled = true }
                 },
-                hasStoredPassword: { [unowned self] in self.stored }))
+                hasStoredPassword: { [unowned self] in self.stored },
+                probe: { [unowned self] in self.probes.append($0) },
+                forward: { [unowned self] in self.forwards.append(($0, $1)) }))
             tunnel.onChange = { [unowned self] in self.changes.append($0) }
             return tunnel
         }()
+
+        static let free = RemoteTunnel.Channel(socket: .free, curl: .ok, path: "/home/ben/.config/evlat/run/evlat.sock")
+
+        /// The try `generation`'s channel, made: the mark, a free socket,
+        /// the forward.
+        func connect(_ generation: Int) {
+            tunnel.marked(generation: generation)
+            tunnel.probed(generation: generation, channel: Self.free)
+            tunnel.forwarded(generation: generation, made: true)
+        }
 
         /// The live scheduled calls' delays.
         var pending: [TimeInterval] { scheduled.filter { !$0.cancelled }.map(\.delay) }
@@ -287,15 +327,112 @@ final class RemoteTunnelTests: XCTestCase {
         }
     }
 
-    func testAProcessThatStaysUpConnects() {
+    /// The order is the channel's: the mark, the probe, the forward —
+    /// each asked for once its step before has answered. Only the forward
+    /// made is connected.
+    func testAChannelMadeOverTheMasterConnects() {
         let h = Harness()
         h.tunnel.start()
         XCTAssertEqual(h.launches, [1])
         XCTAssertEqual(h.tunnel.state, .connecting)
-        XCTAssertEqual(h.pending, [RemoteTunnel.defaultConfirmAfter])
+        XCTAssertEqual(h.pending, [RemoteTunnel.defaultChannelDeadline])
+        XCTAssertEqual(h.probes, [], "no probe before the mark")
+        h.tunnel.marked(generation: 1)
+        h.tunnel.marked(generation: 1)
+        XCTAssertEqual(h.probes, [1], "once")
+        XCTAssertEqual(h.forwards.count, 0, "no forward before the probe")
+        h.tunnel.probed(generation: 1, channel: Harness.free)
+        XCTAssertEqual(h.forwards.map(\.remote), [Harness.free.path])
+        XCTAssertEqual(h.tunnel.state, .connecting, "not before the forward is made")
         h.now += 3
-        h.runPending()
+        h.tunnel.forwarded(generation: 1, made: true)
         XCTAssertEqual(h.tunnel.state, .connected(since: h.now))
+        XCTAssertEqual(h.pending, [], "the deadline is no longer needed")
+    }
+
+    /// A socket a dead connection left, cleared by the probe, or one it
+    /// could not ask: the forward goes ahead.
+    func testAClearedOrUnaskedSocketIsForwarded() {
+        for socket in [RemoteTunnel.Channel.Socket.cleared, .unknown] {
+            let h = Harness()
+            h.tunnel.start()
+            h.tunnel.marked(generation: 1)
+            h.tunnel.probed(generation: 1, channel: RemoteTunnel.Channel(socket: socket, curl: .none, path: "/p"))
+            XCTAssertEqual(h.forwards.map(\.remote), ["/p"], socket.rawValue)
+        }
+    }
+
+    /// Another Evlat answers on the server's socket: no forward is asked,
+    /// the master closes, and the try waits as `channelBusy`.
+    func testABusySocketIsLeftAloneAndTheTryWaits() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.marked(generation: 1)
+        h.tunnel.probed(generation: 1, channel: RemoteTunnel.Channel(socket: .busy, curl: .ok, path: "/p"))
+        XCTAssertEqual(h.forwards.count, 0)
+        XCTAssertEqual(h.terminations, 1, "the master is closed")
+        h.tunnel.heard()
+        XCTAssertEqual(h.tunnel.state, .connecting, "a failed try is not heard into connected")
+        h.tunnel.exited(generation: 1, stderr: "Shared connection to devbox closed.")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .channelBusy))
+        XCTAssertEqual(h.pending, [2])
+    }
+
+    /// The probe found the socket free and the forward failed: the server
+    /// refuses socket forwarding (or another Mac took it in between).
+    func testARefusedForwardIsForwardingRefused() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.marked(generation: 1)
+        h.tunnel.probed(generation: 1, channel: Harness.free)
+        h.tunnel.forwarded(generation: 1, made: false)
+        XCTAssertEqual(h.terminations, 1)
+        h.tunnel.exited(generation: 1, stderr: "")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .forwardingRefused))
+    }
+
+    /// No answer, or a server's end the channel cannot have: `other`.
+    func testAProbeThatCannotGiveAChannelIsOther() {
+        let channels: [RemoteTunnel.Channel?] = [nil] + [RemoteTunnel.Channel.Socket.long, .unwritable, .homeless]
+            .map { RemoteTunnel.Channel(socket: $0, curl: .ok, path: "") }
+        for channel in channels {
+            let h = Harness()
+            h.tunnel.start()
+            h.tunnel.marked(generation: 1)
+            h.tunnel.probed(generation: 1, channel: channel)
+            XCTAssertEqual(h.forwards.count, 0)
+            h.tunnel.exited(generation: 1, stderr: "")
+            XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .other))
+        }
+    }
+
+    /// A master that never prints its mark — a server's shell that holds
+    /// the command — ends at the deadline instead of reading connected.
+    func testAMasterWithoutItsMarkEndsAtTheDeadline() {
+        let h = Harness()
+        h.tunnel.start()
+        h.now += RemoteTunnel.defaultChannelDeadline
+        h.runPending()
+        XCTAssertEqual(h.terminations, 1)
+        XCTAssertEqual(h.tunnel.state, .connecting, "until its exit")
+        h.tunnel.exited(generation: 1, stderr: "")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .other))
+    }
+
+    /// A step's answer about an earlier try changes nothing.
+    func testAnEarlierTrysAnswerChangesNothing() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.marked(generation: 1)
+        h.tunnel.exited(generation: 1, stderr: "Connection refused")
+        h.runPending()
+        XCTAssertEqual(h.launches, [1, 2])
+        h.tunnel.probed(generation: 1, channel: Harness.free)
+        h.tunnel.forwarded(generation: 1, made: true)
+        XCTAssertEqual(h.forwards.count, 0)
+        XCTAssertEqual(h.tunnel.state, .connecting)
+        h.connect(2)
+        XCTAssertTrue(h.tunnel.state.isConnected)
     }
 
     func testARequestConnectsWithoutWaiting() {
@@ -309,8 +446,8 @@ final class RemoteTunnelTests: XCTestCase {
     func testAFailureWaitsOnTheScheduleAndTriesAgain() {
         let h = Harness()
         h.tunnel.start()
-        h.tunnel.exited(generation: 1, stderr: "Error: remote port forwarding failed for listen port 48151")
-        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .portBusy))
+        h.tunnel.exited(generation: 1, stderr: "ssh: connect to host devbox port 22: Connection refused")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .unreachable))
         XCTAssertEqual(h.pending, [2])
         h.now += 2
         h.runPending()
@@ -402,20 +539,18 @@ final class RemoteTunnelTests: XCTestCase {
 
     // MARK: - Passwords
 
-    /// While a prompt is up nothing is known about the login: the 15 s pass
-    /// with nobody answering, and the tunnel is still connecting. The
-    /// answer starts the wait over.
-    func testAHeldPromptKeepsTheTunnelFromConnecting() {
+    /// While a prompt is up nothing is known about the login, and no
+    /// deadline runs: the user may take their time. The answer starts the
+    /// deadline over.
+    func testAHeldPromptHoldsTheDeadline() {
         let h = Harness()
         h.tunnel.start()
         h.tunnel.promptOpened()
-        h.now += 15
-        h.runPending()
-        XCTAssertEqual(h.tunnel.state, .connecting, "nobody has answered")
+        XCTAssertEqual(h.pending, [], "nobody has answered")
         h.tunnel.promptAnswered(sentPassword: true)
-        XCTAssertEqual(h.pending, [RemoteTunnel.defaultConfirmAfter], "the wait starts over at the answer")
-        h.now += 15
-        h.runPending()
+        XCTAssertEqual(h.pending, [RemoteTunnel.defaultChannelDeadline], "the wait starts over at the answer")
+        h.now += 5
+        h.connect(1)
         XCTAssertEqual(h.tunnel.state, .connected(since: h.now))
         XCTAssertTrue(h.tunnel.lastConnectedWithPassword)
     }
@@ -449,14 +584,14 @@ final class RemoteTunnelTests: XCTestCase {
         }
     }
 
-    /// A slow server refuses after the timer called the try connected: the
-    /// password was still refused, and is not sent again.
-    func testARefusalAfterTheTimerIsStillARefusal() {
+    /// A refusal after the channel was made: the password was still
+    /// refused, and is not sent again.
+    func testARefusalAfterConnectingIsStillARefusal() {
         let h = Harness()
         h.tunnel.start(interactive: true)
         h.tunnel.promptOpened()
         h.tunnel.promptAnswered(sentPassword: true)
-        h.runPending()
+        h.connect(1)
         XCTAssertTrue(h.tunnel.state.isConnected)
         h.tunnel.exited(generation: 1, stderr: "Permission denied (password).")
         XCTAssertEqual(h.tunnel.state, .needsUser(rejected: true))
@@ -480,7 +615,7 @@ final class RemoteTunnelTests: XCTestCase {
         before.tunnel.start(interactive: true)
         before.tunnel.promptOpened()
         before.tunnel.promptAnswered(sentPassword: true)
-        before.runPending()
+        before.connect(1)
         XCTAssertTrue(before.tunnel.lastConnectedWithPassword)
         before.tunnel.sleep()
         before.tunnel.wake()
@@ -552,7 +687,7 @@ final class RemoteTunnelTests: XCTestCase {
         h.tunnel.exited(generation: 1, stderr: "Permission denied (password).")
         XCTAssertEqual(h.pending, [2])
         h.tunnel.retryByUser()
-        XCTAssertEqual(h.pending, [RemoteTunnel.defaultConfirmAfter], "the pending retry is dropped")
+        XCTAssertEqual(h.pending, [RemoteTunnel.defaultChannelDeadline], "the pending retry is dropped")
         XCTAssertEqual(h.tunnel.mode, .interactive)
         XCTAssertEqual(h.launches, [1, 2])
     }

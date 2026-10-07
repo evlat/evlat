@@ -93,13 +93,15 @@ public enum AgentIntegration {
         }
 
         /// Every part that applies current → current; none there → missing;
-        /// anything between → outdated. A relay changed by hand is not a
-        /// part: it is never written over, so it can neither complete the
-        /// unit nor hold it back.
+        /// anything between → outdated. An earlier copy's relay is an
+        /// outdated part, which the press moves. A relay changed by hand is
+        /// not a part: it is never written over, so it can neither complete
+        /// the unit nor hold it back.
         public var status: Status {
             var parts: [Status] = [Self.status(hooks)]
             switch relay {
             case .current?: parts.append(.current)
+            case .outdated?: parts.append(.outdated)
             case .missing?: parts.append(.missing)
             case .modified?, nil: break
             }
@@ -108,8 +110,9 @@ public enum AgentIntegration {
             return .outdated
         }
 
-        /// Whether a press would write the relay.
-        public var installsRelay: Bool { relay == .missing }
+        /// Whether a press would write the relay: wrap the line, or move an
+        /// earlier copy's wrapper.
+        public var installsRelay: Bool { relay == .missing || relay == .outdated }
 
         private static func status(_ hooks: LocalHooks.State) -> Status {
             switch hooks {
@@ -206,8 +209,10 @@ public enum AgentIntegration {
             do { try LocalHooks.remove(at: hooksFile, for: source) }
             catch SettingsFile.Failure.noDirectory where source.integration.opensHooksDirectory {}
         }
-        // No folder, no relay: the CLI was never here.
-        guard (try? StatusLineRelay.state(at: relayFile, source: source)) == .current else { return }
+        // No folder, no relay: the CLI was never here. An earlier copy's
+        // wrapper is Evlat's and goes too.
+        let relay = try? StatusLineRelay.state(at: relayFile, source: source)
+        guard relay == .current || relay == .outdated else { return }
         try write(.usage) { try StatusLineRelay.remove(at: relayFile, source: source) }
     }
 
@@ -241,7 +246,8 @@ public enum AgentIntegration {
         if LocalHooks.state(of: settings, for: source, approvals: true) != .current {
             throw Failure(part: .hooks, reason: .malformed)
         }
-        if relayState(of: settings, source: source) == .missing {
+        let relay = relayState(of: settings, source: source)
+        if relay == .missing || relay == .outdated {
             throw Failure(part: .usage, reason: .malformed)
         }
     }

@@ -17,9 +17,11 @@ shows the question and nothing to press.
 """
 import argparse
 import datetime as dt
+import http.client
 import json
 import os
 import re
+import socket
 import subprocess
 import time
 import urllib.request
@@ -38,11 +40,29 @@ now_ms = int(time.time() * 1000)
 now_s = int(time.time())
 
 
-def post(port, path, body, headers=None):
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", **(headers or {})})
+class UnixConnection(http.client.HTTPConnection):
+    """HTTP over a unix socket: a machine's channel ends in one here."""
+
+    def __init__(self, path):
+        super().__init__("127.0.0.1", timeout=3)
+        self.path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(3)
+        self.sock.connect(self.path)
+
+
+def post(target, path, body, headers=None):
+    """`target`: a port on loopback, or a socket's path."""
+    data = json.dumps(body).encode()
+    headers = {"Content-Type": "application/json", **(headers or {})}
     try:
+        if isinstance(target, str):
+            connection = UnixConnection(target)
+            connection.request("POST", path, body=data, headers=headers)
+            return connection.getresponse().read().decode()
+        request = urllib.request.Request(f"http://127.0.0.1:{target}{path}", data=data, headers=headers)
         return urllib.request.urlopen(request, timeout=3).read().decode()
     except Exception as error:  # a demo goes on without the one row
         return f"ERR {error}"
@@ -196,10 +216,11 @@ hook(PORT, "codex", pids[4], {"hook_event_name": "UserPromptSubmit", **codex})
 hook(PORT, "codex", pids[4], {"hook_event_name": "PreToolUse", "tool_name": "Bash",
                               "tool_input": {"command": "cargo build --release --target aarch64-apple-darwin"}, **codex})
 
-# Remote machines, each on its own listener, as their tunnels would bring them.
+# Remote machines, each on its own listener — its channel's end, a socket —
+# as their channels would bring them.
 log = open(os.path.join(D, "evlat.log")).read()
-machines = {m.group(1): int(m.group(2))
-            for m in re.finditer(r"machine (\S+) listening on 127\.0\.0\.1:(\d+)", log)}
+machines = {m.group(1): m.group(2)
+            for m in re.finditer(r"machine (\S+) listening on (/\S+)", log)}
 by_host = {host.split(".")[0] if not host[0].isdigit() else host: port for host, port in machines.items()}
 REMOTE = [
     ("10.0.4.21", "claude", 4242, "aaaaaaaa-0000-4000-8000-000000000001", "/home/dev/src/server-agent",

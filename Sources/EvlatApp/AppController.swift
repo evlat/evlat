@@ -154,12 +154,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The machines came from `EVLAT_MACHINES` (or none, because of
     /// `EVLAT_PORT`): then adding or removing one is not written back.
     private var remoteFromEnvironment = true
-    /// Each machine's `/signal` key, by machine id. Written back to
-    /// `RemoteMachine.signalKeysStorageKey` under the list's own rule: only
-    /// a stored list's, never the environment's.
-    private var remoteSignalKeys: [String: String] = [:]
     /// The `ssh` the tunnels run, which the window's installer runs too.
     private var remoteSSHPath = AppController.sshPath()
+    /// The calls over the machines' masters, the tunnels' channel steps and
+    /// the window's jobs alike (`RemoteInstaller`).
+    private var remoteInstaller: RemoteInstaller?
     /// Remote cards' one question to their server (`findRemoteHost`).
     private var remoteHostLookup: RemoteHostLookup?
     /// The news's own, on its own queue (`findRemoteHostForNews`): a card's
@@ -1031,9 +1030,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The configured machines. This process opens no tunnel: the running
-    /// app holds the server's 48151, and a second `ssh` here would race it
-    /// for the port — the state is the app's, on its stderr
-    /// (`Evlat: tunnel …`).
+    /// app holds the server's socket, and a second `ssh` here would find it
+    /// busy — the state is the app's, on its stderr (`Evlat: tunnel …`).
     private nonisolated static func printRemoteMachines() {
         let environment = ProcessInfo.processInfo.environment
         let configuration = remoteConfiguration(defaults: .standard, environment: environment)
@@ -2643,11 +2641,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Internal so a test hands its own machines and the fake `ssh`; the
     /// launch reads both from the environment and the stored list. A test
-    /// also shortens `confirmAfter`: the default outwaits a slow login.
+    /// also shortens `channelDeadline`: the default outwaits a slow login.
     func startRemoteTunnels(configuration: RemoteMachine.Configuration? = nil,
                             sshPath: String = AppController.sshPath(),
                             socketDirectory: String = AppController.socketDirectory,
-                            confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter,
+                            channelDeadline: TimeInterval = RemoteTunnel.defaultChannelDeadline,
                             askpassBinary: String? = Bundle.main.executableURL?.path,
                             passwords: SSHPasswordStore? = nil) {
         let passwords = passwords ?? Self.passwordStore()
@@ -2657,21 +2655,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             NSLog("Evlat: EVLAT_MACHINES entry %@ ignored, not a usable ssh target", target)
         }
         remoteFromEnvironment = configuration.fromEnvironment
-        // A machine kept from before per-machine keys has no key yet: it gets one now,
-        // and a key whose machine is gone goes. The environment's machines'
-        // keys are made fresh and live in memory only.
-        let storedKeys = configuration.fromEnvironment
-            ? nil : defaults?.dictionary(forKey: RemoteMachine.signalKeysStorageKey)
-        remoteSignalKeys = RemoteMachine.signalKeys(for: configuration.machines, stored: storedKeys,
-                                                    generate: SignalKey.generate)
-        if NSDictionary(dictionary: storedKeys ?? [:]) != NSDictionary(dictionary: remoteSignalKeys) {
-            storeSignalKeys()
-        }
+        // The machines' `/signal` keys (`remote.signalKeys`) are not read:
+        // a machine's channel ends in a socket only this user can reach.
+        // The stored value is left where it is.
+        let installer = RemoteInstaller(sshPath: sshPath)
+        remoteInstaller = installer
         let tunnels = RemoteTunnels(
             registry: registry, sshPath: sshPath, platform: Self.darwinPlatform,
             now: { [unowned self] in MainActor.assumeIsolated { self.now() } },
             socketDirectory: socketDirectory,
-            confirmAfter: confirmAfter,
+            channelDeadline: channelDeadline,
             // `ssh` asks this binary (`Askpass`), which asks the listener's
             // `/askpass`; until the listener is bound no tunnel prompts.
             askpass: askpassBinary.map { binary in
@@ -2684,13 +2677,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 })
             },
             store: passwords,
+            installer: installer,
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         tunnels.respond = { [weak self] id, response in
             MainActor.assumeIsolated { self?.answerHeld(id, with: response) }
         }
         tunnels.onPromptsChanged = { [weak self] in MainActor.assumeIsolated { self?.promptsChanged() } }
+        tunnels.onReading = { [weak self] id in
+            MainActor.assumeIsolated { self?.settings?.remote.channelRead(id) }
+        }
         for machine in configuration.machines {
-            tunnels.add(machine, key: remoteSignalKeys[machine.id] ?? SignalKey.generate())
+            tunnels.add(machine)
         }
         remote = tunnels
         wireMachineSources()
@@ -2976,7 +2973,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             add: { [weak self] target in self?.addMachine(target: target) ?? .failure(.empty) },
             remove: { [weak self] id in self?.removeMachine(id: id) },
             isStored: { [weak self] in self.map { !$0.remoteFromEnvironment } ?? false },
-            signalKey: { [weak self] id in self?.remote?.signalKey(of: id) },
+            channelReading: { [weak self] id in self?.remote?.reading(of: id) },
             controlPath: { [weak self] id in self?.remote?.controlPath(of: id) },
             retryByUser: { [weak self] id in self?.remote?.retryByUser(id: id) },
             asksForPassword: { [weak self] id in self?.remote?.asksForPassword(of: id) ?? false },
@@ -3121,7 +3118,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let model = SettingsModel(
             host: settingsHost,
             setup: SetupModel(host: setupHost),
-            remote: RemoteMachinesModel(host: remoteMachinesHost, installer: RemoteInstaller(sshPath: remoteSSHPath)),
+            remote: RemoteMachinesModel(host: remoteMachinesHost,
+                                        installer: remoteInstaller ?? RemoteInstaller(sshPath: remoteSSHPath)),
             recorder: hotKeyRecorder)
         let window = AppWindow(make: {
             let window = AppKeyWindow(contentRect: NSRect(origin: .zero, size: SettingsView.size),
@@ -3244,13 +3242,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let remote else { return .failure(.empty) }
         if let existing = remote.machines.first(where: { $0.target == target }) { return .success(existing) }
         guard let machine = RemoteMachine(id: UUID().uuidString, target: target) else { return .failure(.empty) }
-        let key = SignalKey.generate()
-        remoteSignalKeys[machine.id] = key
         // The first try asks: a password or a host key is answered in
         // Evlat's window now, while the user is there to answer it.
-        remote.add(machine, key: key, interactive: true)
+        remote.add(machine, interactive: true)
         storeMachines()
-        storeSignalKeys()
         return .success(machine)
     }
 
@@ -3258,10 +3253,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func removeMachine(id: String) {
         remote?.remove(id: id)
         storeMachines()
-        // The server's copy answers nothing from here on: no listener has
-        // it, and a machine added again gets a new one.
-        remoteSignalKeys.removeValue(forKey: id)
-        storeSignalKeys()
     }
 
     /// A machine card's switch: the machine's own set, kept on its entry —
@@ -3279,12 +3270,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard !remoteFromEnvironment, let remote,
               let data = RemoteMachine.encode(remote.machines) else { return }
         defaults?.set(data, forKey: RemoteMachine.storageKey)
-    }
-
-    /// The keys, under the same rule as the list they belong to.
-    private func storeSignalKeys() {
-        guard !remoteFromEnvironment else { return }
-        defaults?.set(remoteSignalKeys, forKey: RemoteMachine.signalKeysStorageKey)
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

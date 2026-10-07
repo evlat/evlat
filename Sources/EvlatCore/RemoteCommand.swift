@@ -2,10 +2,13 @@ import Foundation
 
 /// The `evlat` command on a remote machine: `evlat watch …` and
 /// `evlat signal …` on a server put a row on the bar of the Mac the server
-/// was added to, through the machine's `ssh -R` tunnel and with the
-/// machine's key (`RemoteTunnels`). Pure: a string, installed by the shell
+/// was added to, through the socket the machine's channel carries there
+/// (`RemoteTunnel`, `RemoteTunnels`). Pure: a string, installed by the shell
 /// and pinned by `RemoteCommandScriptTests`, which run it under `sh`, `dash`
-/// and `bash` against a keyed tunnel listener.
+/// and `bash` against a machine's socket listener.
+///
+/// No key: the socket's directory is the user's alone on the server, and
+/// what reaches the Mac through it is that machine's, as its hooks are.
 ///
 /// The words, defaults and exit codes are `SignalCommand`'s — its parser is
 /// the judge the tests hold the script to — and the route, header and port
@@ -21,10 +24,11 @@ public enum RemoteCommand {
     /// Line 2 of the script: what makes `~/.local/bin/evlat` Evlat's own, so
     /// an install never overwrites somebody else's `evlat`.
     public static let marker = "# evlat-remote-signal"
-    /// Line 3 (`# version N`); raised whenever the script changes.
-    public static let version = 1
-    /// The machine's key on the server, under `$HOME`. The Mac writes it
-    /// (`0600`, directory `0700`); the script reads it on every send.
+    /// Line 3 (`# version N`); raised whenever the script changes. 2: the
+    /// socket, and no key.
+    public static let version = 2
+    /// Where version 1 kept the machine's key, under `$HOME`. Read by
+    /// nothing now; an install and a removal take it away.
     public static let keyPath = ".config/evlat/signal.token"
 
     /// `SignalCommand.usage` as the server's command says it, and `--list`.
@@ -35,17 +39,15 @@ public enum RemoteCommand {
 
 
         evlat --list says in one line whether Evlat on the Mac hears this
-        machine: through the ssh tunnel, with this machine's key.
+        machine: through the socket its ssh connection carries.
         """
 
     /// The whole of `~/.local/bin/evlat`.
     ///
-    /// - The key is never in an argv (`ps` and `/proc/*/cmdline` show argvs
-    ///   to every user): `curl -K -` reads the header from a pipe `printf`
-    ///   writes, and `printf` is the shell's own.
-    /// - `curl -q` first (no `~/.curlrc`), `--noproxy '*'` (a proxy would get
-    ///   the key), `-m 2`, and nothing of `curl`'s reaches the command's
-    ///   streams.
+    /// - It speaks to `$EVLAT_SOCKET`, else the socket under the home —
+    ///   the installed hooks' own (`EvlatSocket.relativePath`).
+    /// - `curl -q` first (no `~/.curlrc`), `--noproxy '*'`, `-m 2`, and
+    ///   nothing of `curl`'s reaches the command's streams.
     /// - Every variable is `_evlat_*` and none is exported: the command's
     ///   environment is the one `evlat` was started with.
     /// - `watch` runs the command in the **foreground** — same process
@@ -61,14 +63,13 @@ public enum RemoteCommand {
         #
         # Evlat's command on this machine. `evlat watch COMMAND...` and
         # `evlat signal ID ...` put a row on the bar of the Mac this machine
-        # was added to, through its ssh tunnel. Installed by Evlat: an edit is
-        # lost on the next install. `evlat --help` for the words, `evlat
-        # --list` to see whether the Mac hears this machine.
+        # was added to, through the socket its ssh connection carries.
+        # Installed by Evlat: an edit is lost on the next install. `evlat
+        # --help` for the words, `evlat --list` to see whether the Mac hears
+        # this machine.
 
-        _evlat_port=${EVLAT_PORT:-\#(LocalAPI.defaultPort)}
-        _evlat_url=http://127.0.0.1:$_evlat_port\#(SignalReport.path)
-        _evlat_keyfile=$HOME/\#(keyPath)
-        _evlat_key=
+        _evlat_sock=${EVLAT_SOCKET:-$HOME/\#(EvlatSocket.relativePath)}
+        _evlat_url=\#(EvlatSocket.Curl.url(SignalReport.path))
         _evlat_nl='
         '
 
@@ -84,15 +85,13 @@ public enum RemoteCommand {
           exit \#(SignalCommand.usageExitCode)
         }
 
-        # The key: one line of hex, or nothing.
-        _evlat_read_key() {
-          _evlat_key=
-          [ -f "$_evlat_keyfile" ] && [ -r "$_evlat_keyfile" ] || return 1
-          IFS= read -r _evlat_key 2>/dev/null <"$_evlat_keyfile"
-          case $_evlat_key in
-            ''|*[!0123456789abcdefABCDEF]*) _evlat_key=; return 1 ;;
-          esac
-          return 0
+        # A curl that can reach a socket: present, and knows --unix-socket
+        # (7.40). An option it does not know is exit 2; one it knows fails
+        # to connect to a directory instead.
+        _evlat_curl() {
+          command -v curl >/dev/null 2>&1 || return 1
+          curl -q -s -m 1 --unix-socket / -o /dev/null http://127.0.0.1/ >/dev/null 2>&1
+          [ $? -ne 2 ]
         }
 
         # A JSON string's inside: line breaks and tabs become spaces, other
@@ -115,17 +114,15 @@ public enum RemoteCommand {
 
         # One POST, nothing kept. The caller silences the streams.
         _evlat_send() {
-          printf 'header = "\#(SignalReport.keyHeader): %s"\n' "$_evlat_key" \
-            | curl -q -s -m 2 --noproxy '*' -K - -o /dev/null \
-                -H 'Content-Type: application/json' --data-binary "$1" "$_evlat_url"
+          curl -q -s -m 2 --noproxy '*' --unix-socket "$_evlat_sock" -o /dev/null \
+            -H 'Content-Type: application/json' --data-binary "$1" "$_evlat_url"
         }
 
         # One POST whose answer is read: the body, a line break, the status
         # (000 when nothing answered).
         _evlat_ask() {
-          printf 'header = "\#(SignalReport.keyHeader): %s"\n' "$_evlat_key" \
-            | curl -q -s -m 2 --noproxy '*' -K - -w '\n%{http_code}' \
-                -H 'Content-Type: application/json' --data-binary "$1" "$_evlat_url" 2>/dev/null
+          curl -q -s -m 2 --noproxy '*' --unix-socket "$_evlat_sock" -w '\n%{http_code}' \
+            -H 'Content-Type: application/json' --data-binary "$1" "$_evlat_url" 2>/dev/null
         }
 
         # 0...1 as JSON, or failure: 0, 1, .5, 0.25, +1.0.
@@ -232,7 +229,7 @@ public enum RemoteCommand {
           [ $# -gt 0 ] && [ -n "$1" ] || _evlat_fail "no command to watch"
 
           # Nobody to tell, or no such command: the command as it is.
-          _evlat_read_key && command -v curl >/dev/null 2>&1 || exec "$@"
+          [ -S "$_evlat_sock" ] && command -v curl >/dev/null 2>&1 || exec "$@"
           command -v "$1" >/dev/null 2>&1 || exec "$@"
 
           if [ -z "$_evlat_has_label" ]; then
@@ -357,7 +354,7 @@ public enum RemoteCommand {
           fi
 
           # Nobody to tell is not a mistake; a refusal is the sender's.
-          _evlat_read_key && command -v curl >/dev/null 2>&1 || exit 0
+          command -v curl >/dev/null 2>&1 || exit 0
           _evlat_answer=$(_evlat_ask "$_evlat_b" </dev/null)
           _evlat_status=${_evlat_answer##*"$_evlat_nl"}
           case $_evlat_status in
@@ -376,33 +373,30 @@ public enum RemoteCommand {
           printf '%s' "$_evlat_r"
         }
 
-        # One line: does the Mac hear this machine? A keyed removal of a row
+        # One line: does the Mac hear this machine? A removal of a row
         # nobody has is the probe.
         _evlat_list() {
-          _evlat_about="evlat \#(version), 127.0.0.1:$_evlat_port"
+          _evlat_about="evlat \#(version), $_evlat_sock"
           if ! command -v curl >/dev/null 2>&1; then
             printf 'no curl - evlat sends with curl; install it (%s)\n' "$_evlat_about"
             exit 1
           fi
-          if ! _evlat_read_key; then
-            printf 'no key in ~/%s - install the command from Evlat on the Mac (%s)\n' '\#(keyPath)' "$_evlat_about"
+          if ! _evlat_curl; then
+            printf 'curl too old - it cannot reach a socket (--unix-socket, curl 7.40); update it (%s)\n' "$_evlat_about"
             exit 1
           fi
-          _evlat_mode=$(ls -ln "$_evlat_keyfile" 2>/dev/null)
-          _evlat_mode=${_evlat_mode%% *}
-          case $_evlat_mode in
-            -rw-------*) _evlat_note= ;;
-            *) _evlat_note=" - the key file is $_evlat_mode, other users may read it: chmod 600 ~/\#(keyPath)" ;;
-          esac
+          if [ ! -S "$_evlat_sock" ]; then
+            printf 'no socket - is Evlat running on the Mac with this machine connected? (%s)\n' "$_evlat_about"
+            exit 1
+          fi
           _evlat_body evlat-list 0
           _evlat_answer=$(_evlat_ask "$_evlat_b" </dev/null)
           _evlat_status=${_evlat_answer##*"$_evlat_nl"}
           case $_evlat_status in
-            200) printf 'ok (%s)%s\n' "$_evlat_about" "$_evlat_note"; exit 0 ;;
-            403) printf 'key mismatch (403) - the Mac holds another key for this machine: install the command again (%s)%s\n' "$_evlat_about" "$_evlat_note" ;;
-            404) printf 'no route (404) - Evlat on the Mac is older, or has no key for this machine (%s)%s\n' "$_evlat_about" "$_evlat_note" ;;
-            000|'') printf 'no tunnel - nothing answers here; is Evlat running on the Mac with this machine connected? (%s)%s\n' "$_evlat_about" "$_evlat_note" ;;
-            *) printf 'unexpected answer (%s) (%s)%s\n' "$_evlat_status" "$_evlat_about" "$_evlat_note" ;;
+            200) printf 'ok (%s)\n' "$_evlat_about"; exit 0 ;;
+            404) printf 'no route (404) - Evlat on the Mac is older: update it (%s)\n' "$_evlat_about" ;;
+            000|'') printf 'no answer - the socket is left from an earlier connection; Evlat on the Mac takes it back when it connects (%s)\n' "$_evlat_about" ;;
+            *) printf 'unexpected answer (%s) (%s)\n' "$_evlat_status" "$_evlat_about" ;;
           esac
           exit 1
         }
@@ -424,18 +418,19 @@ public enum RemoteCommand {
 
 /// The install and removal as `RemoteSettings`' writers do theirs: pure
 /// scripts, run by the shell (`RemoteInstaller`, `ssh -- HOST sh -s`, the
-/// script on stdin) and read back here. One call each: two files that are
-/// Evlat's own need no read-then-write.
+/// script on stdin) and read back here. One call each: a file that is
+/// Evlat's own needs no read-then-write.
 ///
-/// The command and the key travel as single-quoted words inside the script,
-/// never in an argv — `ps` on either machine shows argvs to every user.
+/// The command travels as a single-quoted word inside the script, never in
+/// an argv.
 extension RemoteCommand {
     /// What a finished install or removal found. A removal's `curl` is `true`.
     public struct Report: Equatable {
-        /// Install: the command was written (`false`: it was current; the
-        /// key is written every time). Removal: something was removed.
+        /// Install: the command was written (`false`: it was current).
+        /// Removal: something was removed.
         public let wrote: Bool
-        /// `curl` is on the server's `PATH` (the command sends nothing without it).
+        /// A `curl` that reaches a socket is on the server's `PATH`
+        /// (`--unix-socket`, 7.40): the command sends nothing without it.
         public let curl: Bool
 
         public init(wrote: Bool, curl: Bool) {
@@ -447,7 +442,7 @@ extension RemoteCommand {
     public enum Failure: Error, Equatable {
         /// `~/.local/bin/evlat` is somebody else's (no marker on line 2, or a
         /// link): left as it is. An install writes nothing; a removal still
-        /// takes the key, whose path is Evlat's.
+        /// takes version 1's key, whose path is Evlat's.
         case foreign
         /// A folder or file could not be written on the server.
         case unwritable
@@ -466,28 +461,23 @@ extension RemoteCommand {
     /// Where the command goes, under `$HOME`.
     public static let commandPath = ".local/bin/evlat"
 
-    /// Writes `~/.local/bin/evlat` unless it is current, then the key.
+    /// Writes `~/.local/bin/evlat` unless it is current, and takes version
+    /// 1's key away: nothing reads it, and a secret left on a server is one
+    /// too many.
     ///
     /// `~/.local/bin` is made under the server's own umask (it is the user's
-    /// folder, and the manual block makes it the same way); everything after
-    /// runs under `umask 077`, and the key's file and folder still get an
-    /// explicit `chmod` — a folder or file that was there keeps its mode
-    /// through a redirection or `mv` onto it otherwise. Both files are
-    /// written next to their target and moved over it, so a half-written
-    /// file is never the command or the key.
-    public static func installScript(key: String, nonce: String) -> String {
+    /// folder, and the manual block makes it the same way). The command is
+    /// written next to its target and moved over it, so a half-written file
+    /// is never the command.
+    public static func installScript(nonce: String) -> String {
         """
         n=\(RemoteSettings.quoted(nonce))
         \(paths)
         mkdir -p "$b" || exit \(unwritableExit)
-        umask 077
-        mkdir -p "$d" || exit \(unwritableExit)
         \(foreignCheck)
         s=\(RemoteSettings.quoted(script))
-        k=\(RemoteSettings.quoted(key))
         tmp=
-        ktmp=
-        trap 'rm -f ${tmp:+"$tmp"} ${ktmp:+"$ktmp"}' EXIT
+        trap 'rm -f ${tmp:+"$tmp"}' EXIT
         w=0
         if [ ! -f "$e" ] || [ "$(cat "$e" && echo .)" != "$s." ]; then
           tmp=$b/.evlat.$$.tmp
@@ -498,24 +488,17 @@ extension RemoteCommand {
           w=1
         fi
         chmod 755 "$e" || exit \(unwritableExit)
-        chmod 700 "$d" || exit \(unwritableExit)
-        if [ -h "$t" ]; then rm -f "$t" || exit \(unwritableExit); fi
-        if [ -d "$t" ]; then exit \(unwritableExit); fi
-        ktmp=$d/.signal.token.$$.tmp
-        printf '%s\\n' "$k" > "$ktmp" || exit \(unwritableExit)
-        chmod 600 "$ktmp" || exit \(unwritableExit)
-        mv -f "$ktmp" "$t" || exit \(unwritableExit)
-        ktmp=
-        chmod 600 "$t" || exit \(unwritableExit)
-        if command -v curl >/dev/null 2>&1; then u=1; else u=0; fi
+        if [ -e "$t" ] || [ -h "$t" ]; then rm -f "$t" || exit \(unwritableExit); fi
+        \(curlCheck)
         printf '%s %s %s\\n' "$n" "$w" "$u"
         exit 0
 
         """
     }
 
-    /// Takes the command if it is Evlat's, the key, and the key's folder if
-    /// that leaves it empty. `~/.local/bin` stays: it is not Evlat's.
+    /// Takes the command if it is Evlat's, version 1's key, and the key's
+    /// folder if that leaves it empty. `~/.local/bin` stays: it is not
+    /// Evlat's.
     public static func removeScript(nonce: String) -> String {
         """
         n=\(RemoteSettings.quoted(nonce))
@@ -576,17 +559,20 @@ extension RemoteCommand {
         case missing
         /// A link, or a file without the marker on line 2: never written over.
         case foreign
-        /// Evlat's: line 3's version (`nil` when it is not one), and whether
-        /// the key file is there — without it the command sends nothing.
-        case installed(version: Int?, key: Bool)
+        /// Evlat's: line 3's version (`nil` when it is not one).
+        case installed(version: Int?)
 
-        /// What an install would leave: today's version, with a key.
-        public var isCurrent: Bool { self == .installed(version: RemoteCommand.version, key: true) }
+        /// Today's version or a later one: a newer Evlat on another Mac
+        /// installed it, and this one does not call it old.
+        public var isCurrent: Bool {
+            guard case .installed(let version?) = self else { return false }
+            return version >= RemoteCommand.version
+        }
     }
 
     /// Prints `<nonce> command <key 1|0> missing|foreign|ours <version|->`.
-    /// Reads only: `sed` on the command's lines 2 and 3, a test on the key's
-    /// file — whose contents never leave the server.
+    /// Reads only: `sed` on the command's lines 2 and 3. The key's word is
+    /// version 1's file, still said so the line keeps its shape.
     static func statusProbe(nonce: String) -> String {
         """
         (
@@ -618,11 +604,11 @@ extension RemoteCommand {
         for line in lines.reversed() {
             let words = line.split(separator: " ", omittingEmptySubsequences: false)
             guard words.count == 5, words[0] == nonce[...], words[1] == "command",
-                  let key = flag(words[2]) else { continue }
+                  flag(words[2]) != nil else { continue }
             switch words[3] {
             case "missing": return .missing
             case "foreign": return .foreign
-            case "ours": return .installed(version: Int(words[4]), key: key)
+            case "ours": return .installed(version: Int(words[4]))
             default: continue
             }
         }
@@ -641,6 +627,19 @@ extension RemoteCommand {
         """
     }
 
+    /// `u`: 1 when a `curl` that reaches a socket is on the `PATH`
+    /// (`--unix-socket`, 7.40) — one that does not know the option exits 2
+    /// before connecting anywhere — else 0.
+    static var curlCheck: String {
+        """
+        u=0
+        if command -v curl >/dev/null 2>&1; then
+          curl -q -s -m 1 --unix-socket / -o /dev/null http://127.0.0.1/ >/dev/null 2>&1
+          [ $? -eq 2 ] || u=1
+        fi
+        """
+    }
+
     /// Somebody else's `evlat` stops the install before anything is written:
     /// a link (even to this script) or a file without the marker on line 2.
     private static var foreignCheck: String {
@@ -654,31 +653,26 @@ extension RemoteCommand {
 
     // MARK: - By hand
 
-    /// What a user pastes into the server's shell instead: three blocks
-    /// that leave the automatic install's files — the command byte for byte,
-    /// the key the same line with the same modes — and the way back. The
-    /// sentences around them are the catalog's.
+    /// What a user pastes into the server's shell instead: two blocks that
+    /// leave the automatic install's files — the command byte for byte,
+    /// version 1's key gone — and the way back. The sentences around them
+    /// are the catalog's.
     public struct Manual: Equatable {
         /// `~/.local/bin/evlat`: the script in a quoted heredoc (nothing in
-        /// it is expanded), then `chmod 755`.
+        /// it is expanded), then `chmod 755`; version 1's key removed.
         public let script: String
-        /// The key's line under `umask 077`, with the explicit `chmod`s a
-        /// redirection onto an existing file would not give.
-        public let key: String
-        /// The command if it carries the marker, the key, and the key's
+        /// The command if it carries the marker, version 1's key, and its
         /// folder when that leaves it empty.
         public let remove: String
     }
 
-    public static func manual(key: String) -> Manual {
+    public static func manual() -> Manual {
         let keyFolder = "~/" + (keyPath as NSString).deletingLastPathComponent
         let bin = "~/" + (commandPath as NSString).deletingLastPathComponent
         return Manual(
-            script: "mkdir -p \(bin) && cat > ~/\(commandPath) <<'\(delimiter)' && chmod 755 ~/\(commandPath)\n"
+            script: "mkdir -p \(bin) && cat > ~/\(commandPath) <<'\(delimiter)' && chmod 755 ~/\(commandPath)"
+                + " && rm -f ~/\(keyPath)\n"
                 + script + delimiter + "\n",
-            key: "mkdir -p \(keyFolder) && chmod 700 \(keyFolder) && "
-                + "(umask 077 && printf '%s\\n' \(RemoteSettings.quoted(key)) > ~/\(keyPath)) "
-                + "&& chmod 600 ~/\(keyPath)\n",
             remove: "grep -qx \(RemoteSettings.quoted(marker)) ~/\(commandPath) 2>/dev/null && rm -f ~/\(commandPath); "
                 + "rm -f ~/\(keyPath); rmdir \(keyFolder) 2>/dev/null; true\n")
     }

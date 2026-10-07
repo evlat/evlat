@@ -367,7 +367,7 @@ final class SetupModel: ObservableObject {
         }
         var result = row(item, status, detail: files, note: note, failure: failure)
         result.parts = parts
-        result.removesRelay = state.relay == .current
+        result.removesRelay = state.relay?.isEvlats == true
         return result
     }
 
@@ -383,9 +383,10 @@ final class SetupModel: ObservableObject {
         }
     }
 
-    private static func status(_ relay: StatusLineRelay.State) -> SetupStatus {
+    static func status(_ relay: StatusLineRelay.State) -> SetupStatus {
         switch relay {
         case .current: return .installed
+        case .outdated: return .outdated
         case .missing: return .missing
         case .modified: return .foreign
         }
@@ -489,7 +490,7 @@ final class SetupModel: ObservableObject {
             if state.installsRelay, let relayFile { add(relayFile, "setup.consent.what.usage") }
         } else {
             if state.hooks != .missing { add(hooksFile, "setup.consent.what.hooks.remove") }
-            if state.relay == .current, let relayFile { add(relayFile, "setup.consent.what.usage.remove") }
+            if state.relay?.isEvlats == true, let relayFile { add(relayFile, "setup.consent.what.usage.remove") }
         }
         var lines = files.map {
             L10n.t("setup.consent.line", ["file": $0.file,

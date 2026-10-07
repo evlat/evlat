@@ -109,8 +109,8 @@ public struct RemoteMachine: Codable, Equatable {
     /// `EVLAT_MACHINES` (comma separated; empty means none) over the stored
     /// list. With `EVLAT_PORT` set and no `EVLAT_MACHINES`, no machine at
     /// all: a process being measured on another port must not open a second
-    /// tunnel to the user's servers and race the running Evlat for the remote
-    /// 48151.
+    /// tunnel to the user's servers and find the running Evlat's channel
+    /// there.
     ///
     /// An environment machine's id is its target: there is nowhere to keep a
     /// generated one, and the namespace only has to be stable for the run.
@@ -190,10 +190,27 @@ public struct RemoteMachine: Codable, Equatable {
 /// One machine's tunnel: the `ssh` arguments, the reconnect schedule, what a
 /// failure was, and the state machine that ties them together.
 ///
-/// The process is not here. The shell is told to start or stop it
-/// (`Effects`) and tells this type what happened (`exited`, `heard`); the
-/// clock and the deferred call are injected, so the schedule is tested
-/// without waiting on it. **Not thread-safe**: every call on the main queue.
+/// A tunnel is an `ssh` master of Evlat's own, then a **channel** over it:
+/// the server's socket (`EvlatSocket.relativePath` under its home, the one
+/// its installed commands speak to) forwarded to a socket of the machine's
+/// own on this Mac (`channelPath`). In that order, each step on the last:
+///
+/// 1. the master logs in and its remote command prints a mark (`arguments`);
+/// 2. one `sh -s` over the master probes the server's socket and reads the
+///    machine (`channelProbe`, in `RemoteSettings.readingScript`): one that
+///    answers is another Evlat's — another Mac's — and is never touched;
+///    one that refuses or stays silent is a dead connection's, and goes;
+/// 3. `ssh -O forward -R <server socket>:<this Mac's>` over the master
+///    (`forwardArguments`). Only then is the machine connected.
+///
+/// Not `-R` on the master's own command line: a master remembers a forward
+/// that failed at its start and never asks again.
+///
+/// The process is not here. The shell is told to start or stop it, probe and
+/// forward (`Effects`), and tells this type what happened (`exited`,
+/// `marked`, `probed`, `forwarded`, `heard`); the clock and the deferred call
+/// are injected, so the schedule is tested without waiting on it. **Not
+/// thread-safe**: every call on the main queue.
 public final class RemoteTunnel {
     // MARK: - Arguments
 
@@ -207,50 +224,56 @@ public final class RemoteTunnel {
     ///   one try, not three. Without a helper, `BatchMode=yes` as before: no
     ///   prompt at all, else a controlling terminal — `swift run`'s — would
     ///   be asked.
-    /// - `ExitOnForwardFailure=yes`: a remote 48151 already taken ends the
-    ///   process instead of leaving a tunnel that carries nothing.
     /// - `ServerAlive*`: a dead network is noticed in ~45 s.
     /// - `-M -S <controlPath> -o ControlPersist=no`: the process is a master
-    ///   connection of **Evlat's own**, so the installs and reads
-    ///   (`RemoteSettings.arguments`) ride it instead of logging in again.
-    ///   The master is the tunnel itself: it lives exactly as long as this
-    ///   process and leaves no background master behind. On the command line
-    ///   the three win over a host's `ControlMaster`/`ControlPath`/
-    ///   `ControlPersist`, so the user's own master is still never used —
-    ///   riding it would make this process's exit say nothing about the
-    ///   tunnel. Without a path (none fits, or another process's master
-    ///   holds it) `ControlMaster=no`, `ControlPath=none`, as before.
+    ///   connection of **Evlat's own**: the channel is made over it, and the
+    ///   installs and reads (`RemoteSettings.arguments`) ride it instead of
+    ///   logging in again. It lives exactly as long as this process and
+    ///   leaves no background master behind. On the command line the three
+    ///   win over a host's `ControlMaster`/`ControlPath`/`ControlPersist`,
+    ///   so the user's own master is never used — riding it would make this
+    ///   process's exit say nothing about the tunnel.
     /// - `RemoteCommand=none`, `StdinNull=no`, `ForkAfterAuthentication=no`:
     ///   a host's `~/.ssh/config` may set them (`RemoteCommand tmux new -A` is
     ///   common); the first refuses a command-line command outright, the other
     ///   two hand `cat` an empty stdin and take the dead man's switch away.
     ///   On the command line they win over the config file.
-    /// - `127.0.0.1:` on both ends keeps the remote end on the server's
-    ///   loopback (where `GatewayPorts clientspecified` honours it).
-    /// - The remote command holds the session open for as long as its stdin
-    ///   does, and its stdin is a pipe this Mac's Evlat holds: when Evlat dies,
-    ///   `kill -9` included, the pipe reaches EOF, `cat` ends and `ssh` exits —
-    ///   no orphan holding the remote port.
-    ///
-    /// The remote end is `LocalAPI.defaultPort` and never `EVLAT_PORT`: it is
-    /// the port the command installed on the server names.
-    public static func arguments(target: String, localPort: UInt16, controlPath: String? = nil,
+    /// - The remote command prints `mark` — the login is done, the master
+    ///   is up — then holds the session open for as long as its stdin does,
+    ///   and its stdin is a pipe this Mac's Evlat holds: when Evlat dies,
+    ///   `kill -9` included, the pipe reaches EOF, `cat` ends and `ssh`
+    ///   exits — no orphan holding the channel.
+    public static func arguments(target: String, controlPath: String, mark: String,
                                  askpass: Bool = false) -> [String] {
-        let control = controlPath.map { ["-M", "-S", $0, "-o", "ControlPersist=no"] }
-            ?? ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
         let prompts = askpass ? ["-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1"] : ["-o", "BatchMode=yes"]
         return ["-T"]
             + prompts
-            + ["-o", "ExitOnForwardFailure=yes",
-               "-o", "ServerAliveInterval=15",
+            + ["-o", "ServerAliveInterval=15",
                "-o", "ServerAliveCountMax=3",
-               "-o", "ConnectTimeout=10"]
-            + control
-            + ["-o", "RemoteCommand=none",
+               "-o", "ConnectTimeout=10",
+               "-M", "-S", controlPath, "-o", "ControlPersist=no",
+               "-o", "RemoteCommand=none",
                "-o", "StdinNull=no",
                "-o", "ForkAfterAuthentication=no",
-               "-R", "127.0.0.1:\(LocalAPI.defaultPort):127.0.0.1:\(localPort)",
-               "--", target, "cat >/dev/null"]
+               "--", target, "echo \(mark); exec cat >/dev/null"]
+    }
+
+    /// The master's first line of output: `evlat-channel-<nonce>`, new for
+    /// each launch, found behind whatever a login script printed first.
+    public static func mark(nonce: String) -> String { "evlat-channel-" + nonce }
+
+    /// The channel's forward, asked of the running master: the server's
+    /// socket `remote` (absolute: `-R` does not expand `~`) to this Mac's
+    /// `local`. `ProxyCommand=/usr/bin/false`: a master that has just gone
+    /// is no call, never a login of its own.
+    public static func forwardArguments(target: String, controlPath: String, remote: String,
+                                        local: String) -> [String] {
+        ["-S", controlPath,
+         "-o", "ControlMaster=no",
+         "-o", "ProxyCommand=/usr/bin/false",
+         "-O", "forward",
+         "-R", remote + ":" + local,
+         "--", target]
     }
 
     // MARK: - Master socket
@@ -264,8 +287,22 @@ public final class RemoteTunnel {
     /// digest of the id — stable across launches, so a socket a killed
     /// master left behind is found again by the next one. `nil` when the
     /// path would not fit (`socketPathLimit`) or holds a `%`, which `ssh`
-    /// expands in a control path; the tunnel then runs without a master.
+    /// expands in a control path; the tunnel then has no master and no
+    /// channel.
     public static func controlPath(directory: String, machineID: String) -> String? {
+        socketPath(directory: directory, machineID: machineID, suffix: "", limit: socketPathLimit)
+    }
+
+    /// Where the machine's channel ends on this Mac — the machine's own
+    /// listener: the master's path with `.sock`. `ssh` connects to it, so
+    /// the limit is an address's (`EvlatSocket.pathLimit`); and no `:`,
+    /// which `-R` reads as its separator.
+    public static func channelPath(directory: String, machineID: String) -> String? {
+        socketPath(directory: directory, machineID: machineID, suffix: ".sock", limit: EvlatSocket.pathLimit)
+            .flatMap { $0.contains(":") ? nil : $0 }
+    }
+
+    private static func socketPath(directory: String, machineID: String, suffix: String, limit: Int) -> String? {
         var trimmed = directory
         while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
         guard !trimmed.isEmpty, !trimmed.contains("%") else { return nil }
@@ -274,8 +311,8 @@ public final class RemoteTunnel {
         for byte in machineID.utf8 {
             digest = (digest ^ UInt32(byte)) &* 0x0100_0193
         }
-        let path = (trimmed == "/" ? "" : trimmed) + "/" + String(format: "%08x", digest)
-        return path.utf8.count <= socketPathLimit ? path : nil
+        let path = (trimmed == "/" ? "" : trimmed) + "/" + String(format: "%08x", digest) + suffix
+        return path.utf8.count <= limit ? path : nil
     }
 
     /// The environment `ssh` runs with: Evlat's own, so `SSH_AUTH_SOCK` and
@@ -289,7 +326,14 @@ public final class RemoteTunnel {
 
     public enum Failure: String, Equatable {
         case authentication
-        case portBusy
+        /// The server's socket answers: another Evlat — another Mac's —
+        /// has its channel there, and it is left alone (`probed`).
+        case channelBusy
+        /// The probe found the socket free and the forward failed: the
+        /// server allows no socket forwarding (`AllowStreamLocalForwarding`,
+        /// `DisableForwarding`, `AllowTcpForwarding`), or another Mac took
+        /// the socket in between — the next try's probe tells which.
+        case forwardingRefused
         case hostKey
         case hostName
         case unreachable
@@ -301,11 +345,12 @@ public final class RemoteTunnel {
 
     /// OpenSSH's fixed lines. The more specific ones are asked first: an
     /// unknown host's output can carry a warning line before the one that
-    /// says what went wrong.
+    /// says what went wrong. A refused forward is not read from its line:
+    /// a socket in the way and a server that allows no forwarding print the
+    /// same one (measured, OpenSSH 9.6p1), so the probe before it decides.
     private static let failureLines: [(String, Failure)] = [
         ("Host key verification failed", .hostKey),
         ("Could not resolve hostname", .hostName),
-        ("remote port forwarding failed", .portBusy),
         ("Permission denied", .authentication),
         ("Connection refused", .unreachable),
         ("timed out", .unreachable),
@@ -328,12 +373,13 @@ public final class RemoteTunnel {
     /// A tunnel that stayed up this long starts the schedule over when it
     /// drops.
     public static let stableAfter: TimeInterval = 60
-    /// A process still running this long after it started counts as
-    /// connected. Past `ConnectTimeout` (10 s) with room for the login and
-    /// the forward's answer (`ExitOnForwardFailure`), so a slow host is not
-    /// called connected before it is; a request arriving sooner confirms it
-    /// at once (`heard`).
-    public static let defaultConfirmAfter: TimeInterval = 15
+    /// How long a try has, from its launch or its last prompt's answer, to
+    /// make its channel: past `ConnectTimeout` (10 s), the probe's `curl`
+    /// (5 s) and the forward, with room for a slow host. A master whose
+    /// mark never comes — a server's shell that holds the command, a host
+    /// that swallows it — ends then, as `other`, instead of reading
+    /// connected while it carries nothing.
+    public static let defaultChannelDeadline: TimeInterval = 30
 
     /// The wait after `failures` consecutive failures (1 = the first).
     public static func delay(afterFailures failures: Int) -> TimeInterval {
@@ -385,7 +431,9 @@ public final class RemoteTunnel {
 
     /// What the shell does for this type. `launch` starts one `ssh` process
     /// and reports its exit to `exited(generation:stderr:)` with the
-    /// generation it was given; `terminate` stops the running one.
+    /// generation it was given; `terminate` stops the running one. `probe`
+    /// runs the probe over the master and reports to `probed`; `forward`
+    /// asks the master for the channel and reports to `forwarded`.
     public struct Effects {
         public var launch: (_ generation: Int) -> Void
         public var terminate: () -> Void
@@ -394,16 +442,23 @@ public final class RemoteTunnel {
         public var schedule: (TimeInterval, @escaping () -> Void) -> () -> Void
         /// Whether a password is stored for the machine (`SSHPasswordStore`).
         public var hasStoredPassword: () -> Bool
+        public var probe: (_ generation: Int) -> Void
+        /// The server's socket, absolute, to forward.
+        public var forward: (_ generation: Int, _ remote: String) -> Void
 
         public init(launch: @escaping (Int) -> Void, terminate: @escaping () -> Void,
                     now: @escaping () -> Date,
                     schedule: @escaping (TimeInterval, @escaping () -> Void) -> () -> Void,
-                    hasStoredPassword: @escaping () -> Bool = { false }) {
+                    hasStoredPassword: @escaping () -> Bool = { false },
+                    probe: @escaping (Int) -> Void = { _ in },
+                    forward: @escaping (Int, String) -> Void = { _, _ in }) {
             self.launch = launch
             self.terminate = terminate
             self.now = now
             self.schedule = schedule
             self.hasStoredPassword = hasStoredPassword
+            self.probe = probe
+            self.forward = forward
         }
     }
 
@@ -434,11 +489,16 @@ public final class RemoteTunnel {
         /// refused login then says nothing about the password.
         var askedAfterPassword = false
         var heldPrompts = 0
+        /// The master printed its mark: the probe was asked for.
+        var marked = false
+        /// Why the channel was not made; the exit that follows says this,
+        /// not its own stderr (`failChannel`).
+        var channelFailure: Failure?
     }
     private var current = Attempt()
 
     private let effects: Effects
-    private let confirmAfter: TimeInterval
+    private let channelDeadline: TimeInterval
     private var enabled = false
     private var asleep = false
     /// Which launch a report is about. A process terminated for sleep reports
@@ -449,9 +509,9 @@ public final class RemoteTunnel {
     private var failures = 0
     private var cancelPending: (() -> Void)?
 
-    public init(effects: Effects, confirmAfter: TimeInterval = RemoteTunnel.defaultConfirmAfter) {
+    public init(effects: Effects, channelDeadline: TimeInterval = RemoteTunnel.defaultChannelDeadline) {
         self.effects = effects
-        self.confirmAfter = confirmAfter
+        self.channelDeadline = channelDeadline
     }
 
     /// Begin connecting, and keep reconnecting until `stop`. `interactive`
@@ -513,7 +573,7 @@ public final class RemoteTunnel {
 
     private func promptClosed() {
         current.heldPrompts = max(0, current.heldPrompts - 1)
-        if current.heldPrompts == 0, state == .connecting { scheduleConfirmation() }
+        if current.heldPrompts == 0, state == .connecting { scheduleDeadline() }
     }
 
     /// Stop for good: the machine was removed or the app is quitting.
@@ -523,7 +583,7 @@ public final class RemoteTunnel {
     }
 
     /// The Mac is going to sleep. The process is closed cleanly, so the
-    /// server lets go of the remote port at once instead of holding it until
+    /// server lets go of the channel at once instead of holding it until
     /// its keepalive gives up.
     public func sleep() {
         asleep = true
@@ -540,13 +600,65 @@ public final class RemoteTunnel {
         attempt(.quiet)
     }
 
-    /// A request arrived on this machine's listener. Only the tunnel can
-    /// carry one there, so it is connected — without waiting out
-    /// `confirmAfter`. The caller hands the request on only after this.
+    /// A request arrived on this machine's listener. Only the channel can
+    /// carry one there, so it is connected, whatever the forward's own
+    /// answer has not said yet. The caller hands the request on only after
+    /// this.
     public func heard() {
-        guard running, state == .connecting else { return }
+        guard running, state == .connecting, current.channelFailure == nil else { return }
         cancel()
         connected()
+    }
+
+    // MARK: - The channel
+
+    /// The master `generation` printed its mark: it is logged in and up.
+    /// The probe is asked for, once.
+    public func marked(generation: Int) {
+        guard isCurrent(generation), !current.marked else { return }
+        current.marked = true
+        effects.probe(generation)
+    }
+
+    /// The probe's answer; `nil` when it could not be run or read. A
+    /// socket that answers is another Evlat's: the try ends, nothing
+    /// written. A free one — or a dead one the probe cleared — is
+    /// forwarded. Anything else (no home, a folder that cannot be made, a
+    /// path too long for an address) ends the try as `other`.
+    public func probed(generation: Int, channel: Channel?) {
+        guard isCurrent(generation) else { return }
+        switch channel?.socket {
+        case .busy?:
+            failChannel(.channelBusy)
+        case .free?, .cleared?, .unknown?:
+            effects.forward(generation, channel!.path)
+        case .long?, .unwritable?, .homeless?, nil:
+            failChannel(.other)
+        }
+    }
+
+    /// The forward's answer. Made: connected. Refused: the probe had just
+    /// found the socket free, so the server refuses the forwarding — or
+    /// another Mac took the socket in between, which the next try's probe
+    /// reads as `channelBusy`.
+    public func forwarded(generation: Int, made: Bool) {
+        guard isCurrent(generation) else { return }
+        guard made else { return failChannel(.forwardingRefused) }
+        cancel()
+        connected()
+    }
+
+    /// Whether a report is about the running try, still making its channel.
+    private func isCurrent(_ generation: Int) -> Bool {
+        generation == self.generation && running && state == .connecting && current.channelFailure == nil
+    }
+
+    /// The try ends for `failure`: its master is closed, and the exit that
+    /// follows waits on the schedule with this failure, not its own line.
+    private func failChannel(_ failure: Failure) {
+        current.channelFailure = failure
+        cancel()
+        effects.terminate()
     }
 
     private func connected() {
@@ -570,7 +682,7 @@ public final class RemoteTunnel {
             state = .stopped
             return
         }
-        let failure = Self.classify(stderr: stderr)
+        let failure = attempt.channelFailure ?? Self.classify(stderr: stderr)
         // A password went and the login was refused: not again, whoever
         // sent it. One wrong password is one failed login on the server.
         // Even when the timer had called it connected: a login refused
@@ -608,18 +720,17 @@ public final class RemoteTunnel {
         effects.launch(launched)
         // The launch can have failed and reported its exit already.
         guard running, launched == generation else { return }
-        scheduleConfirmation()
+        scheduleDeadline()
     }
 
-    /// A process still running `confirmAfter` from now, with no prompt held,
-    /// is connected.
-    private func scheduleConfirmation() {
+    /// A try still without its channel `channelDeadline` from now, with no
+    /// prompt held, ends as `other`.
+    private func scheduleDeadline() {
         cancel()
         let launched = generation
-        cancelPending = effects.schedule(confirmAfter) { [weak self] in
-            guard let self, self.running, launched == self.generation,
-                  self.state == .connecting, self.current.heldPrompts == 0 else { return }
-            self.connected()
+        cancelPending = effects.schedule(channelDeadline) { [weak self] in
+            guard let self, self.isCurrent(launched), self.current.heldPrompts == 0 else { return }
+            self.failChannel(.other)
         }
     }
 
@@ -640,5 +751,102 @@ public final class RemoteTunnel {
     private func cancel() {
         cancelPending?()
         cancelPending = nil
+    }
+}
+
+// MARK: - The probe
+
+extension RemoteTunnel {
+    /// The server's end of the channel as the probe found it
+    /// (`channelProbe`).
+    public struct Channel: Equatable {
+        public enum Socket: String, Equatable {
+            /// Nothing at the path: the forward may make it.
+            case free
+            /// A file nothing answered on — a connection's that ended
+            /// (`sshd` does not remove it) — taken away.
+            case cleared
+            /// Something answered: another Evlat's channel. Left alone.
+            case busy
+            /// A file there, and no `curl` that can ask it: left alone, and
+            /// the forward decides.
+            case unknown
+            /// The path does not fit a unix address.
+            case long
+            /// The folder could not be made the user's alone.
+            case unwritable
+            /// No absolute `$HOME` to build the path from.
+            case homeless
+        }
+
+        /// The `curl` the installed commands need: one that can reach a
+        /// socket (`--unix-socket`, 7.40), an older one, or none.
+        public enum Curl: String, Equatable {
+            case ok, old, none
+        }
+
+        public let socket: Socket
+        public let curl: Curl
+        /// The server's socket, absolute; empty without a home.
+        public let path: String
+
+        public init(socket: Socket, curl: Curl, path: String) {
+            self.socket = socket
+            self.curl = curl
+            self.path = path
+        }
+    }
+
+    /// How long the probe waits for a socket that may answer, in seconds:
+    /// past it the socket is a dead connection's (discussion's Karar 3).
+    public static let probePatience = 5
+
+    /// Prints `<nonce> channel <socket> <curl> <path>`. POSIX `sh` and
+    /// `curl`. It makes `~/.config/evlat/run` the user's alone (`0700`),
+    /// asks a socket there for `/health` — an answer within
+    /// `probePatience` is another Evlat's, and nothing is touched; a
+    /// refusal or silence is a dead one's, and the file goes. Nothing else
+    /// is written, no file of its own either.
+    static func channelProbe(nonce: String) -> String {
+        let folder = (EvlatSocket.relativePath as NSString).deletingLastPathComponent
+        let name = (EvlatSocket.relativePath as NSString).lastPathComponent
+        return """
+        (
+        n=\(RemoteSettings.quoted(nonce))
+        say() { printf '%s channel %s %s %s\\n' "$n" "$1" "$c" "$p"; exit 0; }
+        c=none
+        p=
+        case $HOME in /*) ;; *) say homeless ;; esac
+        d="$HOME"/\(RemoteSettings.quoted(folder))
+        p=$d/\(RemoteSettings.quoted(name))
+        if command -v curl >/dev/null 2>&1; then
+          curl -q -s -m 1 --unix-socket / -o /dev/null http://127.0.0.1/ >/dev/null 2>&1
+          if [ $? -eq 2 ]; then c=old; else c=ok; fi
+        fi
+        mkdir -p "$d" 2>/dev/null && [ -d "$d" ] && [ ! -h "$d" ] && chmod 700 "$d" 2>/dev/null || say unwritable
+        [ ${#p} -le \(EvlatSocket.pathLimit) ] || say long
+        if [ ! -e "$p" ] && [ ! -h "$p" ]; then say free; fi
+        [ "$c" = ok ] || say unknown
+        a=$(curl -q -s -m \(probePatience) --noproxy '*' --unix-socket "$p" -o /dev/null -w '%{http_code}' \\
+          \(EvlatSocket.Curl.url("/health")) 2>/dev/null)
+        case $a in
+          ''|000) rm -f "$p" 2>/dev/null; say cleared ;;
+          *) say busy ;;
+        esac
+        )
+        """
+    }
+
+    /// The probe's line, found behind whatever a login script printed.
+    static func channel(output: Data, nonce: String) -> Channel? {
+        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        for line in lines.reversed() {
+            let words = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: false)
+            guard words.count >= 4, words[0] == nonce[...], words[1] == "channel",
+                  let socket = Channel.Socket(rawValue: String(words[2])),
+                  let curl = Channel.Curl(rawValue: String(words[3])) else { continue }
+            return Channel(socket: socket, curl: curl, path: words.count == 5 ? String(words[4]) : "")
+        }
+        return nil
     }
 }

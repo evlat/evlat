@@ -432,7 +432,7 @@ final class RemoteSettingsTests: XCTestCase {
         }
         wait(for: [done], timeout: 20)
         done = expectation(description: "command")
-        installer.runCommand(.install, key: String(repeating: "a", count: 64), machine: "m", target: "fake",
+        installer.runCommand(.install, machine: "m", target: "fake",
                              controlPath: socket) { _, _ in done.fulfill() }
         wait(for: [done], timeout: 20)
         done = expectation(description: "read")
@@ -483,7 +483,8 @@ final class RemoteSettingsTests: XCTestCase {
 
     /// The wrapper a user pastes runs under dash, both as the runner's shell
     /// and as the `sh` it calls: the original's output and status come
-    /// through. The port is one nothing listens on, so no live Evlat hears it.
+    /// through. `HOME` is the test's own folder, where no socket is, so no
+    /// live Evlat hears it.
     func testTheWrapperRunsUnderDash() throws {
         let bin = directory.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -492,8 +493,8 @@ final class RemoteSettingsTests: XCTestCase {
         for (original, output, status) in [("printf ok", "ok", Int32(0)), ("cat; exit 3", "in", Int32(3))] {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/dash")
-            process.arguments = ["-c", StatusLineRelay.command(wrapping: original, port: 9, source: .claude)]
-            process.environment = ["PATH": bin.path + ":/usr/bin:/bin"]
+            process.arguments = ["-c", StatusLineRelay.command(wrapping: original, source: .claude)]
+            process.environment = ["PATH": bin.path + ":/usr/bin:/bin", "HOME": directory.path]
             let stdin = Pipe(), stdout = Pipe()
             process.standardInput = stdin
             process.standardOutput = stdout

@@ -417,8 +417,7 @@ private struct ServerItemRow: View {
     private func path(_ relative: String) -> String { "\(target):~/\(relative)" }
 
     private var detail: String {
-        model.t("settings.remote.command.detail",
-                ["command": path(RemoteCommand.commandPath), "key": path(RemoteCommand.keyPath)])
+        model.t("settings.remote.command.detail", ["command": path(RemoteCommand.commandPath)])
     }
 
     private func consentLine(_ file: String, _ whatKey: String) -> String {
@@ -434,8 +433,10 @@ private struct ServerItemRow: View {
             return model.consent(source, install ? .install : .remove, on: row.id)
         case .command:
             var lines = [line(RemoteCommand.commandPath, install ? "settings.remote.what.command"
-                                                                 : "settings.remote.what.command.remove"),
-                         line(RemoteCommand.keyPath, install ? "settings.remote.what.key" : "settings.remote.what.key.remove")]
+                                                                 : "settings.remote.what.command.remove")]
+            // Version 1's key, which nothing reads now: an install takes it
+            // too, unsaid — a leftover, not something the user chose.
+            if !install { lines.append(line(RemoteCommand.keyPath, "settings.remote.what.key.remove")) }
             // The removal takes Evlat's PATH line with the command.
             if !install, let file = model.pathLineToRemove(for: row.id) {
                 lines.append(line(file, "settings.remote.what.path.remove"))

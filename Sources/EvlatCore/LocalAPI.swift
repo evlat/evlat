@@ -328,11 +328,13 @@ public enum LocalAPI {
             }
             return Outcome(response: nil, delivery: .askpass(Askpass.Request(token: token, prompt: prompt)))
         case .signal:
-            // A machine without its key does not have the route, and its
-            // existence is not shown to it (as `/permission`). With the key,
-            // a machine is the local route exactly: the machine is the
-            // listener's, which the delivery's receiver knows.
-            if listener.origin == .machine, listener.signalKey == nil { return notFound }
+            // A machine's listener with neither a key nor a socket does not
+            // have the route, and its existence is not shown to it (as
+            // `/permission`). Otherwise a machine is the local route exactly:
+            // the machine is the listener's, which the delivery's receiver
+            // knows. A machine's socket end is this user's alone, as the
+            // channel's end on the server is (`RemoteTunnel`).
+            if listener.origin == .machine, listener.signalKey == nil, !listener.keylessSignal { return notFound }
             // The key before the body: a caller without it learns nothing
             // about what a valid body looks like. The socket asks for none.
             guard listener.keylessSignal
@@ -478,17 +480,26 @@ public enum LocalAPI {
     /// The command installed in the user's hook settings —
     /// `~/.claude/settings.json` and `~/.codex/hooks.json` — and the only one
     /// the app writes there (`HookSettings`). It is both the contract's owner in
-    /// code and the string that lands in the file, so v1's installs and v2's
-    /// read the same: the route, the port and the header names below are the
-    /// same ones `dispatch` and `HTTPRequest` read, so a change to any of them
-    /// changes this string and breaks the golden test that pins it
-    /// (`LocalAPITests.testTheInstalledHookCommandIsUnchanged`).
+    /// code and the string that lands in the file: the route and the header
+    /// names below are the same ones `dispatch` and `HTTPRequest` read, so a
+    /// change to any of them changes this string and breaks the golden test
+    /// that pins it (`LocalAPITests.testTheInstalledHookCommandIsUnchanged`).
+    ///
+    /// It speaks to the socket under the home where it runs
+    /// (`EvlatSocket.Curl.homeSocket`): this Mac's own, or on a server the
+    /// one the tunnel carries here — the same bytes on both. The URL stays
+    /// `http://127.0.0.1:48151/…` although no port is dialled: its text is
+    /// what makes a command Evlat's (`HookSettings.marker`), so a command
+    /// from before the socket reads as Evlat's older one, not someone
+    /// else's.
     ///
     /// It fails silently by construction: `-m 2` so a closed Evlat cannot stall
     /// the agent, `>/dev/null 2>&1` because the answer must never reach Claude
-    /// Code, and `|| true` so a hook never fails over Evlat. `$PPID` and
-    /// `${EVLAT_TASK:-}` are plain text — they resolve when the hook runs, not
-    /// when it is installed.
+    /// Code, and `|| true` so a hook never fails over Evlat — a missing
+    /// socket included. `-q` reads no `.curlrc` and `--noproxy '*'` lets no
+    /// proxy variable take the request elsewhere. `$PPID`, `$HOME` and
+    /// `${EVLAT_TASK:-}` are plain text — they resolve when the hook runs,
+    /// not when it is installed.
     ///
     /// A body that does not name its event (`HookChannel.eventInHeader`)
     /// gets a command per event that says it in `X-Evlat-Event`; every
@@ -508,9 +519,11 @@ public enum LocalAPI {
         let named = hooks.eventInHeader ? event.map { " -H 'X-Evlat-Event: \($0)'" } ?? "" : ""
         switch endpoint {
         case .local:
-            return "curl -s -m 2 -X POST -H 'Content-Type: application/json'" + named
+            let curl = EvlatSocket.Curl.self
+            return "\(curl.program) -s -m 2 \(curl.noProxy) \(curl.homeSocket)"
+                + " -X POST -H 'Content-Type: application/json'" + named
                 + " -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\""
-                + " --data-binary @- http://127.0.0.1:\(defaultPort)\(hooks.paths[0]) >/dev/null 2>&1 || true"
+                + " --data-binary @- \(curl.url(hooks.paths[0])) >/dev/null 2>&1 || true"
         case .sandbox(let port):
             // No `$PPID` and no task: they would name the VM's processes,
             // and the listener ignores them anyway. `${SANDBOX_NAME:-}` is
@@ -525,8 +538,8 @@ public enum LocalAPI {
 
     /// Where an installed hook command runs, and so how it reaches Evlat.
     public enum HookEndpoint: Equatable {
-        /// This Mac, or a remote machine through its tunnel: `127.0.0.1` on
-        /// `defaultPort`, with the agent's pid and Evlat's task.
+        /// This Mac, or a remote machine through its tunnel: the socket
+        /// under the home, with the agent's pid and Evlat's task.
         case local
         /// A Docker sandbox: the Mac through the VM's proxy, on the sandbox
         /// listener's port, with the sandbox's name.

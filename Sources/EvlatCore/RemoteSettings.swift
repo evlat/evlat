@@ -229,7 +229,10 @@ public enum RemoteSettings {
                     }
                     return nil
                 }
-                return Write(contents: data, backup: try StatusLineRelay.backupContents(of: settings))
+                // An earlier copy's wrapper moved takes no backup, as on
+                // this Mac (`StatusLineRelay.install`).
+                let wraps = StatusLineRelay.state(of: settings, source: source) == .missing
+                return Write(contents: data, backup: wraps ? try StatusLineRelay.backupContents(of: settings) : nil)
             case (.statusLine(let source), .remove):
                 guard let data = try plan(original: original, {
                     StatusLineRelay.removing(from: $0, source: source) ?? $0
@@ -258,17 +261,21 @@ public enum RemoteSettings {
     }
 
     /// The unit's install: hooks, then the usage line where it is a part
-    /// and still missing — a wrapper changed by hand is never written over.
-    /// The relay's backup is carried only when this write wraps the
-    /// `statusLine`, as on this Mac (`AgentIntegration`). Nothing to write
-    /// while a part that should be there is not: a shape not ours, refused.
+    /// and still missing, or an earlier copy's — a wrapper changed by hand
+    /// is never written over. The relay's backup is carried only when this
+    /// write wraps a `statusLine` that had none of Evlat's, as on this Mac
+    /// (`AgentIntegration`). Nothing to write while a part that should be
+    /// there is not: a shape not ours, refused.
     private static func installUnit(_ source: some Agent, settings: [String: Any]) throws -> Write? {
         var next = LocalHooks.installing(into: settings, for: source, approvals: false)
-        let wraps = relays(source) && StatusLineRelay.state(of: settings, source: source) == .missing
-        if wraps, let wrapped = StatusLineRelay.installing(into: next, source: source) { next = wrapped }
+        let relay = StatusLineRelay.state(of: settings, source: source)
+        let wraps = relays(source) && relay == .missing
+        if relays(source), relay == .missing || relay == .outdated,
+           let wrapped = StatusLineRelay.installing(into: next, source: source) { next = wrapped }
         guard !NSDictionary(dictionary: next).isEqual(to: settings) else {
-            let relayMissing = relays(source) && AgentIntegration.relayState(of: settings, source: source) == .missing
-            if LocalHooks.state(of: settings, for: source, approvals: false) != .current || relayMissing {
+            let unit = AgentIntegration.relayState(of: settings, source: source)
+            let relayShort = relays(source) && (unit == .missing || unit == .outdated)
+            if LocalHooks.state(of: settings, for: source, approvals: false) != .current || relayShort {
                 throw SettingsFile.Failure.malformed
             }
             return nil
@@ -353,6 +360,9 @@ public enum RemoteSettings {
         public let command: RemoteCommand.Status
         /// `nil` when the probe's line was not in the answer.
         public var path: RemotePath.Status?
+        /// The channel's end on the server, when the call probed it (the
+        /// tunnel's own call, `RemoteTunnel.channelProbe`).
+        public var channel: RemoteTunnel.Channel?
 
         /// The local reader's state, from the bytes read.
         public func hooks(_ source: some Agent) -> Found<HookSettings.State> {
@@ -394,10 +404,14 @@ public enum RemoteSettings {
     /// runs in its own subshell, so a missing folder ends its part and not
     /// the read. It reads only: nothing is written, not even a temporary
     /// file, and a file that changes while it is read reads as unreadable.
+    ///
+    /// `probing`: the tunnel's call, the channel's probe first
+    /// (`RemoteTunnel.channelProbe`) — the one part that writes, and only
+    /// its own folder and a dead socket.
     public static func readingScript(nonce: String, agents: [any Agent],
-                                     patience: Int = RemotePath.patience) -> String {
+                                     patience: Int = RemotePath.patience, probing: Bool = false) -> String {
         let unreadable = code(.unreadable)
-        var script = ""
+        var script = probing ? RemoteTunnel.channelProbe(nonce: nonce) + "\n" : ""
         for source in agents {
             script += """
             (
@@ -443,7 +457,8 @@ public enum RemoteSettings {
             let bytes = Data(output[output.index(after: lineEnd)..<ending.lowerBound])
             files[source] = .success(Snapshot(bytes: checksum == absent ? nil : bytes, checksum: checksum))
         }
-        return Reading(files: files, command: command, path: RemotePath.status(output: output, nonce: nonce))
+        return Reading(files: files, command: command, path: RemotePath.status(output: output, nonce: nonce),
+                       channel: RemoteTunnel.channel(output: output, nonce: nonce))
     }
 
     // MARK: - The one block
@@ -459,7 +474,7 @@ public enum RemoteSettings {
     /// part is `RemoteCommand.manual`'s blocks; the PATH part adds
     /// `RemotePath.line` unless the pasting shell's `PATH` has the folder.
     ///
-    /// It carries each settings file whole, as read. A part is left out
+    /// It carries each settings file whole, as read, and no secret. A part is left out
     /// when there is nothing to write, the agent's folder is missing, the
     /// file could not be read, or the command is somebody else's; a
     /// wrapper changed by hand keeps the file's hooks part and loses only
@@ -470,7 +485,7 @@ public enum RemoteSettings {
     /// traps stay inside it, nothing is expanded by the user's shell, and a
     /// part that fails says which file on stderr. No line starts with `#`
     /// outside a part: an interactive zsh reads a comment as a command.
-    public static func combinedScript(_ reading: Reading, key: String, agents: [any Agent]) -> String? {
+    public static func combinedScript(_ reading: Reading, agents: [any Agent]) -> String? {
         var parts: [String] = []
         for source in agents {
             guard case .success(let snapshot)? = reading.files[source.id] else { continue }
@@ -483,14 +498,14 @@ public enum RemoteSettings {
         }
         let commandPart = reading.command != .foreign && !reading.command.isCurrent
         if commandPart {
-            let manual = RemoteCommand.manual(key: key)
+            let manual = RemoteCommand.manual()
             let marker = quoted(RemoteCommand.marker)
             parts.append(part(file: "~/" + RemoteCommand.commandPath, """
                 e="$HOME"/\(quoted(RemoteCommand.commandPath))
                 if [ -h "$e" ]; then exit 10; fi
                 if [ -e "$e" ] && [ "$(sed -n 2p "$e" 2>/dev/null)" != \(marker) ]; then exit 10; fi
-                \(manual.script)\(manual.key)\
-                [ "$(sed -n 2p "$e" 2>/dev/null)" = \(marker) ] && [ -s "$HOME"/\(quoted(RemoteCommand.keyPath)) ] || exit 13
+                \(manual.script)\
+                [ "$(sed -n 2p "$e" 2>/dev/null)" = \(marker) ] || exit 13
                 exit 0
 
                 """))

@@ -21,12 +21,29 @@ final class StatusLineRelayTests: XCTestCase {
 
     // MARK: - The installed command
 
+    /// The relay as it is written now: to the socket under the home.
+    static let relay = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -q -s -m 2 --noproxy "*""#
+        + #" --unix-socket "$HOME/.config/evlat/run/evlat.sock" -X POST"#
+        + #" -H "Content-Type: application/json" --data-binary @-"#
+        + #" http://127.0.0.1:48151/usage/claude >/dev/null 2>&1 &"#
+
+    /// The relay every earlier copy wrote, to the loopback port. Pinned
+    /// apart: a wrapper with it is Evlat's older one (`.outdated`).
+    static let tcpRelay = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
+        + #" -H "Content-Type: application/json" --data-binary @-"#
+        + #" http://127.0.0.1:48151/usage/claude >/dev/null 2>&1 &"#
+
+    /// A wrapper around `original` with `relay`, as some copy of Evlat wrote it.
+    static func wrapper(_ relay: String, _ original: String?) -> String {
+        guard let original else { return "sh -c '" + relay + "'" }
+        return "sh -c '" + relay + #" printf %s "$i" | sh -c "$1"' evlat-statusline "#
+            + "'" + original.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    }
+
     /// The fixed point: what the menu writes into the user's file, byte for
     /// byte. A change here reads every earlier install as `modified`.
     func testTheInstalledStatusLineCommandIsUnchanged() {
-        let relay = #"i=$(cat; printf x); i=${i%x}; printf %s "$i" | curl -s -m 2 -X POST"#
-            + #" -H "Content-Type: application/json" --data-binary @-"#
-            + #" http://127.0.0.1:48151/usage/claude >/dev/null 2>&1 &"#
+        let relay = Self.relay
         XCTAssertEqual(StatusLineRelay.command(wrapping: "bash ~/.claude/statusline.sh", source: .claude),
                        "sh -c '" + relay + #" printf %s "$i" | sh -c "$1"' evlat-statusline 'bash ~/.claude/statusline.sh'"#)
         XCTAssertEqual(StatusLineRelay.command(wrapping: nil, source: .claude), "sh -c '" + relay + "'",
@@ -40,15 +57,19 @@ final class StatusLineRelayTests: XCTestCase {
         let marker = StatusLineRelay.marker(for: .claude)
         XCTAssertEqual(marker, "127.0.0.1:\(LocalAPI.defaultPort)\(Claude().statusLineUsage!.path)")
         XCTAssertTrue(StatusLineRelay.command(wrapping: "x", source: .claude).contains(marker))
-        XCTAssertFalse(StatusLineRelay.command(wrapping: "x", port: 9, source: .claude).contains(marker))
+        XCTAssertTrue(Self.wrapper(Self.tcpRelay, "x").contains(marker), "the older wrapper is Evlat's too")
     }
 
     func testTheOriginalComesBackOutOfTheWrapper() {
         for original in ["cat", "echo 'a' \"b\" # c", "", "printf '\\n'", "a'''b"] {
-            XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: original, source: .claude), source: .claude),
-                           .some(original), original)
+            XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: original, source: .claude),
+                                                    source: .claude).map(\.original), .some(original), original)
+            XCTAssertEqual(StatusLineRelay.original(in: Self.wrapper(Self.tcpRelay, original), source: .claude).map(\.original),
+                           .some(original), "the older wrapper's: \(original)")
         }
-        XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: nil, source: .claude), source: .claude), .some(nil))
+        XCTAssertEqual(StatusLineRelay.original(in: StatusLineRelay.command(wrapping: nil, source: .claude),
+                                                source: .claude).map(\.original), .some(nil))
+        XCTAssertEqual(StatusLineRelay.original(in: Self.wrapper(Self.tcpRelay, nil), source: .claude).map(\.original), .some(nil))
         XCTAssertNil(StatusLineRelay.original(in: "bash statusline.sh", source: .claude), "not ours")
         let wrapped = StatusLineRelay.command(wrapping: "cat", source: .claude)
         XCTAssertNil(StatusLineRelay.original(in: wrapped + " extra", source: .claude), "edited after")
@@ -56,15 +77,74 @@ final class StatusLineRelayTests: XCTestCase {
         XCTAssertNil(StatusLineRelay.original(in: String(wrapped.dropLast()), source: .claude), "an unclosed quote")
     }
 
+    // MARK: - The wrapper before the socket
+
+    /// Evlat's own older wrapper is `outdated`, never `modified`: the card
+    /// offers the press that moves it, and the press does.
+    func testTheWrapperBeforeTheSocketIsOutdated() {
+        for original in ["bash ~/.claude/s.sh", "echo 'hi'", nil] as [String?] {
+            let settings: [String: Any] = ["statusLine": ["type": "command",
+                                                          "command": Self.wrapper(Self.tcpRelay, original)]]
+            XCTAssertEqual(StatusLineRelay.state(of: settings, source: .claude), .outdated, original ?? "relay alone")
+        }
+        let edited = Self.wrapper(Self.tcpRelay, "cat").replacingOccurrences(of: "-m 2", with: "-m 9")
+        XCTAssertEqual(StatusLineRelay.state(of: ["statusLine": ["command": edited]], source: .claude), .modified,
+                       "an older wrapper edited by hand is the user's")
+    }
+
+    /// The install takes the original out of the older wrapper and wraps it
+    /// again, neighbours kept; the removal takes the older one apart too.
+    func testAnInstallRewrapsTheOlderWrapperAndARemovalUnwrapsIt() throws {
+        let original: [String: Any] = ["model": "opus",
+                                       "statusLine": ["type": "command", "command": "bash ~/s.sh", "padding": 0]]
+        let old: [String: Any] = ["model": "opus",
+                                  "statusLine": ["type": "command", "command": Self.wrapper(Self.tcpRelay, "bash ~/s.sh"),
+                                                 "padding": 0]]
+        let installed = try XCTUnwrap(StatusLineRelay.installing(into: old, source: .claude))
+        XCTAssertEqual(StatusLineRelay.state(of: installed, source: .claude), .current)
+        XCTAssertEqual(statusLine(installed)?["command"] as? String,
+                       StatusLineRelay.command(wrapping: "bash ~/s.sh", source: .claude))
+        XCTAssertEqual(statusLine(installed)?["padding"] as? Int, 0)
+        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.removing(from: old, source: .claude)))
+            .isEqual(to: original), "the older wrapper comes apart to the original")
+
+        let alone: [String: Any] = ["statusLine": ["type": "command", "command": Self.wrapper(Self.tcpRelay, nil)]]
+        let movedAlone = try XCTUnwrap(StatusLineRelay.installing(into: alone, source: .claude))
+        XCTAssertEqual(statusLine(movedAlone)?["command"] as? String,
+                       StatusLineRelay.command(wrapping: nil, source: .claude))
+        XCTAssertTrue(NSDictionary(dictionary: try XCTUnwrap(StatusLineRelay.removing(from: alone, source: .claude)))
+            .isEqual(to: [:]))
+    }
+
+    /// Moving the older wrapper leaves its backup alone: what it kept is the
+    /// user's command from before any wrapper, not the wrapper itself.
+    func testMovingTheOlderWrapperKeepsItsBackup() throws {
+        let url = try settingsFile()
+        try Data(#"{"statusLine": {"type": "command", "command": "cat"}}"#.utf8).write(to: url)
+        try StatusLineRelay.install(at: url, source: .claude)
+        let kept = try Data(contentsOf: statusBackup(url))
+        let old = try JSONSerialization.data(withJSONObject:
+            ["statusLine": ["type": "command", "command": Self.wrapper(Self.tcpRelay, "cat")]])
+        try old.write(to: url)
+        XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .outdated)
+        XCTAssertEqual(try StatusLineRelay.install(at: url, source: .claude), .written)
+        XCTAssertEqual(try StatusLineRelay.state(at: url, source: .claude), .current)
+        XCTAssertEqual(try Data(contentsOf: statusBackup(url)), kept)
+        XCTAssertEqual(try StatusLineRelay.remove(at: url, source: .claude), .written)
+        XCTAssertEqual(try json(url) as? [String: [String: String]], ["statusLine": ["type": "command", "command": "cat"]])
+    }
+
     // MARK: - Running it
 
-    /// What a shell prints and exits with for `command`, fed `input`.
+    /// What a shell prints and exits with for `command`, fed `input`, with
+    /// `home` as its `$HOME`.
     private struct Run { let stdout: Data; let status: Int32; let seconds: TimeInterval }
 
-    private func run(_ shell: String, _ command: String, input: Data) throws -> Run {
+    private func run(_ shell: String, _ command: String, input: Data, home: SocketHome) throws -> Run {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
         process.arguments = ["-c", command]
+        process.environment = home.environment
         let stdin = Pipe(), stdout = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout
@@ -82,39 +162,46 @@ final class StatusLineRelayTests: XCTestCase {
 
     /// Inside a status line runner the wrapper's output and exit code are the
     /// original's, under every shell Claude Code might hand it to, and the
-    /// listener gets the input byte for byte.
+    /// socket under the home gets the input byte for byte.
     func testTheWrapperPrintsWhatTheOriginalPrintsAndRelaysTheInput() throws {
         let originals = ["cat", "printf 'a\\n\\n'", "echo 'it'\\''s'", "echo shown # a trailing comment", "exit 3"]
+        let home = try SocketHome()
+        defer { home.remove() }
         for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
             for original in originals {
-                let listener = try OneShotListener()
-                let wrapped = try run(shell, StatusLineRelay.command(wrapping: original, port: listener.port, source: .claude),
-                                      input: input)
-                let direct = try run(shell, original, input: input)
+                let listener = try home.listen()
+                let wrapped = try run(shell, StatusLineRelay.command(wrapping: original, source: .claude),
+                                      input: input, home: home)
+                let direct = try run(shell, original, input: input, home: home)
                 XCTAssertEqual(wrapped.stdout, direct.stdout, "\(shell): \(original)")
                 XCTAssertEqual(wrapped.status, direct.status, "\(shell): \(original)")
                 XCTAssertEqual(listener.body(), input, "\(shell): \(original): the body, byte for byte")
+                XCTAssertTrue(listener.requestHead()?.hasPrefix("POST /usage/claude HTTP/1.1") == true)
+                listener.close()
             }
         }
     }
 
     func testWithoutAnOriginalItOnlyRelays() throws {
-        let listener = try OneShotListener()
-        let result = try run("/bin/sh", StatusLineRelay.command(wrapping: nil, port: listener.port, source: .claude), input: input)
+        let home = try SocketHome()
+        defer { home.remove() }
+        let listener = try home.listen()
+        let result = try run("/bin/sh", StatusLineRelay.command(wrapping: nil, source: .claude), input: input, home: home)
         XCTAssertEqual(result.stdout, Data())
         XCTAssertEqual(result.status, 0)
         XCTAssertEqual(listener.body(), input)
     }
 
-    /// Nothing listening, or a listener that never answers: nothing leaks to
+    /// No socket, or a listener that never answers: nothing leaks to
     /// stdout and the original's output does not wait for the relay.
     func testAClosedOrSilentEvlatChangesNothing() throws {
-        let closed = try OneShotListener()
-        let port = closed.port
-        closed.close()
-        let silent = try OneShotListener(answer: false)
-        for port in [port, silent.port] {
-            let result = try run("/bin/sh", StatusLineRelay.command(wrapping: "printf ok", port: port, source: .claude), input: input)
+        let home = try SocketHome()
+        defer { home.remove() }
+        let command = StatusLineRelay.command(wrapping: "printf ok", source: .claude)
+        let missing = try run("/bin/sh", command, input: input, home: home)
+        let silent = try home.listen(answer: false)
+        let held = try run("/bin/sh", command, input: input, home: home)
+        for result in [missing, held] {
             XCTAssertEqual(result.stdout, Data("ok".utf8))
             XCTAssertEqual(result.status, 0)
             XCTAssertLessThan(result.seconds, 1, "the relay runs in the background")
@@ -313,89 +400,4 @@ final class StatusLineRelayTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home).deletingLastPathComponent().path))
     }
-}
-
-/// A loopback listener on a free port that takes one HTTP request, keeps its
-/// body and answers `{}` — or, with `answer: false`, holds the connection and
-/// says nothing. BSD sockets: the core's tests have no `Network`.
-private final class OneShotListener {
-    let port: UInt16
-    private let socket: Int32
-    private let done = DispatchSemaphore(value: 0)
-    private var received = Data()
-    private var held: Int32 = -1
-    private var closed = false
-    private let lock = NSLock()
-
-    init(answer: Bool = true) throws {
-        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        self.socket = socket
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        address.sin_port = 0
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let bound = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(socket, $0, length) == 0 && listen(socket, 4) == 0
-                    && getsockname(socket, $0, &length) == 0
-            }
-        }
-        guard bound else { Darwin.close(socket); throw CocoaError(.fileWriteUnknown) }
-        port = UInt16(bigEndian: address.sin_port)
-        let listening = socket
-        DispatchQueue.global().async { [self] in
-            let client = accept(listening, nil, nil)
-            guard client >= 0 else { done.signal(); return }
-            var request = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while !Self.complete(request) {
-                let count = read(client, &buffer, buffer.count)
-                if count <= 0 { break }
-                request.append(buffer, count: count)
-            }
-            lock.lock()
-            if let split = request.range(of: Data("\r\n\r\n".utf8)) {
-                received = request.subdata(in: split.upperBound..<request.endIndex)
-            }
-            lock.unlock()
-            if answer {
-                let reply = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
-                _ = reply.withCString { write(client, $0, strlen($0)) }
-                Darwin.close(client)
-            } else {
-                lock.lock(); held = client; lock.unlock()
-            }
-            done.signal()
-        }
-    }
-
-    /// Headers read and `Content-Length` bytes of body after them.
-    private static func complete(_ request: Data) -> Bool {
-        guard let split = request.range(of: Data("\r\n\r\n".utf8)) else { return false }
-        let head = String(decoding: request[request.startIndex..<split.lowerBound], as: UTF8.self).lowercased()
-        guard let line = head.components(separatedBy: "\r\n").first(where: { $0.hasPrefix("content-length:") }),
-              let length = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces))
-        else { return true }
-        return request.endIndex - split.upperBound >= length
-    }
-
-    /// The body, once the request is in; `nil` if none came within 5 s.
-    func body() -> Data? {
-        guard done.wait(timeout: .now() + 5) == .success else { return nil }
-        lock.lock(); defer { lock.unlock() }
-        return received
-    }
-
-    /// Once: a second `close` of a number the system handed out again would
-    /// close someone else's descriptor.
-    func close() {
-        lock.lock(); defer { lock.unlock() }
-        guard !closed else { return }
-        closed = true
-        Darwin.close(socket)
-        if held >= 0 { Darwin.close(held) }
-    }
-
-    deinit { close() }
 }

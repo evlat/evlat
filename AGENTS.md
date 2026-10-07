@@ -232,7 +232,7 @@ which agent it is:
 | `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`StatusLineUsageProvider(source:)`); the format is undocumented | derived |
 | `codex-usage` | usage | tail (256 KB) of the newest Codex `rollout-*.jsonl`, read only when the bar opens (`Codex/CodexUsageProvider`, the agent's `providers`) | derived |
 | `evlat` | chat jobs | the chat bubble's turns, on any chat backend (`ChatsProvider`); a backend that answered with another version than the one measured is in its `diagnostics` and in Settings → Chat | official |
-| `signal` | external jobs | `POST /signal`, keyed; sent by `Evlat watch` / `Evlat signal` | manual |
+| `signal` | external jobs | `POST /signal`, keyed on the port, keyless on a socket; sent by `Evlat watch` / `Evlat signal` | manual |
 
 An agent can be switched off (Settings → Agents, its card's switch; the
 setup's agent step). The set is `agents.enabled` (`EnabledAgents`): nothing
@@ -250,8 +250,8 @@ files asks whether they go too (the default) or stay.
 
 Remote machines add no provider type: each machine gets its own `hooks`
 and `signal` *instances*, and a `StatusLineUsageProvider` per agent switched
-on there whose usage a status line posts (`<id>@<machine>`), fed through an
-`ssh -R` reverse tunnel; a usage report goes to the machine's provider for
+on there whose usage a status line posts (`<id>@<machine>`), fed through the
+machine's channel (below); a usage report goes to the machine's provider for
 its `source`, or is dropped. Identity comes from the listener, never from the
 request body; remote entities are namespaced (`remote:<machine>:<session>`,
 `signal:<machine>:<id>`) so they can never merge with local rows.
@@ -317,6 +317,39 @@ tunnel from `connected`. One password is one login: a refused one, or a quiet tr
 password prompt for a machine that has a stored password or last connected
 with one, stops at `needsUser` — sticky across wakes, left only by the
 user's press (`RemoteTunnel`).
+
+Over the master runs the machine's **channel**: the server's socket,
+`~/.config/evlat/run/evlat.sock` — the one its installed commands speak
+to, as this Mac's do here — forwarded to a socket of the machine's own
+beside the master's (`RemoteTunnel.channelPath`, `<socket>.sock`), where the
+machine's listener (`.machine`) is. No TCP port is opened on the server.
+In order, each step on the last: the master's remote command prints a mark
+(`echo <mark>; exec cat`), read from its stdout (drained to the end, so a
+login script that talks never stalls it); one `sh -s` over the master
+probes and reads the machine (`RemoteTunnel.channelProbe` in
+`RemoteSettings.readingScript`): it makes the folder `0700`, asks a socket
+there for `/health` — an answer within 5 s is another Evlat's, another
+Mac's, and nothing is touched (`channelBusy`); a refusal or silence is a
+dead connection's and the file goes; then `ssh -O forward -R
+<absolute server socket>:<this Mac's>` over the master. Only a forward made
+is `connected` (or a request heard on the listener first); a forward that
+fails after a free probe is `forwardingRefused`. Either failure closes the
+master and waits on the schedule. No master (no path fits, another
+process's live one) is no channel: the try ends as `other`. A try with no
+channel `RemoteTunnel.defaultChannelDeadline` (30 s) after its launch or
+its last prompt's answer ends as `other` too. The probe's reading fills the
+machine's rows in Settings (`RemoteTunnels.reading(of:)`). The probe and the
+forward run on a queue of their own (`RemoteInstaller`), without the jobs'
+lock. A channel's end swept from `$TMPDIR` is bound again before the next
+try (`RemoteTunnels.endpointIsThere`): `-O forward` does not look, and would
+carry events to a path nobody listens on.
+
+A server tells one Mac at a time: a second Mac connected as the same user
+reads `channelBusy` until the first one's connection ends. A server whose
+`sshd` allows no socket forwarding (`AllowStreamLocalForwarding no`,
+`DisableForwarding yes`, and `AllowTcpForwarding no`, which turns it off
+too) cannot be used. A home on NFS and a home whose socket path passes a
+unix address (103 bytes) were not measured.
 
 ### The merge rule
 
@@ -748,8 +781,20 @@ isolated process (`EVLAT_PORT`) keep passwords in memory
 ### Hook contract
 
 The fixed point is the command already **installed** in the user's
-`~/.claude/settings.json` / `~/.codex/hooks.json`. Hooks installed by earlier
-versions must keep talking to this one unchanged.
+`~/.claude/settings.json` / `~/.codex/hooks.json` — on this Mac and on a
+server, the same bytes. It speaks to the socket under the home where it
+runs: `curl -q -s -m 2 --noproxy '*' --unix-socket
+"$HOME/.config/evlat/run/evlat.sock" … http://127.0.0.1:48151/<route>`.
+The URL is text: it names no port that is dialled, and it is what makes a
+command Evlat's (`HookSettings.marker`), so the bytes before the socket —
+`curl -s -m 2 … http://127.0.0.1:48151/…`, every earlier version's — read
+as Evlat's older command, "needs update", and one press moves them. Until
+the port goes (028's phase-5), an older command still reaches this Mac. A
+changed command must reach the agent: Claude Code took a changed
+`UserPromptSubmit` command from `settings.json` at an open session's next
+prompt (2.1.292, measured under a temporary `CLAUDE_CONFIG_DIR`, written in
+place and by rename); Codex runs a
+changed hook only once it is trusted again in `/hooks` (below, Pitfalls).
 
 - The only author of the command is `LocalAPI.installedHookCommand(for:event:)`;
   the writers (`HookSettings`, and `AntigravityHooks` for Antigravity's
@@ -775,7 +820,13 @@ versions must keep talking to this one unchanged.
 
 The status-line relay (`StatusLineRelay`) is the second installed contract: a
 `sh -c` wrapper that preserves the user's original command's output and exit
-code byte for byte (`EvlatAgentsTests.StatusLineRelayTests`).
+code byte for byte (`EvlatAgentsTests.StatusLineRelayTests`), its `curl`
+to the same socket (`--noproxy "*"` and `"$HOME/…"` double-quoted inside the
+wrapper's single quotes). A wrapper with the relay before the socket is
+`outdated`, not `modified`: an install takes its original out and wraps it
+again without a new backup (the one it has is the user's line from before
+any wrapper), and a removal takes it apart. Only a wrapper no copy of Evlat
+wrote is `modified`.
 
 On this Mac an agent is one card in Settings → Agents and one unit to
 install (`AgentIntegration`): its hooks, its approval hook where it has one,
@@ -822,12 +873,13 @@ directory is the guard (`UnixSocket.prepareDirectory`). A live socket is
 another Evlat's and is left alone; a file nobody answers on is cleared and
 bound; `stop()` removes the file only while it is still the one it bound.
 Evlat's own clients speak there: a chat turn's hook, the askpass helper,
-`evlat signal`/`watch` (`UnixHTTP`, one blocking HTTP/1.1 request). The
-installed hook commands still speak to the port.
+`evlat signal`/`watch` (`UnixHTTP`, one blocking HTTP/1.1 request), and
+the installed hook commands and relay. A machine's listener is a socket
+too, its channel's end, and takes `/signal` without a key.
 
 Each listener has a role (`LocalAPI.Origin`): `.local` (this Mac, port or
 socket) has every route and believes `X-Evlat-Pid`/`X-Evlat-Task`;
-`.machine` (a tunnel) has `/hook`, `/usage`, `/signal` and `/health`;
+`.machine` (a channel's end) has `/hook`, `/usage`, `/signal` and `/health`;
 `.sandbox` has `/hook` alone and is the one that believes
 `X-Evlat-Sandbox`. A route the role lacks is `404`, whatever the listener
 holds (`Origin.role`, one `switch`).
@@ -855,8 +907,10 @@ sends, not the row's life.
 The key is written on every launch to
 `~/Library/Application Support/Evlat/signal-<port>.token` (`0600`) by the
 process that holds the port and removed on quit; wrong or missing key → `403`.
-Through a tunnel the route takes the **machine's own** key. On the socket it
-takes none: only the user's processes can reach it.
+On a socket — this Mac's, or a machine's channel end — it takes none: only
+the user's processes can reach it, and through a channel the machine is the
+listener's. A machine's stored keys (`remote.signalKeys`, from version 1 of
+the server's command) are no longer read; the value is left where it is.
 
 ### Command line
 
@@ -884,8 +938,13 @@ written. A prompt-shaped `argv` without the mark is still a usage error.
 The server-side script (`RemoteCommand.script`, POSIX `sh` + `curl`, installed
 to a remote machine's `~/.local/bin/evlat`) is the third installed contract:
 marked and versioned, generated from the Swift constants, run under
-`sh`/`dash`/`bash` in tests, and the key never appears in any argv. A change to
-the script bumps its version.
+`sh`/`dash`/`bash` in tests. A change to the script bumps its version.
+Version 2 speaks to `$EVLAT_SOCKET`, else the socket under the home, with no
+key; its install and removal take away the `signal.token` version 1 left. A
+version above this build's is not called old (another Mac's newer Evlat
+installed it). `evlat --list` says why in one line: no `curl`, a `curl`
+older than `--unix-socket` (7.40), no socket, a socket nobody answers on,
+`404` (an older Evlat on the Mac).
 
 What Evlat writes into a Docker sandbox (`SandboxInstall`, its file the
 catalog's `Agents.sandboxInstall`) is the fourth installed contract: one
@@ -994,11 +1053,11 @@ Running a second Evlat next to the user's must not touch the user's state.
 | `EVLAT_SOCKET` | Evlat's socket, an absolute path (`EvlatSocket`); the app binds it and `evlat signal`/`watch` post to it. A relative one is none, never the user's |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
-| `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |
+| `EVLAT_MACHINES` | machines to tunnel to; their switches stay in memory |
 | `EVLAT_SANDBOX_PORT` | the Docker sandbox listener's port; with `EVLAT_PORT` set there is no sandbox listener unless this is given |
 | `EVLAT_SBX`, `EVLAT_SBX_SOCKET` | the `sbx` to run and the daemon's socket; with `EVLAT_PORT` set no sandbox is watched or set up unless both are given (a fake `sbx`: `Tests/Fixtures/fake-sbx`). With `EVLAT_PORT` the "Watch sandboxes" switch stays in memory |
 | `EVLAT_SANDBOXES` | `on`/`off` forces "Watch sandboxes" at launch; the stored switch is never written |
-| `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` |
+| `EVLAT_SSH` | fake `ssh`; it must run install scripts with a temporary `HOME` (`Tests/Fixtures/fake-ssh` runs calls in `FAKE_SSH_HOME`, prints the master's mark, makes the forward) |
 | `EVLAT_CHATS` | temporary chat root |
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
 | `EVLAT_BODY` | force the body's mode (`always`, `smart`, `tucked`, `hidden`) at launch; the stored mode is never written |
@@ -1311,6 +1370,33 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   `-o ProxyCommand=/usr/bin/false` makes that fail at once (exit 255,
   ~40 ms, nothing sent) and a live master never runs it; over the master
   the script took 0.19–0.25 s.
+- **A master remembers a forward that failed.** A socket `-R` on the
+  master's own command line that failed (a file in the way) is not tried
+  again: the next `-O forward` with the same spec returns 0 and forwards
+  nothing (sshd 9.6p1, client 10.2p1). Hence no `-R` on the master, and a
+  failed forward ends the master: the next try is a new one.
+- **`sshd` leaves the socket file when the connection ends** (`-O exit`, a
+  dropped network), and `StreamLocalBindUnlink` is the server's setting,
+  off by default; a file in the way fails the next forward. The probe asks
+  the file and removes it only when nothing answers (connect refused, or
+  5 s of silence).
+- **A refused socket forward says the same thing whatever refused it.** A
+  file in the way, a missing folder, `AllowStreamLocalForwarding no`,
+  `DisableForwarding yes` and `AllowTcpForwarding no` all printed
+  `remote port forwarding failed for listen path …` with exit 255, the
+  master still up (OpenSSH 9.6p1 in a container, 10.2p1 client, measured
+  2026-10-07). The probe before the forward is what tells busy from
+  refused. Socket to socket over a master took 36 ms and the server's file
+  came out `0600` (`StreamLocalBindMask 0177`).
+- **`-R` does not expand `~` on the server's side** (OpenSSH bug 3018), and
+  `sshd` makes no missing folder: the forward names the absolute path the
+  probe read from `$HOME`, after the probe made the folder.
+- **Codex runs a changed hook only once it is trusted again.** Its trust is
+  a hash per hook (`config.toml` → `hooks.state."<file>:<event>:<group>:<n>"`
+  → `trusted_hash`); with the command's bytes changed, `hooks/list` read
+  `modified` and `codex exec` ran no hook and said nothing (codex-cli
+  0.160.0, a temporary `CODEX_HOME`, measured). The TUI's `/hooks` trusts
+  it again; what the TUI shows on its own was not measured.
 
 - **macOS cannot play Ogg Vorbis.** An OpenPeon line in Ogg (`Evet_M.ogg`,
   22 kHz mono, from the Turkish villager packs) is opened by `NSSound` and

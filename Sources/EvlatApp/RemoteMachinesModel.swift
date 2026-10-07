@@ -28,9 +28,9 @@ final class RemoteMachinesModel: ObservableObject {
         /// `false` when the machines came from `EVLAT_MACHINES`: then nothing
         /// added or removed here outlives the process.
         var isStored: () -> Bool
-        /// The machine's signal key (`RemoteTunnels.signalKey(of:)`): what
-        /// the command's install writes on the server.
-        var signalKey: (String) -> String?
+        /// What the machine's channel read when it was last made
+        /// (`RemoteTunnels.reading(of:)`): a row not read yet starts from it.
+        var channelReading: (String) -> RemoteSettings.Reading? = { _ in nil }
         /// The socket of the machine's tunnel master, while one runs
         /// (`RemoteTunnels.controlPath(of:)`): the jobs ride it.
         var controlPath: (String) -> String? = { _ in nil }
@@ -221,6 +221,15 @@ final class RemoteMachinesModel: ObservableObject {
         if let expanded, !fresh.contains(where: { $0.id == expanded }) { self.expanded = nil }
         let gone = readings.keys.filter { id in !fresh.contains { $0.id == id } }
         for id in gone { readings[id] = nil }
+        for row in fresh where readings[row.id] == nil { channelRead(row.id) }
+    }
+
+    /// The machine's channel read it (`RemoteTunnels.onReading`): a row
+    /// with no reading of its own, or an older one, takes it. One being read
+    /// keeps waiting for its own.
+    func channelRead(_ id: String) {
+        guard readings[id] != .reading, let reading = host.channelReading(id) else { return }
+        readings[id] = .read(reading)
     }
 
     // MARK: - Adding
@@ -503,15 +512,13 @@ final class RemoteMachinesModel: ObservableObject {
 
     /// Every row's block in one, from the machine's last reading
     /// (`RemoteSettings.combinedScript`), for the agents switched on; none
-    /// without a reading, a key, or anything to write. It carries the key:
-    /// drawn masked, copied concealed.
+    /// without a reading or anything to write.
     func combinedBlock(for id: String) -> Block? {
-        guard case .read(let reading)? = readings[id], let key = host.signalKey(id),
-              let text = RemoteSettings.combinedScript(reading, key: key,
+        guard case .read(let reading)? = readings[id],
+              let text = RemoteSettings.combinedScript(reading,
                                                        agents: Agents.all.filter { enabledAgents(of: id).contains($0.id) })
         else { return nil }
-        return Block(id: "combined", captionKey: "remote.combined.whole", text: text,
-                     shown: text.replacingOccurrences(of: key, with: Self.mask))
+        return Block(id: "combined", captionKey: "remote.combined.whole", text: text)
     }
 
     // MARK: - The agents' cards
@@ -566,10 +573,9 @@ final class RemoteMachinesModel: ObservableObject {
                                 status: partStatus(state.hooks))]
         if let relay = state.relay {
             card.parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: file,
-                                        status: relay == .modified ? .foreign
-                                            : relay == .current ? .installed : .missing))
+                                        status: SetupModel.status(relay)))
         }
-        card.removesRelay = state.relay == .current
+        card.removesRelay = state.relay?.isEvlats == true
         return card
     }
 
@@ -631,7 +637,7 @@ final class RemoteMachinesModel: ObservableObject {
             if state.installsRelay { what.append("setup.consent.what.usage") }
         } else {
             if state.hooks != .missing { what.append("setup.consent.what.hooks.remove") }
-            if state.relay == .current { what.append("setup.consent.what.usage.remove") }
+            if state.relay?.isEvlats == true { what.append("setup.consent.what.usage.remove") }
         }
         guard !what.isEmpty else { return [] }
         var lines = [t("setup.consent.line", ["file": "\(row.target):~/\(source.agent.integration.hooksFile)",
@@ -683,11 +689,11 @@ final class RemoteMachinesModel: ObservableObject {
     /// Installs or removes the server's `evlat` on the selected machine,
     /// under the machine's one lock; the line it leaves is the same line.
     func runCommand(_ action: RemoteSettings.Action) {
-        guard let row = selectedRow, canRun(row.id), let key = host.signalKey(row.id) else { return }
+        guard let row = selectedRow, canRun(row.id) else { return }
         let id = row.id
         // The line the consent named, read with it: none on an install.
         let pathLine = action == .remove ? pathLineToRemove(for: id) : nil
-        let started = installer.runCommand(action, key: key, pathLine: pathLine, machine: id, target: row.target,
+        let started = installer.runCommand(action, pathLine: pathLine, machine: id, target: row.target,
                                            controlPath: host.controlPath(id)) {
             [weak self] result, path in
             guard let self else { return }
@@ -735,17 +741,11 @@ final class RemoteMachinesModel: ObservableObject {
         }
     }
 
-    /// The three blocks for the machine's key; none without one. The key's
-    /// block draws the key as dots — a shared screen must not show it — and
-    /// copies the real line.
+    /// The command's two blocks: the install and the way back.
     func commandBlocks(for id: String) -> [Block] {
-        guard let key = host.signalKey(id) else { return [] }
-        let manual = RemoteCommand.manual(key: key)
-        let mask = Self.mask
+        let manual = RemoteCommand.manual()
         return [
             Block(id: "command.script", captionKey: "remote.command.manual.script", text: manual.script),
-            Block(id: "command.key", captionKey: "remote.command.manual.key", text: manual.key,
-                  shown: manual.key.replacingOccurrences(of: key, with: mask)),
             Block(id: "command.remove", captionKey: "remote.command.manual.remove", text: manual.remove),
         ]
     }
@@ -817,7 +817,8 @@ final class RemoteMachinesModel: ObservableObject {
     nonisolated static func failureKey(_ failure: RemoteTunnel.Failure) -> String {
         switch failure {
         case .authentication: return "remote.failure.authentication"
-        case .portBusy: return "remote.failure.portBusy"
+        case .channelBusy: return "remote.failure.channelBusy"
+        case .forwardingRefused: return "remote.failure.forwardingRefused"
         case .hostKey: return "remote.failure.hostKey"
         case .hostName: return "remote.failure.hostName"
         case .unreachable: return "remote.failure.unreachable"
@@ -871,7 +872,7 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.copy", "remote.copied",
                     "remote.remove", "remote.remove.confirm", "remote.remove.cancel", "remote.remove.do",
                     "remote.command.noCurl", "remote.command.try",
-                    "remote.command.manual.script", "remote.command.manual.key", "remote.command.manual.remove",
+                    "remote.command.manual.script", "remote.command.manual.remove",
                     "remote.items.title", "remote.items.body", "remote.item.command",
                     "remote.reading", "remote.reading.failed", "remote.reading.connectFirst",
                     "remote.state.needsPassword", "remote.state.needsPassword.advice",
@@ -879,8 +880,8 @@ final class RemoteMachinesModel: ObservableObject {
                     "remote.combined", "remote.combined.hint", "remote.combined.title", "remote.combined.body",
                     "remote.combined.whole", "remote.combined.check", "remote.combined.checkNote"]
         keys += [RemoteMachine.TargetProblem.empty, .option, .invalidCharacter].map(problemKey)
-        let failures: [RemoteTunnel.Failure] = [.authentication, .portBusy, .hostKey, .hostName, .unreachable,
-                                                .passwordNeeded, .other]
+        let failures: [RemoteTunnel.Failure] = [.authentication, .channelBusy, .forwardingRefused, .hostKey,
+                                                .hostName, .unreachable, .passwordNeeded, .other]
         keys += failures.map(failureKey) + failures.map(adviceKey)
         let results: [RemoteInstaller.Result] = [
             .success(.written), .success(.unchanged),
