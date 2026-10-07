@@ -326,7 +326,7 @@ final class RemoteCommandInstallTests: XCTestCase {
     /// for the tunnel.
     func testTheInstalledCommandIsHeardWithTheInstalledKey() throws {
         let key = self.key
-        let listener = HookListener(port: 0, origin: .tunneled, signalKey: { _ in key }) { _ in }
+        let listener = HookListener(port: 0, origin: .machine, signalKey: { _ in key }) { _ in }
         listener.start()
         defer { listener.stop() }
         guard case .listening(let port) = listener.awaitSettled(timeout: 5) else {

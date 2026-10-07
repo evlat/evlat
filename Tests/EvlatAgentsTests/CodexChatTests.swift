@@ -64,7 +64,7 @@ final class CodexChatTests: XCTestCase {
     /// The launch is the server alone, its first line `initialize`; the
     /// task variable reaches the user's hooks, which the server runs.
     func testTheLaunch() {
-        let launch = chat.turn(spec(), ctx: TurnContext(port: 0, token: "T"))
+        let launch = chat.turn(spec(), ctx: TurnContext(socket: "", token: "T"))
         XCTAssertEqual(launch.arguments, ["app-server"])
         XCTAssertEqual(launch.environment, [TurnLaunch.taskVariable: "C1"])
         XCTAssertEqual(launch.directory, "/tmp/project")

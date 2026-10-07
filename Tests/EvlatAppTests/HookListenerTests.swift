@@ -137,6 +137,212 @@ final class HookListenerTests: XCTestCase {
         XCTAssertFalse(reason.isEmpty, "an unusable port has to say why")
     }
 
+    // MARK: - Evlat's socket
+
+    /// A file a killed listener left: bound, closed, never unlinked. A
+    /// connection to it is refused.
+    static func leaveStaleSocket(at path: String) throws {
+        let fd = try XCTUnwrap(UnixSocket.open())
+        defer { close(fd) }
+        var address = try XCTUnwrap(UnixSocket.address(path))
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        XCTAssertEqual(bound, 0, String(cString: strerror(errno)))
+        XCTAssertEqual(UnixSocket.probe(path), .stale)
+    }
+
+    private func socketListener(_ path: String, origin: LocalAPI.Origin = .local,
+                                onDelivery: @escaping (LocalAPI.Delivery) -> Void = { _ in }) -> HookListener {
+        let listener = HookListener(transport: .unix(path), origin: origin, onDelivery: onDelivery)
+        listener.start()
+        listener.awaitSettled(timeout: 5)
+        return listener
+    }
+
+    /// `curl --unix-socket`, as the installed bytes will run it.
+    private func curl(_ path: String, route: String, body: String) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        process.arguments = ["-q", "-s", "--unix-socket", path, "-m", "5", "-H", "Content-Type: application/json",
+                             "--data-binary", body, "http://127.0.0.1:48151\(route)"]
+        let out = Pipe()
+        process.standardOutput = out
+        try process.run()
+        process.waitUntilExit()
+        return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    }
+
+    private func mode(_ path: String) -> mode_t {
+        var info = stat()
+        return lstat(path, &info) == 0 ? info.st_mode & 0o777 : 0
+    }
+
+    func testASocketTakesAHookFromCurlInADirectoryOnlyTheUserEnters() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        // A folder that is not there yet is made, and made the user's alone.
+        let path = directory + "/run/evlat.sock"
+        let arrived = expectation(description: "event on the main queue")
+        var received: HookEvent?
+        let listener = socketListener(path) { delivery in
+            if case .hook(let event) = delivery { received = event }
+            arrived.fulfill()
+        }
+        defer { listener.stop() }
+        XCTAssertEqual(listener.status, .listeningAt(path))
+        XCTAssertEqual(listener.boundPath, path)
+        XCTAssertNil(listener.boundPort)
+        XCTAssertEqual(mode(directory + "/run"), 0o700)
+
+        let answer = try curl(path, route: "/hook", body: #"{"hook_event_name":"Stop","session_id":"s-2"}"#)
+        XCTAssertEqual(answer, "{}")
+        wait(for: [arrived], timeout: 5)
+        XCTAssertEqual(received?.name, "Stop")
+        XCTAssertEqual(received?.sessionID, "s-2")
+    }
+
+    /// An existing folder with a looser mode is brought to `0700`: the file
+    /// takes the umask's mode, so the folder is the guard.
+    func testAnOpenDirectoryIsClosed() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        XCTAssertEqual(chmod(directory, 0o755), 0)
+        let listener = socketListener(directory + "/evlat.sock")
+        defer { listener.stop() }
+        XCTAssertNotNil(listener.boundPath, listener.status.text)
+        XCTAssertEqual(mode(directory), 0o700)
+    }
+
+    /// A link where the folder should be could lead anywhere: refused, and
+    /// nothing is made at its far end.
+    func testALinkedDirectoryIsRefused() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        try FileManager.default.createDirectory(atPath: directory + "/real", withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: directory + "/run", withDestinationPath: directory + "/real")
+        let path = directory + "/run/evlat.sock"
+        let listener = socketListener(path)
+        defer { listener.stop() }
+        XCTAssertEqual(listener.status, .unavailableAt(path, UnixSocket.DirectoryRefusal.link.text))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory + "/real/evlat.sock"))
+    }
+
+    /// A live socket is another Evlat's: the second listener says so, and
+    /// neither takes nor deletes it — the first still answers.
+    func testALiveSocketIsNeitherTakenNorDeleted() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        let path = directory + "/evlat.sock"
+        let first = socketListener(path)
+        defer { first.stop() }
+        XCTAssertNotNil(first.boundPath, first.status.text)
+
+        let second = socketListener(path)
+        XCTAssertEqual(second.status, .unavailableAt(path, HookListener.heldByAnother))
+        second.stop()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertEqual(UnixHTTP.send("/health", method: "GET", socket: path, timeout: 5),
+                       .status(200, Data(#"{"ok":true}"#.utf8)))
+    }
+
+    /// A file nobody answers on is a killed Evlat's: cleared and bound.
+    func testAStaleSocketIsTaken() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        let path = directory + "/evlat.sock"
+        try Self.leaveStaleSocket(at: path)
+        let listener = socketListener(path)
+        defer { listener.stop() }
+        XCTAssertEqual(listener.status, .listeningAt(path))
+        XCTAssertEqual(UnixSocket.probe(path), .live)
+    }
+
+    /// `stop()` removes its own file, and only its own: one another Evlat
+    /// bound at the same path after this one's was cleared stays.
+    func testStopRemovesItsOwnFileAndNoOneElses() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        let path = directory + "/evlat.sock"
+        let alone = socketListener(path)
+        XCTAssertNotNil(alone.boundPath, alone.status.text)
+        alone.stop()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path), "its own file goes with it")
+
+        let first = socketListener(path)
+        XCTAssertNotNil(first.boundPath, first.status.text)
+        unlink(path)
+        let second = socketListener(path)
+        defer { second.stop() }
+        XCTAssertNotNil(second.boundPath, second.status.text)
+        first.stop()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path), "the other one's file stays")
+        XCTAssertEqual(UnixSocket.probe(path), .live)
+    }
+
+    /// A path no unix address holds can never be bound: said, not retried.
+    func testAPathTooLongIsUnavailable() throws {
+        let path = "/tmp/" + String(repeating: "s", count: EvlatSocket.pathLimit)
+        let listener = socketListener(path)
+        defer { listener.stop() }
+        guard case .unavailableAt(let reported, _) = listener.status else {
+            return XCTFail("a path past the address bound: \(listener.status.text)")
+        }
+        XCTAssertEqual(reported, path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    /// The socket asks no key for `/signal`: its folder is the user's alone.
+    /// The port's local listener still asks (above), and a sandbox's role has
+    /// no `/signal` at all.
+    func testTheSocketTakesASignalWithoutAKey() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        let arrived = expectation(description: "signal delivered")
+        let listener = socketListener(directory + "/evlat.sock") { delivery in
+            if case .signal(let report) = delivery, report.id == "build" { arrived.fulfill() }
+        }
+        defer { listener.stop() }
+        let body = Data(#"{"id":"build","ttl":60,"phase":"working"}"#.utf8)
+        XCTAssertEqual(SignalClient.send(body, socket: directory + "/evlat.sock", timeout: 5), .status(200, "{}"))
+        wait(for: [arrived], timeout: 5)
+        let sandbox = socketListener(directory + "/sandbox.sock", origin: .sandbox)
+        defer { sandbox.stop() }
+        guard case .status(404, _) = SignalClient.send(body, socket: directory + "/sandbox.sock", timeout: 5) else {
+            return XCTFail("a sandbox has no /signal")
+        }
+    }
+
+    /// Nobody there is said at once, never waited out: a command must not
+    /// stall a build because the bar is closed.
+    func testNoSocketIsNotRunningAtOnce() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        let started = Date()
+        XCTAssertEqual(UnixHTTP.send("/health", method: "GET", socket: directory + "/evlat.sock", timeout: 5),
+                       .notRunning)
+        try Self.leaveStaleSocket(at: directory + "/evlat.sock")
+        XCTAssertEqual(SignalClient.send(Data("{}".utf8), socket: directory + "/evlat.sock", timeout: 5),
+                       .notRunning)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "a timeout was waited out")
+    }
+
+    /// The app's socket is the rule's under its own home: a controller
+    /// without one — every test — binds none, and an isolated process
+    /// without `EVLAT_SOCKET` none either.
+    func testTheAppBindsTheRulesSocketOnlyWithAHome() {
+        let home = URL(fileURLWithPath: "/Users/a", isDirectory: true)
+        XCTAssertNil(AppController.socketPath(home: nil, environment: [:]))
+        XCTAssertNil(AppController.socketPath(home: nil, environment: ["EVLAT_SOCKET": "/tmp/e/x.sock"]))
+        XCTAssertEqual(AppController.socketPath(home: home, environment: [:]), "/Users/a/.config/evlat/run/evlat.sock")
+        XCTAssertNil(AppController.socketPath(home: home, environment: ["EVLAT_PORT": "48999"]))
+        XCTAssertEqual(AppController.socketPath(home: home, environment: ["EVLAT_PORT": "48999",
+                                                                          "EVLAT_SOCKET": "/tmp/e/x.sock"]),
+                       "/tmp/e/x.sock")
+    }
+
     // MARK: - Which port
 
     func testThePortIsTheDefaultUnlessTheEnvironmentSaysOtherwise() {
@@ -415,7 +621,7 @@ final class HookListenerTests: XCTestCase {
     /// A tunnel's listener without its machine's key has no route: `404`,
     /// whatever is sent.
     func testAKeylessTunnelListenerAnswersSignalWithNotFound() throws {
-        let listener = HookListener(port: Self.anyPort, origin: .tunneled) { _ in
+        let listener = HookListener(port: Self.anyPort, origin: .machine) { _ in
             XCTFail("nothing is delivered")
         }
         listener.start()
@@ -433,7 +639,7 @@ final class HookListenerTests: XCTestCase {
         let key = String(repeating: "ab", count: 32)
         var deliveries = 0
         let arrived = expectation(description: "signal delivered")
-        let listener = HookListener(port: Self.anyPort, origin: .tunneled, signalKey: { _ in key }) { delivery in
+        let listener = HookListener(port: Self.anyPort, origin: .machine, signalKey: { _ in key }) { delivery in
             guard case .signal(let report) = delivery else { return XCTFail("not a signal") }
             XCTAssertEqual(report.id, "build")
             deliveries += 1

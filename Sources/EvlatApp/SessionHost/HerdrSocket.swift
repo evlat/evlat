@@ -50,29 +50,16 @@ enum HerdrSocket {
 
     static func call(_ request: String, socket path: String, until deadline: DispatchTime) -> Outcome {
         guard DispatchTime.now() < deadline else { return .timeout }
-        var address = sockaddr_un()
-        let bytes = Array(path.utf8)
-        guard !bytes.isEmpty, bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return .unreachable }
-        address.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
-
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return .unreachable }
-        defer { close(fd) }
+        guard UnixSocket.address(path) != nil else { return .unreachable }
         // The server closes after its one reply, and one that closes before
-        // reading makes the write meet a closed peer: without this, SIGPIPE
-        // would end Evlat.
-        var on: Int32 = 1
-        guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size)) == 0,
-              fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == 0 else { return .unreachable }
+        // reading makes the write meet a closed peer: the helper's socket
+        // never raises SIGPIPE, which would end Evlat.
+        guard let fd = UnixSocket.open(nonBlocking: true) else { return .unreachable }
+        defer { close(fd) }
 
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
+        let connected = UnixSocket.connect(fd, to: path)
         if connected != 0 {
-            guard errno == EINPROGRESS || errno == EAGAIN else { return .unreachable }
+            guard connected == EINPROGRESS || connected == EAGAIN else { return .unreachable }
             switch wait(fd, for: POLLOUT, until: deadline) {
             case .ready: break
             case .timeout: return .timeout

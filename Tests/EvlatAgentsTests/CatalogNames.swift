@@ -27,8 +27,8 @@ extension LocalAPI {
     /// agents, whatever else the listener says.
     static func handleAsTheApp(_ request: HTTPRequest, listener: Listener = Listener()) -> Outcome {
         handle(request, listener: Listener(origin: listener.origin, signalKey: listener.signalKey,
-                                           transcriptRoots: listener.transcriptRoots, routes: Agents.routes,
-                                           trustsSandboxHeaders: listener.trustsSandboxHeaders),
+                                           keylessSignal: listener.keylessSignal,
+                                           transcriptRoots: listener.transcriptRoots, routes: Agents.routes),
                agents: Agents.all)
     }
 }

@@ -102,6 +102,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         MainActor.assumeIsolated { self.now() }
     })
     private var hookListener: HookListener?
+    /// Evlat's socket (`EvlatSocket`), beside the port: Evlat's own clients
+    /// — a chat turn's hook, the askpass helper, `Evlat signal` — post
+    /// here. `nil` without a socket to bind (`socketPath`).
+    private var socketListener: HookListener?
+    /// What the chats are handed (`ChatStore.permissions`, held weakly).
+    private var permissionDesk: BothListeners?
     /// Docker sandboxes' listener (`SandboxListener`); `nil` in a process
     /// that has none (`SandboxListener.port`), and in every test.
     private(set) var sandbox: SandboxListener?
@@ -1117,9 +1123,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if let rejected = choice.rejectedOverride {
             print("EVLAT_PORT=\(rejected) ignored: not a usable port number")
         }
+        let socket = socketPath(home: resolvedHome())
         guard let window = window else {
             print("hook endpoint: 127.0.0.1:\(choice.port)  ·  \(probeHookEndpoint(port: choice.port))")
             printSignalEndpoint(port: choice.port)
+            printSocket(socket)
             return
         }
 
@@ -1132,8 +1140,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The capture holds the port, so it is the one that writes the key:
         // an outside program's `/signal` is printed here like a hook.
         let written = SignalKey.Written()
-        let listener = HookListener(port: choice.port,
-                                    signalKey: signalKeyWriter(home: resolvedHome(), written: written)) { delivery in
+        // One printer for both ends: a hook to the port and a command to the
+        // socket are read the same way.
+        let printDelivery: (LocalAPI.Delivery) -> Void = { delivery in
             switch delivery {
             case .hook(let event):
                 // Streamed, not only summarised: under a `PostToolUse` burst a
@@ -1157,6 +1166,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 print(signalCaptureLine(report))
             }
         }
+        let listener = HookListener(port: choice.port,
+                                    signalKey: signalKeyWriter(home: resolvedHome(), written: written),
+                                    onDelivery: printDelivery)
         listener.start()
         let status = listener.awaitSettled()
         print("hook endpoint: \(status.text)")
@@ -1165,6 +1177,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // question when the port is held by the other Evlat.
             print("  ·  \(probeHookEndpoint(port: choice.port))")
             return
+        }
+        // The socket too, when there is one to take: a running Evlat holds
+        // it, and then the capture says so and hears the port alone.
+        let socketListener = socket.map { HookListener(transport: .unix($0), onDelivery: printDelivery) }
+        socketListener?.start()
+        if let socketListener {
+            print("socket: \(socketListener.awaitSettled().text)")
+        } else {
+            print("socket: \(socketAbsence)")
         }
         print("capturing for \(Int(window)) s …")
         // Events are delivered to the main queue; this is what runs it. The
@@ -1175,6 +1196,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         RunLoop.main.add(Timer(fire: deadline, interval: 0, repeats: false) { _ in }, forMode: .default)
         RunLoop.main.run(until: deadline)
         listener.stop()
+        socketListener?.stop()
         written.remove()
         // Events cross on `DispatchQueue.main.async`, so the ones handed over
         // just before the deadline have not run yet. Without this drain they
@@ -1204,6 +1226,52 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let key = SignalKey.read(from: url)
         print("signal key: \(url.path)\(key == nil ? " (absent)" : "")")
         print("signal: \(signalProbeText(key == nil ? nil : probeSignalEndpoint(port: port, key: key!)))")
+    }
+
+    /// `--list`'s word on Evlat's socket: where it is, who answers there,
+    /// and an unkeyed `/signal` probe through it, as `Evlat signal` posts.
+    private nonisolated static func printSocket(_ path: String?) {
+        guard let path else {
+            print("socket: \(socketAbsence)")
+            return
+        }
+        print("socket: \(path)  ·  \(probeSocket(path))")
+        let probe = SignalCommand.Post(id: "_probe", word: nil, ttl: 0)
+        let answer: SignalProbe
+        switch SignalClient.send(probe.body, socket: path, timeout: 1) {
+        case .status(let code, _): answer = .status(code)
+        case .notRunning: answer = .notRunning
+        case .failed(let reason): answer = .failed(reason)
+        }
+        print("signal (socket): \(signalProbeText(answer))")
+    }
+
+    /// Why there is no socket: an isolated process without one of its own,
+    /// or an `EVLAT_SOCKET` that cannot be one.
+    private nonisolated static var socketAbsence: String {
+        let environment = ProcessInfo.processInfo.environment
+        if !(environment[EvlatSocket.environmentKey] ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+            return "none (EVLAT_SOCKET is not an absolute path that fits a socket's address)"
+        }
+        if !(environment["EVLAT_PORT"] ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+            return "none (EVLAT_PORT is set without EVLAT_SOCKET: an isolated process has none)"
+        }
+        return "none (the home's path is too long for a socket's address)"
+    }
+
+    /// Is anything answering on the socket, and is it Evlat? As
+    /// `probeHookEndpoint`: only "nobody listens" means free.
+    private nonisolated static func probeSocket(_ path: String, timeout: TimeInterval = 1) -> String {
+        switch UnixHTTP.send("/health", method: "GET", socket: path, timeout: timeout) {
+        case .notRunning: return "free — nothing is listening"
+        case .timeout: return "in use — no answer within \(timeout) s"
+        case .failed(let reason): return "in use — did not answer (\(reason))"
+        case .status(_, let body):
+            switch String(decoding: body, as: UTF8.self) {
+            case "{\"ok\":true}": return "in use — an Evlat answers"
+            case let text: return "in use — answered \(text.prefix(40))"
+            }
+        }
     }
 
     /// What a probe's answer means. `nil` is "there was no key to send".
@@ -2428,47 +2496,102 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyHotKey()
     }
 
-    /// Binds the hook port. Every event that arrives goes to
-    /// `handleHookEvent`, which is where the seam starts.
+    /// Binds the hook port and Evlat's socket. Every event that arrives goes
+    /// to `handleHookEvent`, which is where the seam starts. Both are this
+    /// Mac's (`.local`): the installed commands still speak to the port, and
+    /// Evlat's own clients to the socket.
     private func startHookListener() {
         let choice = HookListener.resolvePort()
         if let rejected = choice.rejectedOverride {
             NSLog("Evlat: EVLAT_PORT=%@ ignored, not a usable port number", rejected)
         }
+        // A finish with no reply in it is read from the agent's own
+        // folders under this home, and from nowhere without one.
+        let transcriptRoots = home.map { home in Agents.all.flatMap { $0.hooks.finishRoots(home) } } ?? []
+        // A chat turn's held permission request that went away unanswered,
+        // a terminal session's approval, or a tunnel's askpass prompt whose
+        // `ssh` gave up.
+        let abandoned: (String) -> Void = { [weak self] id in
+            MainActor.assumeIsolated {
+                self?.chats?.permissionAbandoned(id)
+                self?.approvals.abandoned(id)
+                self?.remote?.abandoned(id)
+            }
+        }
+        let deliver: (LocalAPI.Delivery) -> Void = { [weak self] delivery in
+            MainActor.assumeIsolated { self?.handleDelivery(delivery) }
+        }
         let listener = HookListener(
             port: choice.port,
-            // A finish with no reply in it is read from the agent's own
-            // folders under this home, and from nowhere without one.
-            transcriptRoots: home.map { home in Agents.all.flatMap { $0.hooks.finishRoots(home) } } ?? [],
+            transcriptRoots: transcriptRoots,
             // Written once bound, under this controller's home: a controller
             // built without one (every test) has no key and refuses `/signal`.
             signalKey: Self.signalKeyWriter(home: home, written: signalKeyWritten),
             // Binding is asynchronous, so the outcome cannot be returned from
             // here. It is not swallowed either: `Evlat --list` reads the port
             // back over `/health` and says who holds it.
-            onStatus: { [weak self] status in
+            onStatus: { status in
                 if case .unavailable = status { NSLog("Evlat: hook endpoint %@", status.text) }
-                // The tunnels' first tries waited for `/askpass` (bound) or
-                // for knowing there is none (refused).
-                if status != .stopped { MainActor.assumeIsolated { self?.remote?.askpassSettled() } }
             },
-            // A chat turn's held permission request that went away unanswered,
-            // or a tunnel's askpass prompt whose `ssh` gave up.
-            onAbandoned: { [weak self] id in
-                MainActor.assumeIsolated {
-                    self?.chats?.permissionAbandoned(id)
-                    self?.approvals.abandoned(id)
-                    self?.remote?.abandoned(id)
-                }
-            },
-            onDelivery: { [weak self] delivery in
-                MainActor.assumeIsolated { self?.handleDelivery(delivery) }
-            })
+            onAbandoned: abandoned, onDelivery: deliver)
         listener.start()
         hookListener = listener
-        chats?.permissions = listener
-        approvals.respond = { [weak listener] id, response in listener?.answer(id, with: response) }
+        if let path = Self.socketPath(home: home) {
+            let socket = HookListener(
+                transport: .unix(path), transcriptRoots: transcriptRoots,
+                onStatus: { [weak self] status in
+                    if case .unavailableAt = status { NSLog("Evlat: socket %@", status.text) }
+                    // The tunnels' first tries waited for `/askpass` (bound)
+                    // or for knowing there is none (refused).
+                    if status != .stopped { MainActor.assumeIsolated { self?.remote?.askpassSettled() } }
+                },
+                onAbandoned: abandoned, onDelivery: deliver)
+            socket.start()
+            socketListener = socket
+        }
+        // A chat's turns ask on the socket (`PermissionHook`); a request the
+        // port holds — no turn's, refused — is answered there too.
+        let desk = socketListener.map { BothListeners(socket: $0, port: listener) }
+        permissionDesk = desk
+        chats?.permissions = desk
+        approvals.respond = { [weak self] id, response in
+            MainActor.assumeIsolated { self?.answerHeld(id, with: response) }
+        }
         approvals.onChange = { [weak self] in self?.approvalsChanged() }
+    }
+
+    /// The socket's listener as a chat sees it, with its answers also
+    /// written to the port's: a `/permission` posted to the port is held
+    /// there, and its refusal must reach it.
+    private final class BothListeners: PermissionDesk {
+        let socket: HookListener
+        let port: HookListener
+        init(socket: HookListener, port: HookListener) {
+            self.socket = socket
+            self.port = port
+        }
+        var status: HookListener.Status { socket.status }
+        var boundPath: String? { socket.boundPath }
+        func answer(_ id: String, with response: LocalAPI.Response) {
+            socket.answer(id, with: response)
+            port.answer(id, with: response)
+        }
+    }
+
+    /// Writes the answer to a held request, on whichever listener holds it:
+    /// a request's id is its own, and the other one lets it go unread.
+    private func answerHeld(_ id: String, with response: LocalAPI.Response) {
+        hookListener?.answer(id, with: response)
+        socketListener?.answer(id, with: response)
+    }
+
+    /// The socket this controller binds: the rule's (`EvlatSocket.path`)
+    /// under its home. A controller without a home — every test — binds
+    /// none, so a test never takes the user's socket.
+    nonisolated static func socketPath(
+        home: URL?, environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        home.flatMap { EvlatSocket.path(environment: environment, home: $0.path) }
     }
 
     // MARK: - Remote machines
@@ -2552,17 +2675,18 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // `ssh` asks this binary (`Askpass`), which asks the listener's
             // `/askpass`; until the listener is bound no tunnel prompts.
             askpass: askpassBinary.map { binary in
-                RemoteTunnels.AskpassRoute(binary: binary, port: { [weak self] in
-                    MainActor.assumeIsolated { self?.hookListener?.boundPort }
+                RemoteTunnels.AskpassRoute(binary: binary, socket: { [weak self] in
+                    MainActor.assumeIsolated { self?.socketListener?.boundPath }
                 }, settled: { [weak self] in
-                    // No listener at all (a test) waits for nothing.
-                    MainActor.assumeIsolated { self?.hookListener.map { $0.status != .stopped } ?? true }
+                    // No socket at all (a test, an isolated process) waits
+                    // for nothing.
+                    MainActor.assumeIsolated { self?.socketListener.map { $0.status != .stopped } ?? true }
                 })
             },
             store: passwords,
             onChange: { [weak self] in MainActor.assumeIsolated { self?.scheduleRefresh() } })
         tunnels.respond = { [weak self] id, response in
-            MainActor.assumeIsolated { self?.hookListener?.answer(id, with: response) }
+            MainActor.assumeIsolated { self?.answerHeld(id, with: response) }
         }
         tunnels.onPromptsChanged = { [weak self] in MainActor.assumeIsolated { self?.promptsChanged() } }
         for machine in configuration.machines {
@@ -2763,6 +2887,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             case .stopped: view.listener = .starting
             case .unavailable(let port, _): view.listener = .taken(port)
             case .listening: view.listener = .listening
+            // A sandbox's listener is a port's; a socket's states never come.
+            case .listeningAt, .unavailableAt: view.listener = .starting
             }
         }
         view.watcher = (sandboxWatcher ?? retiredSandboxWatcher)?.status
@@ -3164,6 +3290,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public func applicationWillTerminate(_ notification: Notification) {
         hotKey?.unregister()
         hookListener?.stop()
+        socketListener?.stop()
         signalKeyWritten.remove()
         remote?.stopAll()
         chats?.stopAll()
@@ -3215,12 +3342,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // The tunnels match it to a try; without them it is refused and
             // `ssh` sends no password.
             if let remote { remote.ask(request) } else {
-                hookListener?.answer(request.id, with: LocalAPI.noAnswer)
+                answerHeld(request.id, with: LocalAPI.noAnswer)
             }
         case .permission(let request):
             // The store matches it to a turn, or refuses it.
             if let chats { chats.permissionAsked(request) } else {
-                hookListener?.answer(request.id, with: LocalAPI.unknownToken)
+                answerHeld(request.id, with: LocalAPI.unknownToken)
             }
         case .signal(let report):
             // The cap is known here, after the listener answered `{}`; a

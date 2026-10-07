@@ -2,13 +2,13 @@ import Foundation
 import EvlatCore
 
 /// The sending half of `/signal`: `Evlat signal`, `Evlat
-/// watch` and `--list`'s probe post through here.
+/// watch` and `--list`'s probes post through here.
 ///
-/// The key is read **on every call** (`SignalKey`) and the port resolved the
-/// way the app resolves it (`EVLAT_PORT`), so a watch that outlives an Evlat
-/// restart finds the new key on its next heartbeat. Evlat not running, no
-/// key file, a refused connection, a timeout: all **silent** — a build must
-/// not fail, or print, because the bar is not there.
+/// The commands post to Evlat's socket (`EvlatSocket`), found by the app's
+/// own rule on every call, and send no key: only the user's processes can
+/// reach it. Evlat not running, no socket, a refused connection, a timeout:
+/// all **silent** — a build must not fail, or print, because the bar is not
+/// there.
 enum SignalClient {
     /// What came back from one POST.
     enum Answer: Equatable {
@@ -20,7 +20,7 @@ enum SignalClient {
     /// What a command makes of it.
     enum Outcome: Equatable {
         case delivered
-        /// Nobody to tell: not running, no key, no answer in time.
+        /// Nobody to tell: not running, no socket, no answer in time.
         case silent
         /// The endpoint said no (`400`/`403`/`404`…): the one case a sender
         /// has a mistake to fix. The text is one line.
@@ -31,18 +31,31 @@ enum SignalClient {
 
     /// `post` to the Evlat this environment points at.
     static func post(_ post: SignalCommand.Post,
-                     environment: [String: String] = ProcessInfo.processInfo.environment) -> Outcome {
-        let port = HookListener.resolvePort(environment).port
-        guard let file = SignalKey.location(port: port, environment: environment),
-              let key = SignalKey.read(from: file) else { return .silent }
-        switch send(post.body, port: port, key: key, timeout: timeout) {
+                     environment: [String: String] = ProcessInfo.processInfo.environment,
+                     home: String = NSHomeDirectory()) -> Outcome {
+        guard let socket = EvlatSocket.path(environment: environment, home: home) else { return .silent }
+        switch send(post.body, socket: socket, timeout: timeout) {
         case .status(200, _): return .delivered
         case .status(let code, let body): return .refused(refusal(code: code, body: body))
         case .notRunning, .failed: return .silent
         }
     }
 
-    /// One keyed `POST /signal`, answered or given up within `timeout`.
+    /// One `POST /signal` to the socket, answered or given up within
+    /// `timeout`.
+    static func send(_ body: Data, socket: String, timeout: TimeInterval) -> Answer {
+        switch UnixHTTP.send(SignalReport.path, socket: socket,
+                             headers: [("Content-Type", "application/json")], body: body, timeout: timeout) {
+        case .status(let code, let data): return .status(code, String(decoding: data, as: UTF8.self))
+        case .notRunning: return .notRunning
+        case .timeout: return .failed("no answer within \(timeout) s")
+        case .failed(let reason): return .failed(reason)
+        }
+    }
+
+    /// One keyed `POST /signal` to a loopback port, answered or given up
+    /// within `timeout`: `--list`'s probe of the port, which still asks for
+    /// the key.
     static func send(_ body: Data, port: UInt16, key: String, timeout: TimeInterval) -> Answer {
         guard let url = URL(string: "http://127.0.0.1:\(port)\(SignalReport.path)") else {
             return .failed("unreadable address")

@@ -10,17 +10,30 @@ final class AskpassTests: XCTestCase {
 
     // MARK: - The mark
 
-    func testAMarkIsAPortAndAToken() {
-        let mark = Askpass.mark(in: [Askpass.environmentKey: "48151:\(token)"])
-        XCTAssertEqual(mark, Askpass.Mark(port: 48151, token: token))
-        XCTAssertEqual(mark.map(Askpass.value), "48151:\(token)", "written as it is read")
+    func testAMarkIsATokenAndASocket() {
+        let mark = Askpass.mark(in: [Askpass.environmentKey: "\(token):/tmp/evlat-t/evlat.sock"])
+        XCTAssertEqual(mark, Askpass.Mark(socket: "/tmp/evlat-t/evlat.sock", token: token))
+        XCTAssertEqual(mark.map(Askpass.value), "\(token):/tmp/evlat-t/evlat.sock", "written as it is read")
+    }
+
+    /// The token's length is fixed, so the path is everything after the
+    /// first `:` — a `:` of its own, a space, included.
+    func testThePathIsEverythingAfterTheToken() {
+        let path = "/Users/a b/x:y/.config/evlat/run/evlat.sock"
+        let mark = Askpass.mark(in: [Askpass.environmentKey: "\(token):\(path)"])
+        XCTAssertEqual(mark, Askpass.Mark(socket: path, token: token))
+        XCTAssertEqual(mark.map(Askpass.value), "\(token):\(path)")
     }
 
     func testABrokenMarkIsNoMark() {
+        let socket = "/tmp/evlat-t/evlat.sock"
         let broken = [
-            "", ":", "48151", "48151:", ":\(token)", "0:\(token)", "70000:\(token)", "-1:\(token)",
-            "x:\(token)", "48151:\(token.uppercased())", "48151:\(token.dropLast())", "48151:\(token)0",
-            "48151:\(token):1", " 48151:\(token)", "48151 :\(token)",
+            "", ":", token, "\(token):", ":\(socket)", "\(socket):\(token)",
+            "\(token.uppercased()):\(socket)", "\(token.dropLast()):\(socket)", "\(token)0:\(socket)",
+            " \(token):\(socket)", "\(token) :\(socket)", "\(token):relative/evlat.sock",
+            // The old shape, `<port>:<token>`, is not read as a path.
+            "48151:\(token)",
+            "\(token):/" + String(repeating: "s", count: EvlatSocket.pathLimit),
         ]
         for value in broken {
             XCTAssertNil(Askpass.mark(in: [Askpass.environmentKey: value]), value)

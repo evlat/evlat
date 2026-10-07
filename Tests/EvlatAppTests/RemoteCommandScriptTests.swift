@@ -67,7 +67,7 @@ final class RemoteCommandScriptTests: XCTestCase {
     /// (`keyed: false`) the keyless one an older link has.
     private func startTunnel(keyed: Bool = true) throws -> UInt16 {
         let key = self.key
-        let listener = HookListener(port: 0, origin: .tunneled,
+        let listener = HookListener(port: 0, origin: .machine,
                                     signalKey: { _ in keyed ? key : nil }) { [weak self] delivery in
             guard case .signal(let report) = delivery else { return }
             self?.reports.append(report)

@@ -27,15 +27,30 @@ public final class HookListener {
         /// one asked for: `0` means "any free port" and is what tests use.
         case listening(UInt16)
         case unavailable(UInt16, String)
+        /// Bound on a unix socket (`Transport.unix`), at this path.
+        case listeningAt(String)
+        case unavailableAt(String, String)
 
         public var text: String {
             switch self {
             case .stopped: return "not started"
             case .listening(let port): return "listening on 127.0.0.1:\(port)"
             case .unavailable(let port, let reason): return "port \(port) unavailable — \(reason)"
+            case .listeningAt(let path): return "listening on \(path)"
+            case .unavailableAt(let path, let reason): return "\(path) unavailable — \(reason)"
             }
         }
     }
+
+    /// What the listener binds: a loopback port, or a unix socket's path
+    /// (`EvlatSocket`) in a directory only the user can enter.
+    public enum Transport: Equatable {
+        case tcp(UInt16)
+        case unix(String)
+    }
+
+    /// The reason a socket is not taken: another process answers there.
+    static let heldByAnother = "another Evlat holds it"
 
     /// Which port to listen on, and what was ignored to get there.
     public struct PortChoice: Equatable {
@@ -46,10 +61,18 @@ public final class HookListener {
         public let rejectedOverride: String?
     }
 
-    private let requestedPort: UInt16
-    /// Where what arrives here comes from: this Mac, or one remote machine's
-    /// tunnel (`RemoteTunnels`). Handed to `LocalAPI`, which decides what that
-    /// means; the listener only knows which one it is.
+    private let transport: Transport
+    private var requestedPort: UInt16 {
+        if case .tcp(let port) = transport { return port }
+        return 0
+    }
+    /// The socket file this listener made, once bound: `stop()` removes the
+    /// file only while it is still this one — not one another Evlat bound
+    /// at the same path after a stale one was cleared.
+    private var boundFile: UnixSocket.Identity?
+    /// Where what arrives here comes from: this Mac, one remote machine's
+    /// tunnel (`RemoteTunnels`) or a Docker sandbox. Handed to `LocalAPI`,
+    /// which decides what that means; the listener only knows which one it is.
     private let origin: LocalAPI.Origin
     /// Makes the listener's `/signal` key once the port is bound:
     /// given the bound port, the local one writes the key file and answers
@@ -63,8 +86,8 @@ public final class HookListener {
     /// The agents a request's route is looked up in (`LocalAPI.handle`).
     private let agents: [any Agent]
     /// What `LocalAPI` is told about this listener. The key is filled in when
-    /// the port is bound; until then `/signal` is refused. Touched on `queue`
-    /// only.
+    /// the port is bound; until then `/signal` is refused (a socket's
+    /// listener asks for none). Touched on `queue` only.
     private var identity: LocalAPI.Listener
     private var keyMade = false
     private let onDelivery: (LocalAPI.Delivery) -> Void
@@ -110,27 +133,48 @@ public final class HookListener {
     /// without one has no `/signal` (`404`); with its machine's key it
     /// answers as the local one does (`LocalAPI.handle`).
     ///
-    /// `trustsSandboxHeaders` makes it a Docker sandbox's listener, the one
-    /// that believes `X-Evlat-Sandbox` (`SandboxListener`).
-    public init(port: UInt16,
+    /// `origin` is the listener's role (`LocalAPI.Origin.role`): `.sandbox`
+    /// makes it a Docker sandbox's listener, the one that believes
+    /// `X-Evlat-Sandbox` (`SandboxListener`).
+    ///
+    /// A unix socket's listener takes `/signal` without a key: only the
+    /// user's own processes can reach its directory.
+    public init(transport: Transport,
                 origin: LocalAPI.Origin = .local,
                 transcriptRoots: [URL] = [],
                 agents: [any Agent] = Agents.all,
-                trustsSandboxHeaders: Bool = false,
                 signalKey: @escaping (UInt16) -> String? = { _ in nil },
                 onStatus: ((Status) -> Void)? = nil,
                 onAbandoned: ((String) -> Void)? = nil,
                 onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
-        self.requestedPort = port
+        self.transport = transport
         self.origin = origin
         self.makeSignalKey = signalKey
         self.transcriptRoots = transcriptRoots
         self.agents = agents
-        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, transcriptRoots: transcriptRoots,
-                                          routes: RouteTable(agents), trustsSandboxHeaders: trustsSandboxHeaders)
+        // A socket's listener has no key to make: `/signal` is open to
+        // whoever can reach the socket, which is the user.
+        let keyless: Bool
+        if case .unix = transport { keyless = true } else { keyless = false }
+        self.keyMade = keyless
+        self.identity = LocalAPI.Listener(origin: origin, signalKey: nil, keylessSignal: keyless,
+                                          transcriptRoots: transcriptRoots, routes: RouteTable(agents))
         self.onStatus = onStatus
         self.onAbandoned = onAbandoned
         self.onDelivery = onDelivery
+    }
+
+    /// A loopback port's listener (`Transport.tcp`).
+    public convenience init(port: UInt16,
+                            origin: LocalAPI.Origin = .local,
+                            transcriptRoots: [URL] = [],
+                            agents: [any Agent] = Agents.all,
+                            signalKey: @escaping (UInt16) -> String? = { _ in nil },
+                            onStatus: ((Status) -> Void)? = nil,
+                            onAbandoned: ((String) -> Void)? = nil,
+                            onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
+        self.init(transport: .tcp(port), origin: origin, transcriptRoots: transcriptRoots, agents: agents,
+                  signalKey: signalKey, onStatus: onStatus, onAbandoned: onAbandoned, onDelivery: onDelivery)
     }
 
     public var status: Status {
@@ -164,6 +208,7 @@ public final class HookListener {
     /// `status`, because `NWListener` reports "address already in use" through
     /// its state handler and not from the initialiser.
     public func start() {
+        if case .unix(let path) = transport { return startUnix(path) }
         let parameters = NWParameters.tcp
         // Only the loopback interface. The endpoint takes no identity and acts
         // on what it is told, so it must not be reachable from the network the
@@ -204,8 +249,7 @@ public final class HookListener {
                     self.keyMade = true
                     self.identity = LocalAPI.Listener(origin: self.origin, signalKey: self.makeSignalKey(port),
                                                       transcriptRoots: self.transcriptRoots,
-                                                      routes: self.identity.routes,
-                                                      trustsSandboxHeaders: self.identity.trustsSandboxHeaders)
+                                                      routes: self.identity.routes)
                 }
                 self.setStatus(.listening(port))
             case .failed(let error):
@@ -230,6 +274,60 @@ public final class HookListener {
         listener.start(queue: queue)
     }
 
+    /// Binds a unix socket at `path`, taking a stale file but never a live
+    /// one: its directory made the user's alone first (`UnixSocket`), then
+    /// whatever is at the path asked — something answers, and it is another
+    /// Evlat's; nothing does, and the file is a dead one's to clear.
+    private func startUnix(_ path: String) {
+        guard UnixSocket.address(path) != nil else {
+            setStatus(.unavailableAt(path, "too long for a socket's address"))
+            return
+        }
+        if let refusal = UnixSocket.prepareDirectory((path as NSString).deletingLastPathComponent) {
+            setStatus(.unavailableAt(path, refusal.text))
+            return
+        }
+        switch UnixSocket.probe(path) {
+        case .absent: break
+        case .stale: unlink(path)
+        case .live:
+            setStatus(.unavailableAt(path, Self.heldByAnother))
+            return
+        case .unknown(let code):
+            setStatus(.unavailableAt(path, String(cString: strerror(code)) + " (\(code))"))
+            return
+        }
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .unix(path: path)
+        let listener: NWListener
+        do {
+            listener = try NWListener(using: parameters)
+        } catch {
+            setStatus(.unavailableAt(path, "\(error)"))
+            return
+        }
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                // Which file is ours, read before anyone is told it is
+                // bound: `stop()` compares against it.
+                if self.boundFile == nil { self.boundFile = UnixSocket.identity(of: path) }
+                self.setStatus(.listeningAt(path))
+            case .failed(let error), .waiting(let error):
+                self.setStatus(.unavailableAt(path, Self.describe(error)))
+            case .cancelled:
+                self.setStatus(.stopped)
+            default:
+                break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.serve(connection)
+        }
+        self.listener = listener
+        listener.start(queue: queue)
+    }
     /// Held requests are dropped with it: Claude then has no decision, which
     /// under `--permission-prompts none` is a denial.
     /// Each is reported abandoned, so its card does not wait on a
@@ -237,6 +335,15 @@ public final class HookListener {
     public func stop() {
         listener?.cancel()
         listener = nil
+        // The socket file outlives its listener. Removed only while it is
+        // still the one this listener bound: a second Evlat that cleared it
+        // as stale and bound its own keeps that one.
+        if case .unix(let path) = transport {
+            queue.sync {
+                if let mine = boundFile, UnixSocket.identity(of: path) == mine { unlink(path) }
+                boundFile = nil
+            }
+        }
         queue.async { [self] in
             let dropped = held
             held.removeAll()
@@ -246,9 +353,16 @@ public final class HookListener {
         }
     }
 
-    /// The port a turn's permission hook should post to, while bound.
+    /// The port bound, while a port's listener is bound.
     public var boundPort: UInt16? {
         if case .listening(let port) = status { return port }
+        return nil
+    }
+
+    /// The socket a turn's permission hook posts to, while a socket's
+    /// listener is bound.
+    public var boundPath: String? {
+        if case .listeningAt(let path) = status { return path }
         return nil
     }
 
@@ -342,7 +456,7 @@ public final class HookListener {
         } else {
             // Nobody here answers permissions (a capture): refused at once
             // rather than held for ever, and still delivered so a capture
-            // can say it saw one. A tunnel never gets here: `LocalAPI`
+            // can say it saw one. A machine never gets here: `LocalAPI`
             // already answered it `404`.
             connection.send(content: Data(LocalAPI.noSuchEndpoint.httpText.utf8),
                             completion: .contentProcessed { _ in connection.cancel() })

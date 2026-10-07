@@ -12,11 +12,14 @@ final class ClaudeRunnerTests: XCTestCase {
     private var extraProcesses: [Process] = []
     /// The turns' permission hooks post here, as in the app.
     private var listener: HookListener?
+    /// The listener's socket lives here: `directory` is too long for one.
+    private var socketDirectory: String?
 
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("evlat-chat-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        socketDirectory = try ShortDirectory.make()
     }
 
     override func tearDownWithError() throws {
@@ -27,6 +30,7 @@ final class ClaudeRunnerTests: XCTestCase {
         listener = nil
         extraProcesses.filter(\.isRunning).forEach { $0.terminate() }
         try? FileManager.default.removeItem(at: directory)
+        ShortDirectory.remove(socketDirectory)
     }
 
     /// The fixture, copied with its exec bit: a checkout need not keep it.
@@ -54,8 +58,8 @@ final class ClaudeRunnerTests: XCTestCase {
         return environment.merging(extra) { _, new in new }
     }
 
-    /// A store whose turns ask through a real listener on a free port — the
-    /// app's wiring: held requests to the store, abandoned ones too.
+    /// A store whose turns ask through a real listener on a socket of its
+    /// own — the app's wiring: held requests to the store, abandoned ones too.
     private func make(scenario: String = "ok", claude: String? = nil, root: URL? = nil,
                       registry: Registry? = nil, environment extra: [String: String] = [:],
                       listening: Bool = true,
@@ -67,13 +71,15 @@ final class ClaudeRunnerTests: XCTestCase {
         registry?.register(made.provider)
         store = made
         if listening {
-            let listener = HookListener(port: 0, onAbandoned: { [weak made] in made?.permissionAbandoned($0) }) {
+            let socket = try XCTUnwrap(socketDirectory) + "/evlat.sock"
+            let listener = HookListener(transport: .unix(socket),
+                                        onAbandoned: { [weak made] in made?.permissionAbandoned($0) }) {
                 [weak made] delivery in
                 if case .permission(let request) = delivery { made?.permissionAsked(request) }
             }
             listener.start()
             listener.awaitSettled(timeout: 5)
-            XCTAssertNotNil(listener.boundPort)
+            XCTAssertNotNil(listener.boundPath)
             made.permissions = listener
             self.listener = listener
         }
@@ -215,7 +221,8 @@ final class ClaudeRunnerTests: XCTestCase {
         let run = try XCTUnwrap(runs().first)
         let settings = try XCTUnwrap(run.firstIndex(of: "--settings").map { run[$0 + 1] })
         XCTAssertTrue(run.contains("--permission-prompts") && run.contains("none"))
-        XCTAssertTrue(settings.contains("127.0.0.1:\(listener!.boundPort!)/permission"))
+        XCTAssertTrue(settings.contains("--unix-socket '\(listener!.boundPath!)'"), settings)
+        XCTAssertTrue(settings.contains(#""type":"command""#), settings)
         let answer = try XCTUnwrap(run.first { $0.hasPrefix("answer=") })
         XCTAssertTrue(answer.contains(#""behavior":"allow""#), answer)
         XCTAssertTrue(answer.contains(#""destination":"session""#), answer)
@@ -355,14 +362,14 @@ final class ClaudeRunnerTests: XCTestCase {
     func testAnUnknownTokenIsForbidden() throws {
         let store = try make()
         let id = store.newChat(folder: directory.path)
-        let port = try XCTUnwrap(listener?.boundPort)
+        let socket = try XCTUnwrap(listener?.boundPath)
         let curl = Process()
         let out = Pipe()
         curl.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
         curl.arguments = ["-s", "-o", "/dev/null", "-w", "%{http_code}", "-m", "5", "-X", "POST",
-                          "-H", "\(ChatRequest.tokenHeader): nobody",
+                          "--unix-socket", socket, "-H", "\(ChatRequest.tokenHeader): nobody",
                           "--data-binary", #"{"hook_event_name":"PermissionRequest","tool_name":"Bash"}"#,
-                          "http://127.0.0.1:\(port)\(ChatRequest.path)"]
+                          "http://127.0.0.1\(ChatRequest.path)"]
         curl.standardOutput = out
         try curl.run()
         var code = ""

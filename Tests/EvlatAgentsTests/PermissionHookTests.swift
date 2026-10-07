@@ -10,26 +10,64 @@ final class PermissionHookTests: XCTestCase {
         try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
     }
 
-    func testTheSettingsCarryOneHttpHookOnTheBoundPort() throws {
-        let text = PermissionHook.settings(port: 48999, token: "T-1")
-        XCTAssertEqual(text, #"{"hooks":{"PermissionRequest":[{"hooks":[{"headers":{"X-Evlat-Permission":"T-1"},"#
-                       + #""timeout":600,"type":"http","url":"http://127.0.0.1:48999/permission"}],"matcher":"*"}]},"#
+    /// The hook's command, byte for byte: `curl` to the bound socket, the
+    /// body on stdin, the answer on stdout, every failure an empty output.
+    func testTheCommandIsPinned() {
+        XCTAssertEqual(PermissionHook.command(socket: "/Users/a b/.config/evlat/run/evlat.sock", token: "T-1"),
+                       "curl -q -sf --noproxy '*' --unix-socket '/Users/a b/.config/evlat/run/evlat.sock'"
+                       + " -m 600 -H 'X-Evlat-Permission: T-1' -H 'Content-Type: application/json'"
+                       + " --data-binary @- http://127.0.0.1:48151/permission 2>/dev/null || true")
+        // A quote in the path stays inside its word.
+        XCTAssertTrue(PermissionHook.command(socket: "/tmp/it's/evlat.sock", token: "T")
+            .contains(#"--unix-socket '/tmp/it'\''s/evlat.sock' "#))
+    }
+
+    func testTheSettingsCarryOneCommandHookToTheBoundSocket() throws {
+        let socket = "/Users/a b/.config/evlat/run/evlat.sock"
+        let text = PermissionHook.settings(socket: socket, token: "T-1")
+        XCTAssertEqual(text, #"{"hooks":{"PermissionRequest":[{"hooks":[{"command":""#
+                       + PermissionHook.command(socket: socket, token: "T-1")
+                       + #"","timeout":600,"type":"command"}],"matcher":"*"}]},"#
                        + #""permissions":{"ask":["Bash(rm:*)","Bash(rmdir:*)","Bash(sudo:*)","Bash(git push:*)","#
                        + #""Bash(git reset --hard:*)","Bash(chmod:*)","Bash(chown:*)","Bash(kill:*)","Bash(killall:*)"]}}"#)
-        XCTAssertEqual(PermissionHook.Endpoint(port: 48999, token: "T-1").settings, text)
-        // The token is a plain value: nothing in it for the header's
-        // `$VAR` interpolation to expand.
+        XCTAssertEqual(PermissionHook.Endpoint(socket: socket, token: "T-1").settings, text)
+        // The token is a plain value: nothing in it for the shell to expand.
         XCTAssertFalse(text.contains("$"))
+    }
+
+    /// The command runs under `sh`: Evlat's answer is its stdout, and an
+    /// error page, a closed Evlat or a refusal print nothing — no decision.
+    func testTheCommandPrintsOnlyAnAnswer() throws {
+        let directory = "/tmp/evlat-" + UUID().uuidString.prefix(8).lowercased()
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let run = { (command: String) -> (Int32, String) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+            let input = Pipe(), output = Pipe()
+            process.standardInput = input
+            process.standardOutput = output
+            try? process.run()
+            input.fileHandleForWriting.write(Data("{}".utf8))
+            try? input.fileHandleForWriting.close()
+            process.waitUntilExit()
+            return (process.terminationStatus, String(decoding: output.fileHandleForReading.readDataToEndOfFile(),
+                                                      as: UTF8.self))
+        }
+        let nobody = run(PermissionHook.command(socket: directory + "/evlat.sock", token: "T"))
+        XCTAssertEqual(nobody.0, 0, "never a hook error")
+        XCTAssertEqual(nobody.1, "", "no Evlat, no decision")
     }
 
     /// A workspace chat's settings name Evlat's one memory folder; without
     /// it the key is not there at all (the string above).
     func testTheSettingsCarryTheMemoryFolderWhenGiven() throws {
-        let settings = try object(PermissionHook.settings(port: 1, token: "T",
+        let settings = try object(PermissionHook.settings(socket: "/s", token: "T",
                                                           memoryDirectory: "/Users/a/Library/Application Support/Evlat/memory"))
         XCTAssertEqual(settings["autoMemoryDirectory"] as? String, "/Users/a/Library/Application Support/Evlat/memory")
         XCTAssertNotNil(settings["hooks"])
-        XCTAssertNil(try object(PermissionHook.settings(port: 1, token: "T"))["autoMemoryDirectory"])
+        XCTAssertNil(try object(PermissionHook.settings(socket: "/s", token: "T"))["autoMemoryDirectory"])
     }
 
     /// What cannot be undone asks in every mode: the turn's own settings
@@ -37,7 +75,7 @@ final class PermissionHookTests: XCTestCase {
     /// each is a prefix rule whose `:*` ends it (the only place the form is
     /// read as a wildcard).
     func testTheSettingsAskBeforeWhatCannotBeUndone() throws {
-        let settings = try object(PermissionHook.settings(port: 1, token: "T"))
+        let settings = try object(PermissionHook.settings(socket: "/s", token: "T"))
         let permissions = try XCTUnwrap(settings["permissions"] as? [String: Any])
         XCTAssertEqual(Array(permissions.keys), ["ask"])
         let ask = try XCTUnwrap(permissions["ask"] as? [String])

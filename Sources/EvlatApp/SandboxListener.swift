@@ -5,9 +5,9 @@ import EvlatAgents
 /// Docker sandboxes' own listener: the hooks of agents in local `sbx`
 /// sandboxes, sent by the command Evlat writes into each (`SandboxInstall`) to
 /// `host.docker.internal`, which the sandbox's proxy turns into this Mac's
-/// loopback. A remote machine's sibling with no tunnel: `.tunneled`, so the
-/// VM's pid and task are thrown away and nothing is held for an answer, and
-/// the one listener that believes the sandbox's header.
+/// loopback. A remote machine's sibling with no tunnel: `.sandbox`, so the
+/// VM's pid and task are thrown away, every route but a hook is `404`, and
+/// it is the one listener that believes the sandbox's header.
 ///
 /// Its rows are one machine's (`identity`): namespaced apart from this Mac's
 /// and every remote machine's, each drawn with its own sandbox's name. The
@@ -46,8 +46,7 @@ final class SandboxListener {
     func start() {
         let listener = HookListener(
             port: port,
-            origin: .tunneled,
-            trustsSandboxHeaders: true,
+            origin: .sandbox,
             onStatus: { [weak self] status in
                 MainActor.assumeIsolated { self?.listenerChanged(status) }
             },
@@ -73,8 +72,8 @@ final class SandboxListener {
         onChange()
     }
 
-    /// Hooks only. A sandbox has no status line relayed, no `/signal` key,
-    /// and `.tunneled` answers the held routes with `404`.
+    /// Hooks only: `.sandbox` answers every other route with `404`
+    /// (`LocalAPI.Origin.role`).
     private func deliver(_ delivery: LocalAPI.Delivery) {
         guard case .hook(let event) = delivery else { return }
         if let name = event.sandboxName { status.heard.insert(name) }

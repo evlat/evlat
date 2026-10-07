@@ -9,8 +9,9 @@ import Foundation
 /// helper call from a stray word by `argv`; only the tunnel's environment
 /// says it, and an unmarked prompt stays a usage error (`LaunchMode`).
 public enum Askpass {
-    /// `EVLAT_ASKPASS=<port>:<token>`: put by Evlat into the tunnel's `ssh`
-    /// only, read by the helper `ssh` starts. The token is never in an argv.
+    /// `EVLAT_ASKPASS=<token>:<socket>`: put by Evlat into the tunnel's
+    /// `ssh` only, read by the helper `ssh` starts. The token is never in an
+    /// argv.
     public static let environmentKey = "EVLAT_ASKPASS"
     /// The header the helper carries the token in (`HTTPRequest.askpassToken`).
     public static let header = "X-Evlat-Askpass"
@@ -19,29 +20,32 @@ public enum Askpass {
 
     /// Where the running Evlat listens and which attempt is asking.
     public struct Mark: Equatable {
-        public let port: UInt16
+        /// The socket the Evlat that started this `ssh` bound — never one
+        /// derived from this process's own `EVLAT_*`.
+        public let socket: String
         public let token: String
 
-        public init(port: UInt16, token: String) {
-            self.port = port
+        public init(socket: String, token: String) {
+            self.socket = socket
             self.token = token
         }
     }
 
     /// The mark in `environment`, or `nil` when there is none or it does not
-    /// read exactly: a port `1…65535` and a 64-hex token, nothing else. A
+    /// read exactly: a 64-hex token, a `:`, and an absolute path that fits a
+    /// unix address. The token is in front because its length is fixed: the
+    /// path is everything after the first `:`, a `:` of its own included. A
     /// broken mark is no mark — the binary then never becomes a helper.
     public static func mark(in environment: [String: String]) -> Mark? {
-        guard let value = environment[environmentKey] else { return nil }
-        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 2, parts[0].allSatisfy(\.isASCII), parts[0].allSatisfy(\.isNumber),
-              let port = UInt16(parts[0]), port > 0, isToken(String(parts[1])) else { return nil }
-        return Mark(port: port, token: String(parts[1]))
+        guard let value = environment[environmentKey], let colon = value.firstIndex(of: ":") else { return nil }
+        let token = String(value[..<colon]), socket = String(value[value.index(after: colon)...])
+        guard isToken(token), socket.hasPrefix("/"), EvlatSocket.fits(socket) else { return nil }
+        return Mark(socket: socket, token: token)
     }
 
     /// The environment value that `mark(in:)` reads back.
     public static func value(_ mark: Mark) -> String {
-        "\(mark.port):\(mark.token)"
+        "\(mark.token):\(mark.socket)"
     }
 
     /// 64 lowercase hex digits, the shape of a machine's `/signal` key.

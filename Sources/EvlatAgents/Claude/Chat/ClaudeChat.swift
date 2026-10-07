@@ -4,7 +4,7 @@ import EvlatCore
 /// Claude Code as the chat bubble's backend: a `claude -p` process per turn
 /// (`ClaudeInvocation`), its stream-json stdout (`ChatStream`), and its
 /// permissions through an inline `PermissionRequest` hook posted to the
-/// listener (`PermissionHook`) — one way.
+/// listener's socket (`PermissionHook`) — one way.
 struct ClaudeChat: ChatBackend {
     let id = AgentID("claude")
 
@@ -36,7 +36,7 @@ struct ClaudeChat: ChatBackend {
                               prompt: spec.prompt, attachments: spec.attachments, directory: spec.directory,
                               addDirectories: spec.addDirectories, allowedTools: spec.allowedTools,
                               mode: PermissionMode(rawValue: spec.mode.id) ?? .standard)
-            .asking(PermissionHook.Endpoint(port: ctx.port, token: ctx.token), memoryDirectory: ctx.memoryDirectory)
+            .asking(PermissionHook.Endpoint(socket: ctx.socket, token: ctx.token), memoryDirectory: ctx.memoryDirectory)
             .launch
     }
 

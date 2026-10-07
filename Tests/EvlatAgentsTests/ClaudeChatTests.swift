@@ -43,11 +43,11 @@ final class ClaudeChatTests: XCTestCase {
         let spec = TurnSpec(chatID: "C1", sessionID: "S1", resume: true, prompt: "hi", attachments: ["/a"],
                             directory: "/tmp/p", addDirectories: ["/d"], allowedTools: ["Read"],
                             mode: PermissionMode.acceptEdits.chatMode)
-        let launch = chat.turn(spec, ctx: TurnContext(port: 48999, token: "T", memoryDirectory: "/m"))
+        let launch = chat.turn(spec, ctx: TurnContext(socket: "/tmp/evlat-t/evlat.sock", token: "T", memoryDirectory: "/m"))
         let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: true, prompt: "hi",
                                          attachments: ["/a"], directory: "/tmp/p", addDirectories: ["/d"],
                                          allowedTools: ["Read"], mode: .acceptEdits)
-            .asking(PermissionHook.Endpoint(port: 48999, token: "T"), memoryDirectory: "/m")
+            .asking(PermissionHook.Endpoint(socket: "/tmp/evlat-t/evlat.sock", token: "T"), memoryDirectory: "/m")
         XCTAssertEqual(launch.arguments, call.arguments)
         XCTAssertEqual(launch.input, [call.input])
         XCTAssertEqual(launch.environment, call.environment)

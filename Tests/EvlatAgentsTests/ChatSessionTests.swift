@@ -485,5 +485,5 @@ extension ChatSession {
 
 extension TurnSpec {
     /// The turn's flags, as Claude's backend starts it.
-    var arguments: [String] { ClaudeChat().turn(self, ctx: TurnContext(port: 48999, token: "T")).arguments }
+    var arguments: [String] { ClaudeChat().turn(self, ctx: TurnContext(socket: "/tmp/evlat-t/evlat.sock", token: "T")).arguments }
 }

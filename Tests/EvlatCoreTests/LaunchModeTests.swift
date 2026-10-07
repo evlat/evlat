@@ -68,8 +68,8 @@ final class LaunchModeTests: XCTestCase {
     /// `ssh` calls its askpass with the prompt alone in `argv[1]`; only the
     /// mark Evlat puts in the tunnel's environment makes that a helper.
     func testAMarkedEnvironmentIsTheAskpassHelper() {
-        let marked = [Askpass.environmentKey: "48151:\(token)"]
-        let mark = Askpass.Mark(port: 48151, token: token)
+        let marked = [Askpass.environmentKey: "\(token):/tmp/evlat-t/evlat.sock"]
+        let mark = Askpass.Mark(socket: "/tmp/evlat-t/evlat.sock", token: token)
         XCTAssertEqual(LaunchMode.of(["/x/Evlat", prompt], environment: marked), .askpass(mark))
         // Whatever argv says: the mark is read first.
         XCTAssertEqual(LaunchMode.of(["/x/Evlat"], environment: marked), .askpass(mark))

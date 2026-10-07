@@ -436,20 +436,21 @@ final class RemoteTunnelsTests: XCTestCase {
                             port: Bool = true, confirmAfter: TimeInterval = 0.2,
                             settled: @escaping () -> Bool = { true }) throws -> RemoteTunnels {
         var tunnelsRef: RemoteTunnels?
-        let listener = HookListener(port: 0, onAbandoned: { id in tunnelsRef?.abandoned(id) }) { delivery in
+        // Evlat's socket beside the masters': the directory is short.
+        let listener = HookListener(transport: .unix(sockets + "/evlat.sock"),
+                                    onAbandoned: { id in tunnelsRef?.abandoned(id) }) { delivery in
             if case .askpass(let request) = delivery { tunnelsRef?.ask(request) }
         }
         listener.start()
         askpassListener = listener
-        guard case .listening(let bound) = listener.awaitSettled(timeout: 5) else {
-            throw XCTSkip("listener did not come up: \(listener.status.text)")
-        }
+        listener.awaitSettled(timeout: 5)
+        let bound = try XCTUnwrap(listener.boundPath, "listener did not come up: \(listener.status.text)")
         var environment = base.merging(extra) { _, new in new }
         environment["FAKE_SSH_LOG"] = log.path
         let made = RemoteTunnels(registry: Registry(), sshPath: path, platform: .unknown,
                                  now: Date.init, socketDirectory: sockets, environment: environment,
                                  workspace: NotificationCenter(), confirmAfter: confirmAfter,
-                                 askpass: RemoteTunnels.AskpassRoute(binary: helper, port: { port ? bound : nil },
+                                 askpass: RemoteTunnels.AskpassRoute(binary: helper, socket: { port ? bound : nil },
                                                                      settled: settled),
                                  store: store, onChange: {})
         made.respond = { [weak listener] id, response in listener?.answer(id, with: response) }

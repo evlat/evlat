@@ -47,7 +47,7 @@ public struct HTTPRequest: Equatable {
     public let askpassToken: String?
     /// `X-Evlat-Sandbox`: the sandbox a hook was sent from, as its command
     /// says it. Text off the wire; only a sandbox's listener believes it
-    /// (`LocalAPI.Listener.trustsSandboxHeaders`) and `HookEvent` validates it.
+    /// (`LocalAPI.Origin.sandbox`) and `HookEvent` validates it.
     public let sandboxName: String?
 
     public init(method: String, target: String, body: Data = Data(),

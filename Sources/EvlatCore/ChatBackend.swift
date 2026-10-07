@@ -181,17 +181,17 @@ public struct TurnSpec: Equatable {
     }
 }
 
-/// What the shell knows only when the turn starts: the listener's bound
-/// port, the turn's token and, for a workspace chat, the shared memory folder.
-/// A duplex turn asks on its own channel and may start with no listener
-/// bound: its port is then 0.
+/// What the shell knows only when the turn starts: the socket the listener
+/// bound (`EvlatSocket`), the turn's token and, for a workspace chat, the
+/// shared memory folder. A duplex turn asks on its own channel and may start
+/// with no listener bound: its socket is then empty.
 public struct TurnContext: Equatable {
-    public let port: UInt16
+    public let socket: String
     public let token: String
     public let memoryDirectory: String?
 
-    public init(port: UInt16, token: String, memoryDirectory: String? = nil) {
-        self.port = port
+    public init(socket: String, token: String, memoryDirectory: String? = nil) {
+        self.socket = socket
         self.token = token
         self.memoryDirectory = memoryDirectory
     }

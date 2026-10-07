@@ -10,11 +10,13 @@ import EvlatCore
 /// prompt depends on the chat's `PermissionMode` (auto by default: a
 /// classifier's block is a denial, not a prompt) and on `askRules`, which
 /// prompt in every mode. The hook is
-/// Claude Code's documented `type: "http"` kind, pointed at Evlat's loopback
-/// listener; its answer is held until the user presses a button on the card.
-/// Every way that goes wrong — Evlat gone, the connection dropped, the hook's
-/// time up, a non-2xx answer — leaves the hook without a decision, which
-/// under `none` is a denial: the safe side.
+/// Claude Code's `type: "command"` kind: a `curl` to the socket Evlat's
+/// listener bound (`EvlatSocket`), whose answer — the hook's stdout — is
+/// held until the user presses a button on the card. Every way that goes
+/// wrong — Evlat gone, the connection dropped, the hook's time up, a non-2xx
+/// answer (`-f`: nothing printed) — leaves the hook without a decision,
+/// which under `none` is a denial: the safe side (measured, as an empty
+/// output, under `-p --permission-prompts none`).
 ///
 /// The shapes are the ones Claude Code 2.1.281 validates (read from its
 /// schema): the input carries `tool_name`, `tool_input` and
@@ -34,9 +36,9 @@ enum PermissionHook {
     /// `ps`. The token tells turns apart; what guards a grant is the user's
     /// press on a card that shows everything "always" keeps.
     static let tokenHeader = ChatRequest.tokenHeader
-    /// How long Claude Code holds the request open, in seconds. The
-    /// documented default for an http hook, written out so a change of
-    /// default does not change how long a card can wait.
+    /// How long Claude Code holds the request open, in seconds, and how
+    /// long `curl` waits: the documented default for a hook, written out so
+    /// a change of default does not change how long a card can wait.
     static let timeout = 600
 
     /// The only destination Evlat ever grants to: in memory, this session.
@@ -46,15 +48,27 @@ enum PermissionHook {
 
     /// Where a turn's hook posts, and the token that says which turn it is.
     struct Endpoint: Equatable {
-        let port: UInt16
+        let socket: String
         let token: String
 
-        init(port: UInt16, token: String) {
-            self.port = port
+        init(socket: String, token: String) {
+            self.socket = socket
             self.token = token
         }
 
-        var settings: String { PermissionHook.settings(port: port, token: token) }
+        var settings: String { PermissionHook.settings(socket: socket, token: token) }
+    }
+
+    /// The hook's command: the request on stdin to the socket, the answer
+    /// on stdout. `-f` prints nothing for a refusal, `2>/dev/null` keeps
+    /// curl's own words out, and `|| true` makes every failure an empty
+    /// output — no decision, never a hook error. The token is a plain value
+    /// in a header: the same visibility as in the `--settings` argv it rides.
+    static func command(socket: String, token: String) -> String {
+        let curl = EvlatSocket.Curl.self
+        return [curl.program, "-sf", curl.noProxy, curl.socket(socket), "-m", "\(timeout)",
+                "-H", curl.quoted("\(tokenHeader): \(token)"), "-H", curl.quoted("Content-Type: application/json"),
+                "--data-binary", "@-", curl.url(path), "2>/dev/null || true"].joined(separator: " ")
     }
 
     // MARK: - The settings
@@ -91,9 +105,9 @@ enum PermissionHook {
     /// The commands `askRules` name: `Bash(git push:*)` → `git push`.
     static let askedCommands: [String] = askRules.map { String($0.dropFirst("Bash(".count).dropLast(":*)".count)) }
 
-    /// `--settings`' value: one `PermissionRequest` hook, `type: "http"`, on
-    /// the port the listener actually bound, and `askRules`. Sorted keys and
-    /// unescaped slashes, so the string is the same on every run and
+    /// `--settings`' value: one `PermissionRequest` hook, `type: "command"`,
+    /// to the socket the listener actually bound, and `askRules`. Sorted keys
+    /// and unescaped slashes, so the string is the same on every run and
     /// readable in a process list.
     ///
     /// `memoryDirectory`, when given, is `autoMemoryDirectory`: where Claude
@@ -103,11 +117,10 @@ enum PermissionHook {
     /// chat shares it (measured on 2.1.281: a note written in one chat was
     /// recalled by a new one). A chat in the user's folder gets none, and
     /// keeps that folder's own memory.
-    static func settings(port: UInt16, token: String, memoryDirectory: String? = nil) -> String {
+    static func settings(socket: String, token: String, memoryDirectory: String? = nil) -> String {
         let hook: [String: Any] = [
-            "type": "http",
-            "url": "http://127.0.0.1:\(port)\(path)",
-            "headers": [tokenHeader: token],
+            "type": "command",
+            "command": command(socket: socket, token: token),
             "timeout": timeout,
         ]
         var settings: [String: Any] = ["hooks": ["PermissionRequest": [["matcher": "*", "hooks": [hook]]]],

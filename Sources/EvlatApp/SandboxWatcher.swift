@@ -131,12 +131,12 @@ final class SandboxWatcher {
     }
 
     /// A unix socket's address holds 104 bytes, the last a NUL
-    /// (`sockaddr_un.sun_path`). The real one measured 97.
-    static let socketPathLimit = 103
+    /// (`UnixSocket.pathLimit`). The real one measured 97.
+    static let socketPathLimit = UnixSocket.pathLimit
 
     func start() {
         guard let link else { return }
-        if link.socketPath.utf8.count > Self.socketPathLimit {
+        if UnixSocket.address(link.socketPath) == nil {
             // `NWConnection` would fail on every try, and the line would say
             // `sbx` is not running. Said as it is; what runs now is set up.
             self.link = nil

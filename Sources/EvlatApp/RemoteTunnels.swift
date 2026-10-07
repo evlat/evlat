@@ -112,11 +112,12 @@ final class RemoteTunnels {
     /// Answers a held `/askpass` request (`HookListener.answer`).
     var respond: (String, LocalAPI.Response) -> Void = { _, _ in }
 
-    /// What `ssh` needs to ask Evlat: the helper (this binary) and the port
-    /// of the listener that holds `/askpass`. Without a port, no askpass.
+    /// What `ssh` needs to ask Evlat: the helper (this binary) and the
+    /// socket of the listener that holds `/askpass`. Without a socket, no
+    /// askpass.
     struct AskpassRoute {
         let binary: String
-        let port: () -> UInt16?
+        let socket: () -> String?
         /// Whether that listener is done binding — bound, or refused its
         /// port. Until then no try starts: one started now would run
         /// without askpass, and a password server would fail it for
@@ -281,7 +282,7 @@ final class RemoteTunnels {
         link.tunnel = tunnel
         link.listener = HookListener(
             port: 0,
-            origin: .tunneled,
+            origin: .machine,
             signalKey: { _ in key },
             onStatus: { [weak self, weak link] status in
                 guard let link else { return }
@@ -404,14 +405,14 @@ final class RemoteTunnels {
     }
 
     /// The tunnel's askpass variables, with a token new to this try; `nil`
-    /// — and `BatchMode=yes` — while this Mac's listener has no port.
+    /// — and `BatchMode=yes` — while this Mac's listener has no socket.
     private func askpassEnvironment(for link: Link, generation: Int) -> [String: String]? {
-        guard let askpass, let port = askpass.port() else { return nil }
+        guard let askpass, let socket = askpass.socket() else { return nil }
         let token = SignalKey.generate()
         tokens[token] = (link.machine.id, generation)
         return ["SSH_ASKPASS": askpass.binary,
                 "SSH_ASKPASS_REQUIRE": "force",
-                Askpass.environmentKey: Askpass.value(Askpass.Mark(port: port, token: token))]
+                Askpass.environmentKey: Askpass.value(Askpass.Mark(socket: socket, token: token))]
     }
 
     /// The try `generation` (every try: `nil`) is over: its token answers
@@ -547,16 +548,12 @@ extension RemoteTunnels {
                   machine.name, socketDirectory)
             return nil
         }
-        do {
-            // Every launch: `$TMPDIR` is swept, and the mode is only set on
-            // creation.
-            try FileManager.default.createDirectory(atPath: socketDirectory, withIntermediateDirectories: true)
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: socketDirectory)
-        } catch {
-            NSLog("Evlat: machine %@ runs without a master: %@", machine.name, error.localizedDescription)
+        // Every launch: `$TMPDIR` is swept.
+        if let refusal = UnixSocket.prepareDirectory(socketDirectory) {
+            NSLog("Evlat: machine %@ runs without a master: %@", machine.name, refusal.text)
             return nil
         }
-        switch Self.probe(socket: path) {
+        switch UnixSocket.probe(path) {
         case .absent:
             return path
         case .stale:
@@ -569,39 +566,6 @@ extension RemoteTunnels {
             NSLog("Evlat: machine %@ runs without a master: %@: %@",
                   machine.name, path, String(cString: strerror(code)))
             return nil
-        }
-    }
-
-    enum SocketState: Equatable {
-        case absent
-        /// A file nobody listens on: its master was killed.
-        case stale
-        case live
-        /// Anything else: left alone.
-        case unknown(Int32)
-    }
-
-    /// Whether something answers at `path`, by connecting to it. Only
-    /// `ENOENT` and `ECONNREFUSED` say the file may go.
-    static func probe(socket path: String) -> SocketState {
-        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return .unknown(errno) }
-        defer { Darwin.close(fd) }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return .unknown(ENAMETOOLONG) }
-        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        if connected == 0 { return .live }
-        switch errno {
-        case ENOENT: return .absent
-        case ECONNREFUSED: return .stale
-        case let code: return .unknown(code)
         }
     }
 }

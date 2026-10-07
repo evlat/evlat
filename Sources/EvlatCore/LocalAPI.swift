@@ -37,6 +37,21 @@ public enum LocalAPI {
         /// An `ssh` askpass helper's prompt (`Askpass`).
         case askpass
         case health
+
+        /// The route by kind, for the listener's role (`Origin.role`); a
+        /// refusal is none.
+        public var route: Route? {
+            switch self {
+            case .forbidden, .notFound: return nil
+            case .hook: return .hook
+            case .usage: return .usage
+            case .permission: return .permission
+            case .approval: return .approval
+            case .signal: return .signal
+            case .askpass: return .askpass
+            case .health: return .health
+            }
+        }
     }
 
     /// The fixed routes are this `switch`; the agents' are `routes`, made
@@ -169,15 +184,51 @@ public enum LocalAPI {
     /// Where a request came in. The listener knows and says so; what that
     /// means for the request is decided here, so the listener stays transport.
     public enum Origin: Equatable {
-        /// This Mac's own loopback port (`defaultPort`).
+        /// This Mac: its loopback port (`defaultPort`) or its socket
+        /// (`EvlatSocket`).
         case local
-        /// A remote machine's `ssh` tunnel, arriving on that machine's own
-        /// loopback listener. The request is the same bytes the local hook
-        /// command sends — the installed command is identical on both sides —
-        /// but its `$PPID` and `$EVLAT_TASK` are the remote computer's. A
-        /// remote pid asked about on this Mac would name whatever local process
-        /// holds that number, so both are treated as absent.
-        case tunneled
+        /// A remote machine, arriving on that machine's own listener. The
+        /// request is the same bytes the local hook command sends — the
+        /// installed command is identical on both sides — but its `$PPID`
+        /// and `$EVLAT_TASK` are the remote computer's. A remote pid asked
+        /// about on this Mac would name whatever local process holds that
+        /// number, so both are treated as absent.
+        case machine
+        /// A Docker sandbox (`SandboxInstall`), through the sandbox's own
+        /// proxy and only because that sandbox's network rule allows it.
+        /// Its pid and task speak about the VM, as a machine's do.
+        case sandbox
+
+        /// What a request from here may reach and which of its headers are
+        /// believed. The one place a listener's role is written: a route
+        /// not named here answers `404`, whatever the listener holds.
+        public var role: Role {
+            switch self {
+            case .local:
+                return Role(routes: Set(Route.allCases), trustsProcess: true, trustsSandbox: false)
+            // No card in front of this user that grants anything, no
+            // password asked for: the held routes stay this Mac's.
+            case .machine:
+                return Role(routes: [.hook, .usage, .signal, .health], trustsProcess: false, trustsSandbox: false)
+            // Hooks only, and the one listener whose sandbox header is read.
+            case .sandbox:
+                return Role(routes: [.hook], trustsProcess: false, trustsSandbox: true)
+            }
+        }
+    }
+
+    /// A route by kind, the agents' routes folded into one each.
+    public enum Route: CaseIterable, Equatable {
+        case hook, usage, permission, approval, signal, askpass, health
+    }
+
+    /// An origin's reach (`Origin.role`).
+    public struct Role: Equatable {
+        public let routes: Set<Route>
+        /// `X-Evlat-Pid` and `X-Evlat-Task` name processes on this Mac.
+        public let trustsProcess: Bool
+        /// `X-Evlat-Sandbox` names the sandbox the hook ran in.
+        public let trustsSandbox: Bool
     }
 
     /// Everything a listener says about itself that decides a request: where
@@ -186,34 +237,32 @@ public enum LocalAPI {
     /// other.
     ///
     /// **The key belongs to the listener, not to the request.** The process
-    /// that holds the port writes it; a tunnel's listener is
+    /// that holds the port writes it; a machine's listener is
     /// given its machine's key, so a key names the machine and the
     /// body never does. A local listener with no key — the file could not be
-    /// written, an isolated process — refuses every `/signal`; a tunnel's
-    /// listener with none does not have the route.
+    /// written, an isolated process — refuses every `/signal`; a machine's
+    /// listener with none does not have the route. The socket's listener
+    /// asks for none (`keylessSignal`): its directory is the user's alone.
     public struct Listener: Equatable {
         public let origin: Origin
         public let signalKey: String?
+        /// `/signal` takes no key: the socket's listener, which only the
+        /// user's own processes can reach.
+        public let keylessSignal: Bool
         /// Where an agent's finish may read its reply from
         /// (`HookChannel.finish`); none, and no reply is read.
         public let transcriptRoots: [URL]
         /// The agents' routes (`RouteTable`); empty, and no agent route
         /// answers.
         public let routes: RouteTable
-        /// A Docker sandbox's listener (`SandboxInstall`): the one listener
-        /// that believes `X-Evlat-Sandbox`. Its port is reached only from a
-        /// sandbox, through the sandbox's own proxy, and only because that
-        /// sandbox's network rule allows it. Its origin is still
-        /// `.tunneled`: the VM's pid and task speak about another computer.
-        public let trustsSandboxHeaders: Bool
 
-        public init(origin: Origin = .local, signalKey: String? = nil, transcriptRoots: [URL] = [],
-                    routes: RouteTable = RouteTable(), trustsSandboxHeaders: Bool = false) {
+        public init(origin: Origin = .local, signalKey: String? = nil, keylessSignal: Bool = false,
+                    transcriptRoots: [URL] = [], routes: RouteTable = RouteTable()) {
             self.origin = origin
             self.signalKey = signalKey
+            self.keylessSignal = keylessSignal
             self.transcriptRoots = transcriptRoots
             self.routes = routes
-            self.trustsSandboxHeaders = trustsSandboxHeaders
         }
     }
 
@@ -223,9 +272,13 @@ public enum LocalAPI {
     /// listener's (`Listener.routes`), made from the same catalog.
     public static func handle(_ request: HTTPRequest, listener: Listener = Listener(),
                               agents: [any Agent] = []) -> Outcome {
-        let origin = listener.origin
-        switch dispatch(method: request.method, target: request.target,
-                        origin: request.origin, host: request.host, routes: listener.routes) {
+        let role = listener.origin.role
+        let dispatched = dispatch(method: request.method, target: request.target,
+                                  origin: request.origin, host: request.host, routes: listener.routes)
+        // The role first: a route this listener does not serve is not
+        // shown to exist, keyed or not.
+        if let route = dispatched.route, !role.routes.contains(route) { return notFound }
+        switch dispatched {
         case .forbidden:
             return Outcome(response: Response(status: .forbidden,
                                               body: error("forbidden", "browser requests are not accepted")),
@@ -233,9 +286,8 @@ public enum LocalAPI {
         case .notFound:
             return notFound
         case .permission:
-            // Only this Mac's own turns ask: a remote machine must not be
-            // able to put a permission card in front of this user.
-            guard origin == .local else { return notFound }
+            // Only this Mac's own turns ask (`Origin.role`): a remote machine
+            // must not be able to put a permission card in front of this user.
             guard let json = jsonObject(request.body) else { return badRequest }
             // A missing token is refused here; a wrong one needs the running
             // turns to know, and is refused on the main queue (`ChatStore`).
@@ -249,9 +301,7 @@ public enum LocalAPI {
                   let asked = backend.request(json: json, token: token) else { return badRequest }
             return Outcome(response: nil, delivery: .permission(asked))
         case .approval:
-            // This Mac's own sessions only, as `/permission`: a tunnel never
-            // puts a card in front of this user that grants anything.
-            guard origin == .local else { return notFound }
+            // This Mac's own sessions only (`Origin.role`), as `/permission`.
             // `{}` is no decision: the agent's own dialog stays and decides.
             guard let json = jsonObject(request.body),
                   let channel = listener.routes.approval.flatMap({ agents[id: $0]?.approvals }),
@@ -261,10 +311,9 @@ public enum LocalAPI {
             }
             return Outcome(response: nil, delivery: .approval(asked))
         case .askpass:
-            // This Mac's own tunnels only: what a helper is answered may be
-            // a password, and a remote machine must never be able to ask
-            // for one — keyed or not.
-            guard origin == .local else { return notFound }
+            // This Mac's own tunnels only (`Origin.role`): what a helper is
+            // answered may be a password, and a remote machine must never be
+            // able to ask for one — keyed or not.
             guard let token = request.askpassToken else {
                 return Outcome(response: Response(status: .forbidden,
                                                   body: error("forbidden", "an askpass token is expected")),
@@ -279,15 +328,16 @@ public enum LocalAPI {
             }
             return Outcome(response: nil, delivery: .askpass(Askpass.Request(token: token, prompt: prompt)))
         case .signal:
-            // A tunnel without its machine's key does not have the route, and
-            // its existence is not shown to it (as `/permission`). With the
-            // key, a tunnel is the local route exactly: the machine is the
+            // A machine without its key does not have the route, and its
+            // existence is not shown to it (as `/permission`). With the key,
+            // a machine is the local route exactly: the machine is the
             // listener's, which the delivery's receiver knows.
-            if origin == .tunneled, listener.signalKey == nil { return notFound }
+            if listener.origin == .machine, listener.signalKey == nil { return notFound }
             // The key before the body: a caller without it learns nothing
-            // about what a valid body looks like.
-            guard let expected = listener.signalKey, let sent = request.signalKey,
-                  sameKey(sent, expected) else {
+            // about what a valid body looks like. The socket asks for none.
+            guard listener.keylessSignal
+                    || listener.signalKey.flatMap({ expected in
+                        request.signalKey.map { sameKey($0, expected) } }) == true else {
                 return Outcome(response: Response(status: .forbidden,
                                                   body: error("forbidden", "a valid X-Evlat-Key is expected")),
                                delivery: nil)
@@ -327,9 +377,10 @@ public enum LocalAPI {
             // The stamp happens before the translation, which is why an adapter
             // has to pass these keys through (`HookChannel.canonical`).
             //
-            // A tunneled request takes the no-header branch: its headers are
-            // real, but they speak about another computer (`Origin.tunneled`).
-            let trusted = origin == .local
+            // A machine's or a sandbox's request takes the no-header branch:
+            // its headers are real, but they speak about another computer
+            // (`Origin.role`).
+            let trusted = role.trustsProcess
             if trusted, let taskID = request.taskID { json[HookEvent.taskKey] = taskID }
             else { json.removeValue(forKey: HookEvent.taskKey) }
             if trusted, let pid = request.pid { json[HookEvent.pidKey] = pid }
@@ -338,14 +389,14 @@ public enum LocalAPI {
             // headers by a sandbox's listener only, deleted from every body.
             // Elsewhere any local process could put a sandbox's name on a row
             // and have its card look for that sandbox's terminal.
-            let sandbox = listener.trustsSandboxHeaders
+            let sandbox = role.trustsSandbox
             if sandbox, let name = request.sandboxName { json[HookEvent.sandboxKey] = name }
             else { json.removeValue(forKey: HookEvent.sandboxKey) }
             // A body that names no event has it in a header
             // (`HookChannel.eventInHeader`). A body that names its own keeps it.
             if json["hook_event_name"] == nil, let event = request.event { json["hook_event_name"] = event }
             // A finish that names no reply has it read from this Mac's files;
-            // a tunneled one names a file elsewhere and never is. Such a
+            // a machine's names a file elsewhere and never is. Such a
             // body never supplies the reply itself.
             if let finish = channel?.finish {
                 json.removeValue(forKey: "last_assistant_message")

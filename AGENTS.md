@@ -163,14 +163,16 @@ through the chat's backend (`ChatBackend`, an agent's `chat`), and never asks
 which agent it is:
 
 - `ChatSession.begin` gives a `TurnSpec`; the backend makes it a
-  `TurnLaunch` (`turn(spec, ctx:)`) once the shell knows the listener's port,
-  the turn's token and the memory folder (`TurnContext`). `TurnRunner` starts
+  `TurnLaunch` (`turn(spec, ctx:)`) once the shell knows the socket the
+  listener bound, the turn's token and the memory folder (`TurnContext`). `TurnRunner` starts
   one process per turn; `AgentLocator` finds its program (`EVLAT_<NAME>`, then
   the login shell's `PATH`).
 - The backend's `parser(for: spec)` reads stdout into `ChatEvent`s; an
   unknown word is counted, not swallowed. Transport is **one way** (stdout
   streams, a permission is posted to `/permission` and answered on the held
-  connection; Claude Code) or **duplex** (asked and answered on the
+  connection; Claude Code, whose turn's inline `PermissionRequest` hook is a
+  `type: "command"` `curl -sf --unix-socket` to Evlat's socket — the answer
+  is its stdout, every failure an empty output, `|| true`) or **duplex** (asked and answered on the
   process's own stdio, the parser writing the protocol's next lines as the
   process answers; Codex's `app-server`). Only a one-way turn needs the
   listener bound.
@@ -302,7 +304,9 @@ it (`-S <socket> -o ControlMaster=no -o BatchMode=yes`) and connect on their
 own when there is none. Its stdin is the dead man's switch. `ssh` gets
 Evlat's environment, `SSH_AUTH_SOCK` kept, plus — only while this Mac's
 listener is bound — the askpass variables (`SSH_ASKPASS` = this binary,
-`SSH_ASKPASS_REQUIRE=force`, `EVLAT_ASKPASS=<port>:<token>`), with
+`SSH_ASKPASS_REQUIRE=force`, `EVLAT_ASKPASS=<token>:<socket>` — the token
+in front, its length fixed, so the socket's path is everything after the
+first `:`), with
 `BatchMode=no` and `NumberOfPasswordPrompts=1`; without them `BatchMode=yes`.
 At launch the first try waits for that listener to settle, so it does not
 run without askpass by accident. A try is **quiet** (on the schedule, after
@@ -809,6 +813,25 @@ realistic case is another user's process on a shared Mac.
 Loopback only (`requiredInterfaceType = .loopback`; `lsof` shows `*:48151`,
 but a POST to the LAN address is refused). Default port **48151**.
 
+Beside the port, the same routes on **Evlat's socket**,
+`$HOME/.config/evlat/run/evlat.sock` (`EvlatSocket`; `EVLAT_HOME` moves it,
+an absolute `EVLAT_SOCKET` names it, an `EVLAT_PORT` process without
+`EVLAT_SOCKET` has none). Its directory is made `0700` and refused when it
+is a link or another user's: the file takes the umask's mode, so the
+directory is the guard (`UnixSocket.prepareDirectory`). A live socket is
+another Evlat's and is left alone; a file nobody answers on is cleared and
+bound; `stop()` removes the file only while it is still the one it bound.
+Evlat's own clients speak there: a chat turn's hook, the askpass helper,
+`evlat signal`/`watch` (`UnixHTTP`, one blocking HTTP/1.1 request). The
+installed hook commands still speak to the port.
+
+Each listener has a role (`LocalAPI.Origin`): `.local` (this Mac, port or
+socket) has every route and believes `X-Evlat-Pid`/`X-Evlat-Task`;
+`.machine` (a tunnel) has `/hook`, `/usage`, `/signal` and `/health`;
+`.sandbox` has `/hook` alone and is the one that believes
+`X-Evlat-Sandbox`. A route the role lacks is `404`, whatever the listener
+holds (`Origin.role`, one `switch`).
+
 | route | notes |
 |---|---|
 | `POST /hook`, `/hook/claude`, `/hook/codex` | installed hooks; always `{}` |
@@ -816,8 +839,8 @@ but a POST to the LAN address is refused). Default port **48151**.
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
 | `POST /approval` | opt-in hook of terminal sessions (`ApprovalHook`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; `404` through a tunnel |
-| `POST /signal` | external jobs; requires `X-Evlat-Key` |
-| `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.tunneled`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped, `/permission`, `/approval`, `/askpass` and `/signal` are `404`, and anything but a hook is dropped. The only listener that trusts `X-Evlat-Sandbox`, checked |
+| `POST /signal` | external jobs; requires `X-Evlat-Key` on the port, none on the socket |
+| `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.sandbox`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped and every other route is `404`. The only listener that trusts `X-Evlat-Sandbox`, checked |
 | `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
 
 `/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
@@ -832,7 +855,8 @@ sends, not the row's life.
 The key is written on every launch to
 `~/Library/Application Support/Evlat/signal-<port>.token` (`0600`) by the
 process that holds the port and removed on quit; wrong or missing key → `403`.
-Through a tunnel the route takes the **machine's own** key.
+Through a tunnel the route takes the **machine's own** key. On the socket it
+takes none: only the user's processes can reach it.
 
 ### Command line
 
@@ -851,8 +875,9 @@ refuses (`WatchTests`, against the compiled binary). `argv` is classified by
 `LaunchMode.of`: the app opens only with no arguments or with what the system
 adds (`-psn_…`, `-NS…`/`-Apple…` pairs); an unknown word prints usage and exits
 `2` — a new subcommand not added there does **not** fall through to the app.
-With `EVLAT_ASKPASS=<port>:<token>` in the environment the binary is `ssh`'s
-askpass helper instead: `argv[1]` is the prompt itself (no subcommand word),
+`watch` and `signal` post to Evlat's socket by the app's own rule, keyless;
+no socket there is silent and immediate. With `EVLAT_ASKPASS=<token>:<socket>`
+in the environment the binary is `ssh`'s askpass helper instead: `argv[1]` is the prompt itself (no subcommand word),
 the answer goes to stdout, and no answer exits non-zero with nothing
 written. A prompt-shaped `argv` without the mark is still a usage error.
 
@@ -965,7 +990,8 @@ Running a second Evlat next to the user's must not touch the user's state.
 
 | variable | effect |
 |---|---|
-| `EVLAT_PORT=48999` | own port; with it set, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
+| `EVLAT_PORT=48999` | own port; with it set, no socket is bound unless `EVLAT_SOCKET` is given, no tunnel opens unless `EVLAT_MACHINES` is given, no signal key is written or read unless `EVLAT_HOME` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
+| `EVLAT_SOCKET` | Evlat's socket, an absolute path (`EvlatSocket`); the app binds it and `evlat signal`/`watch` post to it. A relative one is none, never the user's |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their keys stay in memory |
@@ -1061,6 +1087,15 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   turn's end. A decision sent after the terminal answered is ignored.
   Requests are serialized per session. Measured with a pty-driven
   `claude --settings` and a stand-in server on 48999.
+- **A command `PermissionRequest` hook's `{}` is no decision, and the
+  terminal's answers end it differently** (Claude Code 2.1.292). `{}` on
+  stdout left the prompt to Claude as an empty output does; under
+  `-p --permission-prompts none` that is a denial. Esc in the terminal ended
+  the hook's process tree; "Yes" did not, and the `curl` stayed waiting.
+- **A unix socket file takes the umask's mode** (`755` measured, a
+  `NWListener` bound with `requiredLocalEndpoint = .unix(path:)`), and
+  survives the listener's `cancel()`. The directory is the guard, and the
+  listener removes its own file.
 - **A bare `allow` does not answer `AskUserQuestion`.** The terminal's
   dialog stayed up (a user's report, measured on 2.1.285). `allow` with
   `updatedInput` — the input as it came plus `answers`, text → answer —

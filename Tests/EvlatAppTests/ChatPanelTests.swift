@@ -288,10 +288,11 @@ final class ChatPanelTests: XCTestCase {
         controller.chats = ChatStore(root: directory, platform: .unknown,
                                      locator: AgentLocator(name: "claude", environment: ["EVLAT_CLAUDE": fake]),
                                      environment: ["PATH": "/usr/bin:/bin"])
-        let listener = HookListener(port: 0) { _ in }
+        let sockets = try ShortDirectory.make()
+        let listener = HookListener(transport: .unix(sockets + "/evlat.sock")) { _ in }
         listener.start()
         listener.awaitSettled(timeout: 5)
-        defer { listener.stop() }
+        defer { listener.stop(); ShortDirectory.remove(sockets) }
         controller.chats?.permissions = listener
         controller.openChat()
         XCTAssertFalse(controller.chatModel.submit("   "), "an empty line sends nothing")
@@ -329,10 +330,11 @@ final class ChatPanelTests: XCTestCase {
                                      environment: ["PATH": "/usr/bin:/bin", "FAKE_CLAUDE_SCENARIO": "denied"],
                                      defaultMode: { [unowned controller] in
                                          MainActor.assumeIsolated { controller.defaultMode } })
-        let listener = HookListener(port: 0) { _ in }
+        let sockets = try ShortDirectory.make()
+        let listener = HookListener(transport: .unix(sockets + "/evlat.sock")) { _ in }
         listener.start()
         listener.awaitSettled(timeout: 5)
-        defer { listener.stop() }
+        defer { listener.stop(); ShortDirectory.remove(sockets) }
         controller.chats?.permissions = listener
         controller.openChat()
         XCTAssertEqual(controller.chatModel.mode, .auto, "auto until something else is picked")
@@ -760,10 +762,11 @@ final class ChatPanelTests: XCTestCase {
                               environment: ["PATH": "/usr/bin:/bin", "FAKE_CLAUDE_SCENARIO": "slow"])
         controller.chats = chats
         controller.registry.register(chats.provider)
-        let listener = HookListener(port: 0) { _ in }
+        let sockets = try ShortDirectory.make()
+        let listener = HookListener(transport: .unix(sockets + "/evlat.sock")) { _ in }
         listener.start()
         listener.awaitSettled(timeout: 5)
-        defer { listener.stop() }
+        defer { listener.stop(); ShortDirectory.remove(sockets) }
         chats.permissions = listener
         controller.openChat()
         XCTAssertTrue(controller.chatModel.submit("work"))

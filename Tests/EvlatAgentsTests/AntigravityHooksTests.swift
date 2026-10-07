@@ -252,7 +252,7 @@ final class AntigravityHooksTests: XCTestCase {
         let path = try transcript().path
         XCTAssertEqual(try stop(transcript: path)?.lastReply, "All done. The folder has two files.",
                        "the paragraphs on one line, as Claude's")
-        XCTAssertNil(try stop(transcript: path, origin: .tunneled)?.lastReply,
+        XCTAssertNil(try stop(transcript: path, origin: .machine)?.lastReply,
                      "a tunneled path names a file on another computer")
         XCTAssertEqual(try stop(transcript: "/nowhere.jsonl", extra: ["last_assistant_message": "forged"])?.lastReply,
                        nil, "the body never supplies it")

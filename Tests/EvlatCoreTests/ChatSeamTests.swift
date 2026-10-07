@@ -48,7 +48,7 @@ final class ChatSeamTests: XCTestCase {
         let spec = try XCTUnwrap(chat.begin(prompt: "hi", attachments: ["/a"], at: t0, allowedTools: ["R"]))
         XCTAssertEqual(spec, TurnSpec(chatID: "C1", sessionID: "S1", resume: false, prompt: "hi", attachments: ["/a"],
                                       directory: "/tmp/p", allowedTools: ["R"], mode: TestChatBackend.ask))
-        let launch = backend.turn(spec, ctx: TurnContext(port: 1, token: "T"))
+        let launch = backend.turn(spec, ctx: TurnContext(socket: "/tmp/evlat-t/evlat.sock", token: "T"))
         XCTAssertEqual(launch.arguments, ["--mode", "ask"])
         XCTAssertEqual(launch.environment, [TurnLaunch.taskVariable: "C1"])
     }

@@ -443,18 +443,17 @@ final class ChatStore {
         }
         // No bound listener, no one-way turn: every request it made would be
         // denied without a card — the silent failure when another Evlat
-        // holds the port. A duplex turn asks on its own channel.
-        let bound = permissions?.boundPort
+        // holds the socket. A duplex turn asks on its own channel.
+        let bound = permissions?.boundPath
         if bound == nil, backend.caps.transport == .oneWay {
             chat.fail(.noListener(permissions?.status.text ?? HookListener.Status.stopped.text), at: now())
             return finish(id, chat)
         }
-        let port = bound ?? 0
         let token = UUID().uuidString
         // A workspace chat remembers in Evlat's one memory folder; a chat in
         // the user's folder keeps that folder's own (the agent's default).
         let memory = chat.isWorkspace && backend.caps.memory ? memoryDirectory.path : nil
-        let launch = backend.turn(spec, ctx: TurnContext(port: port, token: token, memoryDirectory: memory))
+        let launch = backend.turn(spec, ctx: TurnContext(socket: bound ?? "", token: token, memoryDirectory: memory))
         if chat.isWorkspace {
             try? FileManager.default.createDirectory(atPath: chat.folder, withIntermediateDirectories: true)
         }
@@ -831,10 +830,11 @@ final class ChatStore {
 }
 
 /// What a chat needs from the hook listener: is it bound, and a way to
-/// answer a held request. `HookListener` is the one in the app.
+/// answer a held request. `HookListener` is the one in the app, on Evlat's
+/// socket.
 protocol PermissionDesk: AnyObject {
     var status: HookListener.Status { get }
-    var boundPort: UInt16? { get }
+    var boundPath: String? { get }
     func answer(_ id: String, with response: LocalAPI.Response)
 }
 

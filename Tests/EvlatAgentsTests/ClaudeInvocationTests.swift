@@ -60,7 +60,7 @@ final class ClaudeInvocationTests: XCTestCase {
         let at = try XCTUnwrap(call.arguments.firstIndex(of: "--permission-mode"))
         XCTAssertEqual(call.arguments[at + 1], "bypassPermissions")
         XCTAssertFalse(call.arguments.contains { $0.hasPrefix("--dangerously") || $0.hasPrefix("--allow-dangerously") })
-        let endpoint = PermissionHook.Endpoint(port: 48999, token: "T")
+        let endpoint = PermissionHook.Endpoint(socket: "/tmp/evlat-t/evlat.sock", token: "T")
         let asking = call.asking(endpoint)
         XCTAssertEqual(Array(asking.arguments.suffix(4)), ["--permission-prompts", "none", "--settings", endpoint.settings])
         let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(endpoint.settings.utf8)) as? [String: Any])
@@ -115,7 +115,7 @@ final class ClaudeInvocationTests: XCTestCase {
     func testAStartedTurnAsksThroughItsHook() {
         let call = ClaudeInvocation.turn(chatID: "C1", sessionID: "S1", resume: false,
                                          prompt: "hi", attachments: [], directory: "/tmp/p")
-        let endpoint = PermissionHook.Endpoint(port: 48999, token: "T")
+        let endpoint = PermissionHook.Endpoint(socket: "/tmp/evlat-t/evlat.sock", token: "T")
         let asking = call.asking(endpoint)
         XCTAssertEqual(asking.arguments, call.arguments + ["--permission-prompts", "none",
                                                           "--settings", endpoint.settings])

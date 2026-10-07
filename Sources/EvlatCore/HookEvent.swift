@@ -86,7 +86,7 @@ public struct HookEvent: Equatable {
     public static let pidKey = "evlat_pid"
 
     /// The key under which a sandbox's listener writes `X-Evlat-Sandbox`
-    /// (`LocalAPI.Listener.trustsSandboxHeaders`).
+    /// (`LocalAPI.Origin.sandbox`).
     public static let sandboxKey = "evlat_sandbox"
 
     /// The longest sandbox name kept.

@@ -110,8 +110,8 @@ final class ApprovalHookTests: XCTestCase {
     }
 
     func testATunnelOrABrowserNeverReachesIt() {
-        XCTAssertEqual(post(body, origin: .tunneled).response?.status, .notFound)
-        XCTAssertNil(post(body, origin: .tunneled).delivery)
+        XCTAssertEqual(post(body, origin: .machine).response?.status, .notFound)
+        XCTAssertNil(post(body, origin: .machine).delivery)
         XCTAssertEqual(post(body, browser: "https://example.com").response?.status, .forbidden)
     }
 

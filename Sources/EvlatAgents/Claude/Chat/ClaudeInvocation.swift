@@ -84,13 +84,13 @@ struct ClaudeInvocation: Equatable {
     /// the inline hook allows it, and `--settings` carrying that hook. The
     /// user's own settings still load; hooks merge across them (measured).
     /// Added when the turn starts, because only then is the
-    /// listener's port known to be bound.
+    /// listener's socket known to be bound.
     ///
     /// `memoryDirectory` goes into the same settings as
     /// `autoMemoryDirectory` (`PermissionHook.settings`): a workspace chat's,
     /// never a chat in the user's folder.
     func asking(_ endpoint: PermissionHook.Endpoint, memoryDirectory: String? = nil) -> ClaudeInvocation {
-        let settings = PermissionHook.settings(port: endpoint.port, token: endpoint.token,
+        let settings = PermissionHook.settings(socket: endpoint.socket, token: endpoint.token,
                                                memoryDirectory: memoryDirectory)
         return ClaudeInvocation(arguments: arguments + ["--permission-prompts", "none", "--settings", settings],
                                 input: input, environment: environment, directory: directory)

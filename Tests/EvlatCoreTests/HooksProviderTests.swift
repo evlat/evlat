@@ -876,7 +876,7 @@ final class HooksProviderTests: XCTestCase {
     /// listener becomes a row on the sandbox's provider.
     func testASandboxListenersEventsBecomeASandboxRow() {
         let agent = TestAgent(paths: [RouteTable.installedPrefix])
-        let listener = LocalAPI.Listener(origin: .tunneled, routes: RouteTable([agent]), trustsSandboxHeaders: true)
+        let listener = LocalAPI.Listener(origin: .sandbox, routes: RouteTable([agent]))
         let hooks = sandboxProvider()
         hooks.setLink(connected: true)
         func post(_ body: String) {

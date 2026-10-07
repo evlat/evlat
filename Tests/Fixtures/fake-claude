@@ -7,11 +7,13 @@
 #   FAKE_CLAUDE_LOG       file its arguments, EVLAT_TASK and stdin line go to
 #   FAKE_CLAUDE_SCENARIO  ok (default) | tool | error | slow | crash | permission | markdown | denied
 #   FAKE_CLAUDE_DELAY     seconds between the `markdown` reply's pieces (default 0.3)
-#   FAKE_CLAUDE_PERMISSION_WAIT  seconds the permission hook waits (default 30)
+#   FAKE_CLAUDE_PERMISSION_WAIT  seconds the permission hook waits (default:
+#                                the hook's own `-m`, as its `timeout` would end it)
 #
-# `permission` does what a real turn's hook does: it reads the
-# URL and token out of its `--settings`, posts a `PermissionRequest` there and
-# acts on the answer — the tool runs when allowed, is denied otherwise.
+# `permission` does what a real turn's hook does: it reads the command out
+# of its `--settings`, runs it with a `PermissionRequest` on stdin and acts on
+# what it printed — the tool runs when allowed, is denied otherwise (an empty
+# output included).
 #
 # Like the real one it reads one user line, answers, and after the `result`
 # waits for stdin to close before it exits — so a runner that never closes
@@ -79,12 +81,13 @@ slow)
   wait "$child"
   ;;
 permission)
-  url=$(printf '%s' "$settings" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
-  token=$(printf '%s' "$settings" | sed -n 's/.*"X-Evlat-Permission":"\([^"]*\)".*/\1/p')
+  command=$(printf '%s' "$settings" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
+  if [ -n "${FAKE_CLAUDE_PERMISSION_WAIT:-}" ]; then
+    command=$(printf '%s' "$command" | sed "s/ -m [0-9]* / -m $FAKE_CLAUDE_PERMISSION_WAIT /")
+  fi
   emit '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_w","name":"Write","input":{"file_path":"'"$PWD"'/note.txt","content":"hi"}}]},"session_id":"'"$sid"'"}'
   body='{"session_id":"'"$sid"'","hook_event_name":"PermissionRequest","cwd":"'"$PWD"'","tool_name":"Write","tool_input":{"file_path":"'"$PWD"'/note.txt","content":"hi"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Write"}],"behavior":"allow","destination":"session"},{"type":"setMode","mode":"acceptEdits","destination":"session"}]}'
-  answer=$(curl -s -m "${FAKE_CLAUDE_PERMISSION_WAIT:-30}" -X POST -H 'Content-Type: application/json' \
-    -H "X-Evlat-Permission: $token" --data-binary "$body" "$url")
+  answer=$(printf '%s' "$body" | sh -c "$command")
   printf 'answer=%s\n' "$answer" >> "$log"
   case "$answer" in
   *'"behavior":"allow"'*)
