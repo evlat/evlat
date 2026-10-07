@@ -141,7 +141,7 @@
 "remote.command.noCurl" = "サーバーにcurlがありません。evlatはcurlで送信するため、インストールされるまでバーには何も届きません。";
 "remote.command.try" = "サーバーの新しいセッションで試してください：evlat --list";
 "remote.command.manual.script" = "~/.local/bin/evlat — コマンド本体です。このまま書き込みます（既存のevlatは置き換わるので、先にcommand -v evlatで確認してください）：";
-"remote.command.manual.remove" = "削除するには：Evlatのものであればコマンド、古いバージョンが残した鍵ファイル、そして空になったらそのフォルダを削除します：";
+"remote.command.manual.remove" = "削除するには：Evlatのものであればコマンド、古いバージョンが残した鍵ファイル、そして空になったらその鍵ファイルのフォルダ（~/.config/evlat）を削除します：";
 "remote.items.title" = "{name}でのセットアップ";
 "remote.items.body" = "トンネルは道を開くだけです。サーバー上のエージェントがこのバーに伝えるには、サーバー自身のファイルに書き込む必要があります。このMacと同じカードを使ってsshで書き込むか、サーバーで自分で実行するブロックを使います。サーバー上のClaude CodeとCodexも承認をこのバーに求めます。Antigravityにはフックのみが入ります。カードがバーで待っている間、Codexには「Running hook」と表示されます（最長2分）。";
 "remote.item.command" = "evlatコマンド";
@@ -394,7 +394,7 @@
 "setup.attention.hooksStale" = "{source}のフックが古くなっています";
 "setup.attention.refused" = "{item}：前回の変更は拒否されました";
 "setup.attention.hotKey" = "ショートカットが登録されていません";
-"setup.attention.machine" = "{machine}：サーバーに接続できません";
+"setup.attention.machine" = "{machine}：{failure}";
 "setup.attention.machinePassword" = "{machine}：パスワードの入力待ち";
 "setup.attention.machineUpdate" = "{machine}：要アップデート";
 "setup.attention.commandLink" = "evlatコマンドが別の場所を指しています";

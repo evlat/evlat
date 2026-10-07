@@ -26,28 +26,33 @@ final class IsolationTests: XCTestCase {
     }
 
     /// The old variable is refused wherever it is set, blank included, and
-    /// named in the one line said instead.
+    /// named in the one line said instead — but for `watch` and `signal`,
+    /// which run and only post nothing (`WatchTests`): a wrapped command
+    /// must run whatever the environment says.
     func testTheRetiredPortIsRefused() {
         let old = Isolation.retiredPortKey
         XCTAssertEqual(Isolation.retiredPortLine, "\(old) is gone; use EVLAT_SOCKET")
         XCTAssertTrue(Isolation.setsRetiredPort([old: "48999"]))
         XCTAssertTrue(Isolation.setsRetiredPort([old: ""]))
         XCTAssertFalse(Isolation.setsRetiredPort(["EVLAT_SOCKET": "/tmp/e.sock"]))
-        for argv in [["Evlat"], ["Evlat", "--list"], ["Evlat", "watch", "true"], ["Evlat", "signal", "x", "--done"],
-                     ["Evlat", "--help"], ["/x/evlat"]] {
+        for argv in [["Evlat"], ["Evlat", "--list"], ["Evlat", "--capture", "5"], ["Evlat", "--help"],
+                     ["Evlat", "nonsense"], ["/x/evlat"]] {
             XCTAssertEqual(LaunchMode.of(argv, environment: [old: "48999"]), .refused(Isolation.retiredPortLine),
                            "\(argv)")
+        }
+        for argv in [["Evlat", "watch", "true"], ["Evlat", "signal", "x", "--done"], ["/x/evlat", "watch", "--list"]] {
+            XCTAssertEqual(LaunchMode.of(argv, environment: [old: ""]), .command, "\(argv)")
         }
         let mark = [Askpass.environmentKey: String(repeating: "a", count: 64) + ":/tmp/e.sock", old: "1"]
         XCTAssertEqual(LaunchMode.of(["Evlat", "Password:"], environment: mark), .refused(Isolation.retiredPortLine))
     }
 
     /// The built binary says the one line on stderr, nothing on stdout, and
-    /// exits non-zero — before a command runs or the usage is printed.
+    /// exits non-zero — before the diagnostics run or the usage is printed.
     func testTheBuiltBinaryRefusesTheRetiredPort() throws {
         let binary = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().appendingPathComponent("Evlat")
         try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: binary.path), "no built binary")
-        for arguments in [["--help"], ["signal", "probe", "--done"], ["watch", "true"]] {
+        for arguments in [["--help"], ["--list"]] {
             let process = Process()
             process.executableURL = binary
             process.arguments = arguments

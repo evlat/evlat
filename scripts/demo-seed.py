@@ -220,7 +220,7 @@ hook(SOCKET, "codex", pids[4], {"hook_event_name": "PreToolUse", "tool_name": "B
 log = open(os.path.join(D, "evlat.log")).read()
 machines = {m.group(1): m.group(2)
             for m in re.finditer(r"machine (\S+) listening on (/\S+)", log)}
-by_host = {host.split(".")[0] if not host[0].isdigit() else host: port for host, port in machines.items()}
+by_host = {host.split(".")[0] if not host[0].isdigit() else host: path for host, path in machines.items()}
 REMOTE = [
     ("10.0.4.21", "claude", 4242, "aaaaaaaa-0000-4000-8000-000000000001", "/home/dev/src/server-agent",
      [("UserPromptSubmit", {}), ("PreToolUse", {"tool_name": "Bash", "tool_input": {
@@ -245,13 +245,13 @@ REMOTE = [
       ("Notification", {"notification_type": "elicitation_dialog", "message": "Claude needs your input"})]),
 ]
 for host, source, pid, sid, cwd, events in REMOTE:
-    port = by_host.get(host)
-    if not port:
+    target = by_host.get(host)
+    if not target:
         continue
     for name, fields in events:
-        hook(port, source, pid, {"hook_event_name": name, "session_id": sid, "cwd": cwd, **fields})
-for port in by_host.values():
-    post(port, "/usage/claude", {"rate_limits": {
+        hook(target, source, pid, {"hook_event_name": name, "session_id": sid, "cwd": cwd, **fields})
+for target in by_host.values():
+    post(target, "/usage/claude", {"rate_limits": {
         "five_hour": {"used_percentage": 55, "resets_at": now_s + 7200},
         "seven_day": {"used_percentage": 91, "resets_at": now_s + 86400}}})
 

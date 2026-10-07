@@ -142,7 +142,7 @@
 "remote.command.noCurl" = "На сервере нет curl: evlat отправляет через curl, поэтому до его установки на полосу ничего не дойдёт.";
 "remote.command.try" = "Попробуйте в новой сессии на сервере: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — команда, записанная как есть (заменяет уже имеющийся evlat; сначала проверьте через command -v evlat):";
-"remote.command.manual.remove" = "Чтобы убрать: команду, если она от Evlat, файл ключа, оставшийся от старой версии, и их папку, если она осталась пустой:";
+"remote.command.manual.remove" = "Чтобы убрать: команду, если она от Evlat, файл ключа, оставшийся от старой версии, и папку этого файла, ~/.config/evlat, если она осталась пустой:";
 "remote.items.title" = "Настройка на {name}";
 "remote.items.body" = "Туннель только открывает путь. Чтобы агент на сервере сообщал этой полосе, всё нужное записывается в собственные файлы сервера — те же карточки, что и для этого Mac, только по ssh, или блок, который вы запускаете на сервере сами. Claude Code и Codex на сервере тоже спрашивают подтверждение у этой полосы, а его Antigravity получает только хуки. Пока карточка Codex ждёт на полосе, Codex показывает «Running hook», но не дольше двух минут.";
 "remote.item.command" = "Команда evlat";
@@ -395,7 +395,7 @@
 "setup.attention.hooksStale" = "Хуки {source} устарели";
 "setup.attention.refused" = "{item}: последнее изменение отклонено";
 "setup.attention.hotKey" = "Сочетание клавиш не зарегистрировано";
-"setup.attention.machine" = "{machine}: сервер недоступен";
+"setup.attention.machine" = "{machine}: {failure}";
 "setup.attention.machinePassword" = "{machine}: ждёт пароль";
 "setup.attention.machineUpdate" = "{machine}: нужно обновить";
 "setup.attention.commandLink" = "Команда evlat указывает в другое место";

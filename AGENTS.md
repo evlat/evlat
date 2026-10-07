@@ -259,7 +259,7 @@ request body; remote entities are namespaced (`remote:<machine>:<session>`,
 
 Docker sandboxes (local `sbx` only; a cloud sandbox cannot reach this Mac)
 are a third kind of `hooks` instance, with no tunnel: the sandbox
-listener (`SandboxListener`, port 48152) is `.tunneled` and the one
+listener (`SandboxListener`, port 48152) is `.sandbox` and the one
 listener that believes `X-Evlat-Sandbox` (the sandbox's name,
 `[A-Za-z0-9._-]{1,64}`); every other listener deletes it. Its rows are one machine's, `-sandbox` (a leading
 `-` is refused as a target, so no remote machine can have it), each drawn
@@ -336,8 +336,9 @@ to, as this Mac's do here — forwarded to a socket of the machine's own
 beside the master's (`RemoteTunnel.channelPath`, `<socket>.sock`), where the
 machine's listener (`.machine`) is. No TCP port is opened on the server.
 In order, each step on the last: the master's remote command prints a mark
-(`echo <mark>; exec cat`), read from its stdout (drained to the end, so a
-login script that talks never stalls it); one `sh -s` over the master
+on a line of its own (`echo; echo <mark>; exec cat`: a login script's last
+words may end with no newline), read from its stdout (drained to the end,
+so a login script that talks never stalls it); one `sh -s` over the master
 probes and reads the machine (`RemoteTunnel.channelProbe` in
 `RemoteSettings.readingScript`): it makes the folder `0700`, asks a socket
 there for `/health` — an answer within 5 s is another Evlat's, another
@@ -345,7 +346,9 @@ Mac's, and nothing is touched (`channelBusy`); a refusal or silence is a
 dead connection's and the file goes; then `ssh -O forward -R
 <absolute server socket>:<this Mac's>` over the master. Only a forward made
 is `connected` (or a request heard on the listener first); a forward that
-fails after a free probe is `forwardingRefused`. Either failure closes the
+fails after a free probe is `forwardingRefused` (after a file the probe
+could not ask, with no `curl` that reaches a socket, it is `other`: the
+file may be the cause). Either failure closes the
 master and waits on the schedule. No master (no path fits, another
 process's live one) is no channel: the try ends as `other`. A try with no
 channel `RemoteTunnel.defaultChannelDeadline` (30 s) after its launch or
@@ -917,7 +920,10 @@ it, a relative one is none). `48151` is left only as text: the host the
 requests name (`http://127.0.0.1:48151/<route>`, which fills `Host:`
 alone) and the root of the sandbox port (`LocalAPI.defaultPort`). Its directory is made `0700` and refused when it
 is a link or another user's: the file takes the umask's mode, so the
-directory is the guard (`UnixSocket.prepareDirectory`). A live socket is
+directory is the guard (`UnixSocket.prepareDirectory`; the folders made on
+the way keep the default mode). A folder an `EVLAT_SOCKET` names is the
+chooser's: only checked to be a directory, links followed, never changed
+(`HookListener`'s `ownsDirectory`). A live socket is
 another Evlat's and is left alone; a file nobody answers on is cleared and
 bound; `stop()` removes the file only while it is still the one it bound.
 Evlat's own clients speak there: a chat turn's hook, the askpass helper,
@@ -938,11 +944,11 @@ holds (`Origin.role`, one `switch`).
 | `POST /hook`, `/hook/claude`, `/hook/codex` | installed hooks; always `{}` |
 | `GET /health` | |
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
-| `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` through a tunnel |
+| `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` on a machine's channel and on the sandbox listener |
 | `POST /approval`, `/approval/codex` | approval hook of terminal sessions (`ApprovalHook`), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
 | `POST /signal` | external jobs; no key — an `X-Evlat-Key` an older sender adds is not read; `404` on the sandbox listener |
 | `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.sandbox`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped and every other route is `404`. The only listener that trusts `X-Evlat-Sandbox`, checked |
-| `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` through a tunnel. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
+| `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` on a machine's channel and on the sandbox listener. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
 
 `/signal` body: `id`, required `ttl` (`0` drops the row; ≤ 24 h, finished rows
 ≤ 1 h), `phase` (`working·waiting·done·failed`), `label`, `progress` 0…1,
@@ -1097,7 +1103,7 @@ Running a second Evlat next to the user's must not touch the user's state.
 | variable | effect |
 |---|---|
 | `EVLAT_SOCKET` | a second Evlat: its own socket, an absolute path (`EvlatSocket`; a relative one is none, never the user's) — the app binds it and `evlat signal`/`watch` post to it. Set, it is the one predicate of a second process (`Isolation.hasOwnSocket`): no tunnel opens unless `EVLAT_MACHINES` is given, no persistent chat store exists unless `EVLAT_CHATS` is given, `ssh` passwords stay in memory, never in the keychain, and so do the agents' switches (`agents.enabled`), the chat's switch, backend and default modes (`chat.enabled`, `chat.backend`; `EVLAT_CHATS` keeps them in memory too), the language chosen in Settings and the update reminder's last showing; with `EVLAT_FEED` the "Install updates automatically" row is not offered, since Sparkle's defaults are the user's. It still asks the user's running Bateri whether they are at a tab (`TabFocus`), a question that only reads |
-| `EVLAT_PORT` | gone: a process with it set, blank included, says `EVLAT_PORT is gone; use EVLAT_SOCKET` on stderr and exits `2` — the bar, `watch`, `signal` and the diagnostics alike (`LaunchMode.refused`) |
+| `EVLAT_PORT` | gone: a process with it set, blank included, says `EVLAT_PORT is gone; use EVLAT_SOCKET` on stderr and exits `2` — the bar, the diagnostics, help and the askpass helper alike (`LaunchMode.refused`). `watch` and `signal` still run but post nothing, as if Evlat refused (`SignalClient.post`): `watch` runs the command unchanged and prints nothing, `signal` says the one line and exits `1` |
 | `EVLAT_SESSIONS` | session directory (empty dir = no sessions) |
 | `EVLAT_HOME` | temporary home root for every writer |
 | `EVLAT_MACHINES` | machines to tunnel to; their switches stay in memory |
@@ -1258,7 +1264,7 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   Through `host.docker.internal` a sandbox's request reached 48151 as
   `.local`, and Evlat took `pid=446`, a process in the VM (sbx 0.46.0).
   Had this Mac had a 446, the row would have lived by a stranger's
-  liveness. Hence the sandbox listener of its own, `.tunneled`.
+  liveness. Hence the sandbox listener of its own, `.sandbox`.
 - **A sandbox's `~/.claude/settings.json` is `sbx`'s.** It carries
   `permissions.defaultMode: bypassPermissions` and
   `skipDangerousModePermissionPrompt`; a kit's `files/home` would replace

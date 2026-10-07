@@ -95,18 +95,19 @@ enum UnixSocket {
         }
     }
 
-    /// Makes `directory` this user's alone: made `0700` when missing (its
-    /// parents with the default mode), brought to `0700` when not. A link or
-    /// another user's directory is refused, never followed or changed: the
-    /// directory is the socket's only guard, since the file takes its mode
-    /// from the umask.
+    /// Makes `directory` this user's alone: made when missing (its parents
+    /// with the default mode — `~/.config` is not Evlat's to close), then
+    /// brought to `0700`. A link or another user's directory is refused,
+    /// never followed or changed: the directory is the socket's only guard,
+    /// since the file takes its mode from the umask.
     static func prepareDirectory(_ directory: String) -> DirectoryRefusal? {
         var info = stat()
         if lstat(directory, &info) != 0 {
             guard errno == ENOENT else { return .failed(errno) }
             do {
-                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
-                                                        attributes: [.posixPermissions: 0o700])
+                // No `attributes`: FileManager gives them to every
+                // directory it makes on the way, not only the last.
+                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
             } catch {
                 return .failed(EACCES)
             }
@@ -117,6 +118,14 @@ enum UnixSocket {
         guard info.st_uid == getuid() else { return .notOwned }
         if info.st_mode & 0o777 != 0o700, chmod(directory, 0o700) != 0 { return .failed(errno) }
         return nil
+    }
+
+    /// A directory someone else chose (`EVLAT_SOCKET`'s): only asked
+    /// whether it is one, through a link too (`/tmp`), and left as it is.
+    static func checkDirectory(_ directory: String) -> DirectoryRefusal? {
+        var info = stat()
+        guard stat(directory, &info) == 0 else { return .failed(errno) }
+        return info.st_mode & S_IFMT == S_IFDIR ? nil : .notDirectory
     }
 
     // MARK: - Whose file

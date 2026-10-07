@@ -47,7 +47,9 @@ one to see what it is doing and jump to its terminal.
   `claude` or `codex` CLI (Settings → Chat). Answer permission prompts in the bubble, drop files onto the
   mascot, and come back to it from the bar.
 
-Evlat asks for no macOS permissions. Its local API listens only on loopback.
+Evlat asks for no macOS permissions. Its local API listens on a unix socket in
+`~/.config/evlat/run`, a folder only you can open; no TCP port is open unless
+"Watch sandboxes" is on.
 
 ## Requirements
 
@@ -101,10 +103,10 @@ evlat signal render --done
 evlat --help
 ```
 
-Any program can also post to the local API directly: `POST /signal` on
-`127.0.0.1:48151`, with the key from
-`~/Library/Application Support/Evlat/signal-48151.token` in an `X-Evlat-Key`
-header. See [`AGENTS.md`](AGENTS.md) → Local API for the body.
+Any program can also post to the local API directly, with no key:
+`curl --unix-socket ~/.config/evlat/run/evlat.sock http://127.0.0.1:48151/signal …`
+(the URL only fills `Host:`). See [`AGENTS.md`](AGENTS.md) → Local API for the
+body.
 
 On a remote machine, Settings → Remote machines installs a small POSIX `sh`
 version of `evlat watch` / `evlat signal` that reports through the tunnel.

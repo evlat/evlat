@@ -57,6 +57,11 @@ public final class HookListener {
     static let heldByAnother = "another Evlat holds it"
 
     private let transport: Transport
+    /// Whether a socket's directory is Evlat's to make the user's alone
+    /// (`UnixSocket.prepareDirectory`): its own folders are, a folder an
+    /// `EVLAT_SOCKET` names is not — `$HOME` or `/tmp` must never be
+    /// brought to `0700`, nor refused for being a link.
+    private let ownsDirectory: Bool
     private var requestedPort: UInt16 {
         if case .sandboxPort(let port) = transport { return port }
         return 0
@@ -116,6 +121,7 @@ public final class HookListener {
     /// sandbox port's is `.sandbox`, the one that believes `X-Evlat-Sandbox`
     /// (`SandboxListener`).
     public init(transport: Transport,
+                ownsDirectory: Bool = true,
                 origin asked: LocalAPI.Origin = .local,
                 transcriptRoots: [URL] = [],
                 agents: [any Agent] = Agents.all,
@@ -123,6 +129,7 @@ public final class HookListener {
                 onAbandoned: ((String) -> Void)? = nil,
                 onDelivery: @escaping (LocalAPI.Delivery) -> Void) {
         self.transport = transport
+        self.ownsDirectory = ownsDirectory
         let origin: LocalAPI.Origin
         if case .sandboxPort = transport { origin = .sandbox } else { origin = asked }
         self.agents = agents
@@ -207,7 +214,8 @@ public final class HookListener {
             setStatus(.unavailableAt(path, "too long for a socket's address"))
             return
         }
-        if let refusal = UnixSocket.prepareDirectory((path as NSString).deletingLastPathComponent) {
+        let directory = (path as NSString).deletingLastPathComponent
+        if let refusal = ownsDirectory ? UnixSocket.prepareDirectory(directory) : UnixSocket.checkDirectory(directory) {
             setStatus(.unavailableAt(path, refusal.text))
             return
         }

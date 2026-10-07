@@ -141,7 +141,7 @@
 "remote.command.noCurl" = "서버에 curl이 없습니다. evlat은 curl로 보내므로, curl을 설치하기 전까지는 바에 아무것도 오지 않습니다.";
 "remote.command.try" = "서버의 새 세션에서 시험해 보세요: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — 명령을 그대로 씁니다(이미 있는 evlat을 대체하니, 먼저 command -v evlat으로 확인하세요):";
-"remote.command.manual.remove" = "제거하려면: Evlat의 것이라면 명령, 이전 버전이 남긴 키 파일, 그리고 비게 되면 그 폴더:";
+"remote.command.manual.remove" = "제거하려면: Evlat의 것이라면 명령, 이전 버전이 남긴 키 파일, 그리고 비게 되면 키 파일의 폴더(~/.config/evlat):";
 "remote.items.title" = "{name}에서 설정";
 "remote.items.body" = "터널은 길만 열어 줍니다. 서버의 에이전트가 이 바에 알리려면 서버 자체 파일에 다음이 기록되어야 합니다. 이 Mac과 같은 카드로 ssh를 통해 쓰거나, 서버에서 직접 실행할 블록을 쓰면 됩니다. 서버의 Claude Code와 Codex도 이 바에 승인을 요청합니다. 서버의 Antigravity에는 훅만 설치됩니다. 카드가 바에서 기다리는 동안 Codex에는 “Running hook”이 표시됩니다(최대 2분).";
 "remote.item.command" = "evlat 명령";
@@ -394,7 +394,7 @@
 "setup.attention.hooksStale" = "{source} 훅이 오래됨";
 "setup.attention.refused" = "{item}: 마지막 변경이 거부됨";
 "setup.attention.hotKey" = "단축키가 등록되지 않음";
-"setup.attention.machine" = "{machine}: 서버에 연결할 수 없음";
+"setup.attention.machine" = "{machine}: {failure}";
 "setup.attention.machinePassword" = "{machine}: 비밀번호 대기 중";
 "setup.attention.machineUpdate" = "{machine}: 업데이트 필요";
 "setup.attention.commandLink" = "evlat 명령이 다른 곳을 가리킴";

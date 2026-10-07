@@ -141,7 +141,7 @@
 "remote.command.noCurl" = "curl no está en el servidor: evlat envía con curl, así que nada llega a la barra hasta que se instale.";
 "remote.command.try" = "Pruébalo en una sesión nueva en el servidor: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat: el comando, escrito tal cual (sustituye a un evlat que ya esté ahí; compruébalo antes con command -v evlat):";
-"remote.command.manual.remove" = "Para quitarlo: el comando si es de Evlat, el archivo de clave que dejó una versión anterior y su carpeta si queda vacía:";
+"remote.command.manual.remove" = "Para quitarlo: el comando si es de Evlat, el archivo de clave que dejó una versión anterior y la carpeta de ese archivo, ~/.config/evlat, si queda vacía:";
 "remote.items.title" = "Configurado en {name}";
 "remote.items.body" = "El túnel solo abre el camino. Para que un agente del servidor informe a esta barra, se escribe en los propios archivos del servidor: las mismas tarjetas que en este Mac, escritas por ssh, o un bloque que ejecutas tú en el servidor. Claude Code y Codex también piden allí la aprobación a esta barra; su Antigravity solo recibe hooks. Codex muestra “Running hook” mientras su tarjeta espera en la barra, dos minutos como mucho.";
 "remote.item.command" = "Comando evlat";
@@ -394,7 +394,7 @@
 "setup.attention.hooksStale" = "Los hooks de {source} están desactualizados";
 "setup.attention.refused" = "{item}: el último cambio se rechazó";
 "setup.attention.hotKey" = "El atajo no está registrado";
-"setup.attention.machine" = "{machine}: servidor inaccesible";
+"setup.attention.machine" = "{machine}: {failure}";
 "setup.attention.machinePassword" = "{machine}: esperando una contraseña";
 "setup.attention.machineUpdate" = "{machine}: requiere actualización";
 "setup.attention.commandLink" = "El comando evlat apunta a otro sitio";

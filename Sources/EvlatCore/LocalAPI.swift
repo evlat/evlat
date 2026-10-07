@@ -98,10 +98,11 @@ public enum LocalAPI {
         }
     }
 
-    /// `127.0.0.1:48151`, `localhost`, `[::1]:48151`. The connection already
-    /// only ever arrives over loopback, so the name is the single thing worth
-    /// looking at. The port is not: in a rebinding attempt the page's name
-    /// changes, its port does not.
+    /// `127.0.0.1:48151`, `localhost`, `[::1]:48151`. Who can connect is
+    /// settled before a request is read — the socket's `0700` folder, or the
+    /// sandbox's proxy in front of its loopback port — so the name is checked
+    /// only against DNS rebinding. The port is not: in a rebinding attempt the
+    /// page's name changes, its port does not.
     public static func isLoopback(host: String) -> Bool {
         var name = host.lowercased()
         // `[::1]:48151` → `[::1]`, but a bare `[::1]` keeps its brackets.

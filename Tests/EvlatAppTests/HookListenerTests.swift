@@ -207,9 +207,10 @@ final class HookListenerTests: XCTestCase {
         XCTAssertEqual(UnixSocket.probe(path), .stale)
     }
 
-    private func socketListener(_ path: String, origin: LocalAPI.Origin = .local,
+    private func socketListener(_ path: String, ownsDirectory: Bool = true, origin: LocalAPI.Origin = .local,
                                 onDelivery: @escaping (LocalAPI.Delivery) -> Void = { _ in }) -> HookListener {
-        let listener = HookListener(transport: .unix(path), origin: origin, onDelivery: onDelivery)
+        let listener = HookListener(transport: .unix(path), ownsDirectory: ownsDirectory, origin: origin,
+                                    onDelivery: onDelivery)
         listener.start()
         listener.awaitSettled(timeout: 5)
         return listener
@@ -281,6 +282,47 @@ final class HookListenerTests: XCTestCase {
         defer { listener.stop() }
         XCTAssertEqual(listener.status, .unavailableAt(path, UnixSocket.DirectoryRefusal.link.text))
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory + "/real/evlat.sock"))
+    }
+
+    /// Only the last folder is Evlat's: the ones made on the way to it
+    /// (`~/.config` on a Mac that had none) keep the default mode.
+    func testOnlyTheSocketsOwnFolderIsClosed() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        XCTAssertEqual(chmod(directory, 0o755), 0)
+        let listener = socketListener(directory + "/config/evlat/run/evlat.sock")
+        defer { listener.stop() }
+        XCTAssertNotNil(listener.boundPath, listener.status.text)
+        XCTAssertEqual(mode(directory + "/config/evlat/run"), 0o700)
+        XCTAssertNotEqual(mode(directory + "/config"), 0o700, "made on the way: not Evlat's to close")
+        XCTAssertNotEqual(mode(directory + "/config/evlat"), 0o700)
+    }
+
+    /// A folder an `EVLAT_SOCKET` names is whoever chose it's: bound in as
+    /// it is — never brought to `0700` (`$HOME`), never refused for being
+    /// reached through a link (`/tmp`, the measuring recipe's).
+    func testAGivenSocketsFolderIsLeftAsItIs() throws {
+        let directory = try ShortDirectory.make()
+        defer { ShortDirectory.remove(directory) }
+        XCTAssertEqual(chmod(directory, 0o755), 0)
+        let open = socketListener(directory + "/evlat.sock", ownsDirectory: false)
+        XCTAssertEqual(open.status, .listeningAt(directory + "/evlat.sock"))
+        open.stop()
+        XCTAssertEqual(mode(directory), 0o755)
+
+        try FileManager.default.createDirectory(atPath: directory + "/real", withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: directory + "/link", withDestinationPath: directory + "/real")
+        let linked = directory + "/link/evlat.sock"
+        let listener = socketListener(linked, ownsDirectory: false)
+        defer { listener.stop() }
+        XCTAssertEqual(listener.status, .listeningAt(linked))
+        XCTAssertEqual(UnixHTTP.send("/health", method: "GET", socket: linked, timeout: 5),
+                       .status(200, Data(#"{"ok":true}"#.utf8)))
+
+        let missing = directory + "/none/evlat.sock"
+        let nowhere = socketListener(missing, ownsDirectory: false)
+        XCTAssertEqual(nowhere.status, .unavailableAt(missing, UnixSocket.DirectoryRefusal.failed(ENOENT).text))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory + "/none"), "nothing is made for it")
     }
 
     /// A live socket is another Evlat's: the second listener says so, and

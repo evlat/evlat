@@ -142,7 +142,7 @@
 "remote.command.noCurl" = "curl n’est pas installé sur le serveur : evlat envoie avec curl, donc rien n’atteint la barre tant qu’il n’est pas installé.";
 "remote.command.try" = "Essayez-la dans une nouvelle session sur le serveur : evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat : la commande, écrite telle quelle (remplace un evlat déjà présent ; vérifiez d’abord avec command -v evlat) :";
-"remote.command.manual.remove" = "Pour retirer : la commande si elle est celle d’Evlat, le fichier de clé laissé par une ancienne version, et leur dossier s’il reste vide :";
+"remote.command.manual.remove" = "Pour retirer : la commande si elle est celle d’Evlat, le fichier de clé laissé par une ancienne version, et le dossier de ce fichier, ~/.config/evlat, s’il reste vide :";
 "remote.items.title" = "Configuré sur {name}";
 "remote.items.body" = "Le tunnel ne fait qu’ouvrir la voie. Pour qu’un agent du serveur prévienne cette barre, ces éléments sont écrits dans les fichiers du serveur : les mêmes cartes que sur ce Mac, écrites via ssh, ou un bloc que vous lancez vous-même sur le serveur. Claude Code et Codex y demandent aussi l’approbation à cette barre ; son Antigravity ne reçoit que les hooks. Codex affiche « Running hook » tant que sa carte attend sur la barre, deux minutes au plus.";
 "remote.item.command" = "Commande evlat";
@@ -395,7 +395,7 @@
 "setup.attention.hooksStale" = "Les hooks {source} sont anciens";
 "setup.attention.refused" = "{item} : la dernière modification a été refusée";
 "setup.attention.hotKey" = "Le raccourci n’est pas enregistré";
-"setup.attention.machine" = "{machine} : serveur injoignable";
+"setup.attention.machine" = "{machine} : {failure}";
 "setup.attention.machinePassword" = "{machine} : attend un mot de passe";
 "setup.attention.machineUpdate" = "{machine} : mise à jour requise";
 "setup.attention.commandLink" = "La commande evlat pointe ailleurs";

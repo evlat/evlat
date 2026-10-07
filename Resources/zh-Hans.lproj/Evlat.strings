@@ -141,7 +141,7 @@
 "remote.command.noCurl" = "服务器上没有 curl：evlat 通过 curl 发送，安装它之前什么都到不了长条。";
 "remote.command.try" = "在服务器上打开一个新会话试试：evlat --list。";
 "remote.command.manual.script" = "~/.local/bin/evlat：命令本身，原样写入（会替换已有的 evlat；请先用 command -v evlat 检查）：";
-"remote.command.manual.remove" = "如需移除：删除命令（如果它属于 Evlat）、旧版本留下的密钥文件，以及变空的文件夹：";
+"remote.command.manual.remove" = "如需移除：删除命令（如果它属于 Evlat）、旧版本留下的密钥文件，以及该密钥文件所在的文件夹 ~/.config/evlat（如果它变空）：";
 "remote.items.title" = "在 {name} 上设置";
 "remote.items.body" = "隧道只是打通了通道。服务器上的 Agent 要向这条长条报告，需要在服务器自己的文件中写入以下内容：可以用与这台 Mac 相同的卡片通过 ssh 写入，也可以在服务器上自己运行一段代码。服务器上的 Claude Code 和 Codex 也会向这条长条请求批准；其上的 Antigravity 只安装 hook。Codex 的卡片在长条上等待时，Codex 会显示“Running hook”，最多两分钟。";
 "remote.item.command" = "evlat 命令";
@@ -394,7 +394,7 @@
 "setup.attention.hooksStale" = "{source} 的 hook 已过时";
 "setup.attention.refused" = "{item}：上次更改被拒绝";
 "setup.attention.hotKey" = "快捷键未注册";
-"setup.attention.machine" = "{machine}：服务器无法访问";
+"setup.attention.machine" = "{machine}：{failure}";
 "setup.attention.machinePassword" = "{machine}：等待输入密码";
 "setup.attention.machineUpdate" = "{machine}：需要更新";
 "setup.attention.commandLink" = "evlat 命令指向别处";

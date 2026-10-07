@@ -153,7 +153,10 @@ enum SetupAttention: Equatable {
     case usageModified(AgentID)
     case refused(SetupItem)
     case hotKeyUnregistered
-    case machineUnreachable(String)
+    /// A machine's tunnel is failing, and why: the line names the cause
+    /// in its row's own words (`RemoteMachinesModel.failureKey`) — another
+    /// Evlat on the server is not the server being down.
+    case machineUnreachable(String, RemoteTunnel.Failure)
     /// A machine's tunnel stopped for the user's password (`needsUser`).
     case machineNeedsPassword(String)
     /// A connected machine holds an older copy's hooks or `evlat` command
@@ -201,8 +204,8 @@ final class SetupModel: ObservableObject {
         /// The login shell's `PATH` once read; `nil` says nothing about it.
         var loginPath: () -> String?
         var hotKeyRefused: () -> Bool
-        /// Names of the machines whose tunnel is failing.
-        var unreachableMachines: () -> [String]
+        /// The machines whose tunnel is failing: name, and the last failure.
+        var unreachableMachines: () -> [(name: String, failure: RemoteTunnel.Failure)]
         /// Names of the machines whose tunnel waits for the user's password.
         var machinesNeedingPassword: () -> [String] = { [] }
         /// Names of the connected machines whose parts an older copy wrote.
@@ -435,7 +438,7 @@ final class SetupModel: ObservableObject {
     }
 
     private func machineAttention() -> [SetupAttention] {
-        host.unreachableMachines().map(SetupAttention.machineUnreachable)
+        host.unreachableMachines().map { SetupAttention.machineUnreachable($0.name, $0.failure) }
             + host.machinesNeedingPassword().map(SetupAttention.machineNeedsPassword)
             + host.machinesNeedingUpdate().map(SetupAttention.machineNeedsUpdate)
     }
@@ -703,7 +706,10 @@ final class SetupModel: ObservableObject {
         case .refused(let item):
             return L10n.t("setup.attention.refused", ["item": L10n.t(item.nameKey, in: lang)], in: lang)
         case .hotKeyUnregistered: return L10n.t("setup.attention.hotKey", in: lang)
-        case .machineUnreachable(let name): return L10n.t("setup.attention.machine", ["machine": name], in: lang)
+        case .machineUnreachable(let name, let failure):
+            return L10n.t("setup.attention.machine",
+                          ["machine": name, "failure": L10n.t(RemoteMachinesModel.failureKey(failure), in: lang)],
+                          in: lang)
         case .machineNeedsPassword(let name):
             return L10n.t("setup.attention.machinePassword", ["machine": name], in: lang)
         case .machineNeedsUpdate(let name): return L10n.t("setup.attention.machineUpdate", ["machine": name], in: lang)

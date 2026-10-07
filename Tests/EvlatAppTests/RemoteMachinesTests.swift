@@ -589,7 +589,7 @@ final class RemoteMachinesTests: XCTestCase {
         let menu = controller.makeMenu(diagnostics: false, in: "tr")
         let index = try XCTUnwrap(menu.items.firstIndex { $0.representedObject is SetupAttention })
         let line = menu.items[index]
-        XCTAssertEqual(line.title, "devbox: sunucuya ulaşılamıyor")
+        XCTAssertEqual(line.title, "devbox: kimlik doğrulama başarısız", "the cause, in the row's own words")
         XCTAssertTrue(line.isEnabled, "dim, but it can be clicked")
         menu.performActionForItem(at: index)
         XCTAssertEqual(controller.settings?.section, .remote)

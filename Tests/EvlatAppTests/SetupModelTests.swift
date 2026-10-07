@@ -362,18 +362,23 @@ final class SetupModelTests: XCTestCase {
         controller.setAgent(.codex, installed: true)
         let model = model(controller) { host in
             host.hotKeyRefused = { true }
-            host.unreachableMachines = { ["devbox"] }
+            host.unreachableMachines = { [("devbox", .unreachable), ("shared", .channelBusy)] }
         }
         XCTAssertEqual(model.row(.agent(.claude))?.status, .outdated)
         XCTAssertEqual(model.row(.agent(.claude))?.parts.last?.status, .foreign, "changed by hand: not a part")
         XCTAssertEqual(model.row(.agent(.codex))?.failure, "Hooks: The settings file could not be read")
         XCTAssertEqual(model.attention, [.hooksOutdated(.claude), .usageModified(.claude), .refused(.agent(.codex)),
-                                         .hotKeyUnregistered, .machineUnreachable("devbox")])
-        XCTAssertEqual(model.attention.map(\.section), [.agents, .agents, .agents, .chat, .remote])
+                                         .hotKeyUnregistered, .machineUnreachable("devbox", .unreachable),
+                                         .machineUnreachable("shared", .channelBusy)])
+        XCTAssertEqual(model.attention.map(\.section), [.agents, .agents, .agents, .chat, .remote, .remote])
         XCTAssertEqual(model.text(.hooksOutdated(.claude)),
                        "Claude Code hooks are old: Evlat can't hear its sessions until you update them",
                        "from before the socket: the line says what it costs")
-        XCTAssertEqual(model.text(.machineUnreachable("devbox")), "devbox: server unreachable")
+        XCTAssertEqual(model.text(.machineUnreachable("devbox", .unreachable)), "devbox: server unreachable")
+        XCTAssertEqual(model.text(.machineUnreachable("shared", .channelBusy)), "shared: another Evlat answers this server",
+                       "the row's own words: another Evlat holds the server's socket, the server is up")
+        XCTAssertEqual(model.text(.machineUnreachable("locked", .forwardingRefused)),
+                       "locked: the server does not let ssh forward a socket")
     }
 
     /// Old hooks that still reach Evlat — another timeout — are only old.

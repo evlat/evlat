@@ -66,13 +66,14 @@ final class WatchTests: XCTestCase {
         let stderr: Data
     }
 
-    private func launch(_ arguments: [String]) throws -> (Process, Pipe, Pipe) {
+    private func launch(_ arguments: [String], adding extra: [String: String] = [:]) throws -> (Process, Pipe, Pipe) {
         let process = Process()
         process.executableURL = binary
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["EVLAT_HOME"] = home.path
         environment[EvlatSocket.environmentKey] = socket
+        environment.merge(extra) { _, added in added }
         process.environment = environment
         // No terminal anywhere: a signal sent to the wrapper is passed on.
         process.standardInput = FileHandle.nullDevice
@@ -86,13 +87,13 @@ final class WatchTests: XCTestCase {
 
     /// Runs to the end, pumping the main queue so the listener's deliveries
     /// land; `expecting` rows must have arrived by then.
-    private func run(_ arguments: [String], expecting rows: Int = 0,
+    private func run(_ arguments: [String], expecting rows: Int = 0, adding extra: [String: String] = [:],
                      then act: ((Process) -> Void)? = nil) throws -> Run {
         let arrived = expectation(description: "\(rows) rows")
         arrived.expectedFulfillmentCount = max(rows, 1)
         if rows == 0 { arrived.fulfill() }
         arrived.assertForOverFulfill = false
-        let (process, out, err) = try launch(arguments)
+        let (process, out, err) = try launch(arguments, adding: extra)
         if let act {
             // Wait for the `working` row: then the child certainly exists.
             let first = expectation(description: "working row")
@@ -224,6 +225,29 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(line.filter { $0 == "\n" }.count, 1, line)
         XCTAssertTrue(line.contains("404"), line)
         XCTAssertTrue(reports.isEmpty)
+    }
+
+    /// An old isolation recipe (`EVLAT_PORT`, blank included) is not the
+    /// wrapped command's business: it runs, its exit and bytes come through,
+    /// and nothing is posted — not even to a listening Evlat. `signal` says
+    /// the one line, as for any refusal.
+    func testTheRetiredPortRunsTheCommandAndPostsNothing() throws {
+        try startEvlat()
+        let retired = [Isolation.retiredPortKey: ""]
+        let bytes = try run(["watch", "sh", fixture, "bytes"], adding: retired)
+        XCTAssertEqual(bytes.process.terminationStatus, 0)
+        XCTAssertEqual(bytes.stdout, expectedOut)
+        XCTAssertEqual(bytes.stderr, expectedErr)
+        let five = try run(["watch", "sh", fixture, "exit", "5"], adding: retired)
+        XCTAssertEqual(five.process.terminationReason, .exit)
+        XCTAssertEqual(five.process.terminationStatus, 5)
+        XCTAssertTrue(five.stdout.isEmpty && five.stderr.isEmpty)
+        let signal = try run(["signal", "x", "--done"], adding: retired)
+        XCTAssertEqual(signal.process.terminationStatus, 1)
+        XCTAssertTrue(signal.stdout.isEmpty)
+        let line = String(decoding: signal.stderr, as: UTF8.self)
+        XCTAssertEqual(line, "Evlat: signal x refused (\(Isolation.retiredPortLine))\n")
+        XCTAssertTrue(reports.isEmpty, "nothing reached the listener")
     }
 
     // MARK: - signal

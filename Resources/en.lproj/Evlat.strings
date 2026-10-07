@@ -202,7 +202,7 @@
 "remote.command.noCurl" = "curl is not on the server: evlat sends with curl, so nothing reaches the bar until it is installed.";
 "remote.command.try" = "Try it in a new session on the server: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — the command, written as is (replaces an evlat already there; check with command -v evlat first):";
-"remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key file an older version left, and their folder if it is left empty:";
+"remote.command.manual.remove" = "To remove: the command if it is Evlat's, the key file an older version left, and the key file's folder, ~/.config/evlat, if it is left empty:";
 "remote.items.title" = "Set up on {name}";
 "remote.items.body" = "The tunnel only opens the way. For an agent on the server to tell this bar, these are written into the server's own files — the same cards as this Mac's, written over ssh, or a block you run on the server yourself. Claude Code and Codex there ask this bar for approval too; its Antigravity gets hooks only. Codex shows “Running hook” while its card waits on the bar, two minutes at most.";
 "remote.item.command" = "evlat command";
@@ -467,7 +467,7 @@
 "setup.attention.hooksStale" = "{source} hooks are old";
 "setup.attention.refused" = "{item}: the last change was refused";
 "setup.attention.hotKey" = "The shortcut is not registered";
-"setup.attention.machine" = "{machine}: server unreachable";
+"setup.attention.machine" = "{machine}: {failure}";
 "setup.attention.machinePassword" = "{machine}: waiting for a password";
 "setup.attention.machineUpdate" = "{machine}: needs update";
 "setup.attention.commandLink" = "The evlat command points elsewhere";

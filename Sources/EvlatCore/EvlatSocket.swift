@@ -5,8 +5,9 @@ import Foundation
 /// and connecting are the shell's (`HookListener`, `UnixSocket`).
 ///
 /// A socket file takes its mode from the umask (`755` measured), so the file
-/// itself guards nothing: the directory does. It is made `0700` and refused
-/// when it is a link or someone else's (`UnixSocket.prepareDirectory`).
+/// itself guards nothing: the directory does. Evlat's own is made `0700` and
+/// refused when it is a link or someone else's (`UnixSocket.prepareDirectory`);
+/// one an `EVLAT_SOCKET` names is its chooser's, and left as it is.
 public enum EvlatSocket {
     /// An absolute path here is the socket, wherever it is: a test's, a
     /// second Evlat's.

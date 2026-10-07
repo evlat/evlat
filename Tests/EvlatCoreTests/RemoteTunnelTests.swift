@@ -26,7 +26,7 @@ final class RemoteTunnelTests: XCTestCase {
             "-o", "StdinNull=no",
             "-o", "ForkAfterAuthentication=no",
             // No `-R` here: the master would remember a forward that failed.
-            "--", "ben@devbox", "echo evlat-channel-N; exec cat >/dev/null",
+            "--", "ben@devbox", "echo; echo evlat-channel-N; exec cat >/dev/null",
         ])
         XCTAssertEqual(RemoteTunnel.arguments(target: "devbox", controlPath: "/s", mark: "m").filter { $0 == "-M" }.count,
                        1, "a second -M would make it ControlMaster=ask")
@@ -63,7 +63,7 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertTrue(asking.contains("NumberOfPasswordPrompts=1"))
         XCTAssertEqual(asking.filter { $0 != "BatchMode=no" && $0 != "NumberOfPasswordPrompts=1" && $0 != "-o" },
                        plain.filter { $0 != "BatchMode=yes" && $0 != "-o" }, "nothing else moves")
-        XCTAssertEqual(Array(asking.suffix(3)), ["--", "devbox", "echo m; exec cat >/dev/null"])
+        XCTAssertEqual(Array(asking.suffix(3)), ["--", "devbox", "echo; echo m; exec cat >/dev/null"])
     }
 
     func testTheSocketPathIsShortAndTheSameOnEveryLaunch() {
@@ -369,6 +369,19 @@ final class RemoteTunnelTests: XCTestCase {
         XCTAssertEqual(h.terminations, 1)
         h.tunnel.exited(generation: 1, stderr: "")
         XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .forwardingRefused))
+    }
+
+    /// A file the probe could not ask (no `curl` that reaches a socket) is
+    /// forwarded all the same; refused, the file may be the cause, so the
+    /// try is `other`, not a server that forbids forwarding.
+    func testARefusedForwardOverAnUnaskedFileIsOther() {
+        let h = Harness()
+        h.tunnel.start()
+        h.tunnel.marked(generation: 1)
+        h.tunnel.probed(generation: 1, channel: RemoteTunnel.Channel(socket: .unknown, curl: .old, path: "/p"))
+        h.tunnel.forwarded(generation: 1, made: false)
+        h.tunnel.exited(generation: 1, stderr: "")
+        XCTAssertEqual(h.tunnel.state, .waiting(retryAt: h.now + 2, failure: .other))
     }
 
     /// No answer, or a server's end the channel cannot have: `other`.

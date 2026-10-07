@@ -33,6 +33,10 @@ enum SignalClient {
     static func post(_ post: SignalCommand.Post,
                      environment: [String: String] = ProcessInfo.processInfo.environment,
                      home: String = NSHomeDirectory()) -> Outcome {
+        // An old isolation recipe (`EVLAT_PORT`) would post to the user's
+        // socket: nothing is sent, and it reads as a refusal — silent in
+        // `watch`, one line in `signal`.
+        if Isolation.setsRetiredPort(environment) { return .refused(Isolation.retiredPortLine) }
         guard let socket = EvlatSocket.path(environment: environment, home: home) else { return .silent }
         switch send(post.body, socket: socket, timeout: timeout) {
         case .status(200, _): return .delivered

@@ -1145,7 +1145,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // every line — the exact failure streaming was chosen to avoid.
         setvbuf(stdout, nil, _IOLBF, 0)
         let diagnostics = HookDiagnostics()
-        let listener = HookListener(transport: .unix(socket)) { delivery in
+        let listener = HookListener(transport: .unix(socket), ownsDirectory: ownsSocketDirectory()) { delivery in
             switch delivery {
             case .hook(let event):
                 // Streamed, not only summarised: under a `PostToolUse` burst a
@@ -2439,7 +2439,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let transcriptRoots = home.map { home in Agents.all.flatMap { $0.hooks.finishRoots(home) } } ?? []
         if let path = Self.socketPath(home: home) {
             let socket = HookListener(
-                transport: .unix(path), transcriptRoots: transcriptRoots,
+                transport: .unix(path), ownsDirectory: Self.ownsSocketDirectory(), transcriptRoots: transcriptRoots,
                 // Binding is asynchronous, so the outcome cannot be returned
                 // from here. It is not swallowed either: `Evlat --list` asks
                 // the socket over `/health` and says who holds it.
@@ -2495,6 +2495,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         home: URL?, environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
         home.flatMap { EvlatSocket.path(environment: environment, home: $0.path) }
+    }
+
+    /// Whether the socket's folder is Evlat's own, to make the user's alone:
+    /// not when `EVLAT_SOCKET` names the socket — its folder is whoever
+    /// chose it's (`$HOME`, `/tmp`).
+    nonisolated static func ownsSocketDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        !Isolation.hasOwnSocket(environment)
     }
 
     // MARK: - Remote machines
@@ -2903,9 +2912,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             unreachableMachines: { [weak self] in
                 guard let remote = self?.remote else { return [] }
                 return remote.machines.compactMap { machine in
-                    guard case .waiting? = remote.state(of: machine.id),
+                    guard case .waiting(_, let failure)? = remote.state(of: machine.id),
                           !RemoteMachinesModel.offersPassword(remote.state(of: machine.id)) else { return nil }
-                    return machine.name
+                    return (machine.name, failure)
                 }
             },
             // Its own line, not "unreachable": the server answered, and

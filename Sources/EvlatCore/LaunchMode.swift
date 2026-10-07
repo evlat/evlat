@@ -26,8 +26,10 @@ public enum LaunchMode: Equatable {
     /// holds only the prompt.
     case askpass(Askpass.Mark)
     /// The environment names `Isolation.retiredPortKey`: the line to say
-    /// on stderr before exiting non-zero. Read before everything else, so
-    /// neither the bar nor a command runs on an old recipe.
+    /// on stderr before exiting non-zero, so the bar, the diagnostics and
+    /// the askpass helper never run on an old recipe — on the user's
+    /// socket. `watch` and `signal` are not refused: the wrapped command
+    /// must still run, so they only post nothing (`SignalClient.post`).
     case refused(String)
 
     /// The diagnostics' words, read from `argv[1]` only.
@@ -45,8 +47,14 @@ public enum LaunchMode: Equatable {
     /// one, a prompt in `argv[1]` (`user@host's password: `) is an unknown
     /// word like any other: `ssh` must never open the bar by running Evlat.
     public static func of(_ argv: [String], environment: [String: String] = [:]) -> LaunchMode {
-        if Isolation.setsRetiredPort(environment) { return .refused(Isolation.retiredPortLine) }
-        if let mark = Askpass.mark(in: environment) { return .askpass(mark) }
+        let retired = Isolation.setsRetiredPort(environment)
+        if let mark = Askpass.mark(in: environment) {
+            return retired ? .refused(Isolation.retiredPortLine) : .askpass(mark)
+        }
+        // A command runs whatever the environment says: `watch` promises
+        // the wrapped command's exit, signal and bytes unchanged.
+        if SignalCommand.subcommand(argv) != nil { return .command }
+        if retired { return .refused(Isolation.retiredPortLine) }
         let arguments = Array(argv.dropFirst())
         guard let first = arguments.first else {
             // Exactly the link's name: the bundle's `Evlat` and `open` keep
@@ -54,7 +62,6 @@ public enum LaunchMode: Equatable {
             let name = argv.first.map { ($0 as NSString).lastPathComponent }
             return name == linkName ? .usageError("a command is needed") : .app
         }
-        if SignalCommand.subcommand(argv) != nil { return .command }
         if diagnosticsWords.contains(first) { return .diagnostics }
         if helpWords.contains(first) { return .help }
         if isLaunchArguments(arguments) { return .app }

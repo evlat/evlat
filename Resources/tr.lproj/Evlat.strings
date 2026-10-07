@@ -143,7 +143,7 @@
 "remote.command.noCurl" = "Sunucuda curl yok: evlat curl ile gönderir, o kurulana dek bara hiçbir şey gelmez.";
 "remote.command.try" = "Sunucuda yeni bir oturumda dene: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — komut, olduğu gibi yazılır (orada duran bir evlat'ın yerine geçer; önce command -v evlat ile bak):";
-"remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, eski bir sürümün bıraktığı anahtar dosyası ve boş kalırsa klasörleri:";
+"remote.command.manual.remove" = "Kaldırmak için: Evlat'ınsa komut, eski bir sürümün bıraktığı anahtar dosyası ve boş kalırsa anahtar dosyasının klasörü, ~/.config/evlat:";
 "remote.items.title" = "{name} sunucusuna kurulanlar";
 "remote.items.body" = "Tünel yalnız yolu açar. Sunucudaki bir ajanın bu bara haber verebilmesi için aşağıdakiler sunucunun kendi dosyalarına yazılır — bu Mac'tekiyle aynı kartlar, ssh üstünden yazılır; ya da bloğu sen sunucuda çalıştırırsın. Oradaki Claude Code ve Codex onayı da bu bara sorar; Antigravity'ye yalnız hook'lar kurulur. Kartı barda beklerken Codex “Running hook” gösterir, en çok iki dakika.";
 "remote.item.command" = "evlat komutu";
@@ -403,7 +403,7 @@
 "setup.attention.hooksStale" = "{source} hook'ları eski";
 "setup.attention.refused" = "{item}: son değişiklik reddedildi";
 "setup.attention.hotKey" = "Kısayol kaydedilemedi";
-"setup.attention.machine" = "{machine}: sunucuya ulaşılamıyor";
+"setup.attention.machine" = "{machine}: {failure}";
 "setup.attention.machinePassword" = "{machine}: şifre bekliyor";
 "setup.attention.machineUpdate" = "{machine}: güncellenmeli";
 "setup.attention.commandLink" = "evlat komutu başka bir yere gidiyor";

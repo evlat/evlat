@@ -203,7 +203,9 @@ public final class RemoteTunnel {
     ///   two hand `cat` an empty stdin and take the dead man's switch away.
     ///   On the command line they win over the config file.
     /// - The remote command prints `mark` — the login is done, the master
-    ///   is up — then holds the session open for as long as its stdin does,
+    ///   is up — on a line of its own: a newline first, since a login
+    ///   script's last words may have none (`MarkScanner` takes whole
+    ///   lines only). Then it holds the session open for as long as its stdin does,
     ///   and its stdin is a pipe this Mac's Evlat holds: when Evlat dies,
     ///   `kill -9` included, the pipe reaches EOF, `cat` ends and `ssh`
     ///   exits — no orphan holding the channel.
@@ -219,10 +221,10 @@ public final class RemoteTunnel {
                "-o", "RemoteCommand=none",
                "-o", "StdinNull=no",
                "-o", "ForkAfterAuthentication=no",
-               "--", target, "echo \(mark); exec cat >/dev/null"]
+               "--", target, "echo; echo \(mark); exec cat >/dev/null"]
     }
 
-    /// The master's first line of output: `evlat-channel-<nonce>`, new for
+    /// The master's own line of output: `evlat-channel-<nonce>`, new for
     /// each launch, found behind whatever a login script printed first.
     public static func mark(nonce: String) -> String { "evlat-channel-" + nonce }
 
@@ -455,6 +457,9 @@ public final class RemoteTunnel {
         var heldPrompts = 0
         /// The master printed its mark: the probe was asked for.
         var marked = false
+        /// The probe found a file it could not ask (`Channel.Socket.unknown`):
+        /// a refused forward then says nothing about the server's rules.
+        var forwardUncertain = false
         /// Why the channel was not made; the exit that follows says this,
         /// not its own stderr (`failChannel`).
         var channelFailure: Failure?
@@ -595,6 +600,7 @@ public final class RemoteTunnel {
         case .busy?:
             failChannel(.channelBusy)
         case .free?, .cleared?, .unknown?:
+            current.forwardUncertain = channel?.socket == .unknown
             effects.forward(generation, channel!.path)
         case .long?, .unwritable?, .homeless?, nil:
             failChannel(.other)
@@ -604,10 +610,12 @@ public final class RemoteTunnel {
     /// The forward's answer. Made: connected. Refused: the probe had just
     /// found the socket free, so the server refuses the forwarding — or
     /// another Mac took the socket in between, which the next try's probe
-    /// reads as `channelBusy`.
+    /// reads as `channelBusy`. After a file the probe could not ask (an old
+    /// `curl`), the file itself may be what refused it: `other`, never a
+    /// rule the server may not have.
     public func forwarded(generation: Int, made: Bool) {
         guard isCurrent(generation) else { return }
-        guard made else { return failChannel(.forwardingRefused) }
+        guard made else { return failChannel(current.forwardUncertain ? .other : .forwardingRefused) }
         cancel()
         connected()
     }
@@ -762,7 +770,8 @@ extension RemoteTunnel {
     }
 
     /// How long the probe waits for a socket that may answer, in seconds:
-    /// past it the socket is a dead connection's (discussion's Karar 3).
+    /// past it the socket is a dead connection's: a live Evlat answers
+    /// `/health` at once.
     public static let probePatience = 5
 
     /// Prints `<nonce> channel <socket> <curl> <path>`. POSIX `sh` and

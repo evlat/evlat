@@ -141,7 +141,7 @@
 "remote.command.noCurl" = "curl fehlt auf dem Server: evlat sendet mit curl, also erreicht nichts die Leiste, bis es installiert ist.";
 "remote.command.try" = "Probier es in einer neuen Sitzung auf dem Server aus: evlat --list.";
 "remote.command.manual.script" = "~/.local/bin/evlat — der Befehl, so wie er ist (ersetzt ein vorhandenes evlat; prüfe das vorher mit command -v evlat):";
-"remote.command.manual.remove" = "Zum Entfernen: den Befehl, wenn er von Evlat ist, die Schlüsseldatei, die eine ältere Version hinterlassen hat, und ihren Ordner, wenn er leer bleibt:";
+"remote.command.manual.remove" = "Zum Entfernen: den Befehl, wenn er von Evlat ist, die Schlüsseldatei, die eine ältere Version hinterlassen hat, und den Ordner der Schlüsseldatei, ~/.config/evlat, wenn er leer bleibt:";
 "remote.items.title" = "Eingerichtet auf {name}";
 "remote.items.body" = "Der Tunnel öffnet nur den Weg. Damit ein Agent auf dem Server dieser Leiste Bescheid gibt, wird das hier in die eigenen Dateien des Servers geschrieben — dieselben Karten wie auf diesem Mac, über ssh geschrieben, oder ein Block, den du selbst auf dem Server ausführst. Claude Code und Codex fragen auch dort diese Leiste um Freigabe; sein Antigravity bekommt nur Hooks. Codex zeigt „Running hook“, solange seine Karte auf der Leiste wartet, höchstens zwei Minuten.";
 "remote.item.command" = "evlat-Befehl";
@@ -394,7 +394,7 @@
 "setup.attention.hooksStale" = "{source}-Hooks sind veraltet";
 "setup.attention.refused" = "{item}: Die letzte Änderung wurde abgelehnt";
 "setup.attention.hotKey" = "Der Kurzbefehl ist nicht registriert";
-"setup.attention.machine" = "{machine}: Server nicht erreichbar";
+"setup.attention.machine" = "{machine}: {failure}";
 "setup.attention.machinePassword" = "{machine}: wartet auf ein Passwort";
 "setup.attention.machineUpdate" = "{machine}: Update nötig";
 "setup.attention.commandLink" = "Der evlat-Befehl zeigt woandershin";

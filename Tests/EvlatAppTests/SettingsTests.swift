@@ -30,7 +30,7 @@ final class SettingsTests: XCTestCase {
         var claude: String? = "/usr/local/bin/claude"
         var memory: Int? = 2
         var cleared = 0
-        var unreachable: [String] = []
+        var unreachable: [(name: String, failure: RemoteTunnel.Failure)] = []
         var hotKeyRefused = false
         var mode = ChatMode.auto
         /// Only for the command link's row: a temporary home and a binary.
@@ -181,7 +181,7 @@ final class SettingsTests: XCTestCase {
         let model = model(recorder)
         model.reload()
         XCTAssertEqual(model.dots, [])
-        recorder.unreachable = ["devbox"]
+        recorder.unreachable = [("devbox", .unreachable)]
         model.follow()
         XCTAssertEqual(model.dots, [.remote], "a machine going down is a dot, read at the next refresh")
         recorder.hotKeyRefused = true

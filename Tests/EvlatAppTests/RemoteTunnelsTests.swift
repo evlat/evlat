@@ -131,7 +131,7 @@ final class RemoteTunnelsTests: XCTestCase {
                                    "the test's socket directory is short enough for a master")
         XCTAssertEqual(local, RemoteTunnel.channelPath(directory: sockets, machineID: "fake"))
         XCTAssertEqual(tunnels.controlPath(of: "fake"), socket)
-        let mark = try XCTUnwrap(run.last?.components(separatedBy: ";").first?.dropFirst("echo ".count))
+        let mark = try XCTUnwrap(run.last?.components(separatedBy: "; ").dropFirst().first?.dropFirst("echo ".count))
         XCTAssertEqual(run, RemoteTunnel.arguments(target: "fake", controlPath: socket, mark: String(mark)),
                        "a master of Evlat's own with no forward of its own, the target after --")
         XCTAssertTrue(mark.hasPrefix("evlat-channel-"))
@@ -307,6 +307,12 @@ final class RemoteTunnelsTests: XCTestCase {
         let chatty = MarkScanner(mark: "m")
         XCTAssertFalse(chatty.feed(Data(repeating: 0x41, count: 100_000)))
         XCTAssertTrue(chatty.feed(Data("\nm\n".utf8)), "a long line before it costs bounded memory")
+        // A login script's last words with no newline: the command's own
+        // `echo` ends them, and the mark is the next line.
+        let unterminated = MarkScanner(mark: "m")
+        let command = RemoteTunnel.arguments(target: "devbox", controlPath: "/c", mark: "m").last ?? ""
+        XCTAssertTrue(command.hasPrefix("echo; echo m;"), command)
+        XCTAssertTrue(unterminated.feed(Data("\u{1B}]0;title\u{07}hi\nm\n".utf8)))
     }
 
     func testSleepClosesTheProcessAndWakeOpensItAtOnce() throws {
