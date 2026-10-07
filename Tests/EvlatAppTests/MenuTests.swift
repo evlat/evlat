@@ -251,8 +251,8 @@ final class MenuTests: XCTestCase {
             controller.panel?.close()
         }
         let menu = controller.makeMenu(diagnostics: false, in: "en")
-        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Claude Code hooks are old", "—",
-                                      "Settings…", "Setup…", "Quit Evlat"])
+        XCTAssertEqual(titles(menu), ["Edge", "Shortcut: ⇧⌘Space", "—", "Claude Code hooks are old",
+                                      "Review updates…", "—", "Settings…", "Setup…", "Quit Evlat"])
         let line = try XCTUnwrap(attentionLines(menu).first)
         XCTAssertTrue(line.isEnabled, "dim, not disabled: it can be clicked")
         XCTAssertTrue(line.target === controller)
@@ -267,6 +267,40 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(controller.settings?.section, .agents)
         XCTAssertEqual(try Data(contentsOf: Claude().hooksFile(home: home)), before,
                        "the click only opens: nothing is written")
+    }
+
+    /// Beside the lines about old hooks and servers, "Review updates…" opens
+    /// the update window; the lines keep their own click.
+    func testReviewUpdatesOpensTheUpdateWindow() throws {
+        try agentDirectory(.claude)
+        try writeOutdatedHooks()
+        let before = try Data(contentsOf: Claude().hooksFile(home: home))
+        let controller = controller(home: home)
+        controller.updatesActivation = { }
+        defer {
+            controller.updatesWindow?.close()
+            controller.panel?.close()
+        }
+        let menu = controller.makeMenu(diagnostics: false, in: "en")
+        let review = try XCTUnwrap(menu.items.first { $0.action == #selector(AppController.openUpdatesFromMenu(_:)) })
+        XCTAssertEqual(review.title, "Review updates…")
+        XCTAssertTrue(review.target === controller)
+        XCTAssertEqual(controller.makeMenu(diagnostics: false, in: "tr").items
+            .first { $0.action == #selector(AppController.openUpdatesFromMenu(_:)) }?.title,
+                       "Güncellemeleri gözden geçir…")
+        menu.performActionForItem(at: menu.index(of: review))
+        XCTAssertEqual(controller.updatesWindow?.isVisible, true)
+        XCTAssertEqual(controller.updates?.agents.map(\.state), [.needsUpdate], "an old hook, not one from before the socket")
+        XCTAssertNil(controller.settingsWindow)
+        XCTAssertEqual(try Data(contentsOf: Claude().hooksFile(home: home)), before, "opening writes nothing")
+    }
+
+    /// No attention line about hooks or servers, no "Review updates…".
+    func testNoOldHookNoReviewUpdates() throws {
+        let controller = controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertFalse(controller.makeMenu(diagnostics: false, in: "en").items
+            .contains { $0.action == #selector(AppController.openUpdatesFromMenu(_:)) })
     }
 
     /// Hooks from before the socket are silent, and their line says so —

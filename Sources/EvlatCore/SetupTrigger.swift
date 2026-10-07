@@ -21,10 +21,10 @@ public enum SetupTrigger {
             && !Isolation.isIsolated(environment)
     }
 
-    /// Whether Settings → Agents opens by itself at launch, once, after the
+    /// Whether the update window opens by itself at launch, once, after the
     /// cut to the socket: an agent switched on still holds the bytes from
     /// before it (`AgentIntegration.predatesSocket`), which are silent now,
-    /// and its card's one press moves them.
+    /// and its row's one press moves them.
     ///
     /// - Parameters:
     ///   - shown: it was opened for this before (`setup.socketCutShown`).

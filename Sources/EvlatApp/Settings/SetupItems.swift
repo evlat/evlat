@@ -115,6 +115,10 @@ struct SetupRow: Identifiable, Equatable {
 
     var id: String { item.id }
 
+    /// An agent's hooks part alone, the first of its parts; `nil` for a row
+    /// without parts. Only an old hook asks for attention (`hooksOutdated`).
+    var hooksStatus: SetupStatus? { item.agent == nil ? nil : parts.first?.status }
+
     /// `nil`: nothing to press (someone else's, unreadable, not here).
     var action: SetupAction? {
         switch status {
@@ -163,6 +167,16 @@ enum SetupAttention: Equatable {
     /// (`RemoteMachinesModel.needsUpdate`).
     case machineNeedsUpdate(String)
     case commandLinkElsewhere
+
+    /// What the update window shows (`UpdatesModel`): old hooks here, a
+    /// server that needs its update or whose channel is not made. The menu
+    /// offers the window beside these lines.
+    var isUpdate: Bool {
+        switch self {
+        case .hooksOutdated, .machineNeedsUpdate, .machineUnreachable: return true
+        default: return false
+        }
+    }
 
     /// Where the settings window shows it: its sections, in the side
     /// list's order. The raw value is `EVLAT_SETTINGS`'.

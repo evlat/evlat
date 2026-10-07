@@ -50,6 +50,9 @@ enum SettingsPalette {
     static let screenTop = dynamic(0xDFE4EA, 0x2A3440)
     static let screenBottom = dynamic(0xC8D0D9, 0x1A2029)
     static let ghost = dynamic(0x6B7079, 0x9AA3B1)
+    /// The update window's buttons: outlined, and its one blue choice.
+    static let buttonLine = dynamic(0xD2D2D7, 0x3A404B)
+    static let accent = dynamic(0x0A63D8, 0x3B7BEA)
     // A tag beside a name: green for what an agent can do, amber for a
     // caution.
     static let tagOk = dynamic(0xEEF8F2, 0x17291F)

@@ -381,44 +381,51 @@ final class SetupFlowTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: settings).write(to: Claude().hooksFile(home: home))
     }
 
-    /// An agent still on the bytes from before the socket is silent: Settings
-    /// opens at its cards once, by itself, and marks it shown.
-    func testSettingsOpensAtTheAgentsOnceForBytesFromBeforeTheSocket() throws {
+    /// An agent still on the bytes from before the socket is silent: the
+    /// update window opens once, by itself, with its row, and marks it shown.
+    func testTheUpdateWindowOpensOnceForBytesFromBeforeTheSocket() throws {
         let plain = ["HOME": home.path]
         defaults.set("right", forKey: AppController.edgeKey)
         try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]]])
         let first = try controller(home: home)
-        first.settingsActivation = { }
-        defer { first.settingsWindow?.close(); first.panel?.close() }
+        first.updatesActivation = { }
+        defer { first.updatesWindow?.close(); first.panel?.close() }
         first.openSetupAtLaunch(environment: plain)
         XCTAssertNil(first.setupWindow, "not a new user")
-        XCTAssertEqual(first.settingsWindow?.isVisible, true)
-        XCTAssertEqual(first.settings?.section, .agents)
+        XCTAssertNil(first.settingsWindow, "the update window instead")
+        XCTAssertEqual(first.updatesWindow?.isVisible, true)
+        XCTAssertEqual(first.updates?.agents.map(\.kind), [.agent(.claude)])
+        XCTAssertEqual(first.updates?.agents.first?.state, .needsUpdate)
         XCTAssertEqual(defaults.object(forKey: AppController.socketCutShownKey) as? Bool, true)
 
+        // Its one press moves the hooks to the socket.
+        first.updates?.updateAll()
+        XCTAssertEqual(first.updates?.agents.first?.state, .updated)
+        XCTAssertEqual(try AgentIntegration.state(home: home, for: Claude()).hooks, .current)
+
         let second = try controller(home: home)
-        second.settingsActivation = { }
-        defer { second.settingsWindow?.close(); second.panel?.close() }
+        second.updatesActivation = { }
+        defer { second.updatesWindow?.close(); second.panel?.close() }
         second.openSetupAtLaunch(environment: plain)
-        XCTAssertNil(second.settingsWindow, "once")
+        XCTAssertNil(second.updatesWindow, "once")
     }
 
-    func testSettingsStaysShutForTodaysBytesAnIsolatedLaunchOrTheSetup() throws {
+    func testTheUpdateWindowStaysShutForTodaysBytesAnIsolatedLaunchOrTheSetup() throws {
         let plain = ["HOME": home.path]
         defaults.set("right", forKey: AppController.edgeKey)
         try LocalHooks.install(at: Claude().hooksFile(home: home), for: .claude)
         let current = try controller(home: home)
-        current.settingsActivation = { }
-        defer { current.settingsWindow?.close(); current.panel?.close() }
+        current.updatesActivation = { }
+        defer { current.updatesWindow?.close(); current.panel?.close() }
         current.openSetupAtLaunch(environment: plain)
-        XCTAssertNil(current.settingsWindow, "today's bytes")
+        XCTAssertNil(current.updatesWindow, "today's bytes")
 
         try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]]])
         let isolated = try controller(home: home)
-        isolated.settingsActivation = { }
-        defer { isolated.settingsWindow?.close(); isolated.panel?.close() }
+        isolated.updatesActivation = { }
+        defer { isolated.updatesWindow?.close(); isolated.panel?.close() }
         isolated.openSetupAtLaunch(environment: ["EVLAT_SOCKET": "/tmp/e.sock"])
-        XCTAssertNil(isolated.settingsWindow, "a second Evlat")
+        XCTAssertNil(isolated.updatesWindow, "a second Evlat")
         XCTAssertNil(defaults.object(forKey: AppController.socketCutShownKey), "nothing kept")
 
         // A usage line from before the socket and no hooks: a new user by
@@ -426,11 +433,11 @@ final class SetupFlowTests: XCTestCase {
         defaults.removeObject(forKey: AppController.edgeKey)
         try writeClaude(["statusLine": ["type": "command", "command": "sh -c 'i=$(cat; printf x); i=${i%x}; printf %s \"$i\" | curl -s -m 2 -X POST -H \"Content-Type: application/json\" --data-binary @- http://127.0.0.1:48151/usage/claude >/dev/null 2>&1 &'"]])
         let fresh = try controller(home: home)
-        fresh.settingsActivation = { }
-        defer { fresh.setupWindow?.close(); fresh.settingsWindow?.close(); fresh.panel?.close() }
+        fresh.updatesActivation = { }
+        defer { fresh.setupWindow?.close(); fresh.updatesWindow?.close(); fresh.panel?.close() }
         fresh.openSetupAtLaunch(environment: plain)
         XCTAssertEqual(fresh.setupWindow?.isVisible, true)
-        XCTAssertNil(fresh.settingsWindow, "the setup instead")
+        XCTAssertNil(fresh.updatesWindow, "the setup instead")
     }
 
     /// `EVLAT_SETUP` opens it at a step for looking and writes nothing.

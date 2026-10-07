@@ -823,11 +823,22 @@ naming Evlat's url and not the socket — the TCP command, its relay, the
 `http` approval hook — in any file shape; `AgentIntegration.predatesSocket`
 per agent). With them, an old hook's menu line says what it costs
 (`setup.attention.hooksOutdated`: Evlat can't hear its sessions; an old
-hook still on the socket is only "old", `hooksStale`), and Settings opens
-at its Agents section once by itself (`SetupTrigger.opensAgents`, flag
+hook still on the socket is only "old", `hooksStale`), and the update
+window opens once by itself (`SetupTrigger.opensAgents`, flag
 `setup.socketCutShown`): for an agent switched on, never in an isolated
 process (`Isolation.isIsolated`), never when the setup opens at that
-launch. A server's old parts are a machine line (below).
+launch. A server's old parts are a machine line (below). The window
+(`UpdatesModel`, `UpdatesWindow`) lists this Mac's agents switched on with
+old hooks and every server not known to be current — not connected yet
+("checked once it connects", read again as it connects), its channel
+refused (the short reason, the advice behind "Why?"), or old — each with
+its card's one press: `SetupModel.perform` here, `RemoteMachinesModel.update`
+there (the old agents' `Change.agent` and an old `evlat` command, in one
+job under the machine's lock). "Update all" runs them in that order, a
+server's job waited for before the next. The menu offers it as "Review
+updates…" beside an old hook's or a server's line. It grows with its
+content up to its screen's visible frame less a margin, centred, never off
+it; past that only the two lists scroll (`UpdatesWindow.fit`, pure).
 
 - The only author of the command is `LocalAPI.installedHookCommand(for:event:)`;
   the writers (`HookSettings`, and `AntigravityHooks` for Antigravity's

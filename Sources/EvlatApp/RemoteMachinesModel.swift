@@ -360,9 +360,10 @@ final class RemoteMachinesModel: ObservableObject {
 
     /// `then` hears the job's line once it is drawn: a turn-off waits for
     /// its removal there.
+    @discardableResult
     private func run(_ changes: [RemoteSettings.Change], _ action: RemoteSettings.Action, machine id: String,
-                     then: ((Outcome) -> Void)? = nil) {
-        guard let row = rows.first(where: { $0.id == id }), canRun(id) else { return }
+                     then: ((Outcome) -> Void)? = nil) -> Bool {
+        guard let row = rows.first(where: { $0.id == id }), canRun(id) else { return false }
         let started = installer.run(changes, action, machine: id, target: row.target,
                                     controlPath: host.controlPath(id)) {
             [weak self] results in
@@ -374,9 +375,10 @@ final class RemoteMachinesModel: ObservableObject {
             then?(outcome)
             self.reread(id)
         }
-        guard started else { return }
+        guard started else { return false }
         busy.insert(id)
         outcomes[id] = nil
+        return true
     }
 
     /// One part per file, "Claude Code: installed · Codex: not installed (no
@@ -419,7 +421,7 @@ final class RemoteMachinesModel: ObservableObject {
     }
 
     /// The catalogue's line for `key`, when the agent has one.
-    private static func hint(_ key: String, in lang: String) -> String? {
+    static func hint(_ key: String, in lang: String) -> String? {
         L10n.catalog.tables[Catalog.source]?[key] != nil ? L10n.t(key, in: lang) : nil
     }
 
@@ -469,10 +471,60 @@ final class RemoteMachinesModel: ObservableObject {
     /// or an `evlat` command older than this one. This Mac's rule: a missing
     /// part, or a usage line alone, asks for no attention.
     static func needsUpdate(_ reading: RemoteSettings.Reading, enabled: Set<AgentID>?) -> Bool {
-        if case .installed = reading.command, !reading.command.isCurrent { return true }
-        return Agents.all.contains { agent in
+        commandIsOld(reading) || !outdatedAgents(reading, enabled: enabled).isEmpty
+    }
+
+    /// The agents switched on there (`enabled`, `nil` for all) whose hooks
+    /// an older copy wrote, in the catalogue's order.
+    static func outdatedAgents(_ reading: RemoteSettings.Reading, enabled: Set<AgentID>?) -> [AgentID] {
+        Agents.all.filter { agent in
             (enabled?.contains(agent.id) ?? true) && reading.hooks(agent) == .state(.outdated)
+        }.map(\.id)
+    }
+
+    /// The server's `evlat` command is Evlat's, and older than this one's.
+    static func commandIsOld(_ reading: RemoteSettings.Reading) -> Bool {
+        if case .installed = reading.command { return !reading.command.isCurrent }
+        return false
+    }
+
+    /// The update window's press (`UpdatesModel`): what `needsUpdate` counts,
+    /// moved — every old agent switched on there as one job, one
+    /// `Change.agent` each (the cards' unit), then the `evlat` command when
+    /// it is old — under the machine's lock, read again after as any job
+    /// is. Its reading is the window's: this model's own, else what the
+    /// channel read. `false` when nothing started: no reading, nothing old,
+    /// or a job running there. `done` hears the refused part's line, or
+    /// `nil`.
+    @discardableResult
+    func update(_ id: String, done: @escaping (_ failure: String?, _ agents: [AgentID]) -> Void) -> Bool {
+        guard let reading = lastReading(id) ?? host.channelReading(id), canRun(id) else { return false }
+        let agents = Self.outdatedAgents(reading, enabled: enabledAgents(of: id))
+        let command = Self.commandIsOld(reading)
+        guard !agents.isEmpty || command else { return false }
+        // The command's own trouble (no `curl`) is its first hint.
+        func line(_ outcome: Outcome) -> String? {
+            outcome.trouble ? ([outcome.line] + outcome.hints.prefix(1)).joined(separator: " ") : nil
         }
+        func installCommand(after failure: String?) -> Bool {
+            let started = runCommand(.install, on: id) { outcome in
+                let lines = [failure, line(outcome)].compactMap { $0 }
+                done(lines.isEmpty ? nil : lines.joined(separator: " · "), agents)
+            }
+            if started { working[id] = .command }
+            return started
+        }
+        guard let first = agents.first else { return installCommand(after: nil) }
+        let started = run(agents.map { .agent($0.agent) }, .install, machine: id) { [weak self] outcome in
+            let failure = line(outcome)
+            guard command else { return done(failure, agents) }
+            // The hooks went in; only the command is left for a next press.
+            if !installCommand(after: failure) {
+                done([failure, self?.t("updates.commandNotRun")].compactMap { $0 }.joined(separator: " · "), agents)
+            }
+        }
+        if started { working[id] = .agent(first) }
+        return started
     }
 
     /// The rows' states; unknown until a read answered.
@@ -708,8 +760,15 @@ final class RemoteMachinesModel: ObservableObject {
     /// Installs or removes the server's `evlat` on the selected machine,
     /// under the machine's one lock; the line it leaves is the same line.
     func runCommand(_ action: RemoteSettings.Action) {
-        guard let row = selectedRow, canRun(row.id) else { return }
-        let id = row.id
+        guard let row = selectedRow else { return }
+        runCommand(action, on: row.id)
+    }
+
+    /// `then` hears the job's line once it is drawn, before the read.
+    @discardableResult
+    private func runCommand(_ action: RemoteSettings.Action, on id: String,
+                            then: ((Outcome) -> Void)? = nil) -> Bool {
+        guard let row = rows.first(where: { $0.id == id }), canRun(id) else { return false }
         // The line the consent named, read with it: none on an install.
         let pathLine = action == .remove ? pathLineToRemove(for: id) : nil
         let started = installer.runCommand(action, pathLine: pathLine, machine: id, target: row.target,
@@ -718,12 +777,15 @@ final class RemoteMachinesModel: ObservableObject {
             guard let self else { return }
             self.busy.remove(id)
             self.working[id] = nil
-            self.outcomes[id] = Self.commandOutcome(result, action, path: path, in: self.lang)
+            let outcome = Self.commandOutcome(result, action, path: path, in: self.lang)
+            self.outcomes[id] = outcome
+            then?(outcome)
             self.reread(id)
         }
-        guard started else { return }
+        guard started else { return false }
         busy.insert(id)
         outcomes[id] = nil
+        return true
     }
 
     /// What was done; after an install, `curl` missing (the command then

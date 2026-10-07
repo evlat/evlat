@@ -725,3 +725,26 @@
 "settings.agents.chat" = "Available in chat";
 "setup.flow.summary.mode.workspace" = "edits in its folder";
 "setup.flow.summary.mode.readOnly" = "read only";
+
+/* The update window: what an older copy left, each with its one press. */
+"menu.updates" = "Review updates…";
+"updates.window.title" = "Updates";
+"updates.title" = "Evlat needs one update from you";
+"updates.body" = "Evlat now listens through a private file that only your account can open, instead of a network port. Your agents and servers still talk the old way, so Evlat can’t hear them until they’re updated. One press updates each one; nothing else in their files changes.";
+"updates.section.mac" = "On this Mac";
+"updates.section.servers" = "On your servers";
+"updates.note" = "Settings → Agents and Remote Machines show the same, any time.";
+"updates.later" = "Later";
+"updates.all" = "Update all";
+"updates.done" = "Done";
+"updates.updating" = "Updating…";
+"updates.updated" = "✓ Updated";
+"updates.current" = "✓ Up to date";
+"updates.retry" = "Try again";
+"updates.why" = "Why?";
+"updates.checking" = "Checking…";
+"updates.machine.notConnected" = "not connected · checked once it connects";
+"updates.machine.approvals" = "Its permissions and questions now come to the bar.";
+"updates.after.claude" = "Open sessions pick it up with their next message.";
+"updates.step.codex" = "One more step: in Codex, open /hooks and trust Evlat’s hooks.";
+"updates.commandNotRun" = "The evlat command was not updated; try again.";

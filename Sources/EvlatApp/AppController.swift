@@ -167,6 +167,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The setup window, once opened, and its model.
     private(set) var setupWindow: AppWindow?
     private(set) var setupFlow: SetupFlowModel?
+    /// The update window, once opened, and its model.
+    private(set) var updatesWindow: AppWindow?
+    private(set) var updates: UpdatesModel?
+    /// The machines' model, one for Settings → Remote Machines and the
+    /// update window: one owner of their readings and jobs.
+    private(set) var remoteMachines: RemoteMachinesModel?
     private var statusItem: NSStatusItem?
     private var gaze: GazeTracker?
     /// When a cursor over the bar opens it, and when leaving closes it.
@@ -813,7 +819,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// opens by itself once. Written only by a process that is not isolated.
     nonisolated static let setupSeenKey = "setup.seen"
 
-    /// Settings → Agents was opened by itself once after the cut to the
+    /// The update window was opened by itself once after the cut to the
     /// socket (`SetupTrigger.opensAgents`). Written only by a process that
     /// is not isolated.
     nonisolated static let socketCutShownKey = "setup.socketCutShown"
@@ -833,11 +839,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                                        hookStates: states, environment: environment)
     }
 
-    /// Whether Settings → Agents opens by itself at this launch, once, after
+    /// Whether the update window opens by itself at this launch, once, after
     /// the cut to the socket: an agent switched on here still holds the
     /// bytes from before it (`AgentIntegration.predatesSocket`). Reads,
     /// writes nothing.
-    func shouldOpenAgentsAfterSocket(opensSetup: Bool,
+    func shouldOpenUpdatesAfterSocket(opensSetup: Bool,
                                      environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         let old = home.map { home in
             Agents.all.contains { enabledAgents.contains($0.id) && AgentIntegration.predatesSocket(home: home, for: $0) }
@@ -2025,6 +2031,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         settingsWindow?.window?.title = L10n.t("settings.window.title")
         setupFlow?.languageChanged(to: language)
         setupWindow?.window?.title = L10n.t("setup.window.title")
+        updates?.languageChanged(to: language)
+        updatesWindow?.window?.title = L10n.t("updates.window.title")
         refresh()
     }
 
@@ -2604,7 +2612,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         tunnels.onAbandoned = { [weak self] id in MainActor.assumeIsolated { self?.approvals.abandoned(id) } }
         tunnels.onReading = { [weak self] id in
-            MainActor.assumeIsolated { self?.settings?.remote.channelRead(id) }
+            MainActor.assumeIsolated {
+                self?.remoteMachines?.channelRead(id)
+                if self?.updatesWindow?.isVisible == true { self?.updates?.refresh() }
+            }
         }
         for machine in configuration.machines {
             tunnels.add(machine)
@@ -2932,7 +2943,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 guard let self, let remote = self.remote else { return [] }
                 return remote.machines.compactMap { machine in
                     guard remote.state(of: machine.id)?.isConnected == true,
-                          let reading = self.settings?.remote.reading(of: machine.id) ?? remote.reading(of: machine.id),
+                          let reading = self.remoteMachines?.reading(of: machine.id) ?? remote.reading(of: machine.id),
                           RemoteMachinesModel.needsUpdate(reading, enabled: remote.enabledAgents(of: machine.id))
                     else { return nil }
                     return machine.name
@@ -3051,8 +3062,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let model = SettingsModel(
             host: settingsHost,
             setup: SetupModel(host: setupHost),
-            remote: RemoteMachinesModel(host: remoteMachinesHost,
-                                        installer: remoteInstaller ?? RemoteInstaller(sshPath: remoteSSHPath)),
+            remote: remoteMachinesModel(),
             recorder: hotKeyRecorder)
         let window = AppWindow(make: {
             let window = AppKeyWindow(contentRect: NSRect(origin: .zero, size: SettingsView.size),
@@ -3136,23 +3146,96 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The menus' "Setup…".
     @objc func openSetupFromMenu(_ sender: Any?) { openSetup() }
 
+    // MARK: - Updates
+
+    /// The window's focus call on open; a test holds it still.
+    var updatesActivation: () -> Void = { WindowStage.activate() }
+
+    /// The update window, built on first use; each opening reads its rows
+    /// afresh (`UpdatesModel.start`). Like Settings, Evlat comes forward.
+    func openUpdates() {
+        hover.closeNow()
+        if barState.isOpen { closeBar() }
+        let window = updatesWindow ?? makeUpdatesWindow()
+        window.show()
+    }
+
+    private func makeUpdatesWindow() -> AppWindow {
+        let model = UpdatesModel(host: updatesHost)
+        let window = AppWindow(make: { UpdatesWindow.make(model: model) },
+                               activate: { [weak self] in self?.updatesActivation() })
+        window.onOpen = { model.start() }
+        model.close = { [weak window] in window?.close() }
+        updates = model
+        updatesWindow = window
+        return window
+    }
+
+    /// The menu's "Review updates…".
+    @objc func openUpdatesFromMenu(_ sender: Any?) { openUpdates() }
+
+    /// The update window's way to the app: this Mac's cards through a setup
+    /// model of its own, the servers through the tunnels and the settings'
+    /// machine model — the jobs Settings → Remote Machines runs, so its
+    /// lines and readings follow too.
+    var updatesHost: UpdatesModel.Host {
+        let setup = SetupModel(host: setupHost)
+        return UpdatesModel.Host(
+            agentRows: { setup.rows },
+            updateAgent: { setup.perform(.agent($0)) },
+            machines: { [weak self] in
+                guard let self, let remote = self.remote else { return [] }
+                // Its rows follow the tunnels as Settings' do while shown;
+                // it writes nothing unless a line reads differently.
+                let model = self.remoteMachinesModel()
+                model.reload()
+                return remote.machines.map { machine in
+                    let reading = model.reading(of: machine.id) ?? remote.reading(of: machine.id)
+                    return UpdatesModel.Machine(
+                        id: machine.id, name: machine.name, state: remote.state(of: machine.id),
+                        outdated: reading.map {
+                            RemoteMachinesModel.outdatedAgents($0, enabled: remote.enabledAgents(of: machine.id))
+                        },
+                        commandOld: reading.map(RemoteMachinesModel.commandIsOld) ?? false)
+                }
+            },
+            updateMachine: { [weak self] id, done in
+                guard let self else { return false }
+                return self.remoteMachinesModel().update(id) { failure, agents in
+                    done(UpdatesModel.MachineResult(failure: failure, agents: agents))
+                }
+            },
+            reloadAgents: {
+                if setup.lang != L10n.language { setup.languageChanged(to: L10n.language) } else { setup.reload() }
+            })
+    }
+
+    /// The machines' one model, made on first use by either window.
+    private func remoteMachinesModel() -> RemoteMachinesModel {
+        if let remoteMachines { return remoteMachines }
+        let model = RemoteMachinesModel(host: remoteMachinesHost,
+                                        installer: remoteInstaller ?? RemoteInstaller(sshPath: remoteSSHPath))
+        remoteMachines = model
+        return model
+    }
+
     @objc func checkForUpdates(_ sender: Any?) { updater?.check() }
 
     /// At launch: `EVLAT_SETUP` opens the setup at its step for looking,
     /// writing nothing; otherwise it opens once, by itself, for someone who
     /// has set nothing up (`SetupTrigger`) — and is marked shown as it
-    /// opens: closing it is having seen it. Otherwise Settings opens at the
-    /// agents once, for one whose agents still hold the bytes from before
-    /// the socket (`shouldOpenAgentsAfterSocket`).
+    /// opens: closing it is having seen it. Otherwise the update window
+    /// opens once, for one whose agents still hold the bytes from before
+    /// the socket (`shouldOpenUpdatesAfterSocket`).
     func openSetupAtLaunch(environment: [String: String] = ProcessInfo.processInfo.environment) {
         if let step = Self.forcedSetup(environment) {
             openSetup(step: step)
             return
         }
         let opensSetup = shouldOpenSetup(environment: environment)
-        if shouldOpenAgentsAfterSocket(opensSetup: opensSetup, environment: environment) {
-            // Its cards say "Needs update", and one press each moves them.
-            openSettings(section: .agents)
+        if shouldOpenUpdatesAfterSocket(opensSetup: opensSetup, environment: environment) {
+            // Its rows say "Needs update", and one press moves them all.
+            openUpdates()
             defaults?.set(true, forKey: Self.socketCutShownKey)
         }
         guard opensSetup else { return }
@@ -3411,6 +3494,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The window's lines follow the tunnels only while it is on screen;
         // it writes nothing unless one reads differently.
         if let settingsWindow, settingsWindow.isVisible { settings?.follow() }
+        if let updatesWindow, updatesWindow.isVisible { updates?.refresh() }
         // A seen row that has aged out, or been pushed out by newer ones,
         // leaves on the closed bar; the scan after it draws the list without.
         if !barState.isOpen, release(from: snapshot) { scheduleRefresh() }
@@ -4504,7 +4588,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     static let menuKeys = ["menu.edge", "menu.edge.right", "menu.edge.left",
                            "menu.display", "menu.display.main", "menu.display.missing",
                            "menu.hotkey", "menu.hotkey.change", "menu.hotkey.off", "menu.hotkey.on",
-                           "menu.quit", "menu.force", "menu.force.follow", "menu.settings", "menu.setup"]
+                           "menu.quit", "menu.force", "menu.force.follow", "menu.settings", "menu.setup",
+                           "menu.updates"]
 
     /// A refused write's line. A switch, not a string built from the case,
     /// so a new failure does not compile until it has a line.
@@ -4627,6 +4712,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             line.representedObject = attention
             line.target = self
         }
+        // The lines about old hooks and servers, all in one window.
+        if model.attention.contains(where: \.isUpdate) {
+            let review = menu.addItem(withTitle: L10n.t("menu.updates", in: lang),
+                                      action: #selector(openUpdatesFromMenu(_:)), keyEquivalent: "")
+            review.target = self
+        }
     }
 
     /// An attention line: the settings, at its section.
@@ -4673,6 +4764,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             agentFailures[source] = error as? AgentIntegration.Failure
                 ?? AgentIntegration.Failure(part: .hooks, reason: error as? SettingsFile.Failure ?? .unwritable)
         }
+        // The other window showing the agents reads what this write left.
+        if settingsWindow?.isVisible == true { settings?.setup.reload() }
+        if updatesWindow?.isVisible == true { updates?.agentsChanged() }
         closeListAfterWrite()
     }
 
