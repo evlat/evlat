@@ -29,8 +29,8 @@ renames that heading to its version.
   next message; in Codex, open `/hooks` and trust Evlat's new hooks.
 - **Evlat keeps its parts up to date.** Leave **Keep these up to date
   automatically** checked when you press **Update all**, and from then on
-  Evlat updates the hooks it wrote into your agents' and servers' files
-  when they go out of date — this Mac's at launch, a server's when it
+  Evlat updates the hooks it wrote into your agents' and servers' files,
+  and a server's `evlat` command, when they go out of date — this Mac's at launch, a server's when it
   connects — and opens the window only when you need to act, such as
   Codex's `/hooks`. A usage line you took out or edited is left as it is.
   Turn it off in Settings → General → Updates. Settings → This Mac and

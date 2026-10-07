@@ -253,7 +253,9 @@ final class UpdatesModel: ObservableObject {
         results = false
         holdsResults = false
         reported = []
-        automaticKinds = []
+        // A machine's automatic job still running keeps its write, so its
+        // answer still reaches the strip.
+        automaticKinds = automaticKinds.intersection(running.map { [$0] } ?? [])
         // Checked unless the user turned automatic updates off.
         let stored = host.automatic()
         boxIsSwitch = stored == true
@@ -303,18 +305,28 @@ final class UpdatesModel: ObservableObject {
         keepCurrent = host.automatic() ?? false
     }
 
-    /// At launch: this Mac's old agents, each with the automatic write.
+    /// At launch, or turned on: this Mac's old agents, each with the
+    /// automatic write — after a job still running, never instead of it.
     func keepAgentsCurrent() {
-        guard running == nil else { return }
         host.reloadAgents()
-        beginResults()
-        agentIDs = outdatedAgents()
-        let kinds = agentIDs.map(Kind.agent)
+        joinOrBeginResults()
+        let sources = outdatedAgents().filter { !agentIDs.contains($0) }
+        agentIDs += sources
+        let kinds = sources.map(Kind.agent)
         automaticKinds.formUnion(kinds)
-        queue = kinds
+        queue += kinds
         refresh()
         next()
         report()
+    }
+
+    /// Off screen, automatic updates make a set of results of their own —
+    /// but only with nothing in flight: a press the user left running
+    /// behind Later, or results not told yet, are joined, never dropped,
+    /// and what comes of them is told with the rest.
+    private func joinOrBeginResults() {
+        guard !isShown() else { return }
+        if running == nil, queue.isEmpty { beginResults() } else { results = true }
     }
 
     /// A server connected and read old: its automatic update, into the
@@ -324,7 +336,7 @@ final class UpdatesModel: ObservableObject {
     func keepMachineCurrent(_ id: String) -> Bool {
         let kind = Kind.machine(id)
         guard running != kind, !queue.contains(kind) else { return true }
-        if !isShown(), !results || (running == nil && queue.isEmpty) { beginResults() }
+        joinOrBeginResults()
         if !machineIDs.contains(id) { machineIDs.append(id) }
         automaticKinds.insert(kind)
         pressed[kind] = nil

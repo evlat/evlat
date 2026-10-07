@@ -443,6 +443,32 @@ final class UpdatesTests: XCTestCase {
         XCTAssertFalse(model.machines.map(\.name).contains("other"))
     }
 
+    /// "Update all" left running behind Later is joined by automatic
+    /// updates, never dropped: a server connecting, and this Mac's agents
+    /// turned on meanwhile, wait their turn after the user's rows.
+    func testAutomaticUpdatesJoinAPressLeftRunning() {
+        let fake = Fake(cards: [Self.card(.claude, .installed)],
+                        machines: [Self.machine("rasp", Self.connected, outdated: [.claude]),
+                                   Self.machine("box", Self.connected, outdated: [.claude])])
+        let model = UpdatesModel(host: fake.host, lang: "en")
+        model.start()
+        model.updateAll()
+        XCTAssertEqual(fake.log, ["machine rasp"])
+        model.close()
+
+        fake.automatic = true
+        fake.machines.append(Self.machine("late", Self.connected, outdated: [.claude]))
+        XCTAssertTrue(model.keepMachineCurrent("late"), "waits its turn")
+        fake.cards = [Self.card(.claude, .outdated)]
+        model.keepAgentsCurrent()
+        XCTAssertEqual(fake.log, ["machine rasp"], "nothing runs beside a job")
+
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.claude]))
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.claude]))
+        fake.answer(UpdatesModel.MachineResult(failure: nil, agents: [.claude]))
+        XCTAssertEqual(fake.log, ["machine rasp", "machine box", "keep machine late", "keep claude"])
+    }
+
     // MARK: - Settings' strip
 
     /// Nothing old and nothing done by itself: This Mac and Servers draw no

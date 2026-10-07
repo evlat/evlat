@@ -91,7 +91,7 @@ enum UpdatesWindow {
             guard let fixed = measure.fixed, let lists = measure.lists else { return }
             let screen = (placed ? visible(window) : nil) ?? visible(nil) ?? opening
             let fit = fit(fixed: fixed, lists: lists, visible: screen.size)
-            measure.listsHeight = fit.listsHeight
+            if measure.listsHeight != fit.listsHeight { measure.listsHeight = fit.listsHeight }
             let frame = frame(fit.size, in: screen, current: placed ? window.frame : nil)
             placed = true
             if frame != window.frame { window.setFrame(frame, display: true) }

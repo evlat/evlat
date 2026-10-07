@@ -214,7 +214,10 @@ final class RemoteMachinesModel: ObservableObject {
         if fresh != rows { rows = fresh }
         if let selection, !fresh.contains(where: { $0.id == selection }) { self.selection = nil }
         if selection == nil, let first = fresh.first { selection = first.id }
-        turningOff = turningOff.filter { id, _ in fresh.contains { $0.id == id } }
+        // Read at snapshot rate while the update window is open: written
+        // only when a machine has gone.
+        let kept = turningOff.filter { id, _ in fresh.contains { $0.id == id } }
+        if kept != turningOff { turningOff = kept }
         if let pending = confirmingRemoval, !fresh.contains(where: { $0.id == pending }) {
             confirmingRemoval = nil
         }

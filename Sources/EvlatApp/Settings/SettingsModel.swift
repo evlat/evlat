@@ -108,7 +108,7 @@ final class SettingsModel: ObservableObject {
         var automaticallyUpdates: () -> Bool = { false }
         var setAutomaticallyUpdates: (Bool) -> Void = { _ in }
         /// General's "Keep Evlat's parts up to date" (`updates.automatic`):
-        /// every copy has it, an isolated one in memory.
+        /// every copy has it, a second Evlat (`EVLAT_SOCKET`) in memory.
         var keepsPartsCurrent: () -> Bool = { false }
         var setKeepsPartsCurrent: (Bool) -> Void = { _ in }
         /// Usage's switch: leave out what was not seen for the hour.

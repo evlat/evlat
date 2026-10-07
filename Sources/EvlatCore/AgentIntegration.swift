@@ -205,13 +205,14 @@ public enum AgentIntegration {
         }
     }
 
+    /// What an automatic update writes: the whole unit, or its hooks alone.
+    public enum AutomaticScope: Equatable { case unit, hooks }
+
     /// What automatic updates write for an agent (Settings → General,
     /// `updates.automatic`): only what an older copy wrote. Its hooks when
     /// they are old — with the rest of the unit (`install`), unless the
     /// usage line was taken out, which stays out. Nothing for an agent
     /// switched off, a unit not installed, or a usage line alone.
-    public enum AutomaticScope: Equatable { case unit, hooks }
-
     public static func automaticScope(_ state: State, enabled: Bool) -> AutomaticScope? {
         guard enabled, state.hooks == .outdated else { return nil }
         return state.relay == .missing ? .hooks : .unit

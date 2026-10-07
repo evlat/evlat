@@ -305,8 +305,9 @@ of `agents.enabled`; an `EVLAT_MACHINES` machine keeps it for the run.
 A connected machine whose hooks of an agent switched on there, or whose
 `evlat` command, an older copy wrote is an attention line
 (`SetupAttention.machineNeedsUpdate`, `RemoteMachinesModel.needsUpdate`),
-read from the settings window's own reading once it has one — the re-read
-after a press — else from the channel's; a missing part or a usage line
+read from the machines' one model's reading (`AppController.remoteMachines`,
+Settings' and the update window's) once it has one — the re-read after a
+press — else from the channel's; a missing part or a usage line
 alone is none, as on this Mac.
 
 Each machine's tunnel is Evlat's **own `ssh` master** (`-M -S <socket>
@@ -831,16 +832,17 @@ mark before, is no longer read), never in an isolated process
 (`Isolation.isIsolated`), never when the setup opens at that launch; a
 server connecting does not open it. Its footer's box, "Keep these up to
 date automatically" (checked unless turned off; "Update all" writes it, Later does not),
-is `updates.automatic`, also Settings → General → Updates (in memory when
-isolated, off when nothing is stored). On, Evlat updates its parts
+is `updates.automatic`, also Settings → General → Updates (in memory in a
+second Evlat, `EVLAT_SOCKET`; off when nothing is stored). On, Evlat updates its parts
 itself — this Mac's at launch and when it is turned on, a server's as it
 connects (once per process, once its job started) — through the same model and writers, but only what an older
-copy wrote (`AgentIntegration.automaticScope`: old hooks; a usage line
+copy wrote (`AgentIntegration.automaticScope`: old hooks, and on a server an old
+`evlat` command too; a usage line
 taken out stays out, one changed by hand is left; nothing for an agent
 switched off or not installed), and opens the window on its results only
 when something is left to the user: a step (Codex's `/hooks`) or a
 refused write (`SetupTrigger.opensResults`). A server's old parts are a
-machine line (below). The window
+machine line (above). The window
 (`UpdatesModel`, `UpdatesWindow`) lists this Mac's agents switched on with
 old hooks and every server not known to be current — not connected yet
 ("checked once it connects", read again as it connects), its channel

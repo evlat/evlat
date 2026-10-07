@@ -848,7 +848,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                          environment: [String: String] = ProcessInfo.processInfo.environment) -> SetupTrigger.UpdatesAtLaunch {
         let old = home.map { home in
             Agents.all.contains { agent in
-                enabledAgents.contains(agent.id)
+                // As the window's rows: an agent not on this Mac has no
+                // row there, whatever its folder still holds.
+                enabledAgents.contains(agent.id) && agent.isPresent(home: home)
                     && (try? LocalHooks.state(at: agent.hooksFile(home: home), for: agent)) == .outdated
             }
         } ?? false
@@ -2982,7 +2984,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 }
             },
             // A connected machine, by the newest reading there is: the
-            // settings window's own after a job re-read it, else what the
+            // machines' model's after a job re-read it, else what the
             // channel read when it was made.
             machinesNeedingUpdate: { [weak self] in
                 guard let self, let remote = self.remote else { return [] }
@@ -3263,7 +3265,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let reading = machines.reading(of: id) ?? remote.reading(of: id),
               RemoteMachinesModel.needsUpdate(reading, enabled: machines.enabledAgents(of: id)) else { return }
         updatesWindowOrNew()
-        if updates?.keepMachineCurrent(id) == true { machinesKeptCurrent.insert(id) }
+        // Marked by `keepMachine` as its job starts: one only queued, and
+        // passed over at its turn, is asked again at the next connect.
+        updates?.keepMachineCurrent(id)
     }
 
     /// Every machine, as the tunnels move.
@@ -3284,8 +3288,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     @objc func openUpdatesFromMenu(_ sender: Any?) { openUpdates() }
 
     /// The update window's way to the app: this Mac's cards through a setup
-    /// model of its own, the servers through the tunnels and the settings'
-    /// machine model — the jobs Settings → Servers runs, so its
+    /// model of its own, the servers through the tunnels and the machines'
+    /// one model (`remoteMachines`) — the jobs Settings → Servers runs, so its
     /// lines and readings follow too.
     var updatesHost: UpdatesModel.Host {
         let setup = SetupModel(host: setupHost)
@@ -3325,9 +3329,11 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             keepMachine: { [weak self] id, done in
                 guard let self else { return false }
-                return self.remoteMachinesModel().update(id, automatic: true) { failure, agents in
+                let started = self.remoteMachinesModel().update(id, automatic: true) { failure, agents in
                     done(UpdatesModel.MachineResult(failure: failure, agents: agents))
                 }
+                if started { self.machinesKeptCurrent.insert(id) }
+                return started
             },
             predatesSocket: { [weak self] in
                 guard let self, let home = self.home else { return false }
