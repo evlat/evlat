@@ -34,6 +34,9 @@ struct MascotCharacter: Equatable {
     /// When it plays them. Empty, the character is never asked.
     var behavior = MascotBehavior()
 
+    /// Its name in the string tables: `mascot.look.<id>`.
+    var nameKey: String { "mascot.look." + id }
+
     /// The clip a phase plays on this character.
     func clip(for phase: Phase, pacing: MascotPacing = MascotPacing.selected) -> MascotClip {
         guard let own = states[phase] else { return MascotClip.clip(for: phase, pacing: pacing) }

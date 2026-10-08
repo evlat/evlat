@@ -101,6 +101,9 @@ final class SettingsModel: ObservableObject {
         var preview: (SoundMoment) -> Void = { _ in }
         var soundVolume: () -> Double = { 1 }
         var setSoundVolume: (Double) -> Void = { _ in }
+        /// Mascot → Look: the drawn character's id, and the choice.
+        var mascotCharacter: () -> String = { MascotCharacters.default.id }
+        var setMascotCharacter: (String) -> Void = { _ in }
         /// macOS's alert sounds, offered after Evlat's own.
         var systemSounds: () -> [String] = { AlertSound.installedSystemNames }
         /// The characters sheet; `nil` with no home or in an isolated
@@ -476,6 +479,18 @@ final class SettingsModel: ObservableObject {
 
     func setSoundVolume(_ volume: Double) {
         host.setSoundVolume(volume)
+        objectWillChange.send()
+    }
+
+    /// The characters the Look group offers, in the catalog's order.
+    var looks: [MascotCharacter] { MascotCharacters.all }
+
+    /// The character the bar draws.
+    var look: String { host.mascotCharacter() }
+
+    func setLook(_ id: String) {
+        guard id != look else { return }
+        host.setMascotCharacter(id)
         objectWillChange.send()
     }
 

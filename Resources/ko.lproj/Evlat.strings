@@ -444,6 +444,12 @@
 "settings.general.nudge.notify.denied" = "시스템 설정에서 Evlat의 알림이 꺼져 있습니다.";
 "settings.general.nudge.notify.open" = "시스템 설정 열기";
 "settings.section.mascot" = "마스코트";
+"settings.mascot.look" = "모습";
+"settings.mascot.look.note" = "바 맨 위에 있는 마스코트입니다. 대기 중, 작업 중, 완료를 저마다의 방식으로 보여 줍니다.";
+"mascot.look.cube" = "큐브";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "소리";
 "settings.mascot.voice" = "누가 말할까요?";
 "settings.mascot.voice.evlat" = "Evlat";

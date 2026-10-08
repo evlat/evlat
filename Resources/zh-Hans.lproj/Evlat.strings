@@ -444,6 +444,12 @@
 "settings.general.nudge.notify.denied" = "Evlat 的通知已在“系统设置”中关闭。";
 "settings.general.nudge.notify.open" = "打开系统设置";
 "settings.section.mascot" = "吉祥物";
+"settings.mascot.look" = "外观";
+"settings.mascot.look.note" = "长条顶端的吉祥物。每一个都用自己的方式显示等待中、运行中和完成。";
+"mascot.look.cube" = "方块";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "声音";
 "settings.mascot.voice" = "谁来发声？";
 "settings.mascot.voice.evlat" = "Evlat";

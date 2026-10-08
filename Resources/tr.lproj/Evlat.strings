@@ -454,6 +454,12 @@
 "settings.general.nudge.notify.denied" = "Evlat'ın bildirimleri Sistem Ayarları'nda kapalı.";
 "settings.general.nudge.notify.open" = "Sistem Ayarları'nı aç";
 "settings.section.mascot" = "Maskot";
+"settings.mascot.look" = "Görünüm";
+"settings.mascot.look.note" = "Barın başında duran maskot. Her biri bekleyen, çalışan ve biten işi kendi yoluyla gösterir.";
+"mascot.look.cube" = "Küp";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "Sesler";
 "settings.mascot.voice" = "Kim seslensin?";
 "settings.mascot.voice.evlat" = "Evlat";

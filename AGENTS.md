@@ -339,6 +339,8 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   five phases read apart, looping clips stay under the duty-cycle ceiling,
   and a rig names only controls it declared. A character may replace any
   phase's clip with its own; Evlat's clips (`MascotClip`) are the default.
+  Settings → Mascot → Look chooses one (`mascot.character`; nothing stored,
+  or an id no character has any more, is the cube).
   When it plays gestures of its own is its `MascotBehavior`: rules over a
   typed context the shell hands it (`MascotContext`), asked **on events,
   never on a tick** — phase entered, sessions changed, gesture ended, or a
@@ -662,6 +664,7 @@ own.
 | `EVLAT_CHATS` | temporary chat root |
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
 | `EVLAT_BODY` | force the body's mode (`always`, `smart`, `tucked`, `hidden`) at launch; the stored mode is never written |
+| `EVLAT_MASCOT` | draw that character (`cube`, `pati`, `bit`, `puf`; `MascotCharacters.all`) at launch; the stored choice is never written |
 | `EVLAT_<NAME>` | a chat backend's program to run, `EVLAT_CLAUDE`, `EVLAT_CODEX` (tests use `Tests/Fixtures/fake-claude`, `fake-codex-app-server`) |
 | `EVLAT_EDGE`, `EVLAT_SELECT`, `EVLAT_SCROLL` | dock at `left`/`right`, open the list with a card up (`first` or an entity), open it scrolled — at launch, for looking and measuring; never written (`AppController`) |
 | `EVLAT_MASCOT_PACING` | `continuous` takes the clips' waits out, for the in-clip leg of a measurement (`MascotPacing`) |

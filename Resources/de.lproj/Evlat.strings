@@ -444,6 +444,12 @@
 "settings.general.nudge.notify.denied" = "Mitteilungen sind für Evlat in den Systemeinstellungen ausgeschaltet.";
 "settings.general.nudge.notify.open" = "Systemeinstellungen öffnen";
 "settings.section.mascot" = "Maskottchen";
+"settings.mascot.look" = "Aussehen";
+"settings.mascot.look.note" = "Das Maskottchen oben an der Leiste. Jedes zeigt auf seine Art, was wartet, was arbeitet und was fertig ist.";
+"mascot.look.cube" = "Würfel";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "Töne";
 "settings.mascot.voice" = "Wer spricht?";
 "settings.mascot.voice.evlat" = "Evlat";

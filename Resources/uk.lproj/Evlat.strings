@@ -444,6 +444,12 @@
 "settings.general.nudge.notify.denied" = "Сповіщення для Evlat вимкнено в Системних параметрах.";
 "settings.general.nudge.notify.open" = "Відкрити Системні параметри";
 "settings.section.mascot" = "Маскот";
+"settings.mascot.look" = "Вигляд";
+"settings.mascot.look.note" = "Маскот на початку панелі. Кожен по-своєму показує, що чекає, що працює і що готово.";
+"mascot.look.cube" = "Куб";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "Звуки";
 "settings.mascot.voice" = "Хто говорить?";
 "settings.mascot.voice.evlat" = "Evlat";

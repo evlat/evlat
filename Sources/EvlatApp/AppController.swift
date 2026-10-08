@@ -249,6 +249,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// choice but never store it, so a forced launch — an isolated copy
     /// looked at or measured — leaves the user's choice alone.
     var bodyForced = false
+    /// The character came from `EVLAT_MASCOT`: a choice in Settings is drawn
+    /// but never stored, as for `bodyForced`.
+    var mascotForced = false
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
@@ -938,6 +941,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     nonisolated static let nudgeNotifyKey = "nudge.notify"
     nonisolated static let nudgeScopeKey = "nudge.scope"
     nonisolated static let hideStaleUsageKey = "usage.hideStale"
+    /// The mascot's character (Settings → Mascot → Look), by id; nothing
+    /// stored, or an id no character has any more, is the cube.
+    nonisolated static let mascotCharacterKey = "mascot.character"
     /// What the setting offers; 0 is off.
     nonisolated static let nudgeChoices = [0, 1, 2, 5, 10, 20]
 
@@ -1003,6 +1009,28 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     ) -> BodyPresence.Mode? {
         BodyPresence.Mode(stored: environment["EVLAT_BODY"]?
             .trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
+    /// `EVLAT_MASCOT=<id>` draws that character from launch — for looking at
+    /// one and measuring it (`EVLAT_PHASE × EVLAT_MASCOT`) without touching
+    /// the user's choice, as `EVLAT_BODY` does for the body. Read, never
+    /// written. An id no character has is ignored.
+    nonisolated static func forcedMascotCharacter(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let id = environment["EVLAT_MASCOT"]?.trimmingCharacters(in: .whitespaces).lowercased(),
+              MascotCharacters.all.contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
+    /// The character in force: `EVLAT_MASCOT`, then the stored one, then the
+    /// cube.
+    nonisolated static func mascotCharacter(
+        _ defaults: UserDefaults?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> MascotCharacter {
+        MascotCharacters.character(id: forcedMascotCharacter(environment)
+                                       ?? defaults?.string(forKey: mascotCharacterKey))
     }
 
     /// The mode in force: `EVLAT_BODY`, then the stored one.
@@ -1406,6 +1434,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = Self.storedBodyToggles(defaults)
         bodyMode = Self.bodyMode(defaults)
         bodyForced = Self.forcedBodyMode() != nil
+        mascot.character = Self.mascotCharacter(defaults)
+        mascotForced = Self.forcedMascotCharacter() != nil
         // The environment over the stored choice, the right over nothing.
         // Read here, never written back: only `setEdge` writes.
         let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right,
@@ -3102,6 +3132,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             preview: { [weak self] in self?.preview($0) },
             soundVolume: { Double(SoundPlayer.volume) },
             setSoundVolume: { [weak self] in self?.setSoundVolume($0) },
+            mascotCharacter: { [weak self] in self?.mascot.character.id ?? MascotCharacters.default.id },
+            setMascotCharacter: { [weak self] in self?.setMascotCharacter($0) },
             packBrowser: { [weak self] in self?.packBrowser },
             hasUpdater: { [weak self] in self?.updater?.offersAutomaticUpdates == true },
             automaticallyUpdates: { [weak self] in self?.updater?.automaticallyUpdates() ?? false },
@@ -4407,6 +4439,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         let volume = min(1, max(0, volume))
         defaults?.set(volume, forKey: Self.soundVolumeKey)
         SoundPlayer.volume = Float(volume)
+    }
+
+    /// Settings → Mascot → Look: drawn at once, stored unless forced.
+    func setMascotCharacter(_ id: String) {
+        let character = MascotCharacters.character(id: id)
+        if !mascotForced { defaults?.set(character.id, forKey: Self.mascotCharacterKey) }
+        mascot.character = character
     }
 
     /// What a moment says now: Evlat's tone, or one of the character's lines

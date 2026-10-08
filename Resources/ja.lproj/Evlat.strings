@@ -444,6 +444,12 @@
 "settings.general.nudge.notify.denied" = "システム設定でEvlatの通知がオフになっています。";
 "settings.general.nudge.notify.open" = "システム設定を開く";
 "settings.section.mascot" = "マスコット";
+"settings.mascot.look" = "見た目";
+"settings.mascot.look.note" = "バーの先頭にいるマスコット。返答待ち・作業中・完了を、それぞれのやり方で見せます。";
+"mascot.look.cube" = "キューブ";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "サウンド";
 "settings.mascot.voice" = "誰が話す？";
 "settings.mascot.voice.evlat" = "Evlat";

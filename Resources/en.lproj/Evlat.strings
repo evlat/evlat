@@ -524,6 +524,12 @@
 /* Settings → Mascot: who speaks (Evlat's tones or a character, an
    OpenPeon pack) and at which moments; the reminder; the characters sheet. */
 "settings.section.mascot" = "Mascot";
+"settings.mascot.look" = "Look";
+"settings.mascot.look.note" = "The mascot at the head of the bar. Each one shows what’s waiting, working and done in its own way.";
+"mascot.look.cube" = "Cube";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "Sounds";
 "settings.mascot.voice" = "Who speaks?";
 "settings.mascot.voice.evlat" = "Evlat";

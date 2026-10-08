@@ -369,13 +369,24 @@ private struct BodyRows: View {
 
 // MARK: - Mascot
 
-/// Who speaks and when (mockups 1–3): the voice first — Evlat's tones or a
-/// character's lines — then a switch per moment, the reminder last.
+/// What the mascot looks like, then who speaks and when (mockups 1–3): the
+/// voice first — Evlat's tones or a character's lines — then a switch per
+/// moment, the reminder last.
 private struct MascotSection: View {
     @ObservedObject var model: SettingsModel
     @State private var showsCharacters = false
 
     var body: some View {
+        // "Look", not "Characters": the voices below are the characters.
+        SettingsGroup(title: model.t("settings.mascot.look"), note: model.t("settings.mascot.look.note")) {
+            HStack(spacing: 10) {
+                ForEach(model.looks, id: \.id) { character in
+                    LookTile(name: model.t(character.nameKey), character: character,
+                             selected: character.id == model.look) { model.setLook(character.id) }
+                }
+            }
+            .padding(12)
+        }
         SettingsGroup(title: model.t("settings.mascot.sounds"),
                       note: model.t(model.voicePack == nil ? "settings.mascot.sounds.note"
                                                            : "settings.mascot.sounds.note.pack")) {
@@ -402,6 +413,46 @@ private struct MascotSection: View {
                 })
             }
         }
+    }
+}
+
+/// One character on the bar's black, at the bar's size, with its name.
+/// Pointed at, it shows how it looks when a session waits on you — the face
+/// the choice is mostly for — on the same spring the bar uses.
+private struct LookTile: View {
+    let name: String
+    let character: MascotCharacter
+    let selected: Bool
+    let choose: () -> Void
+    @State private var pointed = false
+
+    var body: some View {
+        Button(action: choose) {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10).fill(BarPalette.body)
+                    MascotBody(pose: character.resting(for: pointed ? .waiting : .idle),
+                               size: AppController.mascotSize, rig: character.rig)
+                        .frame(width: AppController.mascotSize, height: AppController.mascotSize)
+                        .animation(MascotPose.transition, value: pointed)
+                }
+                .frame(height: 64)
+                // The ring stands off the tile: a dark ring on the dark tile
+                // would not show in the light appearance.
+                .padding(3)
+                .overlay(RoundedRectangle(cornerRadius: 13)
+                    .strokeBorder(selected ? SettingsPalette.selected : Color.clear, lineWidth: 2))
+                Text(name)
+                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? SettingsPalette.ink : SettingsPalette.body)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { pointed = $0 }
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

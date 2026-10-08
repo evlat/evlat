@@ -444,6 +444,12 @@
 "settings.general.nudge.notify.denied" = "Las notificaciones de Evlat están desactivadas en Ajustes del Sistema.";
 "settings.general.nudge.notify.open" = "Abrir Ajustes del Sistema";
 "settings.section.mascot" = "Mascota";
+"settings.mascot.look" = "Aspecto";
+"settings.mascot.look.note" = "La mascota en la cabecera de la barra. Cada una muestra a su manera lo que te espera, lo que está trabajando y lo que está listo.";
+"mascot.look.cube" = "Cubo";
+"mascot.look.pati" = "Pati";
+"mascot.look.bit" = "Bit";
+"mascot.look.puf" = "Puf";
 "settings.mascot.sounds" = "Sonidos";
 "settings.mascot.voice" = "¿Quién habla?";
 "settings.mascot.voice.evlat" = "Evlat";

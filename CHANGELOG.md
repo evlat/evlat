@@ -13,6 +13,11 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **Choose your mascot.** Settings → Mascot → Look offers Pati the cat,
+  Bit the robot and Puf the ghost beside the cube. Each shows waiting,
+  working and done in its own way — Pati's ears prick up when a session
+  waits on you, Bit's bulb lights, Puf rises — and pointing at one in
+  Settings shows how it looks while it waits.
 - **A spent usage window says 100%.** Run past its limit, Claude's 5-hour
   window could read “101%” on the open bar; it now stops at 100%.
 - **A roomier first-run setup, beside the mascot.** It opens in a panel of
