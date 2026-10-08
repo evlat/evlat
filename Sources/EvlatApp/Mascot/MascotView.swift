@@ -1,13 +1,10 @@
 import SwiftUI
 import EvlatCore
 
-/// The mascot: a cube body with two eyes.
+/// The mascot: a character's rig, walked through the phase's clip.
 ///
-/// The form is a **cube** — an edged body reads with more character than a
-/// sphere when it turns, and it also moves away from the reference. Expression
-/// lives in the **eyes**, not the body; the body is a swappable shape
-/// (`AGENTS.md` → Architecture: expression is in the pose, the form is
-/// pluggable).
+/// Expression lives in the pose; what it moves is the character's
+/// (`MascotRig`, `Characters/`). The first character is the cube.
 ///
 /// `Canvas` is not used: drawing with plain shapes lets the springs attach
 /// directly to view modifiers, and the transitions come free.
@@ -209,7 +206,7 @@ private struct ClipPlayer: View {
     }
 }
 
-/// The cube itself. Draws a pose; decides nothing, and knows nothing about
+/// The character in a pose. Draws; decides nothing, and knows nothing about
 /// phases — the one thing a phase drives directly, the shudder, hangs above it
 /// in `MascotView`. The setup draws its still face with it too
 /// (`SetupView`).
@@ -217,51 +214,12 @@ struct MascotBody: View {
     /// The pose it was handed; `drawn` is what it draws.
     let pose: MascotPose
     let size: CGFloat
+    var rig: MascotRig = Cube.rig
     @Environment(\.caughtGaze) private var caughtGaze
 
     private var drawn: MascotPose { MascotPose.drawn(pose, catching: caughtGaze) }
 
     var body: some View {
-        let pose = drawn
-        return ZStack {
-            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-                .fill(Color.white.opacity(0.92))
-            eyes(pose)
-        }
-        .scaleEffect(x: pose.scaleX, y: pose.scaleY, anchor: .center)
-        .rotationEffect(.degrees(pose.tilt))
-    }
-
-    private func eyes(_ pose: MascotPose) -> some View {
-        HStack(spacing: size * 0.16) {
-            eye(side: -1, pose)
-            eye(side: 1, pose)
-        }
-        // The eyes are children of the body: when it tilts they go with it. If
-        // they lived in their own coordinate space the result would read as two
-        // dots stuck on a box.
-        .offset(x: pose.yaw * size * 0.11, y: pose.pitch * size * 0.08)
-    }
-
-    /// One eye. A cube's face is flat, so instead of the sphere's angle mapping
-    /// this uses **perspective narrowing**: as the face turns, the far eye gets
-    /// thinner.
-    private func eye(side: Double, _ pose: MascotPose) -> some View {
-        // If the face turns by `yaw`, the eye on the opposite side travels
-        // toward the edge and narrows. Close to a cosine, but nearly linear,
-        // which suits a cube.
-        let away = max(0, side * pose.yaw)
-        let narrow = 1 - away * 0.42
-        let width = size * 0.13 * narrow
-        // Eye height has exactly one writer now: the pose. The blink used to
-        // arrive from a separate `lidClosed` flag multiplied in here.
-        let height = size * 0.30 * pose.eyeOpen * (1 - pose.eyeSquint * 0.55)
-
-        return Capsule(style: .continuous)
-            .fill(Color.black.opacity(0.92))
-            .frame(width: width, height: max(width * 0.35, height))
-            // A squint closes the eye from above: the lid comes down, the eye
-            // does not drift upward.
-            .offset(y: pose.eyeSquint * size * 0.04)
+        RigBody(rig: rig, pose: drawn, size: size)
     }
 }
