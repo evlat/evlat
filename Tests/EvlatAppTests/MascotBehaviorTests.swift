@@ -59,16 +59,20 @@ final class MascotBehaviorTests: XCTestCase {
         XCTAssertNotNil(heard.motion)
     }
 
-    /// A repeating rule speaks, then is due again `every` seconds later.
+    /// A repeating rule waits for its `after`, speaks, then is due again
+    /// `every` seconds later.
     func testARepeatingRuleComesBackOnItsInterval() {
         let news = MascotContext.Sessions(working: 1, news: 1)
-        let first = decide(.working, at: 0, news)
+        let entering = decide(.working, at: 0, news)
+        XCTAssertNil(entering.motion, "the phase change's spring is not cut short")
+        XCTAssertEqual(entering.wake, 1)
+        let first = decide(.working, at: 1, news, memory: entering.memory)
         XCTAssertNotNil(first.motion)
         XCTAssertEqual(first.wake, 20)
-        let between = decide(.working, at: 12, news, memory: first.memory)
+        let between = decide(.working, at: 13, news, memory: first.memory)
         XCTAssertNil(between.motion)
         XCTAssertEqual(between.wake ?? 0, 8, accuracy: 1e-9)
-        XCTAssertNotNil(decide(.working, at: 20, news, memory: between.memory).motion)
+        XCTAssertNotNil(decide(.working, at: 21, news, memory: between.memory).motion)
     }
 
     /// A rule is its phase's: the wait's stages say nothing while working.

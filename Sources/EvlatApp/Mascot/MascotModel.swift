@@ -66,8 +66,13 @@ public final class MascotModel: ObservableObject {
 
     /// Takes the sessions' counts from a snapshot — only while the character
     /// has rules to read them, and only when they changed. A character
-    /// without rules never sees them, so the face redraws exactly as often
-    /// as before.
+    /// without rules is not even counted for, so the face redraws exactly as
+    /// often as before.
+    func hear(_ snapshot: Registry.Snapshot) {
+        guard !character.behavior.isEmpty else { return }
+        hear(MascotContext.Sessions(snapshot))
+    }
+
     func hear(_ sessions: MascotContext.Sessions) {
         guard !character.behavior.isEmpty, sessions != self.sessions else { return }
         self.sessions = sessions

@@ -52,7 +52,7 @@ enum MascotTestCharacters {
     static let behavior = MascotBehavior(rules: [
         MascotRule(phase: .waiting, after: 60, play: [.init("flicker")]),
         MascotRule(phase: .waiting, after: 300, play: [.init("sway")]),
-        MascotRule(phase: .working, when: [MascotCondition(fact: .news, atLeast: 1)], every: 20,
+        MascotRule(phase: .working, when: [MascotCondition(fact: .news, atLeast: 1)], after: 1, every: 20,
                    play: [.init("flicker"), .init("sway", weight: 3)])
     ])
 

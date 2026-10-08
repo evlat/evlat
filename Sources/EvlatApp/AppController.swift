@@ -3651,7 +3651,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             mascot.phase = snapshot.aggregate
         }
         if mascot.hasLive != snapshot.hasLive { mascot.hasLive = snapshot.hasLive }
-        mascot.hear(MascotContext.Sessions(snapshot))
+        mascot.hear(snapshot)
 
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.

@@ -168,6 +168,15 @@ final class MascotCharacterContractTests: XCTestCase {
                     XCTAssertGreaterThan(pick.weight, 0, at)
                 }
                 XCTAssertGreaterThanOrEqual(rule.after, 0, at)
+                // A one-shot phase's arrival is never cut short (the player
+                // waits for it); a looping phase's entry is only the shared
+                // spring, which a gesture at `after` 0 would land on top of.
+                // What a character does on entering a phase is that phase's
+                // own clip, not a rule.
+                if character.clip(for: rule.phase, pacing: .normal).loops {
+                    XCTAssertGreaterThanOrEqual(rule.after, MascotPose.transitionDuration,
+                                                "\(at): it would cut the phase change's spring short")
+                }
                 if let every = rule.every { XCTAssertGreaterThan(every, 0, at) }
                 for condition in rule.when {
                     XCTAssertLessThanOrEqual(condition.atLeast, condition.atMost, at)

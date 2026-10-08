@@ -63,12 +63,15 @@ struct MascotContext: Equatable {
 /// the way its clips are.
 ///
 /// **It is asked on events, never on a tick**: the phase entered, the
-/// sessions changed, a gesture ended, or a moment a rule itself named came
-/// due (`Decision.wake`). Between them nothing runs — an idle mascot draws
-/// nothing, and a rule that asks to be woken pays for its gestures in the
-/// duty-cycle budget (`MascotCharacterContractTests`). Gestures are chosen
-/// from the character's own list; nothing outside the character, and no
-/// model, picks one.
+/// sessions changed, a gesture or a one-shot phase's arrival ended, or a
+/// moment a rule itself named came due (`Decision.wake`). Between them
+/// nothing runs — an idle mascot draws nothing, and a rule that asks to be
+/// woken pays for its gestures in the duty-cycle budget
+/// (`MascotCharacterContractTests`). A gesture never cuts a phase change
+/// short: the player waits out a one-shot arrival, and the contract keeps a
+/// looping phase's rules off its entering spring. Gestures are chosen from
+/// the character's own list; nothing outside the character, and no model,
+/// picks one.
 ///
 /// A character with no rules is never asked, and draws exactly as before.
 struct MascotBehavior: Equatable {
