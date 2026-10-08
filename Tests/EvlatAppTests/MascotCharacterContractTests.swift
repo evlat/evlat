@@ -155,6 +155,63 @@ final class MascotCharacterContractTests: XCTestCase {
         }
     }
 
+    /// A rule plays the character's own gestures, at real times, with real
+    /// weights. A gesture name the character does not have would be a rule
+    /// that silently never plays.
+    func testEveryRuleNamesItsOwnGesturesAtRealTimes() {
+        for character in characters {
+            for (i, rule) in character.behavior.rules.enumerated() {
+                let at = "\(character.id) rule \(i)"
+                XCTAssertFalse(rule.play.isEmpty, at)
+                for pick in rule.play {
+                    XCTAssertNotNil(character.motions[pick.motion], "\(at): no gesture \(pick.motion)")
+                    XCTAssertGreaterThan(pick.weight, 0, at)
+                }
+                XCTAssertGreaterThanOrEqual(rule.after, 0, at)
+                if let every = rule.every { XCTAssertGreaterThan(every, 0, at) }
+                for condition in rule.when {
+                    XCTAssertLessThanOrEqual(condition.atLeast, condition.atMost, at)
+                }
+            }
+        }
+    }
+
+    /// **A rule that repeats pays for its gestures.** Played every `every`
+    /// seconds on top of its phase, its longest gesture adds that share of
+    /// time in motion to the phase's own: together they stay under the same
+    /// ceiling the clips are held to.
+    func testRepeatingRulesStayInsideTheDutyCycleBudget() {
+        for character in characters {
+            for (i, rule) in character.behavior.rules.enumerated() {
+                guard let every = rule.every else { continue }
+                let longest = rule.play.compactMap { character.motions[$0.motion]?.movingTime }.max() ?? 0
+                let phase = character.clip(for: rule.phase, pacing: .normal).dutyCycle ?? 0
+                XCTAssertLessThanOrEqual(phase + longest / every, MascotClipTests.maxDutyCycle,
+                                         "\(character.id) rule \(i)")
+            }
+        }
+    }
+
+    /// **A character without rules is never asked**, so it draws exactly as
+    /// before rules existed: whatever the phase, the time and the sessions,
+    /// its behavior plays nothing and asks to be woken for nothing.
+    func testACharacterWithoutRulesDecidesNothing() {
+        for character in characters where character.behavior.isEmpty {
+            for phase in Phase.allCases {
+                for seconds in [0.0, 1, 59, 60, 600, 86_400] {
+                    for sessions in [MascotContext.Sessions(), .init(waiting: 3, working: 2, news: 4)] {
+                        let decision = character.behavior.decide(
+                            MascotContext(phase: phase, secondsInPhase: seconds, sessions: sessions),
+                            memory: .init(), random: { 0.5 })
+                        XCTAssertNil(decision.motion, "\(character.id) \(phase)")
+                        XCTAssertNil(decision.wake, "\(character.id) \(phase)")
+                    }
+                }
+            }
+        }
+        XCTAssertTrue(MascotCharacters.default.behavior.isEmpty, "the cube has no rules")
+    }
+
     /// A phase the character plays its own way is its clip; the measurement
     /// variant of it is that clip with the waiting taken out, as Evlat's are.
     func testAnOwnPhaseReplacesEvlatsClip() {

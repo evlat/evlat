@@ -339,6 +339,10 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   five phases read apart, looping clips stay under the duty-cycle ceiling,
   and a rig names only controls it declared. A character may replace any
   phase's clip with its own; Evlat's clips (`MascotClip`) are the default.
+  When it plays gestures of its own is its `MascotBehavior`: rules over a
+  typed context the shell hands it (`MascotContext`), asked **on events,
+  never on a tick** — phase entered, sessions changed, gesture ended, or a
+  wake a rule named. A character without rules is never asked.
 - **Smart hide's edge costs no new timer**: it is read on the existing
   1.5 s poll, one window list a tick. Measured on a release build, no row,
   the left edge under another app's window, the mouse still (screen locked,

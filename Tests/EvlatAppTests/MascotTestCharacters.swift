@@ -43,8 +43,18 @@ enum MascotTestCharacters {
                 sway: MascotControl.Range(-1, 1, rest: 0)
             ]),
         states: [.waiting: waiting],
-        motions: ["flicker": flicker]
+        motions: ["flicker": flicker, "sway": swayOnce],
+        behavior: behavior
     )
+
+    /// A wait answered in two stages, and an accent while work goes on with
+    /// a finish still unseen.
+    static let behavior = MascotBehavior(rules: [
+        MascotRule(phase: .waiting, after: 60, play: [.init("flicker")]),
+        MascotRule(phase: .waiting, after: 300, play: [.init("sway")]),
+        MascotRule(phase: .working, when: [MascotCondition(fact: .news, atLeast: 1)], every: 20,
+                   play: [.init("flicker"), .init("sway", weight: 3)])
+    ])
 
     static func eye(side: Double) -> MascotPart {
         MascotPart(name: side < 0 ? "leftEye" : "rightEye", shape: .capsule(minimumHeight: 0.4), fill: .black,
@@ -63,6 +73,15 @@ enum MascotTestCharacters {
             .entering(rest, hold: 0.6),
             .eased(rest.setting(glow, to: 0.5), over: 0.15, hold: 0.3),
             .eased(rest, over: 0.15, hold: 0.4)
+        ], loops: false)
+    }()
+
+    static let swayOnce: MascotClip = {
+        let at = MascotPose.resting(for: .working)
+        return MascotClip(steps: [
+            .eased(at.setting(sway, to: 1), over: 0.25, hold: 0.3),
+            .eased(at.setting(sway, to: -1), over: 0.35, hold: 0.4),
+            .eased(at, over: 0.25, hold: 0.3)
         ], loops: false)
     }()
 

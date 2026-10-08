@@ -12,6 +12,9 @@ import EvlatCore
 /// controls set: a serious character need not widen its eyes to say it is
 /// waiting, it may straighten and turn to you instead.
 ///
+/// When it plays its gestures is its `behavior`: rules over what the shell
+/// tells it (`MascotContext`), asked on events, never on a tick.
+///
 /// What is not the character's to decide is that the five phases read apart
 /// — above all that `waiting` is noticed, which is the whole product.
 /// `MascotCharacterContractTests` holds every character in
@@ -28,6 +31,8 @@ struct MascotCharacter: Equatable {
     var states: [Phase: MascotClip] = [:]
     /// Gestures of its own, by name, each played once on top of a phase.
     var motions: [String: MascotClip] = [:]
+    /// When it plays them. Empty, the character is never asked.
+    var behavior = MascotBehavior()
 
     /// The clip a phase plays on this character.
     func clip(for phase: Phase, pacing: MascotPacing = MascotPacing.selected) -> MascotClip {

@@ -18,6 +18,7 @@ struct MascotView: View {
                 // Awake: a clip walks the pose. `isAwake` is not `hasLive` —
                 // see `MascotModel`.
                 ClipPlayer(character: model.character, phase: model.effectivePhase,
+                           phaseSince: model.phaseSince, sessions: model.sessions,
                            gaze: model.gaze, size: size)
             } else {
                 // **Asleep.** The clip player leaves the view tree entirely — it
@@ -101,6 +102,8 @@ extension EnvironmentValues {
 private struct ClipPlayer: View {
     let character: MascotCharacter
     let phase: Phase
+    let phaseSince: Date
+    let sessions: MascotContext.Sessions
     let gaze: CGSize
     let size: CGFloat
 
@@ -125,9 +128,24 @@ private struct ClipPlayer: View {
     /// out at `waiting`'s last step and leave the new phase frozen. `@State` is
     /// the storage that closure reads live, the way it reads `generation`.
     @State private var walkedPhase: Phase?
+    /// The character's own gesture being played on top of the phase, if one
+    /// is (`MascotBehavior`). While it plays, the walk is on its clip.
+    @State private var gesture: String?
+    /// What the behavior remembers of this phase; started over with it.
+    @State private var memory = MascotBehavior.Memory()
+    /// Bumped to drop a pending wake, as `generation` drops a pending step.
+    @State private var wakeToken = 0
+    /// The sessions as last heard. In `@State` for the reason `walkedPhase`
+    /// is: a wake closes over a copy of this view, and the counts it asks
+    /// with must be the ones heard by then, not the ones it was scheduled
+    /// with.
+    @State private var heard = MascotContext.Sessions()
 
     private var clipPhase: Phase { walkedPhase ?? phase }
-    private var clip: MascotClip { character.clip(for: clipPhase) }
+    private var clip: MascotClip {
+        if let gesture, let own = character.motions[gesture] { return own }
+        return character.clip(for: clipPhase)
+    }
 
     /// Clamped because clips do not all have the same number of steps, and the
     /// index and the clip are two separate pieces of state that change in the
@@ -143,14 +161,23 @@ private struct ClipPlayer: View {
     var body: some View {
         MascotBody(pose: current.pose.blending(gaze: gaze), size: size, rig: character.rig)
             .animation(current.curve, value: step)
-            .onAppear { restart() }
-            .onDisappear { generation &+= 1; walking = false }
+            .onAppear { heard = sessions; restart(); consult() }
+            .onDisappear { generation &+= 1; wakeToken &+= 1; walking = false }
             .onChange(of: phase) { _, _ in enter() }
             // A pending step closes over a copy of this view, character and
             // all (AGENTS.md → Pitfalls): a walk carried on into another
             // character would keep walking the old one's clips. Starting
             // over drops it.
-            .onChange(of: character.id) { _, _ in restart() }
+            .onChange(of: character.id) { _, _ in
+                forgetPhase()
+                gesture = nil
+                restart()
+                consult()
+            }
+            .onChange(of: sessions) { _, now in
+                heard = now
+                consult()
+            }
     }
 
     /// A phase change lands on the new clip's first pose, but **does not
@@ -176,11 +203,22 @@ private struct ClipPlayer: View {
         // that carried the phase change — that one still drew `walkedPhase`.
         // So the spring has to be supplied here: when `step` was already 0 the
         // `.animation(value: step)` below sees no change and the pose would jump.
+        forgetPhase()
         withAnimation(MascotPose.transition) {
             walkedPhase = phase
             step = 0
+            // A gesture belongs to the phase it was played in.
+            gesture = nil
         }
         if !walking || !character.clip(for: phase).loops { restart() }
+        consult()
+    }
+
+    /// A new phase is a new evaluation: what the rules said and the wake
+    /// they asked for belonged to the old one.
+    private func forgetPhase() {
+        memory = MascotBehavior.Memory()
+        wakeToken &+= 1
     }
 
     private func restart() {
@@ -203,13 +241,80 @@ private struct ClipPlayer: View {
 
     private func advance() {
         guard let next = clip.step(after: step) else {
+            if gesture != nil { return endGesture() }
             // Played out: hold the final pose and stop scheduling. Nothing
-            // moves again until a phase change starts the walk over.
+            // moves again until a phase change starts the walk over — or the
+            // character's behavior, asked now that the arrival is told.
             walking = false
+            consult()
             return
         }
         step = next
         scheduleNext()
+    }
+
+    // MARK: - The character's behavior (`MascotBehavior`)
+
+    /// Asks the character's behavior what to do now, on an event: the
+    /// phase entered, the sessions changed, a gesture or a one-shot phase's
+    /// clip ended, or a wake it asked for came due. **A character without
+    /// rules returns here at once** — the cube is never asked, and draws as
+    /// it did before rules existed.
+    ///
+    /// Nothing is asked while a gesture plays, nor while a one-shot phase's
+    /// clip does: that clip is the arrival, the signal itself (`waiting`
+    /// turning to you), and no gesture cuts it short. Their ends ask.
+    private func consult() {
+        let behavior = character.behavior
+        guard !behavior.isEmpty, gesture == nil else { return }
+        if walking && !character.clip(for: clipPhase).loops { return }
+        let context = MascotContext(phase: clipPhase,
+                                    secondsInPhase: max(0, Date().timeIntervalSince(phaseSince)),
+                                    sessions: heard)
+        let decision = behavior.decide(context, memory: memory, random: { Double.random(in: 0..<1) })
+        memory = decision.memory
+        if let name = decision.motion, play(name) { return }
+        if let wake = decision.wake { scheduleWake(after: wake) }
+    }
+
+    /// Walks a gesture's clip from its first step; the phase's pending step
+    /// is dropped. `false` when the character has no gesture by that name.
+    private func play(_ name: String) -> Bool {
+        guard let own = character.motions[name], let first = own.steps.first else { return false }
+        wakeToken &+= 1
+        withAnimation(first.curve) {
+            gesture = name
+            step = 0
+        }
+        generation &+= 1
+        scheduleNext()
+        return true
+    }
+
+    /// A gesture played out: back to the phase's resting pose — the first
+    /// step of its clip and its last, which the contract makes one pose. A
+    /// loop takes its rhythm up from the top; a one-shot phase holds, since
+    /// its arrival was already told.
+    private func endGesture() {
+        let phaseClip = character.clip(for: clipPhase)
+        withAnimation(MascotPose.transition) {
+            gesture = nil
+            step = phaseClip.loops ? 0 : max(0, phaseClip.steps.count - 1)
+        }
+        generation &+= 1
+        if phaseClip.loops { scheduleNext() } else { walking = false }
+        consult()
+    }
+
+    /// A moment the behavior named: scheduled like a step's hold, dropped
+    /// like one when the phase, the character or the view goes.
+    private func scheduleWake(after seconds: Double) {
+        wakeToken &+= 1
+        let mine = wakeToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            guard mine == wakeToken else { return }
+            consult()
+        }
     }
 }
 
