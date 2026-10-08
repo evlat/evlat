@@ -4,11 +4,11 @@ import EvlatCore
 @testable import EvlatAgents
 @testable import EvlatApp
 
-/// The setup window: its steps forward and back,
-/// what "Install" and "Finish" write, the chat step without a `claude`, the
-/// launch that opens it once, and its fixed height. Every writer is a real
-/// controller's under a temporary home and a suite of its own, recorded on
-/// the way: the user's files, domain and login item are never touched.
+/// The setup: its four steps forward and back, what "Connect" and "Finish"
+/// write, what the second step hears, the launch that opens it once, and its
+/// fixed size. Every writer is a real controller's under a temporary home and
+/// a suite of its own, recorded on the way: the user's files, domain and login
+/// item are never touched.
 @MainActor
 final class SetupFlowTests: XCTestCase {
     private var root: URL!
@@ -54,30 +54,58 @@ final class SetupFlowTests: XCTestCase {
         return controller
     }
 
+    /// What the readings the controller owns say, and what the updater is.
+    private struct World {
+        var sessions: [AgentID: Int] = [:]
+        var covered: Bool?
+        var edgeReads = 0
+        /// Agents whose write is refused (the writer does nothing).
+        var refusing: Set<AgentID> = []
+        /// An updater of Sparkle's kind: its own switch and the parts'.
+        var updater: Bool?
+        var sparkle = false
+    }
+
+    private var world = World()
+
     /// The controller's own writers, each call noted first.
-    private func flow(_ controller: AppController, claude: String? = "/usr/local/bin/claude",
-                      step: SetupFlowModel.Step = .hello,
-                      sandboxes: SettingsModel.Sandboxes? = nil) -> SetupFlowModel {
+    private func flow(_ controller: AppController, step: SetupFlowModel.Step = .agents,
+                      firstRun: Bool = false) -> SetupFlowModel {
         var setup = controller.setupHost
         let agent = setup.setAgent
         let link = setup.setCommandLink, loginItem = setup.setLoginItem
-        setup.setAgent = { [unowned self] in writes.append("agent \($0.rawValue) \($1)"); agent($0, $1) }
+        setup.setAgent = { [unowned self] in
+            writes.append("agent \($0.rawValue) \($1)")
+            if !world.refusing.contains($0) { agent($0, $1) }
+        }
         setup.setCommandLink = { [unowned self] in writes.append("link \($0)"); link($0, $1) }
         setup.setLoginItem = { [unowned self] in writes.append("login \($0)"); loginItem($0) }
         var settings = controller.settingsHost
-        let setEdge = settings.setEdge, setMode = settings.setDefaultMode
+        let setEdge = settings.setEdge, setBody = settings.setBodyMode, setSound = settings.setSoundOn
+        let setParts = settings.setKeepsPartsCurrent
         settings.setEdge = { [unowned self] in writes.append("edge \($0.isLeft ? "left" : "right")"); setEdge($0) }
-        settings.setDefaultMode = { [unowned self] in writes.append("mode \($0.id)"); setMode($0) }
-        settings.locateBackend = { _, done in done(claude) }
-        if var sandboxes {
-            settings.sandboxes = { sandboxes }
-            settings.setSandboxes = { [unowned self] on in writes.append("sandboxes \(on)"); sandboxes.on = on }
+        settings.setBodyMode = { [unowned self] in writes.append("body \($0.storedValue)"); setBody($0) }
+        settings.setSoundOn = { [unowned self] in writes.append("sound \($0) \($1.rawValue)"); setSound($0, $1) }
+        settings.preview = { [unowned self] in writes.append("preview \($0.rawValue)") }
+        settings.setKeepsPartsCurrent = { [unowned self] in writes.append("parts \($0)"); setParts($0) }
+        settings.openSessions = { [unowned self] in world.sessions }
+        settings.edgeCovered = { [unowned self] in world.edgeReads += 1; return world.covered }
+        if world.updater != nil {
+            settings.hasUpdater = { true }
+            settings.automaticallyUpdates = { [unowned self] in world.sparkle }
+            settings.setAutomaticallyUpdates = { [unowned self] in writes.append("sparkle \($0)"); world.sparkle = $0 }
         }
         let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: setup, lang: "en"),
-                                  recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
                                   close: { [unowned self] in writes.append("close") }, lang: "en")
-        flow.start(at: step)
+        flow.start(at: step, firstRun: firstRun)
         return flow
+    }
+
+    private func event(_ source: AgentID = .claude, cwd: String? = "/Users/me/evlat", task: String? = nil) -> HookEvent {
+        var json: [String: Any] = ["hook_event_name": "UserPromptSubmit", "session_id": "s-1"]
+        if let cwd { json["cwd"] = cwd }
+        if let task { json[HookEvent.taskKey] = task }
+        return HookEvent(json: json, source: source)
     }
 
     // MARK: - Steps
@@ -86,247 +114,487 @@ final class SetupFlowTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller)
-        XCTAssertEqual(flow.step, .hello)
+        XCTAssertEqual(flow.step, .agents)
         XCTAssertFalse(flow.showsBack)
-        XCTAssertFalse(flow.showsSkip)
-        XCTAssertEqual(flow.primaryKey, "setup.flow.start")
+        XCTAssertTrue(flow.showsSkip, "something to connect: not now is offered")
+        XCTAssertEqual(flow.primaryKey, "setup.flow.connect")
         flow.primary()
-        XCTAssertEqual(flow.step, .edge)
+        XCTAssertEqual(flow.step, .connected, "an agent was written: the second step asks after it")
         XCTAssertTrue(flow.showsBack)
-        XCTAssertTrue(flow.showsSkip)
+        XCTAssertFalse(flow.showsSkip)
+        XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
         flow.primary()
-        XCTAssertEqual(flow.step, .sessions)
-        XCTAssertEqual(flow.primaryKey, "setup.flow.install", "something to write: Install")
-        flow.skip()
-        XCTAssertEqual(flow.step, .chat, "skip moves on and writes nothing")
-        flow.skip()
-        XCTAssertEqual(flow.step, .optional)
+        XCTAssertEqual(flow.step, .bar)
+        flow.primary()
+        XCTAssertEqual(flow.step, .finish)
         XCTAssertEqual(flow.primaryKey, "setup.flow.finish")
+        writes = []
 
         flow.back()
-        XCTAssertEqual(flow.step, .chat)
-        flow.go(to: .optional)
-        XCTAssertEqual(flow.step, .chat, "a dot ahead is not a way forward")
-        XCTAssertTrue(flow.canGo(to: .edge))
-        XCTAssertFalse(flow.canGo(to: .chat), "the current dot")
-        flow.go(to: .edge)
-        XCTAssertEqual(flow.step, .edge, "a passed dot goes back")
-        flow.go(to: .hello)
-        XCTAssertEqual(flow.step, .hello)
+        XCTAssertEqual(flow.step, .bar)
         flow.back()
-        XCTAssertEqual(flow.step, .hello, "nothing before the first step")
-        XCTAssertEqual(writes, [], "going back and skipping call no writer")
-    }
-
-    /// Going back shows what was done with a ✓ and does not undo it: the
-    /// rows read their state again, and "Install" becomes "Continue".
-    func testGoingBackAfterInstallingKeepsIt() throws {
-        let controller = try controller(home: home)
-        defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
-        flow.primary()
-        XCTAssertEqual(flow.step, .sessions, "Install stays on its step")
-        XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
-        XCTAssertTrue(flow.installed)
-        flow.primary()
-        XCTAssertEqual(flow.step, .chat)
-        let before = writes
+        XCTAssertEqual(flow.step, .connected)
         flow.back()
-        XCTAssertEqual(flow.step, .sessions)
-        XCTAssertEqual(flow.setup.row(.agent(.claude))?.status, .installed)
-        XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
-        XCTAssertEqual(writes, before, "back undoes nothing")
+        XCTAssertEqual(flow.step, .agents)
+        flow.back()
+        XCTAssertEqual(flow.step, .agents, "nothing before the first step")
+        XCTAssertEqual(writes, [], "going back calls no writer")
     }
 
-    // MARK: - Sessions
-
-    private let wraps = "Your statusLine command is wrapped: it prints what it printed, and Evlat also gets what it is given."
-
-    /// The step's cards are the catalogue's, in its order: no fixed list of
-    /// agents. The ones found are switched on, one not found is dim.
-    func testTheCardsComeFromTheCatalogue() throws {
+    /// Connect writes exactly the checked agents and the second step is
+    /// theirs alone; the one left out is switched off.
+    func testConnectWritesTheCheckedAgentsAndTheSecondStepIsTheirs() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
-        XCTAssertEqual(SetupFlowModel.sessionItems, Set(Agents.all.ids.map(SetupItem.agent)))
-        XCTAssertEqual(flow.sessionRows.map(\.item), Agents.all.ids.map(SetupItem.agent))
-        XCTAssertEqual(flow.sessionRows.map(\.status), [.missing, .missing, .notFound])
-        XCTAssertTrue(flow.isQueued(.agent(.claude)))
-        XCTAssertTrue(flow.isQueued(.agent(.codex)))
-        XCTAssertFalse(flow.isQueued(.agent(.antigravity)), "not on this Mac: nothing to queue")
-    }
-
-    /// "Install" writes the lines above it and nothing else: an agent
-    /// turned off, one set up by hand and the optional step's items stay
-    /// unwritten. Claude's hooks and usage line are one write.
-    func testInstallWritesOnlyWhatItsConsentLists() throws {
-        let controller = try controller(home: home)
-        defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
-        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line",
-                                             "~/.codex/hooks.json · hooks", wraps])
-        flow.setup.toggleManual(.agent(.codex))
-        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line", wraps])
+        let flow = flow(controller)
+        XCTAssertEqual(flow.pendingWrites, [.agent(.claude), .agent(.codex)])
+        flow.setQueued(.agent(.codex), false)
         flow.primary()
-        XCTAssertEqual(writes, ["agent claude true"], "only the consent's line")
+        XCTAssertEqual(writes, ["agent claude true"], "only the checked one")
+        XCTAssertEqual(flow.connected, [.claude])
+        XCTAssertEqual(flow.step, .connected)
         XCTAssertEqual(flow.setup.row(.agent(.claude))?.status, .installed)
         XCTAssertEqual(flow.setup.row(.agent(.codex))?.status, .missing)
-        XCTAssertEqual(flow.setup.row(.commandLink)?.status, .missing, "the optional step's item is not this step's")
+        XCTAssertEqual(defaults.stringArray(forKey: EnabledAgents.key), ["claude"], "the one left out is switched off")
+        XCTAssertEqual(flow.setup.row(.commandLink)?.status, .missing, "the last step's item is not this step's")
         XCTAssertEqual(flow.setup.row(.loginItem)?.status, .missing)
     }
 
-    /// After "Install", whenever the button says "Install" again its lines
-    /// are there: the consent follows the queue, not the first press.
-    func testInstallAgainListsWhatItWrites() throws {
+    func testAnAgentOffStartsUnchecked() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
+        controller.setEnabled(.codex, false)
+        let flow = flow(controller)
+        XCTAssertEqual(flow.tiles.map(\.selected), [true, false])
+        XCTAssertEqual(flow.pendingWrites, [.agent(.claude)])
+    }
+
+    /// With nothing to connect the second step is skipped, forward and back.
+    func testWithNothingConnectedTheSecondStepIsSkippedBothWays() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        for source in [AgentID.claude, .codex] { flow.setQueued(.agent(source), false) }
+        XCTAssertEqual(flow.pendingWrites, [])
+        XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
+        XCTAssertFalse(flow.showsSkip, "nothing to skip")
+        flow.primary()
+        XCTAssertEqual(flow.step, .bar)
+        XCTAssertEqual(writes, [])
+        flow.back()
+        XCTAssertEqual(flow.step, .agents, "back skips it too")
+    }
+
+    func testAnAlreadyConnectedAgentIsNotTheSecondStepsAndAnOldOneIsUpdated() throws {
+        try AgentIntegration.install(home: home, for: .codex)
+        try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]]])
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        XCTAssertTrue(flow.reopened)
+        XCTAssertEqual(flow.pendingWrites, [.agent(.claude)], "the connected one is not written again")
+        XCTAssertEqual(flow.primaryKey, "setup.flow.update", "only an old one to write: the button says so")
+        flow.primary()
+        XCTAssertEqual(writes, ["agent claude true"])
+        XCTAssertEqual(flow.connected, [.claude], "Codex was connected before this visit")
+        XCTAssertEqual(flow.step, .connected)
+    }
+
+    /// A refused write stays on its step; the agent whose write went in is
+    /// the second step's all the same.
+    func testARefusedWriteStaysOnTheFirstStep() throws {
+        world.refusing = [.codex]
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        flow.primary()
+        XCTAssertEqual(flow.step, .agents)
+        XCTAssertEqual(flow.connected, [.claude], "the one that went in")
+        XCTAssertEqual(flow.pendingWrites, [.agent(.codex)])
+        XCTAssertEqual(flow.primaryKey, "setup.flow.connect", "again")
         flow.setQueued(.agent(.codex), false)
         flow.primary()
-        XCTAssertEqual(flow.installConsent, [])
-        flow.setQueued(.agent(.codex), true)
-        XCTAssertEqual(flow.primaryKey, "setup.flow.install")
-        XCTAssertEqual(flow.installConsent, ["~/.codex/hooks.json · hooks"], "the lines of the next press")
+        XCTAssertEqual(flow.step, .connected, "nothing refused left")
     }
 
-    /// A block set up by hand closes once the check finds it: no row keeps
-    /// waiting for what is already there.
-    func testACheckedManualRowStopsWaiting() throws {
+    /// Going back shows what was done as connected and does not undo it.
+    func testGoingBackAfterConnectingKeepsIt() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
-        flow.setup.toggleManual(.agent(.claude))
-        try AgentIntegration.install(home: home, for: .claude)
-        flow.setup.check()
-        XCTAssertNil(flow.setup.manualOpen)
-        XCTAssertTrue(flow.summary.contains { $0.mark == .done && $0.text == "Claude Code connected" })
-    }
-
-    func testNothingToWriteIsContinue() throws {
-        let controller = try controller(home: home)
-        defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
-        for source in [AgentID.claude, .codex] { flow.setQueued(.agent(source), false) }
-        XCTAssertEqual(flow.installConsent, [])
-        XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
+        let flow = flow(controller)
         flow.primary()
-        XCTAssertEqual(flow.step, .chat)
-        XCTAssertEqual(writes, [])
+        flow.primary()
+        XCTAssertEqual(flow.step, .bar)
+        let before = writes
+        flow.back()
+        flow.back()
+        XCTAssertEqual(flow.step, .agents)
+        XCTAssertEqual(flow.setup.row(.agent(.claude))?.status, .installed)
+        XCTAssertEqual(flow.tiles.map(\.mood), [.done, .done])
+        XCTAssertTrue(flow.pendingWrites.isEmpty)
+        XCTAssertEqual(flow.primaryKey, "setup.flow.continue")
+        XCTAssertEqual(writes, before, "back undoes nothing")
+        flow.primary()
+        XCTAssertEqual(flow.step, .connected, "this visit's agents are still the second step's")
     }
 
-    func testCodexIsDimWithoutItsDirectory() throws {
+    // MARK: - First step
+
+    /// The tiles are the catalogue's, in its order: no fixed list of agents.
+    /// One not found is not drawn.
+    func testTheTilesComeFromTheCatalogueAndHideWhatIsNotFound() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        XCTAssertEqual(SetupFlowModel.agentItems, Set(Agents.all.ids.map(SetupItem.agent)))
+        XCTAssertEqual(flow.tiles.map(\.source), [.claude, .codex], "Antigravity is not on this Mac")
+        XCTAssertEqual(flow.tiles.map(\.mood), [.choice, .choice])
+        XCTAssertEqual(flow.tiles.map(\.selected), [true, true], "found and switched on: checked")
+        XCTAssertFalse(flow.isQueued(.agent(.antigravity)))
         try FileManager.default.removeItem(at: home.appendingPathComponent(".codex"))
-        let controller = try controller(home: home)
-        defer { controller.panel?.close() }
-        let flow = flow(controller, step: .sessions)
-        XCTAssertEqual(flow.setup.row(.agent(.codex))?.status, .notFound)
-        XCTAssertEqual(flow.installConsent, ["~/.claude/settings.json · hooks and the usage line", wraps])
+        XCTAssertEqual(self.flow(controller).tiles.map(\.source), [.claude])
     }
 
-    // MARK: - Chat, edge
-
-    func testTheModesNeedAClaude() throws {
+    func testTheTilesSayTheirOpenSessionsOutdatedAndConnected() throws {
+        world.sessions = [.claude: 3, .codex: 1]
+        try AgentIntegration.install(home: home, for: .codex)
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        XCTAssertFalse(flow(controller, claude: nil, step: .chat).showsModes)
-        let found = flow(controller, step: .chat)
-        XCTAssertTrue(found.showsModes)
-        found.setMode(.ask)
-        XCTAssertEqual(writes, ["mode default"], "`ask` is claude's `default`")
+        let flow = flow(controller)
+        let claude = try XCTUnwrap(flow.tiles.first { $0.source == .claude })
+        XCTAssertEqual(claude.note, "3 sessions")
+        XCTAssertEqual(claude.mood, .choice)
+        let codex = try XCTUnwrap(flow.tiles.first { $0.source == .codex })
+        XCTAssertEqual(codex.mood, .done, "connected, untouchable")
+        XCTAssertEqual(codex.note, "Connected")
+        XCTAssertEqual(flow.openSessionTotal, 4, "the sentence counts every ring")
+
+        world.sessions = [.claude: 1]
+        XCTAssertEqual(self.flow(controller).tiles.first { $0.source == .claude }?.note, "1 session")
+        world.sessions = [:]
+        XCTAssertNil(self.flow(controller).tiles.first { $0.source == .claude }?.note)
+
+        try writeClaude(["hooks": ["Stop": [["hooks": [["type": "command", "command": tcpCommand]]]]]])
+        let old = try XCTUnwrap(self.flow(controller).tiles.first { $0.source == .claude })
+        XCTAssertEqual(old.note, "outdated")
+        XCTAssertEqual(old.tone, .caution)
+        XCTAssertEqual(old.mood, .choice)
     }
 
-    /// The new chats' backend is derived from what is found, so the chat
-    /// step looks every backend up, not only the one derived before it.
-    func testTheChatStepLooksEveryBackendUp() throws {
+    /// Opened again with something connected, the first step is "your
+    /// connections", not a welcome.
+    func testReopenedWithSomethingConnectedReadsAsTheConnections() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        var settings = controller.settingsHost
-        var asked: [AgentID] = []
-        settings.locateBackend = { id, done in asked.append(id); done(nil) }
-        let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: controller.setupHost, lang: "en"),
-                                  recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
-                                  close: {}, lang: "en")
-        flow.start(at: .chat)
-        XCTAssertEqual(asked, Agents.chatBackends.map(\.id))
-        XCTAssertEqual(flow.backend, .missing)
+        XCTAssertFalse(flow(controller).reopened)
+        try AgentIntegration.install(home: home, for: .claude)
+        XCTAssertTrue(self.flow(controller).reopened)
     }
 
-    func testTheEdgeIsAppliedAtOnceAndTheMascotLooksThere() throws {
+    // MARK: - Not now
+
+    func testNotNowWritesTheChoiceAndNothingElse() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        let flow = flow(controller, step: .edge)
-        XCTAssertEqual(flow.mascot.gaze.width, 1, "the bar is on the right: it looks right")
-        let blinks = flow.blinks
+        let flow = flow(controller)
+        flow.setQueued(.agent(.claude), false)
+        flow.skip()
+        XCTAssertEqual(defaults.stringArray(forKey: EnabledAgents.key), ["codex"])
+        XCTAssertEqual(writes, [], "no file")
+        XCTAssertEqual(flow.setup.row(.agent(.codex))?.status, .missing)
+        XCTAssertEqual(flow.step, .bar, "nothing was written: no second step")
+    }
+
+    // MARK: - Second step
+
+    func testOnlyTheFirstEventOfAConnectedAgentWithoutATaskIsHeard() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        flow.heard(event(.claude))
+        XCTAssertEqual(flow.heardFrom, [:], "before Connect nothing is heard")
+        flow.setQueued(.agent(.codex), false)
+        flow.primary()
+        flow.heard(event(.codex))
+        XCTAssertEqual(flow.heardFrom, [:], "an agent that was not connected")
+        flow.heard(event(.claude, task: "t-1"))
+        XCTAssertEqual(flow.heardFrom, [:], "Evlat's own chat turn")
+        XCTAssertFalse(flow.allHeard)
+        flow.heard(event(.claude, cwd: "/Users/me/evlat"))
+        XCTAssertEqual(flow.heardFrom[.claude], SetupFlowModel.Heard(session: "evlat"))
+        flow.heard(event(.claude, cwd: "/elsewhere"))
+        XCTAssertEqual(flow.heardFrom[.claude], SetupFlowModel.Heard(session: "evlat"), "the first one")
+        XCTAssertTrue(flow.allHeard)
+        XCTAssertEqual(flow.listening.map(\.line), ["Heard · evlat"])
+    }
+
+    func testTheSecondStepAsksPerAgentAndSaysWhatItHeard() throws {
+        world.sessions = [.claude: 2]
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        flow.primary()
+        XCTAssertEqual(flow.listening.map(\.source), [.claude, .codex])
+        XCTAssertEqual(flow.listening[0].line, "To try it, write a message in an open session.")
+        XCTAssertEqual(flow.listening[1].line, "In Codex, type /hooks and approve Evlat.", "the agent's own line")
+        flow.heard(event(.codex, cwd: nil))
+        XCTAssertEqual(flow.listening[1].line, "Heard", "no folder to name")
+        XCTAssertTrue(flow.listening[1].heard)
+        XCTAssertFalse(flow.allHeard)
+    }
+
+    func testWithoutAnOpenSessionTheGeneralLineSaysToOpenOne() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        flow.primary()
+        XCTAssertEqual(flow.listening[0].line, "To try it, open a session.")
+    }
+
+    /// A window that closes forgets what only the second step holds, so
+    /// nothing listens and no ring turns in a window nobody sees.
+    func testClosingTheWindowForgetsWhatWasConnectedAndHeard() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        flow.primary()
+        flow.heard(event(.claude))
+        XCTAssertFalse(flow.heardFrom.isEmpty)
+        flow.windowClosed()
+        XCTAssertEqual(flow.connected, [])
+        XCTAssertEqual(flow.heardFrom, [:])
+        XCTAssertEqual(flow.step, .agents)
+        flow.heard(event(.claude))
+        XCTAssertEqual(flow.heardFrom, [:], "nothing is connected any more")
+    }
+
+    /// The controller's one gate for this Mac's events reaches the flow, and
+    /// a flow opened again starts clean.
+    func testTheControllerHandsItsHookEventsToTheFlow() throws {
+        let controller = try controller(home: home)
+        defer { controller.setupWindow?.close(); controller.panel?.close() }
+        controller.openSetup(step: .agents)
+        let flow = try XCTUnwrap(controller.setupFlow)
+        flow.primary()
+        XCTAssertEqual(flow.connected, [.claude, .codex])
+        controller.handleHookEvent(event(.codex))
+        XCTAssertEqual(Set(flow.heardFrom.keys), [.codex])
+        controller.openSetup(step: .agents)
+        XCTAssertEqual(flow.heardFrom, [:], "starting over")
+        XCTAssertEqual(flow.connected, [])
+    }
+
+    func testTheForcedSecondStepStandsInForWhatWasConnected() throws {
+        try AgentIntegration.install(home: home, for: .codex)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertEqual(flow(controller, step: .connected).connected, [.codex])
+    }
+
+    // MARK: - Bar
+
+    func testTheEdgeAndTheVisibilityAreAppliedAtOnce() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .bar)
+        XCTAssertEqual(flow.edge, .right)
+        XCTAssertEqual(flow.visibility, .always)
         flow.chooseEdge(.left)
         XCTAssertEqual(writes, ["edge left"])
         XCTAssertEqual(controller.panel?.edge, .left)
-        XCTAssertEqual(flow.mascot.gaze.width, -1)
-        XCTAssertEqual(flow.blinks, blinks + 1, "one blink on the choice")
         flow.chooseEdge(.left)
         XCTAssertEqual(writes, ["edge left"], "the same edge again writes nothing")
-        XCTAssertEqual(flow.blinks, blinks + 1)
+        flow.chooseVisibility(.smart)
+        XCTAssertEqual(writes, ["edge left", "body smart"])
+        XCTAssertEqual(controller.bodyMode, .smart)
+        flow.chooseVisibility(.smart)
+        XCTAssertEqual(writes.count, 2)
+        flow.chooseVisibility(.always)
+        XCTAssertEqual(controller.bodyMode, .always)
     }
 
-    // MARK: - Optional, done
+    /// The edge is read once on entering the step and once per change of
+    /// edge: no poll, no timer.
+    func testTheEdgeIsReadOnEntryAndWhenItChanges() throws {
+        world.covered = true
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        XCTAssertEqual(world.edgeReads, 0, "not on the first step")
+        XCTAssertNil(flow.edgeCovered)
+        flow.setQueued(.agent(.claude), false)
+        flow.setQueued(.agent(.codex), false)
+        flow.primary()
+        XCTAssertEqual(flow.step, .bar)
+        XCTAssertEqual(world.edgeReads, 1)
+        XCTAssertEqual(flow.edgeCovered, true)
+        world.covered = nil
+        flow.chooseEdge(.left)
+        XCTAssertEqual(world.edgeReads, 2)
+        XCTAssertNil(flow.edgeCovered, "a bar not on screen says nothing")
+        flow.chooseVisibility(.smart)
+        XCTAssertEqual(world.edgeReads, 2, "the visibility reads nothing")
+    }
+
+    /// The controller's reading goes through the edge reader it was given,
+    /// so a test never reads the user's windows.
+    func testTheControllersEdgeReadingGoesThroughItsReader() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertNil(controller.readEdgeCover(), "a test's reader tells nothing")
+        var strips: [EdgeCover.Strip] = []
+        controller.edgeReader = { strips.append($0); return true }
+        XCTAssertEqual(controller.readEdgeCover(), true)
+        XCTAssertEqual(strips.count, 1)
+        XCTAssertEqual(strips.first?.edge, controller.panel?.edge)
+        XCTAssertEqual(controller.bodyMode, .always, "whatever the mode, and it changes nothing")
+        XCTAssertFalse(controller.edgeClear)
+    }
+
+    /// The sessions the first step counts are the bar's session rows by
+    /// agent: a chat or a usage window is not one.
+    func testTheOpenSessionCountsAreTheSessionRowsByAgent() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        controller.registry.register(controller.hooks)
+        controller.applyEnabledAgents()
+        XCTAssertEqual(controller.openSessionCounts(), [:], "before the first scan")
+        func session(_ id: String, _ source: AgentID) -> HookEvent {
+            HookEvent(json: ["hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": "/tmp/p"], source: source)
+        }
+        controller.handleHookEvent(session("c-1", .claude))
+        controller.handleHookEvent(session("c-2", .claude))
+        controller.handleHookEvent(session("x-1", .codex))
+        controller.refresh()
+        XCTAssertEqual(controller.openSessionCounts(), [.claude: 2, .codex: 1])
+    }
+
+    // MARK: - Finish
+
+    func testTheSoundRowWritesBothMomentsAndThePlayHearsTheApproval() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .finish)
+        XCTAssertFalse(flow.soundOn)
+        flow.setSound(true)
+        XCTAssertEqual(writes, ["sound true approval", "sound true answer"])
+        XCTAssertTrue(flow.soundOn)
+        XCTAssertEqual(controller.soundOn[.approval], true)
+        XCTAssertEqual(controller.soundOn[.answer], true)
+        XCTAssertNotEqual(controller.soundOn[.done], true, "the finishes keep their own switch")
+        flow.setSound(true)
+        XCTAssertEqual(writes.count, 2, "no change, no write")
+        flow.previewSound()
+        XCTAssertEqual(writes.last, "preview approval")
+        flow.setSound(false)
+        XCTAssertEqual(controller.soundOn[.answer], false)
+    }
+
+    func testOneMomentOnReadsAsOffAndASwitchOnWritesBoth() throws {
+        defaults.set(true, forKey: SoundMoment.approval.onKey)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .finish)
+        XCTAssertFalse(flow.soundOn)
+        flow.setSound(true)
+        XCTAssertEqual(controller.soundOn[.answer], true)
+    }
 
     /// "Finish" writes the link (on by default) and the login item only when
-    /// turned on (off by default) — nothing of the sessions step.
-    func testFinishWritesOnlyTheOptionalItems() throws {
+    /// turned on (off by default) — nothing of the first step.
+    func testFinishWritesOnlyTheCheckedItemsAndCloses() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        let flow = flow(controller, step: .optional)
-        XCTAssertTrue(flow.isQueued(.commandLink))
-        XCTAssertFalse(flow.isQueued(.loginItem), "open at login is off by default")
-        XCTAssertEqual(flow.finishConsent, ["~/.local/bin/evlat · a link to this copy of Evlat"])
+        let flow = flow(controller, step: .finish)
+        XCTAssertEqual(flow.toggle(.commandLink), SetupFlowModel.Switch(on: true, enabled: true))
+        XCTAssertEqual(flow.toggle(.loginItem), SetupFlowModel.Switch(on: false, enabled: true),
+                       "open at login is off by default")
+        flow.primary()
+        XCTAssertEqual(writes.filter { !$0.hasPrefix("parts") }, ["link true", "close"])
+        XCTAssertEqual(flow.setup.row(.agent(.claude))?.status, .missing)
+    }
+
+    func testTheLoginItemIsWrittenWhenCheckedAndAnInstalledOneIsNotAnOffer() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .finish)
         flow.setQueued(.loginItem, true)
-        XCTAssertEqual(flow.finishConsent.count, 2)
-        flow.setQueued(.loginItem, false)
+        flow.setQueued(.commandLink, false)
         flow.primary()
-        XCTAssertEqual(writes, ["link true"])
-        XCTAssertEqual(flow.step, .done)
-        XCTAssertFalse(flow.showsBack)
-        XCTAssertFalse(flow.showsSkip)
-        XCTAssertEqual(flow.primaryKey, "setup.flow.close")
-        XCTAssertTrue(flow.summary.contains { $0.mark == .done && $0.text == "evlat command in ~/.local/bin" })
-        XCTAssertTrue(flow.summary.contains { $0.mark == .skipped && $0.text.contains("Claude Code") })
-        flow.primary()
-        XCTAssertEqual(writes.last, "close")
+        XCTAssertTrue(writes.contains("login true"))
+        XCTAssertFalse(writes.contains("link true"))
+        let again = self.flow(controller, step: .finish)
+        XCTAssertEqual(again.toggle(.loginItem), SetupFlowModel.Switch(on: true, enabled: false), "set up: shown, not offered")
     }
 
-    /// With `sbx` here the optional step offers its switch, off; "Finish"
-    /// lists it above the button and turns it on. Without `sbx`, or with
-    /// the switch already on, no row and nothing written.
-    func testTheSandboxesRowIsOfferedOnlyWithSbx() throws {
+    // MARK: - Update automatically
+
+    /// A first run shows the row on and writes what it shows, so nothing
+    /// stored (off) becomes the choice made. Without an updater only the
+    /// parts' setting is there to write.
+    func testAFirstRunWritesTheRowItShowedAndWithoutAnUpdaterOnlyTheParts() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
-        XCTAssertFalse(flow(controller, step: .optional).offersSandboxes, "a test's controller has no sbx")
-
-        var found = SettingsModel.Sandboxes()
-        found.availability = .found
-        let flow = flow(controller, step: .optional, sandboxes: found)
-        XCTAssertTrue(flow.offersSandboxes)
-        XCTAssertFalse(flow.sandboxesQueued, "off unless turned on")
-        let before = flow.finishConsent
-        flow.sandboxesQueued = true
-        XCTAssertEqual(flow.finishConsent, before + [
-            "Each running Claude Code sandbox · one file of Evlat's, and a rule for port 48152",
-        ])
+        let flow = flow(controller, step: .finish, firstRun: true)
+        XCTAssertTrue(flow.autoUpdate)
+        XCTAssertFalse(flow.offersUpdater)
         flow.primary()
-        XCTAssertTrue(writes.contains("sandboxes true"))
-        XCTAssertEqual(flow.step, .done)
-
-        var on = found
-        on.on = true
-        XCTAssertFalse(self.flow(controller, step: .optional, sandboxes: on).offersSandboxes)
-        var missing = found
-        missing.availability = .missing
-        let without = self.flow(controller, step: .optional, sandboxes: missing)
-        without.sandboxesQueued = true
-        XCTAssertFalse(without.finishConsent.contains { $0.contains("sandbox") })
-        writes = []
-        without.primary()
-        XCTAssertFalse(writes.contains { $0.hasPrefix("sandboxes") })
+        XCTAssertEqual(updateWrites, ["parts true"])
+        XCTAssertEqual(controller.updatesAutomatic, true)
     }
+
+    func testAFirstRunWithTheRowTurnedOffWritesOff() throws {
+        world.updater = true
+        world.sparkle = true
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .finish, firstRun: true)
+        flow.autoUpdate = false
+        flow.primary()
+        XCTAssertEqual(updateWrites, ["sparkle false", "parts false"], "the updater's switch and the parts' together")
+        XCTAssertFalse(world.sparkle)
+    }
+
+    func testAFirstRunWithAnUpdaterWritesBothOn() throws {
+        world.updater = true
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller, step: .finish, firstRun: true)
+        XCTAssertTrue(flow.offersUpdater)
+        flow.primary()
+        XCTAssertEqual(updateWrites, ["sparkle true", "parts true"])
+    }
+
+    /// Opened again, the row starts from what is set and writes a change
+    /// only: a mixed state is not closed without being asked.
+    func testAReopenedFlowWritesTheRowOnlyWhenItChanged() throws {
+        world.updater = true
+        world.sparkle = true
+        defaults.set(false, forKey: AppController.updatesAutomaticKey)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let mixed = flow(controller, step: .finish)
+        XCTAssertFalse(mixed.autoUpdate, "the updater on and the parts off: not both on")
+        mixed.primary()
+        XCTAssertEqual(updateWrites, [], "untouched: not written")
+
+        writes = []
+        let changed = flow(controller, step: .finish)
+        changed.autoUpdate = true
+        changed.primary()
+        XCTAssertEqual(updateWrites, ["sparkle true", "parts true"])
+    }
+
+    func testAReopenedFlowStartsOnWhenBothAreOn() throws {
+        world.updater = true
+        world.sparkle = true
+        defaults.set(true, forKey: AppController.updatesAutomaticKey)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        XCTAssertTrue(flow(controller, step: .finish).autoUpdate)
+    }
+
+    private var updateWrites: [String] { writes.filter { $0.hasPrefix("parts") || $0.hasPrefix("sparkle") } }
 
     // MARK: - Launch
 
@@ -336,7 +604,8 @@ final class SetupFlowTests: XCTestCase {
         defer { first.setupWindow?.close(); first.panel?.close() }
         first.openSetupAtLaunch(environment: plain)
         XCTAssertEqual(first.setupWindow?.isVisible, true)
-        XCTAssertEqual(first.setupFlow?.step, .hello)
+        XCTAssertEqual(first.setupFlow?.step, .agents)
+        XCTAssertEqual(first.setupFlow?.autoUpdate, true, "a first run offers the row on")
         XCTAssertEqual(defaults.object(forKey: AppController.setupSeenKey) as? Bool, true, "shown is seen")
 
         let second = try controller(home: home)
@@ -479,18 +748,25 @@ final class SetupFlowTests: XCTestCase {
 
     /// `EVLAT_SETUP` opens it at a step for looking and writes nothing.
     func testTheEnvironmentOpensAStepAndKeepsNothing() throws {
-        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": "sessions"]), .sessions)
-        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": " Done "]), .done)
-        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": "3"]), .sessions, "one-based, as the dots count")
+        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": "connected"]), .connected)
+        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": " Finish "]), .finish)
+        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": "3"]), .bar, "one-based, as the dots count")
+        XCTAssertEqual(AppController.forcedSetup(["EVLAT_SETUP": "1"]), .agents)
+        XCTAssertNil(AppController.forcedSetup(["EVLAT_SETUP": "5"]))
+        XCTAssertNil(AppController.forcedSetup(["EVLAT_SETUP": "hello"]), "a step of the old flow")
         XCTAssertNil(AppController.forcedSetup(["EVLAT_SETUP": "nope"]))
         XCTAssertNil(AppController.forcedSetup([:]))
 
         let controller = try controller(home: home)
         defer { controller.setupWindow?.close(); controller.panel?.close() }
-        controller.openSetupAtLaunch(environment: ["EVLAT_SETUP": "chat", "EVLAT_HOME": home.path])
+        controller.openSetupAtLaunch(environment: ["EVLAT_SETUP": "bar", "EVLAT_HOME": home.path])
         XCTAssertEqual(controller.setupWindow?.isVisible, true)
-        XCTAssertEqual(controller.setupFlow?.step, .chat)
+        XCTAssertEqual(controller.setupFlow?.step, .bar)
         XCTAssertNil(defaults.object(forKey: AppController.setupSeenKey))
+        XCTAssertNil(defaults.object(forKey: AppController.updatesAutomaticKey))
+        XCTAssertNil(defaults.object(forKey: AppController.edgeKey))
+        XCTAssertNil(defaults.object(forKey: EnabledAgents.key))
+        XCTAssertEqual(controller.setupFlow?.autoUpdate, false, "not a first run: it shows what is set")
     }
 
     func testTheMenuAndTheSettingsOpenIt() throws {
@@ -523,7 +799,7 @@ final class SetupFlowTests: XCTestCase {
     }
 
     func testEveryKeyIsInBothTables() {
-        for lang in ["en", "tr"] {
+        for lang in L10nTests.languages {
             for key in SetupFlowModel.keys + ["menu.setup"] {
                 XCTAssertNotNil(L10n.catalog.tables[lang]?[key], "\(lang) has no \(key)")
             }

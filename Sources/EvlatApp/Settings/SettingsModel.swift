@@ -69,6 +69,11 @@ final class SettingsModel: ObservableObject {
         var clearMemory: () -> Void
         /// General's "Open Setup…".
         var openSetup: () -> Void = {}
+        /// The setup's readings: this Mac's open sessions on the bar by
+        /// agent, and whether another app's window is over the bar's edge
+        /// now (one reading; `nil` when it cannot be told).
+        var openSessions: () -> [AgentID: Int] = { [:] }
+        var edgeCovered: () -> Bool? = { nil }
         /// General's "Body": the mode in force and its three switches.
         var bodyMode: () -> BodyPresence.Mode = { .always }
         var setBodyMode: (BodyPresence.Mode) -> Void = { _ in }

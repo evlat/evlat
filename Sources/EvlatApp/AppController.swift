@@ -3044,6 +3044,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             },
             clearMemory: { [weak self] in self?.chats?.clearMemory() },
             openSetup: { [weak self] in self?.openSetup() },
+            openSessions: { [weak self] in self?.openSessionCounts() ?? [:] },
+            edgeCovered: { [weak self] in self?.readEdgeCover() },
             bodyMode: { [weak self] in self?.bodyMode ?? .always },
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
@@ -3170,32 +3172,30 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The setup at `step` (the first unless one is named), built on first
     /// use. Opened again it starts over, every row read fresh: what was set
-    /// up shows a ✓.
-    func openSetup(step: SetupFlowModel.Step = .hello) {
+    /// up shows as connected. `firstRun` is the launch that opens it by
+    /// itself for someone who has set nothing up.
+    func openSetup(step: SetupFlowModel.Step = .agents, firstRun: Bool = false) {
         hover.closeNow()
         if barState.isOpen { closeBar() }
         let window = setupWindow ?? makeSetupWindow()
-        if window.isVisible { setupFlow?.start(at: step) }
-        window.onOpen = { [weak self] in self?.setupFlow?.start(at: step) }
+        if window.isVisible { setupFlow?.start(at: step, firstRun: firstRun) }
+        window.onOpen = { [weak self] in self?.setupFlow?.start(at: step, firstRun: firstRun) }
         window.show()
     }
 
     private func makeSetupWindow() -> AppWindow {
         let flow = SetupFlowModel(settings: settingsHost, setup: SetupModel(host: setupHost),
-                                  recorder: hotKeyRecorder,
                                   close: { [weak self] in self?.closeSetupToTheBar() })
         let window = AppWindow(make: { SetupWindow.make(model: flow, screen: NSScreen.main) },
                                activate: { [weak self] in self?.setupActivation() })
         window.onCancel = { false }
-        window.keyInterceptor = { [weak flow] event in flow?.handleKey(event) ?? false }
-        window.onResignKey = { [weak flow] in flow?.windowClosed() }
         window.onClose = { [weak flow] in flow?.windowClosed() }
         setupFlow = flow
         setupWindow = window
         return window
     }
 
-    /// "Close" on the last step: the window flies into the bar's mascot.
+    /// "Finish": the window flies into the bar's mascot.
     private func closeSetupToTheBar() {
         guard let window = setupWindow?.window else { return }
         let target = panel.map { panel -> NSRect in
@@ -3376,13 +3376,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             break
         }
         guard opensSetup else { return }
-        openSetup()
+        openSetup(firstRun: true)
         markSetupSeen(environment: environment)
     }
 
-    /// `EVLAT_SETUP=<step>` (`hello`, `edge`, `sessions`, `chat`,
-    /// `optional`, `done`, or its number from 1) — `EVLAT_SETTINGS`'
-    /// pattern. An unknown value opens nothing.
+    /// `EVLAT_SETUP=<step>` (`agents`, `connected`, `bar`, `finish`, or its
+    /// number from 1) — `EVLAT_SETTINGS`' pattern. An unknown value opens
+    /// nothing.
     nonisolated static func forcedSetup(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> SetupFlowModel.Step? {
@@ -3512,7 +3512,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         approvals.heard(event, machine: nil)
         hookDiagnostics.record(event)
         hooks.handle(event)
+        setupFlow?.heard(event)
         scheduleRefresh()
+    }
+
+    /// The sessions on the bar, by agent, as the last scan counted them: the
+    /// setup says how many rings it points at. A job, a chat or a usage window
+    /// is no session.
+    func openSessionCounts() -> [AgentID: Int] {
+        var counts: [AgentID: Int] = [:]
+        for signal in lastSnapshot?.ordered ?? [] where signal.kind == .session {
+            if let source = signal.source { counts[source, default: 0] += 1 }
+        }
+        return counts
     }
 
     /// Runs the seam once for a burst of events.
@@ -4171,12 +4183,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// A body already out (the open bar, the balloon, a drag) does not grow
     /// under the cursor, so it holds nothing.
     func pollEdge() {
-        guard bodyMode == .smart, let panel else { return }
-        let strip = EdgeCover.Strip(window: panel.windowNumber, edge: panel.edge,
-                                    headroom: Self.headroom, width: Self.barWidth,
-                                    length: smartBodyLength,
-                                    pid: ProcessInfo.processInfo.processIdentifier)
-        guard let covered = edgeReader(strip) else { return }
+        guard bodyMode == .smart, let panel, let strip = edgeStrip, let covered = edgeReader(strip) else { return }
         let clear = !covered
         if clear == edgeClear {
             if !edgeSettled { traceEdge(clear) }
@@ -4196,6 +4203,23 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         edgeSettled = true
         traceEdge(clear)
         edgeClear = clear
+    }
+
+    /// The strip the edge is read over: the closed body, from the head.
+    private var edgeStrip: EdgeCover.Strip? {
+        guard let panel else { return nil }
+        return EdgeCover.Strip(window: panel.windowNumber, edge: panel.edge,
+                               headroom: Self.headroom, width: Self.barWidth,
+                               length: smartBodyLength,
+                               pid: ProcessInfo.processInfo.processIdentifier)
+    }
+
+    /// One reading of whether another app's window is over the edge, apart
+    /// from Smart hide's poll and whatever mode the body is in: the setup
+    /// says it beside the choice. `nil` when the bar is not on screen to be
+    /// read, as the poll's. Nothing is kept and nothing is scheduled.
+    func readEdgeCover() -> Bool? {
+        edgeStrip.flatMap(edgeReader)
     }
 
     /// The edge's trace on stderr, as the aggregate's: each state applied,

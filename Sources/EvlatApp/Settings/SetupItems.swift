@@ -586,12 +586,6 @@ final class SetupModel: ObservableObject {
         return lines.filter { $0 != wraps } + lines.filter { $0 == wraps }
     }
 
-    /// Whether a line about the `.evlat.bak` copy belongs under the consent:
-    /// only a settings file is backed up.
-    func backsUp(_ items: [SetupItem]) -> Bool {
-        items.contains { $0.agent != nil }
-    }
-
     // MARK: - Writing
 
     /// The row's button: the action its status offers, then a fresh read.
@@ -766,8 +760,7 @@ final class SetupModel: ObservableObject {
            "setup.agent.details", "setup.agent.removeUsage", "setup.agent.usageModified", "setup.agent.failure",
            "setup.agent.off", "setup.agent.turnOff.title", "setup.agent.turnOff.body", "setup.agent.turnOff.remove",
            "setup.agent.turnOff.keep", "setup.agent.turnOff.cancel",
-           "setup.consent.title", "setup.consent.line", "setup.consent.and", "setup.consent.backup",
-           "setup.consent.nothing", "setup.consent.wraps",
+           "setup.consent.line", "setup.consent.and", "setup.consent.wraps",
            "setup.consent.what.hooks", "setup.consent.what.usage", "setup.consent.what.hooks.remove",
            "setup.consent.what.usage.remove",
            "setup.consent.command", "setup.consent.command.replace", "setup.consent.command.broken",

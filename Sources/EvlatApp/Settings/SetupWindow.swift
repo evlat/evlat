@@ -1,11 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// The setup's window: `AppWindow`'s focus pattern at a fixed
-/// size. The steps scroll inside it and the footer stays put, so a long
-/// step never grows the window and the buttons never move.
+/// The setup's window: `AppWindow`'s focus pattern at a fixed size, the
+/// view (`SetupLayout.size`, always the same) standing in the middle of it.
 enum SetupWindow {
-    /// The design's window size.
+    /// The window's size.
     static let width: CGFloat = 392
     static let maxHeight: CGFloat = 468
 
@@ -17,7 +16,7 @@ enum SetupWindow {
 
     /// Titled for the keyboard and the close button; not resizable, and
     /// without the zoom and minimise buttons a fixed window has no use for.
-    /// The title bar is see-through: the mascot sits at the top as drawn.
+    /// The title bar is see-through: the view's ground runs under it.
     @MainActor
     static func make(model: SetupFlowModel, screen: NSScreen?) -> AppKeyWindow {
         let visible = (screen ?? NSScreen.main)?.visibleFrame.height ?? 900
@@ -36,7 +35,7 @@ enum SetupWindow {
         return window
     }
 
-    /// "Close" on the last step: the window shrinks into the bar's mascot
+    /// "Finish": the window shrinks into the bar's mascot
     /// and fades. The window
     /// itself closes at once — the focus goes back to the app before it
     /// without waiting — and a picture of it, in a borderless window of

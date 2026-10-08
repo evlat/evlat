@@ -245,16 +245,14 @@ final class AgentSwitchTests: XCTestCase {
     // MARK: - The setup's choice
 
     private func flow(_ controller: AppController) -> SetupFlowModel {
-        var settings = controller.settingsHost
-        settings.locateBackend = { _, done in done(nil) }
-        let flow = SetupFlowModel(settings: settings, setup: SetupModel(host: controller.setupHost, lang: "en"),
-                                  recorder: HotKeyRecorder(systemHotKeys: { SystemHotKeys(entries: [:]) }),
+        let flow = SetupFlowModel(settings: controller.settingsHost,
+                                  setup: SetupModel(host: controller.setupHost, lang: "en"),
                                   close: {}, lang: "en")
-        flow.start(at: .sessions)
+        flow.start(at: .agents)
         return flow
     }
 
-    func testInstallingWhatWasFoundKeepsTheDefaultLive() {
+    func testConnectingWhatWasFoundKeepsTheDefaultLive() {
         let controller = controller()
         let flow = flow(controller)
         flow.primary()
