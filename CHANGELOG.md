@@ -13,6 +13,8 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **A spent usage window says 100%.** Run past its limit, Claude's 5-hour
+  window could read “101%” on the open bar; it now stops at 100%.
 - **A roomier first-run setup, beside the mascot.** It opens in a panel of
   one size, with the main button in the same place on every step and
   Return pressing it, and stays up while you try an agent in a terminal.

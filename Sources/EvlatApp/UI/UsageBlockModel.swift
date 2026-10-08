@@ -15,7 +15,8 @@ struct UsageWindow: Equatable, Identifiable {
     /// The group it is drawn under (`Signal.Usage.group`).
     let group: String
     let windowMinutes: Int
-    /// Used, in whole percent, as the source said it: past 100 too.
+    /// Used, in whole percent, held at 100: a window run past its limit is
+    /// spent, and "101%" reads as a fault. `--list` prints the source's own.
     let percent: Int
     let resetsAt: Date
     let fidelity: Signal.Fidelity
@@ -120,7 +121,7 @@ final class UsageBlockModel: ObservableObject {
         guard scaled.isFinite, abs(scaled) < Double(Int32.max) else { return nil }
         let minute = (signal.updatedAt.timeIntervalSince1970 / 60).rounded(.down) * 60
         return UsageWindow(entity: signal.entity, group: usage.group,
-                           windowMinutes: usage.windowMinutes, percent: Int(scaled),
+                           windowMinutes: usage.windowMinutes, percent: min(100, Int(scaled)),
                            resetsAt: usage.resetsAt, fidelity: signal.fidelity,
                            observedAt: Date(timeIntervalSince1970: minute))
     }

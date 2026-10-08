@@ -170,8 +170,8 @@ struct UsageBlock: View {
     }
 
     /// A 3 pt line with round ends: the track, and the used part over it —
-    /// held at full past 100 (the text says the truth), and never shorter
-    /// than its own round ends while anything is used.
+    /// never past full, and never shorter than its own round ends while
+    /// anything is used.
     private struct Meter: View {
         let fraction: Double
         let fill: Color

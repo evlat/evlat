@@ -67,7 +67,6 @@ final class UsageBlockTests: XCTestCase {
         XCTAssertEqual(UsageText.percent(25, approximate: false, in: "en"), "25%")
         XCTAssertEqual(UsageText.percent(25, approximate: true, in: "en"), "~25%")
         XCTAssertEqual(UsageText.percent(8, approximate: true, in: "tr"), "~%8")
-        XCTAssertEqual(UsageText.percent(123, approximate: false, in: "en"), "123%", "past 100 it says so")
     }
 
     func testEveryKeyTheBlockAsksForExists() {
@@ -92,6 +91,18 @@ final class UsageBlockTests: XCTestCase {
         XCTAssertEqual(UsageBlockModel.freshness(observedAt: now, resetsAt: now, now: now), .expired)
         XCTAssertEqual(UsageBlockModel.freshness(observedAt: now, resetsAt: now.addingTimeInterval(-1),
                                                  now: now), .expired)
+    }
+
+    /// A window run past its limit says 100, still amber; the signal keeps
+    /// the source's number for `--list`.
+    func testAWindowPastItsLimitIsDrawnAtAHundred() throws {
+        let over = usage("Claude", 300, 1.01)
+        let window = try XCTUnwrap(UsageBlockModel.window(over))
+        XCTAssertEqual(window.percent, 100)
+        XCTAssertTrue(UsageBlockModel.isHot(window, freshness: .fresh))
+        XCTAssertEqual(try XCTUnwrap(UsageBlockModel.window(usage("Claude", 300, 1.0))).percent, 100)
+        XCTAssertEqual(try XCTUnwrap(UsageBlockModel.window(usage("Claude", 300, 0.99))).percent, 99)
+        XCTAssertTrue(AppController.usageLine(over).contains(" 101% "), "the diagnostic says what came")
     }
 
     func testAmberOnlyOnAFreshNumberPastTheThreshold() throws {
