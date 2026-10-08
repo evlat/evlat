@@ -238,4 +238,9 @@ enum MascotShape: Equatable {
     /// Never flatter than `minimumHeight` times its width: shut, an eye is a
     /// slit rather than nothing.
     case capsule(minimumHeight: Double)
+    /// A closed outline through `points`, each a fraction of the part's own
+    /// frame (`0…1`, y down), every corner rounded by `cornerRadius` — a
+    /// fraction of the mascot's side, as the rectangle's is. An ear, a hem,
+    /// anything a rectangle and a capsule cannot draw.
+    case polygon(points: [CGPoint], cornerRadius: Double)
 }

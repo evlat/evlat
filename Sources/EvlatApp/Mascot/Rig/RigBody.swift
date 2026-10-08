@@ -64,6 +64,29 @@ private struct RigShape: View {
             Capsule(style: .continuous)
                 .fill(fill)
                 .frame(width: size * width, height: size * max(width * minimumHeight, height))
+        case .polygon(let points, let corner):
+            RoundedPolygon(points: points, radius: size * corner)
+                .fill(fill)
+                .frame(width: size * width, height: size * height)
         }
+    }
+}
+
+/// `MascotShape.polygon`'s outline: each corner an arc tangent to its two
+/// edges, so the outline stays smooth however few points it has.
+struct RoundedPolygon: Shape {
+    let points: [CGPoint]
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let at = points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+        guard at.count > 2, let first = at.first, let last = at.last else { return Path() }
+        var path = Path()
+        path.move(to: CGPoint(x: (last.x + first.x) / 2, y: (last.y + first.y) / 2))
+        for (i, corner) in at.enumerated() {
+            path.addArc(tangent1End: corner, tangent2End: at[(i + 1) % at.count], radius: radius)
+        }
+        path.closeSubpath()
+        return path
     }
 }
