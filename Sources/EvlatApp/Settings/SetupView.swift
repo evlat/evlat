@@ -97,6 +97,8 @@ struct SetupView: View {
                 .padding(.top, 16)
                 .padding(.trailing, 16)
         }
+        // The pictures are of the user's bar: its mascot is the one chosen.
+        .environment(\.mascotRig, model.mascotRig)
         .environment(\.colorScheme, .dark)
         // Built again in a new language (Settings → General → Language), as
         // the settings window is; the step is the model's, so it stays.

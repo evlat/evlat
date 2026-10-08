@@ -326,12 +326,28 @@ struct MascotBody: View {
     /// The pose it was handed; `drawn` is what it draws.
     let pose: MascotPose
     let size: CGFloat
-    var rig: MascotRig = MascotCharacters.default.rig
+    /// Who is drawn; `nil` draws the one the surroundings name
+    /// (`mascotRig`) — the setup's pictures draw the chosen character so.
+    var rig: MascotRig? = nil
     @Environment(\.caughtGaze) private var caughtGaze
+    @Environment(\.mascotRig) private var surroundingRig
 
     private var drawn: MascotPose { MascotPose.drawn(pose, catching: caughtGaze) }
 
     var body: some View {
-        RigBody(rig: rig, pose: drawn, size: size)
+        RigBody(rig: rig ?? surroundingRig, pose: drawn, size: size)
+    }
+}
+
+private struct MascotRigKey: EnvironmentKey {
+    static let defaultValue = MascotCharacters.default.rig
+}
+
+extension EnvironmentValues {
+    /// The character a `MascotBody` with no rig of its own draws: the
+    /// default, unless a view above names the chosen one.
+    var mascotRig: MascotRig {
+        get { self[MascotRigKey.self] }
+        set { self[MascotRigKey.self] = newValue }
     }
 }

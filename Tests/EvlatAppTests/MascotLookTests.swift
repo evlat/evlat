@@ -65,6 +65,18 @@ final class MascotLookTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: AppController.mascotCharacterKey), "pati", "forced: not stored")
     }
 
+    /// The setup's mascot and its pictures of the bar are the user's bar:
+    /// they draw the chosen character.
+    func testTheSetupDrawsTheChosenCharacter() {
+        let controller = AppController(defaults: defaults)
+        let flow = SetupFlowModel(settings: controller.settingsHost,
+                                  setup: SetupModel(host: controller.setupHost, lang: "en"),
+                                  close: {}, lang: "en")
+        XCTAssertEqual(flow.mascotRig, Cube.rig)
+        controller.setMascotCharacter("puf")
+        XCTAssertEqual(flow.mascotRig, Puf.rig)
+    }
+
     /// Every character has its name in every table: a missing one would show
     /// the key on the tile.
     func testEveryCharacterIsNamedInEveryLanguage() {
