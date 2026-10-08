@@ -26,6 +26,9 @@ public final class MascotModel: ObservableObject {
     /// behind the edge (`BodyPresence.mascotShown`). Written by the controller
     /// only, and only when it changes.
     @Published public var isShown = true
+    /// Who is drawn. One character ships today; the model holds it so that a
+    /// choice, when there is one, is a write here and nothing else.
+    @Published var character = MascotCharacters.default
 
     public init() {}
 

@@ -20,6 +20,10 @@ struct MascotRig: Equatable {
     /// The part every other part hangs from. Its own bindings move the whole
     /// character.
     var root: MascotPart
+    /// The character's **own** controls, beside the standard ones: what a
+    /// clip may set them to, and where they rest when no clip does. Only the
+    /// character's own clips write them; Evlat's clips do not know they exist.
+    var controls: [MascotControl: MascotControl.Range] = [:]
 
     /// Every part, root first, each before its children: the order they are
     /// drawn in, back to front.
@@ -33,10 +37,14 @@ struct MascotRig: Equatable {
         return out
     }
 
-    /// A control's value in a pose. A control the pose does not carry drives
-    /// nothing: its bindings are left out.
+    /// A control's value in a pose: a standard one is the pose's field, an
+    /// own one what the pose set it to, else its rest. A name the rig never
+    /// declared drives nothing — its bindings are left out, and
+    /// `MascotCharacterContractTests` refuses the rig.
     func value(of control: MascotControl, in pose: MascotPose) -> Double? {
-        pose.value(of: control)
+        if let value = pose.value(of: control) { return value }
+        guard let range = controls[control] else { return nil }
+        return pose.own[control] ?? range.rest
     }
 }
 
@@ -63,9 +71,31 @@ struct MascotControl: Hashable, CustomStringConvertible {
     /// `gazeMix` is not among them: it moves no part. It says how much of the
     /// cursor is blended into `yaw` and `pitch` before a rig ever reads them.
     static let standard: [MascotControl] = [.yaw, .pitch, .eyeOpen, .eyeSquint, .scaleX, .scaleY, .tilt]
+
+    /// An own control's declaration (`MascotRig.controls`).
+    struct Range: Equatable {
+        var lower: Double
+        var upper: Double
+        var rest: Double
+
+        init(_ lower: Double, _ upper: Double, rest: Double) {
+            self.lower = lower
+            self.upper = upper
+            self.rest = rest
+        }
+
+        func contains(_ value: Double) -> Bool { lower <= value && value <= upper }
+    }
 }
 
 extension MascotPose {
+    /// The pose with one of the character's own controls set.
+    func setting(_ control: MascotControl, to value: Double) -> MascotPose {
+        var p = self
+        p.own[control] = value
+        return p
+    }
+
     /// A standard control's value; `nil` for any other name.
     func value(of control: MascotControl) -> Double? {
         switch control {

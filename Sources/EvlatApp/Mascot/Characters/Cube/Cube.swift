@@ -10,6 +10,8 @@ import SwiftUI
 /// Every number below is the one the cube was drawn with before it was a rig;
 /// `RigTests` holds the drawing to those formulas.
 enum Cube {
+    static let character = MascotCharacter(id: "cube", rig: rig)
+
     static let rig = MascotRig(root: MascotPart(
         name: "cube",
         bindings: [

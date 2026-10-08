@@ -5,9 +5,16 @@ import EvlatCore
 /// same static-function shape as `MascotPose.resting(for:)` — and that shape is
 /// the whole reason it can be tested at all.
 ///
-/// There is no `Decodable`, no registry, no loading from outside. v1's motion
-/// layer was 1202 lines because motion was **pet-pack data** and the engine had
-/// no vocabulary of its own; v2 has no pets, so the generality has no customer.
+/// These are **Evlat's** clips: the default every character plays in a phase
+/// it does not play its own way (`MascotCharacter.states`). They are written
+/// in the standard controls only, so they move any rig that binds them.
+///
+/// There is no `Decodable` and no loading from outside, for the clips or for
+/// the characters. v1's motion layer was 1202 lines because motion was
+/// **pet-pack data** read from files and the engine had no vocabulary of its
+/// own; here the vocabulary is the pose, characters are code, and the
+/// compiler and `MascotCharacterContractTests` check a character before it
+/// is ever drawn.
 ///
 /// Interpolation stays SwiftUI's job (`.animation(step.curve, value: step)`) and
 /// timing is a single `@State step` walking this array — see `ClipPlayer` in

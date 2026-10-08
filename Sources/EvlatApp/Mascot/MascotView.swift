@@ -17,15 +17,16 @@ struct MascotView: View {
             if model.isAwake {
                 // Awake: a clip walks the pose. `isAwake` is not `hasLive` —
                 // see `MascotModel`.
-                ClipPlayer(phase: model.effectivePhase, gaze: model.gaze, size: size)
+                ClipPlayer(character: model.character, phase: model.effectivePhase,
+                           gaze: model.gaze, size: size)
             } else {
                 // **Asleep.** The clip player leaves the view tree entirely — it
                 // is removed, not hidden, and its pending step is dropped with
                 // it. That is the only way a motionless bar stops producing
                 // frames.
-                MascotBody(pose: MascotPose.resting(for: model.effectivePhase)
+                MascotBody(pose: model.character.resting(for: model.effectivePhase)
                                           .blending(gaze: model.gaze),
-                           size: size)
+                           size: size, rig: model.character.rig)
             }
         }
         // The `failed` shudder hangs **here**, above the awake branch, and not
@@ -98,6 +99,7 @@ extension EnvironmentValues {
 /// the walk: its `@State` dies with it and `onDisappear` drops the step already
 /// in flight.
 private struct ClipPlayer: View {
+    let character: MascotCharacter
     let phase: Phase
     let gaze: CGSize
     let size: CGFloat
@@ -125,7 +127,7 @@ private struct ClipPlayer: View {
     @State private var walkedPhase: Phase?
 
     private var clipPhase: Phase { walkedPhase ?? phase }
-    private var clip: MascotClip { MascotClip.clip(for: clipPhase) }
+    private var clip: MascotClip { character.clip(for: clipPhase) }
 
     /// Clamped because clips do not all have the same number of steps, and the
     /// index and the clip are two separate pieces of state that change in the
@@ -133,17 +135,22 @@ private struct ClipPlayer: View {
     /// not worth crashing the app over, so it rests instead.
     private var current: MascotClip.Step {
         guard let last = clip.steps.indices.last else {
-            return .entering(MascotPose.resting(for: clipPhase), hold: 1)
+            return .entering(character.resting(for: clipPhase), hold: 1)
         }
         return clip.steps[min(step, last)]
     }
 
     var body: some View {
-        MascotBody(pose: current.pose.blending(gaze: gaze), size: size)
+        MascotBody(pose: current.pose.blending(gaze: gaze), size: size, rig: character.rig)
             .animation(current.curve, value: step)
             .onAppear { restart() }
             .onDisappear { generation &+= 1; walking = false }
             .onChange(of: phase) { _, _ in enter() }
+            // A pending step closes over a copy of this view, character and
+            // all (AGENTS.md → Pitfalls): a walk carried on into another
+            // character would keep walking the old one's clips. Starting
+            // over drops it.
+            .onChange(of: character.id) { _, _ in restart() }
     }
 
     /// A phase change lands on the new clip's first pose, but **does not
@@ -173,7 +180,7 @@ private struct ClipPlayer: View {
             walkedPhase = phase
             step = 0
         }
-        if !walking || !MascotClip.clip(for: phase).loops { restart() }
+        if !walking || !character.clip(for: phase).loops { restart() }
     }
 
     private func restart() {
@@ -214,7 +221,7 @@ struct MascotBody: View {
     /// The pose it was handed; `drawn` is what it draws.
     let pose: MascotPose
     let size: CGFloat
-    var rig: MascotRig = Cube.rig
+    var rig: MascotRig = MascotCharacters.default.rig
     @Environment(\.caughtGaze) private var caughtGaze
 
     private var drawn: MascotPose { MascotPose.drawn(pose, catching: caughtGaze) }

@@ -28,6 +28,10 @@ public struct MascotPose: Equatable {
     /// unconditionally — `yaw`/`pitch` were the two of seven fields no phase
     /// could reach. Constant per phase, so its home is `resting(for:)`.
     public var gazeMix: Double
+    /// The character's own controls (`MascotRig.controls`), by name. Empty in
+    /// every pose Evlat's clips build: only a character's own clips set them,
+    /// and one left out rests where the rig says.
+    var own: [MascotControl: Double] = [:]
 
     public init(yaw: Double = 0, pitch: Double = 0, eyeOpen: Double = 1,
                 eyeSquint: Double = 0, scaleX: Double = 1, scaleY: Double = 1,

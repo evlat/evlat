@@ -332,7 +332,13 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   video playing behind moved its own baseline between 34% and 44%.
 - The mascot reduces to a handful of animatable numbers (`MascotPose`); SwiftUI
   springs are interruptible and keep velocity, so a state change never snaps.
-  Expression lives in the pose; the body shape is swappable.
+  Expression lives in the pose; what it moves is a **character's** rig
+  (`MascotRig`, `MascotCharacter`). Characters live one folder each under
+  `Sources/EvlatApp/Mascot/Characters/` and enter by being listed in
+  `MascotCharacters.all`, which `MascotCharacterContractTests` checks: the
+  five phases read apart, looping clips stay under the duty-cycle ceiling,
+  and a rig names only controls it declared. A character may replace any
+  phase's clip with its own; Evlat's clips (`MascotClip`) are the default.
 - **Smart hide's edge costs no new timer**: it is read on the existing
   1.5 s poll, one window list a tick. Measured on a release build, no row,
   the left edge under another app's window, the mouse still (screen locked,
