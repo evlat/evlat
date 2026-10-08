@@ -120,6 +120,8 @@ struct BodyPresence: Equatable {
     /// The finish whose peek is running; the shell clears it when it ends.
     var peekPhase: Phase?
     var isOpen: Bool
+    /// A panel stands beside the mascot — the balloon or the setup
+    /// (`AppController.isPanelOut`).
     var chatOpen: Bool
     var dragging: Bool
     /// No other app's window is under the closed body. Read only under

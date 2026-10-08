@@ -588,7 +588,7 @@
 "settings.general.language.detail" = "Evlat'ın kendi yazıları hemen değişir; güncelleme penceresi Evlat bir sonraki açılışında.";
 "settings.general.language.system" = "Sistem ({language})";
 "language.name" = "Türkçe";
-"setup.window.title" = "Evlat kurulumu";
+"setup.flow.close" = "Kapat";
 "setup.flow.who" = "Kurulum";
 "setup.flow.progress" = "Adım {number} / {count}";
 "setup.flow.connect" = "Bağla";

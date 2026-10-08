@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// A window Evlat opens because the user asked for one — the settings and
-/// the setup. The focus pattern of the remote machines' own window, since
-/// folded into the settings, made general.
+/// the update window. The focus pattern of the remote machines' own window,
+/// since folded into the settings, made general. (The setup is not one: it is
+/// a panel beside the mascot, `SetupPanel`, and brings nothing forward.)
 ///
 /// **The focus rule loosens here, and only here.** The bar is a
 /// non-activating panel and stays one; this is an ordinary titled window

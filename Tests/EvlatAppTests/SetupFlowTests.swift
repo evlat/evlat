@@ -41,7 +41,9 @@ final class SetupFlowTests: XCTestCase {
     private func controller(home: URL?) throws -> AppController {
         let controller = AppController(defaults: defaults, home: home, loginItem: LoginItem(service: login))
         controller.installPanel()
-        controller.setupActivation = { }
+        // Evlat is not the app in front: a setup that opens by itself takes
+        // no keyboard.
+        controller.isFrontmost = { false }
         let contents = root.appendingPathComponent("this/Evlat.app/Contents", isDirectory: true)
         try FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"),
                                                 withIntermediateDirectories: true)
@@ -351,16 +353,16 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(flow.listening[0].line, "To try it, open a session.")
     }
 
-    /// A window that closes forgets what only the second step holds, so
-    /// nothing listens and no ring turns in a window nobody sees.
-    func testClosingTheWindowForgetsWhatWasConnectedAndHeard() throws {
+    /// A panel that closes forgets what only the second step holds, so
+    /// nothing listens and no ring turns in a panel nobody sees.
+    func testClosingThePanelForgetsWhatWasConnectedAndHeard() throws {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller)
         flow.primary()
         flow.heard(event(.claude))
         XCTAssertFalse(flow.heardFrom.isEmpty)
-        flow.windowClosed()
+        flow.panelClosed()
         XCTAssertEqual(flow.connected, [])
         XCTAssertEqual(flow.heardFrom, [:])
         XCTAssertEqual(flow.step, .agents)
@@ -372,7 +374,7 @@ final class SetupFlowTests: XCTestCase {
     /// a flow opened again starts clean.
     func testTheControllerHandsItsHookEventsToTheFlow() throws {
         let controller = try controller(home: home)
-        defer { controller.setupWindow?.close(); controller.panel?.close() }
+        defer { controller.closeSetup(); controller.panel?.close() }
         controller.openSetup(step: .agents)
         let flow = try XCTUnwrap(controller.setupFlow)
         flow.primary()
@@ -430,10 +432,54 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(flow.edgeCovered, true)
         world.covered = nil
         flow.chooseEdge(.left)
+        XCTAssertEqual(world.edgeReads, 1, "not before the window list can carry the move")
+        XCTAssertNil(flow.edgeCovered, "and the old edge's sentence is not left up meanwhile")
+        hop()
         XCTAssertEqual(world.edgeReads, 2)
         XCTAssertNil(flow.edgeCovered, "a bar not on screen says nothing")
         flow.chooseVisibility(.smart)
+        hop()
         XCTAssertEqual(world.edgeReads, 2, "the visibility reads nothing")
+        world.covered = true
+        flow.chooseEdge(.right)
+        flow.chooseEdge(.left)
+        hop()
+        XCTAssertEqual(world.edgeReads, 3, "two moves before the turn are one read")
+        XCTAssertEqual(flow.edgeCovered, true)
+    }
+
+    /// One turn of the main queue: what a read waiting for the window list
+    /// has been given.
+    private func hop() {
+        let turn = expectation(description: "a turn of the main queue")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 2)
+    }
+
+    /// A bar moved from elsewhere (the menu's edge, a screen) while the step
+    /// is on screen: the sentence is read once more, a turn later.
+    func testAMovedBarReadsTheEdgeOnceMoreAndOnlyOnTheBarStep() throws {
+        let controller = try controller(home: home)
+        defer { controller.closeSetup(); controller.panel?.close() }
+        var reads = 0
+        controller.edgeReader = { _ in reads += 1; return true }
+        controller.openSetup(step: .bar)
+        let flow = try XCTUnwrap(controller.setupFlow)
+        XCTAssertNil(flow.edgeCovered, "the bar may have just come on screen: a turn first")
+        hop()
+        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(flow.edgeCovered, true)
+        controller.dock(.left)
+        XCTAssertNil(flow.edgeCovered)
+        XCTAssertEqual(reads, 1, "not before the window list can carry the move")
+        hop()
+        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(flow.edgeCovered, true)
+
+        controller.openSetup(step: .agents)
+        controller.dock(.right)
+        hop()
+        XCTAssertEqual(reads, 2, "another step reads nothing")
     }
 
     /// The controller's reading goes through the edge reader it was given,
@@ -601,17 +647,35 @@ final class SetupFlowTests: XCTestCase {
     func testTheSetupOpensAtLaunchOnceAndMarksItShown() throws {
         let plain = ["HOME": home.path]
         let first = try controller(home: home)
-        defer { first.setupWindow?.close(); first.panel?.close() }
+        defer { first.closeSetup(); first.panel?.close() }
         first.openSetupAtLaunch(environment: plain)
-        XCTAssertEqual(first.setupWindow?.isVisible, true)
+        XCTAssertEqual(first.setupPanel?.isVisible, true)
+        XCTAssertEqual(first.setupPanel?.isKeyWindow, false, "Evlat is not in front: the keyboard stays where it was")
         XCTAssertEqual(first.setupFlow?.step, .agents)
         XCTAssertEqual(first.setupFlow?.autoUpdate, true, "a first run offers the row on")
         XCTAssertEqual(defaults.object(forKey: AppController.setupSeenKey) as? Bool, true, "shown is seen")
 
         let second = try controller(home: home)
-        defer { second.setupWindow?.close(); second.panel?.close() }
+        defer { second.closeSetup(); second.panel?.close() }
         second.openSetupAtLaunch(environment: plain)
-        XCTAssertNil(second.setupWindow, "once")
+        XCTAssertNil(second.setupPanel, "once")
+    }
+
+    /// Either way it opens by itself, the keyboard comes with it only when
+    /// Evlat is the app in front.
+    func testTheLaunchOpeningTakesTheKeyboardOnlyWhenEvlatIsInFront() throws {
+        let environment = ["EVLAT_SETUP": "bar", "EVLAT_HOME": home.path]
+        let away = try controller(home: home)
+        defer { away.closeSetup(); away.panel?.close() }
+        away.openSetupAtLaunch(environment: environment)
+        XCTAssertEqual(away.setupPanel?.isVisible, true)
+        XCTAssertEqual(away.setupPanel?.isKeyWindow, false)
+
+        let inFront = try controller(home: home)
+        defer { inFront.closeSetup(); inFront.panel?.close() }
+        inFront.isFrontmost = { true }
+        inFront.openSetupAtLaunch(environment: environment)
+        XCTAssertEqual(inFront.setupPanel?.isKeyWindow, true)
     }
 
     func testTheSetupStaysShutWhenTheTriggerSaysNo() throws {
@@ -620,7 +684,7 @@ final class SetupFlowTests: XCTestCase {
         let stored = try controller(home: home)
         defer { stored.panel?.close() }
         stored.openSetupAtLaunch(environment: plain)
-        XCTAssertNil(stored.setupWindow, "a stored edge: not a new user")
+        XCTAssertNil(stored.setupPanel, "a stored edge: not a new user")
         XCTAssertNil(defaults.object(forKey: AppController.setupSeenKey))
     }
 
@@ -629,16 +693,15 @@ final class SetupFlowTests: XCTestCase {
         defer { isolated.panel?.close() }
         for environment in [["EVLAT_HOME": home.path], ["EVLAT_EDGE": "left"], ["EVLAT_SOCKET": "/tmp/e.sock"]] {
             isolated.openSetupAtLaunch(environment: environment)
-            XCTAssertNil(isolated.setupWindow, "\(environment)")
+            XCTAssertNil(isolated.setupPanel, "\(environment)")
         }
         XCTAssertNil(defaults.object(forKey: AppController.setupSeenKey), "nothing kept")
 
         let storeless = AppController(defaults: nil, home: home, loginItem: nil)
         storeless.installPanel()
-        storeless.setupActivation = { }
         defer { storeless.panel?.close() }
         storeless.openSetupAtLaunch(environment: ["HOME": home.path])
-        XCTAssertNil(storeless.setupWindow, "every test's controller: no storage, no setup")
+        XCTAssertNil(storeless.setupPanel, "every test's controller: no storage, no setup")
     }
 
     // MARK: - After the cut to the socket
@@ -661,7 +724,7 @@ final class SetupFlowTests: XCTestCase {
         first.updatesActivation = { }
         defer { first.updatesWindow?.close(); first.panel?.close() }
         first.openSetupAtLaunch(environment: plain)
-        XCTAssertNil(first.setupWindow, "not a new user")
+        XCTAssertNil(first.setupPanel, "not a new user")
         XCTAssertNil(first.settingsWindow, "the update window instead")
         XCTAssertEqual(first.updatesWindow?.isVisible, true)
         XCTAssertEqual(first.updates?.agents.map(\.kind), [.agent(.claude)])
@@ -740,9 +803,9 @@ final class SetupFlowTests: XCTestCase {
         try writeClaude(["statusLine": ["type": "command", "command": "sh -c 'i=$(cat; printf x); i=${i%x}; printf %s \"$i\" | curl -s -m 2 -X POST -H \"Content-Type: application/json\" --data-binary @- http://127.0.0.1:48151/usage/claude >/dev/null 2>&1 &'"]])
         let fresh = try controller(home: home)
         fresh.updatesActivation = { }
-        defer { fresh.setupWindow?.close(); fresh.updatesWindow?.close(); fresh.panel?.close() }
+        defer { fresh.closeSetup(); fresh.updatesWindow?.close(); fresh.panel?.close() }
         fresh.openSetupAtLaunch(environment: plain)
-        XCTAssertEqual(fresh.setupWindow?.isVisible, true)
+        XCTAssertEqual(fresh.setupPanel?.isVisible, true)
         XCTAssertNil(fresh.updatesWindow, "the setup instead")
     }
 
@@ -758,9 +821,9 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertNil(AppController.forcedSetup([:]))
 
         let controller = try controller(home: home)
-        defer { controller.setupWindow?.close(); controller.panel?.close() }
+        defer { controller.closeSetup(); controller.panel?.close() }
         controller.openSetupAtLaunch(environment: ["EVLAT_SETUP": "bar", "EVLAT_HOME": home.path])
-        XCTAssertEqual(controller.setupWindow?.isVisible, true)
+        XCTAssertEqual(controller.setupPanel?.isVisible, true)
         XCTAssertEqual(controller.setupFlow?.step, .bar)
         XCTAssertNil(defaults.object(forKey: AppController.setupSeenKey))
         XCTAssertNil(defaults.object(forKey: AppController.updatesAutomaticKey))
@@ -771,32 +834,74 @@ final class SetupFlowTests: XCTestCase {
 
     func testTheMenuAndTheSettingsOpenIt() throws {
         let controller = try controller(home: home)
-        defer { controller.setupWindow?.close(); controller.panel?.close() }
+        defer { controller.closeSetup(); controller.panel?.close() }
         let menu = controller.makeMenu(diagnostics: false, in: "en")
         let entry = try XCTUnwrap(menu.items.first { $0.title == "Setup…" })
         XCTAssertTrue(entry.target === controller)
         XCTAssertEqual(entry.action, #selector(AppController.openSetupFromMenu(_:)))
         controller.settingsHost.openSetup()
-        let window = try XCTUnwrap(controller.setupWindow?.window)
-        XCTAssertTrue(window.isVisible)
-        XCTAssertTrue(window.canBecomeKey)
-        XCTAssertFalse(window.styleMask.contains(.resizable), "a fixed size")
-        XCTAssertEqual(window.contentLayoutRect.width, SetupWindow.width, accuracy: 0.5)
+        let panel = try XCTUnwrap(controller.setupPanel)
+        XCTAssertTrue(controller.isSetupOpen)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertTrue(panel.isKeyWindow, "asked for from Settings: the keyboard comes with it")
+        XCTAssertEqual(panel.frame.size, SetupPanel.size, "a fixed size, the view's 380 × 460 in it")
+        XCTAssertEqual(panel.title, "Setup")
         XCTAssertFalse(try XCTUnwrap(controller.panel).canBecomeKey, "the bar stays a non-activating panel")
     }
 
-    // MARK: - Size, keys
+    /// The × and "Finish" fold the panel and start the flow over: nothing is
+    /// heard, no ring turns for a panel nobody sees, the body goes back to
+    /// its mode — and the setup opens again from the first step.
+    func testTheXAndFinishFoldThePanelAndStartTheFlowOver() throws {
+        let controller = try controller(home: home)
+        defer { controller.closeSetup(); controller.panel?.close() }
+        controller.bodyMode = .hidden
+        controller.openSetup()
+        let panel = try XCTUnwrap(controller.setupPanel)
+        let flow = try XCTUnwrap(controller.setupFlow)
+        flow.primary()
+        controller.handleHookEvent(event(.claude))
+        XCTAssertEqual(flow.step, .connected)
+        XCTAssertFalse(flow.heardFrom.isEmpty)
+        XCTAssertEqual(controller.presence.level, .full)
 
-    func testTheHeightIsCappedAndFitsSmallScreens() {
-        XCTAssertEqual(SetupWindow.height(visible: 1200), 468)
-        XCTAssertEqual(SetupWindow.height(visible: 585), 468)
-        XCTAssertEqual(SetupWindow.height(visible: 500), 400)
-        for visible in stride(from: 200.0, through: 1600, by: 37) {
-            let height = SetupWindow.height(visible: visible)
-            XCTAssertLessThanOrEqual(height, 468)
-            XCTAssertLessThanOrEqual(height, visible * 0.8)
-        }
+        flow.dismiss()
+        XCTAssertFalse(controller.isSetupOpen)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertFalse(panel.isKeyWindow)
+        XCTAssertEqual(flow.step, .agents)
+        XCTAssertEqual(flow.connected, [])
+        XCTAssertEqual(flow.heardFrom, [:])
+        XCTAssertEqual(controller.presence.level, .none, "the body is back to its mode")
+        controller.handleHookEvent(event(.claude))
+        XCTAssertEqual(flow.heardFrom, [:], "nothing is listening")
+
+        controller.openSetup(step: .finish)
+        XCTAssertTrue(controller.isSetupOpen)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(flow.step, .finish)
+        flow.primary()
+        XCTAssertFalse(controller.isSetupOpen, "Finish closes it the same way")
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(flow.step, .agents)
+        XCTAssertEqual(controller.presence.level, .none)
     }
+
+    /// A second opening starts over from the step asked for, while it is out.
+    func testOpeningItAgainStartsOver() throws {
+        let controller = try controller(home: home)
+        defer { controller.closeSetup(); controller.panel?.close() }
+        controller.openSetup(step: .bar)
+        let flow = try XCTUnwrap(controller.setupFlow)
+        XCTAssertEqual(flow.step, .bar)
+        controller.openSetup()
+        XCTAssertEqual(flow.step, .agents)
+        XCTAssertTrue(controller.isSetupOpen)
+        XCTAssertTrue(try XCTUnwrap(controller.setupPanel).isVisible)
+    }
+
+    // MARK: - Keys
 
     func testEveryKeyIsInBothTables() {
         for lang in L10nTests.languages {

@@ -577,7 +577,7 @@
 "settings.general.language.detail" = "Тексти Evlat змінюються одразу, вікно оновлень — після наступного запуску.";
 "settings.general.language.system" = "Системна ({language})";
 "language.name" = "Українська";
-"setup.window.title" = "Початкове налаштування Evlat";
+"setup.flow.close" = "Закрити";
 "setup.flow.who" = "Налаштування";
 "setup.flow.progress" = "Крок {number} з {count}";
 "setup.flow.connect" = "Підключити";

@@ -3,19 +3,14 @@ import Carbon.HIToolbox
 import SwiftUI
 import EvlatCore
 
-/// The balloon's window: the one Evlat window that takes the
-/// keyboard — and still never makes Evlat the active app.
-///
-/// `.nonactivatingPanel` with `canBecomeKey` is the Spotlight pattern: the
-/// panel becomes key and gets the keys typed, `NSApp.isActive` stays false,
-/// and the app in front never falls back. When the balloon goes, the keyboard
-/// is that app's again with nothing to hand back. The bar (`BarPanel`) keeps
-/// `canBecomeKey == false`; this is a second window, not a relaxed bar.
+/// The balloon's window: a panel beside the mascot (`BesidePanel`, which
+/// holds what it shares with the setup — taking the keyboard without making
+/// Evlat the active app).
 ///
 /// It closes on Esc, on losing the keyboard (a click elsewhere), and on the
 /// controller's word (the mascot clicked again, the shortcut, a new edge).
 /// Built once and ordered out between uses.
-final class ChatPanel: NSPanel {
+final class ChatPanel: BesidePanel {
     /// The balloon wants to close: Esc, or the keyboard went elsewhere. The
     /// controller closes it, so every way out passes one place.
     var onClose: (() -> Void)?
@@ -33,19 +28,9 @@ final class ChatPanel: NSPanel {
 
     /// The balloon's own width; the window adds the tail and the shadow's room.
     static let balloonWidth: CGFloat = 320
-    /// How far the tail reaches out of the balloon, toward the bar.
-    static let tailDepth: CGFloat = 8
     /// The tail's middle, down from the balloon's top: level with the
     /// mascot's eyes.
     static let tailCenter: CGFloat = 24
-    /// Between the tail's tip and the drawn bar's inner edge.
-    static let gapToBar: CGFloat = 4
-    /// Room for the shadow on the three sides away from the bar.
-    static let outerMargin: CGFloat = 24
-    /// On the bar's side the window stops just past the tail's tip: a wider
-    /// margin would lay the window's shadow over the mascot and take the
-    /// click meant to close the balloon.
-    static let barSideMargin: CGFloat = 2
     /// The tallest the balloon grows; its window is this tall, transparent
     /// under a shorter balloon, so it never resizes while a reply streams.
     static let maxBalloonHeight: CGFloat = 420
@@ -55,57 +40,15 @@ final class ChatPanel: NSPanel {
 
     init(content: some View) {
         drop = ChatDropView(frame: NSRect(origin: .zero, size: Self.size))
-        super.init(contentRect: NSRect(origin: .zero, size: Self.size),
-                   // `.nonactivatingPanel`: taking the keyboard does not bring
-                   // Evlat forward (`canBecomeKey` below).
-                   styleMask: [.borderless, .nonactivatingPanel],
-                   backing: .buffered, defer: false)
-        // The bar's level and spaces: the balloon comes out of it.
-        level = .statusBar
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        isOpaque = false
-        backgroundColor = .clear
-        // The balloon draws its own; the window's would outline the
-        // transparent envelope.
-        hasShadow = false
-        hidesOnDeactivate = false
-        isReleasedWhenClosed = false
-        let hosting = NSHostingView(rootView: AnyView(content))
-        // The window's size is this class's: see `BarPanel`.
-        hosting.sizingOptions = []
         // The content and, over it, the drop layer (`ChatDropView`).
         let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
-        for layer in [hosting, drop] as [NSView] {
+        for layer in [Self.hosting(content), drop] as [NSView] {
             layer.frame = container.bounds
             layer.autoresizingMask = [.width, .height]
             container.addSubview(layer)
         }
-        contentView = container
-        WindowStage.stage(self)
+        super.init(size: Self.size, content: container)
     }
-
-    override var canBecomeKey: Bool { true }
-
-    /// Offstage the keyboard is this flag rather than the window server's:
-    /// a real key balloon in a test run took the keys the user was typing.
-    private var stagedKey = false
-
-    override var isKeyWindow: Bool { WindowStage.isOffstage ? stagedKey : super.isKeyWindow }
-
-    override func makeKey() {
-        guard WindowStage.isOffstage else { return super.makeKey() }
-        stagedKey = true
-    }
-
-    /// On the screen, ordering a key window out resigns it; offstage the
-    /// flag does the same, down the same path.
-    override func orderOut(_ sender: Any?) {
-        super.orderOut(sender)
-        guard WindowStage.isOffstage, stagedKey else { return }
-        stagedKey = false
-        keyWentElsewhere()
-    }
-    override var canBecomeMain: Bool { false }
 
     /// Esc on its way to the text field: taken here, because a field editor
     /// answers Esc with completion rather than passing `cancelOperation`
@@ -132,18 +75,12 @@ final class ChatPanel: NSPanel {
         keyWentElsewhere()
     }
 
-    private func keyWentElsewhere() {
+    override func keyWentElsewhere() {
         if isVisible { onClose?() }
     }
 
-    /// Placed and shown with the keyboard: `makeKey` and `orderFrontRegardless`,
-    /// never `makeKeyAndOrderFront` with an activation — the app stays where
-    /// it is.
-    func present(beside bar: NSWindow, edge: BarPanel.Edge) {
-        let visible = (bar.screen ?? NSScreen.screens.first)?.visibleFrame ?? bar.frame
-        setFrameOrigin(Self.origin(barFrame: bar.frame, edge: edge, size: frame.size, visible: visible))
-        orderFrontRegardless()
-        makeKey()
+    override func origin(barFrame: NSRect, edge: BarPanel.Edge, visible: NSRect) -> NSPoint {
+        Self.origin(barFrame: barFrame, edge: edge, size: frame.size, visible: visible)
     }
 
     /// Where the balloon's window goes: its tail's tip `gapToBar` in from the
@@ -153,11 +90,9 @@ final class ChatPanel: NSPanel {
     /// length of it, which the centred bar never is; the tail then points a
     /// little below the eyes. The left is the right's mirror.
     static func origin(barFrame: NSRect, edge: BarPanel.Edge, size: CGSize, visible: NSRect) -> NSPoint {
-        let tip = edge.x(atInset: AppController.barWidth + gapToBar, in: barFrame)
-        let x = edge.isLeft ? tip - barSideMargin : tip + barSideMargin - size.width
         let eyes = AppController.gazeAnchor(frame: barFrame, edge: edge).y
         let top = min(eyes + tailCenter, visible.maxY) + outerMargin
-        return NSPoint(x: x, y: top - size.height)
+        return NSPoint(x: x(barFrame: barFrame, edge: edge, width: size.width), y: top - size.height)
     }
 }
 

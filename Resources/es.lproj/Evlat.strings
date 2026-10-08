@@ -577,7 +577,7 @@
 "settings.general.language.detail" = "Los textos de Evlat cambian al instante; la ventana de actualizaciones, la próxima vez que se abra Evlat.";
 "settings.general.language.system" = "Sistema ({language})";
 "language.name" = "Español";
-"setup.window.title" = "Configuración de Evlat";
+"setup.flow.close" = "Cerrar";
 "setup.flow.who" = "Configuración";
 "setup.flow.progress" = "Paso {number} de {count}";
 "setup.flow.connect" = "Conectar";

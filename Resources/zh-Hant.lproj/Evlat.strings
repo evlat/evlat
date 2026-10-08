@@ -577,7 +577,7 @@
 "settings.general.language.detail" = "Evlat 本身的文字會立即切換，更新視窗在下次啟動時切換。";
 "settings.general.language.system" = "系統（{language}）";
 "language.name" = "繁體中文";
-"setup.window.title" = "Evlat 設定輔助程式";
+"setup.flow.close" = "關閉";
 "setup.flow.who" = "設定輔助程式";
 "setup.flow.progress" = "第 {number} 步，共 {count} 步";
 "setup.flow.connect" = "連接";

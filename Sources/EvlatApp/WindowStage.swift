@@ -10,8 +10,9 @@ import AppKit
 /// Offstage:
 /// - every Evlat window is drawn fully transparent and lets clicks through
 ///   (`stage`);
-/// - the balloon's keyboard is Evlat's own bookkeeping, not the window
-///   server's (`ChatPanel.isKeyWindow`), so no keystroke ever reaches it;
+/// - a panel beside the mascot has its keyboard as Evlat's own bookkeeping,
+///   not the window server's (`BesidePanel.isKeyWindow`), so no keystroke
+///   ever reaches it;
 /// - Evlat activates no app, its own or another (`activate`).
 ///
 /// What a test reads — frames, levels, visibility, `isKeyWindow`, the close

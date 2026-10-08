@@ -577,7 +577,7 @@
 "settings.general.language.detail" = "Evlats eigene Texte wechseln sofort, das Update-Fenster beim nächsten Start.";
 "settings.general.language.system" = "System ({language})";
 "language.name" = "Deutsch";
-"setup.window.title" = "Evlat einrichten";
+"setup.flow.close" = "Schließen";
 "setup.flow.who" = "Einrichtung";
 "setup.flow.progress" = "Schritt {number} von {count}";
 "setup.flow.connect" = "Verbinden";

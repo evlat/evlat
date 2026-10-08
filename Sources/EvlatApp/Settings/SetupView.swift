@@ -88,10 +88,37 @@ struct SetupView: View {
             }
             .frame(width: SetupLayout.size.width, height: SetupLayout.size.height)
         }
+        .overlay(alignment: .topTrailing) {
+            SetupClose(model: model)
+                .padding(.top, 16)
+                .padding(.trailing, 16)
+        }
         .environment(\.colorScheme, .dark)
         // Built again in a new language (Settings → General → Language), as
         // the settings window is; the step is the model's, so it stays.
         .id(model.lang)
+    }
+}
+
+/// The ×, in the top corner on the far side from the title (the design's, for
+/// either edge): the panel has no title bar, and Esc does not close it, so
+/// this and "Finish" are the ways out.
+private struct SetupClose: View {
+    let model: SetupFlowModel
+    @State private var hovered = false
+
+    var body: some View {
+        Button { model.dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(hovered ? SetupPalette.text : SetupPalette.muted)
+                .frame(width: 22, height: 22)
+                .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? SetupPalette.fieldOn : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .accessibilityLabel(Text(model.t("setup.flow.close")))
     }
 }
 

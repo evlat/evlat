@@ -211,7 +211,7 @@ private struct ClipPlayer: View {
 
 /// The cube itself. Draws a pose; decides nothing, and knows nothing about
 /// phases — the one thing a phase drives directly, the shudder, hangs above it
-/// in `MascotView`. The setup window draws its still face with it too
+/// in `MascotView`. The setup draws its still face with it too
 /// (`SetupView`).
 struct MascotBody: View {
     /// The pose it was handed; `drawn` is what it draws.

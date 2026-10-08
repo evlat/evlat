@@ -164,9 +164,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The settings window, once opened, and its model.
     private(set) var settingsWindow: AppWindow?
     private(set) var settings: SettingsModel?
-    /// The setup window, once opened, and its model.
-    private(set) var setupWindow: AppWindow?
+    /// The setup's panel beside the mascot, once opened, and its model.
+    private(set) var setupPanel: SetupPanel?
     private(set) var setupFlow: SetupFlowModel?
+    /// Is the setup on screen? The one place that says so, like
+    /// `isChatOpen`: hover, the body and the news read it.
+    private(set) var isSetupOpen = false
+    /// A panel stands beside the mascot: the balloon or the setup. Hover, the
+    /// body (`BodyPresence.chatOpen`) and the news treat the two alike — the
+    /// panel is the one thing talking; what only the balloon has reads
+    /// `isChatOpen`.
+    var isPanelOut: Bool { isChatOpen || isSetupOpen }
+    /// Whether Evlat is the app in front, as the system says (not
+    /// `NSApp.isActive`, which a key panel makes true): what lets a setup that
+    /// opened by itself take the keyboard. A `var` so a test hands it a
+    /// fake.
+    var isFrontmost: () -> Bool = { NSRunningApplication.current.isActive }
     /// The update window, once opened, and its model.
     private(set) var updatesWindow: AppWindow?
     private(set) var updates: UpdatesModel?
@@ -1429,7 +1442,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case nil: break
         }
         if let place = Self.forcedSettings() { openSettings(section: place.section, anchor: place.anchor) }
-        openSetupAtLaunch()
         poller = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) {
             [weak self] _ in
             MainActor.assumeIsolated {  // Timer callback is nonisolated
@@ -1465,7 +1477,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         ) { [weak self, weak panel] _ in
             MainActor.assumeIsolated {
                 // The balloon is placed once, beside the mascot; a bar that
-                // moves under it would leave it pointing at nothing.
+                // moves under it would leave it pointing at nothing. The
+                // setup stays and moves with the bar (`edgeMoved`).
                 self?.closeChat()
                 panel?.reposition()
                 self?.edgeMoved()
@@ -1473,6 +1486,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 self?.settings?.screensChanged()
             }
         }
+        // Last: it needs the bar placed and shown, the gaze running and the
+        // edge reader live (`EVLAT_SETUP=bar` reads the edge as it opens).
+        openSetupAtLaunch()
     }
 
     /// Builds the window at the envelope's size, once. Nothing resizes it
@@ -1543,15 +1559,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         applyPresence()
     }
 
-    /// The cursor over the bar. While the balloon is open hover is not told:
-    /// the balloon is the one thing talking, and an intent that believed
-    /// the bar open while it stayed closed would ignore the next enter.
-    /// The eyes still follow the cursor.
+    /// The cursor over the bar. While the balloon or the setup is open hover
+    /// is not told: the panel is the one thing talking, and an intent that
+    /// believed the bar open while it stayed closed would ignore the next
+    /// enter. The eyes still follow the cursor.
     func pointer(_ pointer: BarHostingView.Pointer) {
         switch pointer {
         case .entered:
             exitHeld = false
-            guard !isChatOpen else { return }
+            guard !isPanelOut else { return }
             hover.pointerEntered()
         case .exited:
             // Off the bar is off every row: a switch still pending
@@ -1568,7 +1584,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         case .moved(let point):
             // An unseen mascot looks at nothing.
             if presence.mascotShown { gaze?.observe(point) }
-            guard !isChatOpen else { return }
+            guard !isPanelOut else { return }
             // A move is only reported inside the bar, so it also says
             // "still here" — which is what cancels a close pending from a
             // missed exit/enter pair.
@@ -1594,6 +1610,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// first, then the latest unseen end — else none, and the empty
     /// balloon shows the history. Old chats are pruned first.
     func openChat(chat requested: String? = nil, fresh: Bool = false) {
+        // The setup is out and is the one thing talking: the mascot, the
+        // shortcut and a dropped file bring its panel the keyboard, and the
+        // chat opens once it is gone. Not queued — the user asks again.
+        if isSetupOpen {
+            setupPanel?.makeKey()
+            return
+        }
         // The chat switched off: no way in opens it, today's or a new one.
         guard isChatEnabled, let bar = panel else { return }
         if isChatOpen {
@@ -1607,14 +1630,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         } else {
             currentChat = fresh ? nil : openingChat()
         }
-        hover.closeNow()
-        // The cursor that came to click the mascot has already asked for
-        // the bar to open; `closeNow` leaves a pending opening alone, and
-        // a leave on a closed bar is what drops it (seen by eye: the list
-        // opened under a fresh balloon).
-        hover.pointerExited()
-        // The intent may already have believed the bar closed.
-        if barState.isOpen { closeBar() }
+        closeBarForPanel()
         let balloon = chatPanel ?? makeChatPanel()
         isChatOpen = true
         // After the flag: the `closeBar` above derived the hidden level, and
@@ -1625,14 +1641,33 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         refreshFolder()
         locateBalloonBackend()
         chatModel.opened()
-        // A short fade in: it comes out of the mascot rather than popping.
         // Leaving is at once — Esc should feel instant.
-        balloon.alphaValue = 0
-        balloon.present(beside: bar, edge: bar.edge)
+        fadeIn(balloon, beside: bar)
+    }
+
+    /// A panel is about to come out beside the mascot (`openChat`,
+    /// `openSetup`): the open list and card go, and so does an opening the
+    /// cursor already asked for.
+    private func closeBarForPanel() {
+        hover.closeNow()
+        // The cursor that came to click the mascot has already asked for
+        // the bar to open; `closeNow` leaves a pending opening alone, and
+        // a leave on a closed bar is what drops it (seen by eye: the list
+        // opened under a fresh balloon).
+        hover.pointerExited()
+        // The intent may already have believed the bar closed.
+        if barState.isOpen { closeBar() }
+    }
+
+    /// Placed beside `bar` and shown, with a short fade in: it comes out of
+    /// the mascot rather than popping.
+    private func fadeIn(_ panel: BesidePanel, beside bar: BarPanel, keyboard: Bool = true) {
+        panel.alphaValue = 0
+        panel.present(beside: bar, edge: bar.edge, keyboard: keyboard)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.14
             // Offstage it fades to none (`WindowStage`).
-            balloon.animator().alphaValue = WindowStage.alpha(1)
+            panel.animator().alphaValue = WindowStage.alpha(1)
         }
     }
 
@@ -1734,11 +1769,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         chatModel.onOpenLink = { url in NSWorkspace.shared.open(url) }
         // In the browser, behind the app in front: the balloon keeps the
         // keyboard and stays out, so the other links are still there.
-        chatModel.onOpenInstallPage = { url in
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = false
-            NSWorkspace.shared.open(url, configuration: configuration)
-        }
+        chatModel.onOpenInstallPage = { BesidePanel.openBehind($0) }
         chatModel.onMode = { [weak self] in self?.showModes() }
         chatModel.onRetry = { [weak self] line in self?.retryAsking(line) }
         chatModel.onNew = { [weak self] in self?.show(nil) }
@@ -1805,6 +1836,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func attach(_ items: [ChatFolder.Item]) {
         // Switched off, no chips gather for a balloon that cannot open.
         guard isChatEnabled, !items.isEmpty else { return }
+        // The setup is out: the drop only gives its panel the keyboard, and
+        // no chips wait for a balloon that is not there to show them.
+        if isSetupOpen { return openChat() }
         chatModel.add(items)
         // Dropped on a closed balloon, the files start a chat of their own
         // rather than joining one that may still be running.
@@ -2065,7 +2099,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         settings?.languageChanged(to: language)
         settingsWindow?.window?.title = L10n.t("settings.window.title")
         setupFlow?.languageChanged(to: language)
-        setupWindow?.window?.title = L10n.t("setup.window.title")
+        setupPanel?.title = L10n.t("setup.flow.who")
         updates?.languageChanged(to: language)
         updatesWindow?.window?.title = L10n.t("updates.window.title")
         refresh()
@@ -3167,41 +3201,65 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     // MARK: - Setup
 
-    /// The window's focus call on open; a test holds it still.
-    var setupActivation: () -> Void = { WindowStage.activate() }
-
-    /// The setup at `step` (the first unless one is named), built on first
-    /// use. Opened again it starts over, every row read fresh: what was set
-    /// up shows as connected. `firstRun` is the launch that opens it by
-    /// itself for someone who has set nothing up.
-    func openSetup(step: SetupFlowModel.Step = .agents, firstRun: Bool = false) {
-        hover.closeNow()
-        if barState.isOpen { closeBar() }
-        let window = setupWindow ?? makeSetupWindow()
-        if window.isVisible { setupFlow?.start(at: step, firstRun: firstRun) }
-        window.onOpen = { [weak self] in self?.setupFlow?.start(at: step, firstRun: firstRun) }
-        window.show()
-    }
-
-    private func makeSetupWindow() -> AppWindow {
-        let flow = SetupFlowModel(settings: settingsHost, setup: SetupModel(host: setupHost),
-                                  close: { [weak self] in self?.closeSetupToTheBar() })
-        let window = AppWindow(make: { SetupWindow.make(model: flow, screen: NSScreen.main) },
-                               activate: { [weak self] in self?.setupActivation() })
-        window.onCancel = { false }
-        window.onClose = { [weak flow] in flow?.windowClosed() }
-        setupFlow = flow
-        setupWindow = window
-        return window
-    }
-
-    /// "Finish": the window flies into the bar's mascot.
-    private func closeSetupToTheBar() {
-        guard let window = setupWindow?.window else { return }
-        let target = panel.map { panel -> NSRect in
-            NSRect(origin: Self.gazeAnchor(frame: panel.frame, edge: panel.edge), size: .zero)
+    /// The setup at `step` (the first unless one is named), beside the mascot.
+    /// Built on first use; opened again it starts over, every row read fresh:
+    /// what was set up shows as connected. `firstRun` is the launch that opens
+    /// it by itself for someone who has set nothing up.
+    ///
+    /// Evlat does not come forward and no icon reaches the Dock: the panel is
+    /// the balloon's kind (`SetupPanel`). The keyboard comes with the user's
+    /// own asking (the menu, Settings). A setup that opened by itself
+    /// (`byItself`) takes it only when Evlat is the app in front — someone
+    /// opened Evlat on purpose; otherwise the first Return would land in the
+    /// panel while the user types in a terminal and write to their agents'
+    /// files. The first click on the panel brings the keyboard then.
+    ///
+    /// The bar goes out and stays (`BodyPresence`), the list and the balloon
+    /// close, and the news is told quietly while it is open: the setup is
+    /// the one thing talking, as the balloon is.
+    func openSetup(step: SetupFlowModel.Step = .agents, firstRun: Bool = false, byItself: Bool = false) {
+        guard let bar = panel else { return }
+        let panelBesideBar = setupPanel ?? makeSetupPanel()
+        closeBarForPanel()
+        closeChat()
+        setupFlow?.start(at: step, firstRun: firstRun)
+        // No title bar shows it; the accessibility tree and the window list
+        // say what it is, in the language of now.
+        panelBesideBar.title = L10n.t("setup.flow.who")
+        // After the flag: the `closeBar` above derived the hidden level, and
+        // the panel has to come out of a whole body.
+        isSetupOpen = true
+        applyPresence()
+        let keyboard = !byItself || isFrontmost()
+        if panelBesideBar.isVisible {
+            panelBesideBar.present(beside: bar, edge: bar.edge, keyboard: keyboard)
+        } else {
+            fadeIn(panelBesideBar, beside: bar, keyboard: keyboard)
         }
-        SetupWindow.fly(window, to: target) { [weak self] in self?.setupWindow?.close() }
+    }
+
+    private func makeSetupPanel() -> SetupPanel {
+        let flow = SetupFlowModel(settings: settingsHost, setup: SetupModel(host: setupHost),
+                                  close: { [weak self] in self?.closeSetup() })
+        let panel = SetupPanel(model: flow)
+        setupFlow = flow
+        setupPanel = panel
+        return panel
+    }
+
+    /// "Finish" and the ×: the panel folds into the mascot and the flow starts
+    /// over, so nothing is heard and no ring turns for a panel nobody sees.
+    /// The panel goes at once — the keyboard is the app in front's again —
+    /// and the body goes back to its mode.
+    func closeSetup() {
+        guard isSetupOpen, let panelBesideBar = setupPanel else { return }
+        let target = panel.map { bar -> NSRect in
+            NSRect(origin: Self.gazeAnchor(frame: bar.frame, edge: bar.edge), size: .zero)
+        }
+        panelBesideBar.fold(into: target) { panelBesideBar.orderOut(nil) }
+        setupFlow?.panelClosed()
+        isSetupOpen = false
+        applyPresence()
     }
 
     /// The menus' "Setup…".
@@ -3362,7 +3420,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Evlat updates them itself (`updatesAtLaunch`).
     func openSetupAtLaunch(environment: [String: String] = ProcessInfo.processInfo.environment) {
         if let step = Self.forcedSetup(environment) {
-            openSetup(step: step)
+            openSetup(step: step, byItself: true)
             return
         }
         let opensSetup = shouldOpenSetup(environment: environment)
@@ -3376,7 +3434,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             break
         }
         guard opensSetup else { return }
-        openSetup(firstRun: true)
+        openSetup(firstRun: true, byItself: true)
         markSetupSeen(environment: environment)
     }
 
@@ -3819,8 +3877,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
               Self.isOverMascot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
                                 fromTop: point.y - bounds.minY - Self.headroom) else { return false }
         // The chat switched off: the click is still the mascot's and does
-        // nothing — handed on, it would reach `super.mouseDown`.
-        if isChatEnabled { toggleChat() }
+        // nothing — handed on, it would reach `super.mouseDown`. The setup
+        // out, it brings the panel the keyboard.
+        if isChatEnabled || isSetupOpen { toggleChat() }
         return true
     }
 
@@ -4133,7 +4192,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     var presence: BodyPresence {
         BodyPresence(mode: bodyMode, toggles: bodyToggles, phase: mascot.effectivePhase,
                      peekPhase: peekPhase, isOpen: barState.isOpen,
-                     chatOpen: isChatOpen, dragging: isDragging, edgeClear: edgeClear,
+                     chatOpen: isPanelOut, dragging: isDragging, edgeClear: edgeClear,
                      closedLength: barState.length, openWidth: barState.openWidth,
                      openLength: barState.openLength)
     }
@@ -4249,12 +4308,19 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     }
 
     /// The bar moved to another edge or screen: what was read was another
-    /// place's. Nothing is read here — the window list right after a move
-    /// is not known to have the new bounds — but the next tick's reading
-    /// is applied as it is, as at the switch into Smart.
+    /// place's. Nothing is read here — the window list does not have the new
+    /// bounds until one turn of the run loop (`SetupFlowModel`'s edge
+    /// sentence waits for it) — but the next tick's reading is applied as it
+    /// is, as at the switch into Smart. And a setup that is out goes with the
+    /// bar: the one place the edge, the screen and `setDisplay` all reach,
+    /// after the bar has moved.
     private func edgeMoved() {
         edgeCandidate = nil
         edgeSettled = false
+        if isSetupOpen, let bar = panel {
+            setupPanel?.place(beside: bar, edge: bar.edge)
+            setupFlow?.barMoved()
+        }
     }
 
     /// Settings → General → Body. Stored, then applied at once (`bodyMode`'s
@@ -4428,7 +4494,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // meanwhile; several are told as they always were — being at one's
         // tab says nothing of the others.
         let began = rows.filter { change.began.contains($0.entity) }
-        if !first, !barState.isOpen, !isChatOpen, let lead = began.first {
+        if !first, !barState.isOpen, !isPanelOut, let lead = began.first {
             let moment = Self.waitMoment(lead.activity?.waitKind)
             if began.count == 1, soundOn[moment] == true {
                 unlessAtTab(lead, stillDue: { [weak self] in
@@ -4525,9 +4591,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         asking = false
     }
 
-    /// Neither the bar nor the balloon is out: a finish or a wait that
+    /// Neither the bar nor a panel beside it is out: a finish or a wait that
     /// begins is told only then.
-    private var isUnwatched: Bool { !barState.isOpen && !isChatOpen }
+    private var isUnwatched: Bool { !barState.isOpen && !isPanelOut }
 
     /// The live question (`isAtTab`): a session whose walk reaches a
     /// terminal that can say (`askTabFocus`). The walk is the shallow one,
@@ -4583,7 +4649,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// it; the sliver shows what the open bar would.
     private func phaseMoved(to phase: Phase) {
         peekGeneration &+= 1
-        let watched = barState.isOpen || isChatOpen
+        let watched = barState.isOpen || isPanelOut
         guard mascot.override != nil, !watched, phase == .review || phase == .failed else {
             peekPhase = nil
             return
@@ -4627,7 +4693,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // stopped: it enters silently, and stays news until it is seen.
         let untold = isChatEnabled ? all : all.filter { ChatSession.chatID(fromEntity: $0.entity) == nil }
         guard let fresh = untold.first else { return }
-        guard !first, !barState.isOpen, !isChatOpen else { return }
+        guard !first, !barState.isOpen, !isPanelOut else { return }
         let told = now()
         for finish in untold { toldFinishes[finish] = told }
         // Finishes told together make one sound, a failure's if one failed.

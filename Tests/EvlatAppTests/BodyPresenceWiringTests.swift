@@ -208,6 +208,40 @@ final class BodyPresenceWiringTests: XCTestCase {
         XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
     }
 
+    /// The setup is out like the balloon: the whole body, whatever the mode.
+    func testTheSetupBringsTheWholeBodyToo() throws {
+        let rig = rig(.smart)
+        defer {
+            rig.controller.closeSetup()
+            rig.controller.setupPanel?.close()
+            rig.panel.close()
+        }
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+        rig.controller.openSetup()
+        XCTAssertEqual(rig.controller.barState.presence.level, .full)
+        XCTAssertTrue(rig.controller.mascot.isShown)
+        XCTAssertEqual(try rig.bodyRect().width, AppController.barWidth, accuracy: 0.5)
+        rig.controller.closeSetup()
+        XCTAssertEqual(rig.controller.barState.presence.level, .sliver)
+    }
+
+    /// News is quiet beside the setup, as beside the balloon: a finish that
+    /// came meanwhile was in sight, and closing the setup does not tell it.
+    func testAFinishUnderTheSetupIsNotToldWhenItCloses() {
+        let rig = rig(.smart)
+        defer {
+            rig.controller.closeSetup()
+            rig.controller.setupPanel?.close()
+            rig.panel.close()
+        }
+        rig.controller.openSetup()
+        rig.set([("a", .review, 1)])
+        rig.controller.closeSetup()
+        XCTAssertNil(rig.controller.peekPhase)
+        XCTAssertTrue(rig.timers.pending.isEmpty)
+        XCTAssertEqual(rig.controller.barState.presence.dot, .review)
+    }
+
     // MARK: - The edge, read
 
     /// A fake reading of the edge: hands out what it is told, in order

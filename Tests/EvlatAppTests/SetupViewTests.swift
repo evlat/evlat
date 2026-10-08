@@ -248,6 +248,22 @@ final class SetupViewTests: XCTestCase {
             let data = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
             try data.write(to: out.appendingPathComponent(name + ".png"))
         }
+        // The panel as the window holds it: the tail toward the bar, the
+        // shadow in the transparent room, the tail's height as set.
+        func drawPanel(_ edge: BarPanel.Edge, center: CGFloat, as name: String) throws {
+            let tail = SetupTail()
+            tail.set(edge: edge, center: center)
+            let view = SetupPanelView(model: try flow(.crowded, step: .bar, language: language), tail: tail)
+                .frame(width: SetupPanel.size.width, height: SetupPanel.size.height)
+                .background(Color.gray.opacity(0.5))
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.cgImage, "nothing drawn")
+            let data = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+            try data.write(to: out.appendingPathComponent(name + ".png"))
+        }
+        try drawPanel(.right, center: 230, as: "8-panel-right")
+        try drawPanel(.left, center: SetupPanel.tailReach, as: "9-panel-left-high")
         try draw(.crowded, .agents, as: "1-agents")
         try draw(.listening, .connected, as: "2-connected")
         try draw(.crowded, .bar, as: "3-bar")

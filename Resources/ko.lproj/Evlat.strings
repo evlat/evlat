@@ -577,7 +577,7 @@
 "settings.general.language.detail" = "Evlat의 텍스트는 바로 바뀝니다. 업데이트 창은 다음 실행 시에 바뀝니다.";
 "settings.general.language.system" = "시스템({language})";
 "language.name" = "한국어";
-"setup.window.title" = "Evlat 설정 도우미";
+"setup.flow.close" = "닫기";
 "setup.flow.who" = "설정 도우미";
 "setup.flow.progress" = "{count}단계 중 {number}단계";
 "setup.flow.connect" = "연결";

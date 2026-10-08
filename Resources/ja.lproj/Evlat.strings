@@ -577,7 +577,7 @@
 "settings.general.language.detail" = "Evlatの表示はすぐに切り替わります。アップデートのウインドウは次回の起動時に切り替わります。";
 "settings.general.language.system" = "システム（{language}）";
 "language.name" = "日本語";
-"setup.window.title" = "Evlatのセットアップ";
+"setup.flow.close" = "閉じる";
 "setup.flow.who" = "セットアップ";
 "setup.flow.progress" = "ステップ {number}/{count}";
 "setup.flow.connect" = "接続";

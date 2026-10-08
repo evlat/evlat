@@ -662,7 +662,7 @@
 "settings.general.language.detail" = "Evlat's own text changes at once; the update window follows the next time Evlat opens.";
 "settings.general.language.system" = "System ({language})";
 "language.name" = "English";
-"setup.window.title" = "Evlat Setup";
+"setup.flow.close" = "Close";
 "setup.flow.who" = "Setup";
 "setup.flow.progress" = "Step {number} of {count}";
 "setup.flow.connect" = "Connect";

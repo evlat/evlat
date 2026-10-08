@@ -5,8 +5,9 @@ import EvlatAgents
 /// The setup's state: which of the four steps is on and what its two writing
 /// moments do — "Connect" on the first step, "Finish" on the last. The bar's
 /// place, its visibility and the sound are written the moment they are chosen
-/// (their step shows the bar answering), so a press of "Back" or the end of
-/// the flow has nothing of theirs left to write.
+/// (the bar answers to its place at once; its visibility only shows once the
+/// panel is gone — the body stays out while the setup is open), so a press of
+/// "Back" or the end of the flow has nothing of theirs left to write.
 ///
 /// It composes rather than repeats, like `SettingsModel`: the rows are a
 /// `SetupModel` of its own (its queue is this flow's, never the settings
@@ -101,11 +102,12 @@ final class SetupFlowModel: ObservableObject {
     @Published var autoUpdate = false
 
     let setup: SetupModel
-    /// Written by the controller when the language changes; the window
+    /// Written by the controller when the language changes; the view
     /// observes it and draws again.
     @Published private(set) var lang: String
-    /// Opens an install page; a test holds it still.
-    var openPage: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// Opens an install page, in the browser behind the app in front: the
+    /// panel keeps the keyboard and stays out. A test holds it still.
+    var openPage: (URL) -> Void = { BesidePanel.openBehind($0) }
 
     private let settings: SettingsModel.Host
     private let close: () -> Void
@@ -153,19 +155,29 @@ final class SetupFlowModel: ObservableObject {
         autoUpdateStart = firstRun ? true : currentAutoUpdate
         autoUpdate = autoUpdateStart
         readOpenSessions()
-        if step == .bar { readEdgeCover() }
+        edgeCovered = nil
         self.step = step
+        // Opened onto the step (a look at it): the bar may have just come
+        // on screen, and a window just ordered front is in the window list
+        // after one turn like a moved one (measured: 0 of 40 reads right
+        // away, 40 of 40 after one main-queue hop).
+        if step == .bar { readEdgeCoverSoon() }
     }
 
-    /// The window closed: what only the second step holds goes, so nothing
-    /// listens, and nothing turns in a window nobody sees.
-    func windowClosed() {
+    /// The panel closed: what only the second step holds goes, so nothing
+    /// listens, and nothing turns in a panel nobody sees. Back to the first
+    /// step, for the next time it opens.
+    func panelClosed() {
         connected = []
         heardFrom = [:]
         step = .agents
     }
 
     // MARK: - Moving
+
+    /// The ×: the panel folds into the mascot and nothing is written (what
+    /// "Connect" and the switches wrote already stands).
+    func dismiss() { close() }
 
     var showsBack: Bool { step != .agents }
 
@@ -374,7 +386,7 @@ final class SetupFlowModel: ObservableObject {
     func chooseEdge(_ edge: BarPanel.Edge) {
         guard edge != settings.edge() else { return }
         settings.setEdge(edge)
-        readEdgeCover()
+        readEdgeCoverSoon()
     }
 
     /// Always out or Smart hide; another body mode, set in Settings, is
@@ -388,6 +400,35 @@ final class SetupFlowModel: ObservableObject {
     }
 
     private func readEdgeCover() { edgeCovered = settings.edgeCovered() }
+
+    /// The bar moved by another way than this step's choice (the menu's
+    /// edge, a screen): the sentence is read again if it is on screen.
+    func barMoved() {
+        guard step == .bar else { return }
+        readEdgeCoverSoon()
+    }
+
+    /// The sentence is read once, one turn of the run loop from now, and says
+    /// nothing meanwhile: the window list carries a moved bar's new bounds
+    /// only after that turn (measured with a panel moved in its own process:
+    /// none of 40 reads right after the move had them, 60 of 60 after one
+    /// main-queue hop), and a read before it is of the edge the bar just
+    /// left. One read, not a poll; asked again while one waits, it is that
+    /// one.
+    private func readEdgeCoverSoon() {
+        edgeCovered = nil
+        guard !coverRead else { return }
+        coverRead = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.coverRead = false
+                if self.step == .bar { self.readEdgeCover() }
+            }
+        }
+    }
+
+    private var coverRead = false
 
     // MARK: - Finish
 
@@ -440,7 +481,7 @@ final class SetupFlowModel: ObservableObject {
     // MARK: - Catalogue
 
     static let keys: [String] = [
-        "setup.window.title", "setup.flow.who", "setup.flow.progress",
+        "setup.flow.close", "setup.flow.who", "setup.flow.progress",
         "setup.flow.back", "setup.flow.skip", "setup.flow.connect", "setup.flow.update",
         "setup.flow.continue", "setup.flow.finish",
         "setup.flow.agents.title", "setup.flow.agents.title.again",
