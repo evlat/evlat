@@ -406,7 +406,7 @@
 "settings.strip.review" = "Revisar";
 "settings.attention" = "requiere atención";
 "settings.general.bar" = "Barra";
-"settings.general.edge" = "Borde";
+"settings.general.edge" = "Posición de la barra";
 "settings.general.edge.detail" = "En qué borde de la pantalla se sitúa la barra.";
 "settings.general.edge.left" = "Izquierdo";
 "settings.general.edge.right" = "Derecho";
@@ -419,11 +419,11 @@
 "settings.general.updates" = "Actualizaciones";
 "settings.general.autoUpdate" = "Instalar actualizaciones automáticamente";
 "settings.general.autoUpdate.detail" = "Las nuevas versiones se descargan en segundo plano y se instalan al salir de Evlat. Si Evlat sigue abierto, pregunta una vez al día si quieres reiniciarlo para instalarla.";
-"settings.general.keepParts" = "Mantener al día las piezas de Evlat";
-"settings.general.keepParts.detail" = "Cuando lo que Evlat escribió en los archivos de tus agentes y servidores queda desactualizado, Evlat lo actualiza y solo te pregunta cuando tengas que hacer algo.";
+"settings.general.keepParts" = "Mantener al día lo que Evlat añade a tus agentes";
+"settings.general.keepParts.detail" = "Cuando lo que Evlat añadió a los archivos de tus agentes y servidores queda desactualizado, Evlat lo actualiza y solo te pregunta cuando tengas que hacer algo.";
 "settings.general.body" = "Cuerpo";
 "settings.general.body.detail" = "Cómo se sitúa la barra en el borde de la pantalla.";
-"settings.general.body.always" = "Siempre fuera";
+"settings.general.body.always" = "Siempre visible";
 "settings.general.body.smart" = "Ocultación inteligente";
 "settings.general.body.smart.detail" = "Fuera mientras no haya ninguna ventana debajo; recogida cuando la hay.";
 "settings.general.body.tucked" = "Recogida";
@@ -595,6 +595,7 @@
 "setup.flow.agents.none.note" = "Los enlaces se abren en el navegador.";
 "setup.flow.agents.install" = "Instalar {agent} ↗";
 "setup.flow.tile.connected" = "Conectado";
+"setup.flow.tile.off" = "Desactivado";
 "setup.flow.tile.outdated" = "obsoleto";
 "setup.flow.tile.failed" = "no se pudo escribir";
 "setup.flow.connected.title" = "Conectado";

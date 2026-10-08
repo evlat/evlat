@@ -283,6 +283,51 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(old.mood, .choice)
     }
 
+    /// Written and switched off in Settings: Evlat does not follow it, so the
+    /// tile does not say "Connected" and takes no press.
+    func testAnInstalledAgentSwitchedOffIsNotDrawnConnected() throws {
+        try AgentIntegration.install(home: home, for: .codex)
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        controller.setEnabled(.codex, false)
+        let codex = try XCTUnwrap(flow(controller).tiles.first { $0.source == .codex })
+        XCTAssertEqual(codex.mood, .dim)
+        XCTAssertEqual(codex.note, "Off")
+        XCTAssertFalse(codex.selected)
+    }
+
+    /// The step views observe the flow, not the rows under it: a tick or a
+    /// switch that only changes the rows must still tell the flow's
+    /// observers, or the view is not drawn again.
+    func testAChangeInTheRowsReachesTheFlowsObservers() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let flow = flow(controller)
+        var told = 0
+        let watching = flow.objectWillChange.sink { told += 1 }
+        defer { watching.cancel() }
+        flow.setQueued(.agent(.codex), false)
+        XCTAssertGreaterThan(told, 0, "a tile unchecked")
+    }
+
+    /// Only this Mac's sessions are counted: a server's or a Docker
+    /// sandbox's is not heard by the hooks the setup writes.
+    func testOnlyThisMacsSessionRowsAreCounted() {
+        func row(_ id: String, _ source: AgentID, kind: Signal.Kind = .session, machine: Signal.Machine? = nil,
+                 sandbox: String? = nil) -> Signal {
+            Signal(provider: "hooks", entity: id, kind: kind, phase: .working, label: id, source: source,
+                   fidelity: .official, updatedAt: Date(),
+                   activity: sandbox.map { Signal.Activity(sandboxName: $0) }, machine: machine)
+        }
+        let counts = AppController.sessionCounts([
+            row("a", .claude), row("b", .claude),
+            row("c", .claude, machine: Signal.Machine(name: "devbox")),
+            row("d", .claude, sandbox: "claude-docs"),
+            row("e", .codex, kind: .job),
+        ])
+        XCTAssertEqual(counts, [.claude: 2])
+    }
+
     /// Opened again with something connected, the first step is "your
     /// connections", not a welcome.
     func testReopenedWithSomethingConnectedReadsAsTheConnections() throws {

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import EvlatCore
 import EvlatAgents
 
@@ -17,7 +18,7 @@ import EvlatAgents
 /// Going back never undoes anything: the rows read their state again and what
 /// was connected shows as such. "Connect" writes exactly the agents that are
 /// checked and turns off the ones that are not; "Not now" writes only that
-/// choice (R3). Main queue only.
+/// choice. Main queue only.
 @MainActor
 final class SetupFlowModel: ObservableObject {
     /// The raw value is `EVLAT_SETUP`'s.
@@ -111,6 +112,10 @@ final class SetupFlowModel: ObservableObject {
 
     private let settings: SettingsModel.Host
     private let close: () -> Void
+    /// The rows' changes, passed on: the step views observe this model, not
+    /// the `SetupModel` under it, and a view whose inputs are the same
+    /// reference is not drawn again by a change it does not observe.
+    private var forwarding: AnyCancellable?
     /// The first run offers "Update automatically" on and writes what it
     /// shows; a reopened flow starts from what is set and writes a change.
     private var firstRun = false
@@ -122,6 +127,7 @@ final class SetupFlowModel: ObservableObject {
         self.setup = setup
         self.close = close
         self.lang = lang
+        forwarding = setup.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     func t(_ key: String, _ values: [String: String] = [:]) -> String { L10n.t(key, values, in: lang) }
@@ -263,6 +269,8 @@ final class SetupFlowModel: ObservableObject {
                 Tile(source: source, item: row.item, name: row.name, mood: mood, selected: selected, note: note, tone: tone)
             }
             if row.status == .installed {
+                // Written, and left unfollowed on purpose: not "Connected".
+                if !row.enabled { return tile(.dim, selected: false, t("setup.flow.tile.off")) }
                 return tile(.done, selected: true, t("setup.flow.tile.connected"), .ok)
             }
             guard row.action?.installs == true else {
@@ -389,7 +397,7 @@ final class SetupFlowModel: ObservableObject {
         readEdgeCoverSoon()
     }
 
-    /// Always out or Smart hide; another body mode, set in Settings, is
+    /// Always visible or Smart hide; another body mode, set in Settings, is
     /// neither selected nor kept from being picked.
     var visibility: BodyPresence.Mode { settings.bodyMode() }
 
@@ -490,7 +498,7 @@ final class SetupFlowModel: ObservableObject {
         "setup.flow.agents.note", "setup.flow.agents.note.done",
         "setup.flow.agents.none.title", "setup.flow.agents.none.text", "setup.flow.agents.none.note",
         "setup.flow.agents.install",
-        "setup.flow.tile.connected", "setup.flow.tile.outdated", "setup.flow.tile.failed",
+        "setup.flow.tile.connected", "setup.flow.tile.off", "setup.flow.tile.outdated", "setup.flow.tile.failed",
         "setup.flow.connected.title", "setup.flow.connected.title.heard",
         "setup.flow.connected.text", "setup.flow.connected.text.heard",
         "setup.flow.connected.ask.open", "setup.flow.connected.ask.none",

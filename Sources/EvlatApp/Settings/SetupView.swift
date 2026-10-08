@@ -404,7 +404,7 @@ private struct BarStep: View {
         let edge = model.edge
         VStack(alignment: .leading, spacing: 0) {
             StepTitle(text: model.t("setup.flow.bar.title"))
-            SectionLabel(model.t("setup.flow.bar.place"))
+            SectionLabel(model.t("setup.flow.bar.place"), lang: model.lang)
                 .padding(.top, 14)
             HStack(spacing: 12) {
                 Choice(title: model.t("setup.flow.bar.left"), selected: edge.isLeft,
@@ -413,7 +413,7 @@ private struct BarStep: View {
                        picture: ScreenPicture(kind: .edge, left: false)) { model.chooseEdge(.right) }
             }
             .padding(.top, 10)
-            SectionLabel(model.t("setup.flow.bar.visibility"))
+            SectionLabel(model.t("setup.flow.bar.visibility"), lang: model.lang)
                 .padding(.top, 14)
             HStack(spacing: 12) {
                 Choice(title: model.t("setup.flow.bar.always"), selected: model.visibility == .always,
@@ -437,11 +437,17 @@ private struct BarStep: View {
 
     private struct SectionLabel: View {
         let text: String
+        let lang: String
 
-        init(_ text: String) { self.text = text }
+        init(_ text: String, lang: String) {
+            self.text = text
+            self.lang = lang
+        }
 
         var body: some View {
-            Text(text.uppercased(with: Locale.current))
+            // The language Settings picked, not the system's: Turkish "i"
+            // goes to "İ" only by its own rules.
+            Text(text.uppercased(with: Locale(identifier: lang)))
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(0.88)
                 .foregroundStyle(SetupPalette.faint)

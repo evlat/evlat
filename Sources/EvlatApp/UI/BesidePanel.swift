@@ -50,9 +50,12 @@ class BesidePanel: NSPanel {
 
     /// SwiftUI `content` as a view that leaves the window's size alone: with
     /// the default `sizingOptions` the hosting view resizes the window and
-    /// AppKit pins it to the top-left corner (see `BarPanel`).
-    static func hosting(_ content: some View) -> NSHostingView<AnyView> {
-        let hosting = NSHostingView(rootView: AnyView(content))
+    /// AppKit pins it to the top-left corner (see `BarPanel`). `type` is a
+    /// subclass of the hosting view, for one that answers more than the
+    /// default does.
+    static func hosting(_ content: some View,
+                        as type: NSHostingView<AnyView>.Type = NSHostingView<AnyView>.self) -> NSHostingView<AnyView> {
+        let hosting = type.init(rootView: AnyView(content))
         hosting.sizingOptions = []
         return hosting
     }

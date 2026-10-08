@@ -29,9 +29,7 @@ final class SetupPanel: BesidePanel {
     init(model: SetupFlowModel) {
         let tail = SetupTail()
         self.tail = tail
-        let hosting = FirstClickHostingView(rootView: AnyView(SetupPanelView(model: model, tail: tail)))
-        // The window's size is this class's: see `BesidePanel.hosting`.
-        hosting.sizingOptions = []
+        let hosting = Self.hosting(SetupPanelView(model: model, tail: tail), as: FirstClickHostingView.self)
         hosting.frame = NSRect(origin: .zero, size: Self.size)
         super.init(size: Self.size, content: hosting)
     }

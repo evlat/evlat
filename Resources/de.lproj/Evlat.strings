@@ -406,7 +406,7 @@
 "settings.strip.review" = "Ansehen";
 "settings.attention" = "braucht Aufmerksamkeit";
 "settings.general.bar" = "Leiste";
-"settings.general.edge" = "Rand";
+"settings.general.edge" = "Position der Leiste";
 "settings.general.edge.detail" = "An welchem Bildschirmrand die Leiste sitzt.";
 "settings.general.edge.left" = "Links";
 "settings.general.edge.right" = "Rechts";
@@ -419,11 +419,11 @@
 "settings.general.updates" = "Updates";
 "settings.general.autoUpdate" = "Updates automatisch installieren";
 "settings.general.autoUpdate.detail" = "Neue Versionen werden im Hintergrund geladen und beim Beenden von Evlat installiert. Bleibt Evlat geöffnet, fragt es einmal am Tag, ob es zum Installieren neu starten soll.";
-"settings.general.keepParts" = "Evlats Teile aktuell halten";
-"settings.general.keepParts.detail" = "Wenn veraltet, was Evlat in die Dateien deiner Agenten und Server geschrieben hat, aktualisiert Evlat es und fragt dich nur, wenn du etwas tun musst.";
+"settings.general.keepParts" = "Das, was Evlat deinen Agenten hinzufügt, aktuell halten";
+"settings.general.keepParts.detail" = "Wenn veraltet, was Evlat zu den Dateien deiner Agenten und Server hinzugefügt hat, aktualisiert Evlat es und fragt dich nur, wenn du etwas tun musst.";
 "settings.general.body" = "Körper";
 "settings.general.body.detail" = "Wie die Leiste am Bildschirmrand sitzt.";
-"settings.general.body.always" = "Immer draußen";
+"settings.general.body.always" = "Immer sichtbar";
 "settings.general.body.smart" = "Smart ausblenden";
 "settings.general.body.smart.detail" = "Draußen, solange kein Fenster darunter liegt; eingezogen, sobald eines da ist.";
 "settings.general.body.tucked" = "Eingezogen";
@@ -595,6 +595,7 @@
 "setup.flow.agents.none.note" = "Die Links öffnen sich im Browser.";
 "setup.flow.agents.install" = "{agent} installieren ↗";
 "setup.flow.tile.connected" = "Verbunden";
+"setup.flow.tile.off" = "Aus";
 "setup.flow.tile.outdated" = "veraltet";
 "setup.flow.tile.failed" = "nicht geschrieben";
 "setup.flow.connected.title" = "Verbunden";

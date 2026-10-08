@@ -3574,12 +3574,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         scheduleRefresh()
     }
 
-    /// The sessions on the bar, by agent, as the last scan counted them: the
-    /// setup says how many rings it points at. A job, a chat or a usage window
-    /// is no session.
-    func openSessionCounts() -> [AgentID: Int] {
+    /// This Mac's sessions on the bar, by agent, as the last scan counted
+    /// them: the setup says how many rings it points at, and whether there is
+    /// a session to write in to be heard. A job, a chat or a usage window is
+    /// no session; a server's or a Docker sandbox's session is not heard by
+    /// the hooks the setup writes.
+    func openSessionCounts() -> [AgentID: Int] { Self.sessionCounts(lastSnapshot?.ordered ?? []) }
+
+    nonisolated static func sessionCounts(_ signals: [Signal]) -> [AgentID: Int] {
         var counts: [AgentID: Int] = [:]
-        for signal in lastSnapshot?.ordered ?? [] where signal.kind == .session {
+        for signal in signals where signal.kind == .session && signal.machine == nil
+            && signal.activity?.sandboxName == nil {
             if let source = signal.source { counts[source, default: 0] += 1 }
         }
         return counts

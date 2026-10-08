@@ -406,7 +406,7 @@
 "settings.strip.review" = "確認";
 "settings.attention" = "要確認";
 "settings.general.bar" = "バー";
-"settings.general.edge" = "配置する端";
+"settings.general.edge" = "バーの位置";
 "settings.general.edge.detail" = "バーを画面のどちらの端に置くか。";
 "settings.general.edge.left" = "左";
 "settings.general.edge.right" = "右";
@@ -419,8 +419,8 @@
 "settings.general.updates" = "アップデート";
 "settings.general.autoUpdate" = "アップデートを自動的にインストール";
 "settings.general.autoUpdate.detail" = "新しいバージョンはバックグラウンドでダウンロードされ、Evlat の終了時にインストールされます。Evlat を開いたままにしている場合は、再起動してインストールするか 1 日に 1 回確認します。";
-"settings.general.keepParts" = "Evlatのパーツを最新に保つ";
-"settings.general.keepParts.detail" = "Evlatがエージェントやサーバのファイルに書き込んだ内容が古くなると、Evlatが更新し、あなたの操作が必要なときだけ確認します。";
+"settings.general.keepParts" = "Evlatがエージェントに追加した内容を最新に保つ";
+"settings.general.keepParts.detail" = "Evlatがエージェントやサーバのファイルに追加した内容が古くなると、Evlatが更新し、あなたの操作が必要なときだけ確認します。";
 "settings.general.body" = "表示";
 "settings.general.body.detail" = "バーを画面の端にどう置くか。";
 "settings.general.body.always" = "常に表示";
@@ -595,6 +595,7 @@
 "setup.flow.agents.none.note" = "リンクはブラウザで開きます。";
 "setup.flow.agents.install" = "{agent}をインストール ↗";
 "setup.flow.tile.connected" = "接続済み";
+"setup.flow.tile.off" = "オフ";
 "setup.flow.tile.outdated" = "古い";
 "setup.flow.tile.failed" = "書き込めません";
 "setup.flow.connected.title" = "接続しました";

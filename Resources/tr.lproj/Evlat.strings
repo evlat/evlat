@@ -416,7 +416,7 @@
 "settings.strip.review" = "Gözden geçir";
 "settings.attention" = "dikkat istiyor";
 "settings.general.bar" = "Bar";
-"settings.general.edge" = "Kenar";
+"settings.general.edge" = "Barın yeri";
 "settings.general.edge.detail" = "Bar ekranın hangi kenarında dursun.";
 "settings.general.edge.left" = "Sol";
 "settings.general.edge.right" = "Sağ";
@@ -429,11 +429,11 @@
 "settings.general.updates" = "Güncellemeler";
 "settings.general.autoUpdate" = "Güncellemeleri otomatik kur";
 "settings.general.autoUpdate.detail" = "Yeni sürümler arka planda indirilir ve Evlat kapanırken kurulur. Evlat açık kalırsa, yeniden başlatıp kurmak için günde bir kez sorar.";
-"settings.general.keepParts" = "Evlat'ın parçalarını güncel tut";
-"settings.general.keepParts.detail" = "Evlat'ın ajanlarının ve sunucularının dosyalarına yazdıkları eskidiğinde Evlat onları günceller ve sana yalnızca yapman gereken bir şey olduğunda sorar.";
+"settings.general.keepParts" = "Evlat’ın ajanlara yaptığı eklemeleri güncel tut";
+"settings.general.keepParts.detail" = "Evlat’ın ajanlarına ve sunucularına yaptığı eklemeler eskidiğinde Evlat onları günceller ve sana yalnızca yapman gereken bir şey olduğunda sorar.";
 "settings.general.body" = "Gövde";
 "settings.general.body.detail" = "Bar ekran kenarında nasıl dursun.";
-"settings.general.body.always" = "Hep açık";
+"settings.general.body.always" = "Hep görünür";
 "settings.general.body.smart" = "Akıllı saklan";
 "settings.general.body.smart.detail" = "Altında pencere yokken dışarıda; bir pencere gelince içeri çekilir.";
 "settings.general.body.tucked" = "Kenarda";
@@ -606,6 +606,7 @@
 "setup.flow.agents.none.note" = "Bağlantılar tarayıcıda açılır.";
 "setup.flow.agents.install" = "Kur: {agent} ↗";
 "setup.flow.tile.connected" = "Bağlı";
+"setup.flow.tile.off" = "Kapalı";
 "setup.flow.tile.outdated" = "eskimiş";
 "setup.flow.tile.failed" = "yazılamadı";
 "setup.flow.connected.title" = "Bağlandı";

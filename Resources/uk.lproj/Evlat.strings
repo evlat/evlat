@@ -406,7 +406,7 @@
 "settings.strip.review" = "Переглянути";
 "settings.attention" = "потребує уваги";
 "settings.general.bar" = "Панель";
-"settings.general.edge" = "Край";
+"settings.general.edge" = "Положення панелі";
 "settings.general.edge.detail" = "На якому краї екрана стоїть панель.";
 "settings.general.edge.left" = "Ліворуч";
 "settings.general.edge.right" = "Праворуч";
@@ -419,8 +419,8 @@
 "settings.general.updates" = "Оновлення";
 "settings.general.autoUpdate" = "Встановлювати оновлення автоматично";
 "settings.general.autoUpdate.detail" = "Нові версії завантажуються у фоні й встановлюються під час виходу з Evlat. Якщо Evlat не закривати, раз на день він запропонує перезапуститися для встановлення.";
-"settings.general.keepParts" = "Оновлювати частини Evlat";
-"settings.general.keepParts.detail" = "Коли те, що Evlat записав у файли ваших агентів і серверів, застаріває, Evlat оновлює це й питає вас, лише коли потрібна ваша дія.";
+"settings.general.keepParts" = "Оновлювати те, що Evlat додає вашим агентам";
+"settings.general.keepParts.detail" = "Коли те, що Evlat додав у файли ваших агентів і серверів, застаріває, Evlat оновлює це й питає вас, лише коли потрібна ваша дія.";
 "settings.general.body" = "Тіло";
 "settings.general.body.detail" = "Як панель розташована на краю екрана.";
 "settings.general.body.always" = "Завжди видно";
@@ -595,6 +595,7 @@
 "setup.flow.agents.none.note" = "Посилання відкриються в браузері.";
 "setup.flow.agents.install" = "Встановити {agent} ↗";
 "setup.flow.tile.connected" = "Підключено";
+"setup.flow.tile.off" = "Вимк.";
 "setup.flow.tile.outdated" = "застаріло";
 "setup.flow.tile.failed" = "не записано";
 "setup.flow.connected.title" = "Підключено";

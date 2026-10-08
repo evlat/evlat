@@ -71,10 +71,11 @@ git clone https://github.com/evlat/evlat.git && cd evlat
 make install     # builds build/Evlat.app, copies it to /Applications, opens it
 ```
 
-On first launch a short setup window walks you through the bar's edge, the
-session hooks, chat and optional extras. Everything it installs can also be
-changed later in **Settings** (⌘,), and every button that writes a file shows
-which file it writes and offers a copy-paste alternative.
+On first launch a short setup opens beside the mascot, in four steps:
+connect your agents, see that they are heard (when you connected one), choose
+where the bar sits and when it hides, and a few last touches. Everything it
+sets can also be changed later in **Settings** (⌘,), where each agent's card
+shows which file it writes and offers a copy-paste alternative.
 
 > **Signing.** A build from source is ad-hoc signed and has no updater: it
 > runs on the machine that built it and never replaces itself. Releases are

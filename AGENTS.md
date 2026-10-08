@@ -190,8 +190,9 @@ which agent it is:
 | `signal` | external jobs | `POST /signal` on a socket, no key; sent by `Evlat watch` / `Evlat signal` | manual |
 
 An agent can be switched off (Settings → This Mac, its card's switch; the
-setup's agent step). The set is `agents.enabled` (`EnabledAgents`): nothing
-stored is the agents found, asked live each time, and it is written only by
+setup's first step, whose Connect switches off the tiles left unchecked).
+The set is `agents.enabled` (`EnabledAgents`): nothing stored is the agents
+found, asked live each time, and it is written only by
 the user's change — a second Evlat (`EVLAT_SOCKET`) keeps it in memory.
 An agent off has no session row (`Registry.signals()` drops it after the
 merge) and no usage windows. An approval request from an agent switched off where it runs
@@ -216,10 +217,9 @@ listener that believes `X-Evlat-Sandbox`; every other listener deletes it
 card.
 
 It is one switch, Settings → Docker sandboxes → "Watch sandboxes"
-(`sandboxes.enabled`, off when nothing is stored; the setup's optional
-step offers it, and the Claude Code card points there, only where `sbx`
-is found). Only while it is on does the listener bind, and only the
-process that bound it runs the watcher (`SandboxWatcher`): it hears the
+(`sandboxes.enabled`, off when nothing is stored; the Claude Code card
+points there, only where `sbx` is found). Only while it is on does the
+listener bind, and only the process that bound it runs the watcher (`SandboxWatcher`): it hears the
 `sbx` daemon's lifecycle events (`GET /events` on `sandboxd.sock`, chunked
 NDJSON, undocumented and internal — read as derived, a word it does not
 know counted, the stream opened again on the core's growing delay,
@@ -337,11 +337,11 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   1.5 s poll, one window list a tick. Measured on a release build, no row,
   the left edge under another app's window, the mouse still (screen locked,
   HID idle 5–15 min), 90 s: Smart (covered, reading) 0.09% and 0.18%,
-  Tucked (not reading) 0.12% and 0.07%, Always out 0.09% and 0.08% — the
+  Tucked (not reading) 0.12% and 0.07%, Always visible 0.09% and 0.08% — the
   reading lies inside the runs' spread. A clear edge is not measured (the
-  user's window covered both edges): it is Always out's bar plus the
+  user's window covered both edges): it is Always visible's bar plus the
   reading, and with the mascot out the gaze follows the mouse as Always
-  out's does.
+  visible's does.
 
 ### Window
 
@@ -367,15 +367,23 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   herdr's saved machines (`herdr machine add`) start their bridge from
   another path (`--idle-timeout-v1`, not under `--remote`) and were not
   measured: the lookup leaves them to the detached master's riders.
-- **The body can hide** (Settings → General → Body: Always out, Smart hide,
-  Tucked, Hidden). One pure rule, `BodyPresence`, turns the mode, its
+- **A panel beside the mascot — the chat balloon or the setup — is the one
+  thing talking** (`BesidePanel`): while one is out the bar stays out, the
+  list closed and the news quiet. Ask it through `AppController.isPanelOut`;
+  `isChatOpen` is the balloon's alone, and a site that reads it leaves the
+  setup under a hovering list or a finish's sound. A setup that opens by
+  itself takes the keyboard only when Evlat is the app in front
+  (`isFrontmost`), or its first Return would write to the user's agents'
+  files while they type elsewhere.
+- **The body can hide** (Settings → General → Body: Always visible, Smart
+  hide, Tucked, Hidden). One pure rule, `BodyPresence`, turns the mode, its
   switches, the edge and the bar's state into a level — `none · sliver ·
   peek · full` — and its hover and drop area; `AppController.applyPresence()`
   is the only writer of what follows from it. How Smart hide reads the edge
   is the doc of `EdgeCover` and `AppController.pollEdge`; it has no alpha
   threshold, so a near-clear layer-0 window keeps the edge covered — the
   quiet side. A stored `smart` is the new Smart hide, `tucked` is Tucked.
-  Always out is today's bar, unchanged, and is what nothing stored means;
+  Always visible is today's bar, unchanged, and is what nothing stored means;
   `HoverIntent` opens the bar from a hiding mode's hover area unchanged.
 
 ### Permissions
@@ -618,8 +626,8 @@ changes at once (`AppController.applyLanguage`): `L10n.language` is a
 variable now, so anything read as it is drawn — the menu, a notification —
 needs nothing; the views that keep their words are built again by `.id` on
 the language (the bar's column, card and usage block, the balloon, the
-settings and setup windows), and the models that make lines when they read
-are told (`languageChanged(to:)`). **Never the mascot**: it is outside the
+settings window and the setup panel), and the models that make lines when
+they read are told (`languageChanged(to:)`). **Never the mascot**: it is outside the
 rebuilt part, or its rhythm and keyframes would start over. A test that
 changes the language puts `L10n.language` back.
 
@@ -795,6 +803,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **`NSApp.deactivate()` is not synchronous.** Deactivate-then-`makeKey`
   lost the bubble's keyboard to the resignation that followed. Activate the
   previous app and bring the bubble back after `didResignActive`.
+- **A window just moved or ordered front is not yet in the window list at
+  its new bounds.** In one process, 0 of 40 `CGWindowListCopyWindowInfo`
+  reads right after `setFrameOrigin` had the new bounds, 60 of 60 after one
+  main-queue hop (a window just ordered front: 0 of 40, then 40 of 40). A
+  read of the edge right after moving the bar reads the edge it left
+  (`SetupFlowModel.readEdgeCoverSoon`).
 - **A preference sent out of a `ScrollView` arrives once, empty.** Read
   positions inside with `GeometryReader` +
   `onChange(of: frame(in: .named…), initial: true)`.

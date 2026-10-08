@@ -406,7 +406,7 @@
 "settings.strip.review" = "查看";
 "settings.attention" = "需要注意";
 "settings.general.bar" = "長條";
-"settings.general.edge" = "邊緣";
+"settings.general.edge" = "長條位置";
 "settings.general.edge.detail" = "長條停靠在螢幕的哪一側。";
 "settings.general.edge.left" = "左側";
 "settings.general.edge.right" = "右側";
@@ -419,8 +419,8 @@
 "settings.general.updates" = "更新";
 "settings.general.autoUpdate" = "自動安裝更新";
 "settings.general.autoUpdate.detail" = "新版本會在背景下載，並在結束 Evlat 時安裝。如果 Evlat 一直開著，它每天詢問一次是否重新啟動以安裝。";
-"settings.general.keepParts" = "讓 Evlat 的元件保持最新";
-"settings.general.keepParts.detail" = "Evlat 寫入你的 Agent 和伺服器檔案中的內容過時時，Evlat 會更新它，只有在需要你操作時才詢問你。";
+"settings.general.keepParts" = "讓 Evlat 加入 Agent 的內容保持最新";
+"settings.general.keepParts.detail" = "Evlat 加入你的 Agent 和伺服器檔案中的內容過時時，Evlat 會更新它，只有在需要你操作時才詢問你。";
 "settings.general.body" = "本體";
 "settings.general.body.detail" = "長條如何停靠在螢幕邊緣。";
 "settings.general.body.always" = "一律顯示";
@@ -595,6 +595,7 @@
 "setup.flow.agents.none.note" = "連結會在瀏覽器中開啟。";
 "setup.flow.agents.install" = "安裝 {agent} ↗";
 "setup.flow.tile.connected" = "已連接";
+"setup.flow.tile.off" = "已關閉";
 "setup.flow.tile.outdated" = "已過期";
 "setup.flow.tile.failed" = "寫入失敗";
 "setup.flow.connected.title" = "已連接";

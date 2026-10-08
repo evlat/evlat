@@ -407,7 +407,7 @@
 "settings.strip.review" = "Voir";
 "settings.attention" = "requiert votre attention";
 "settings.general.bar" = "Barre";
-"settings.general.edge" = "Bord";
+"settings.general.edge" = "Position de la barre";
 "settings.general.edge.detail" = "Le bord de l’écran sur lequel se place la barre.";
 "settings.general.edge.left" = "Gauche";
 "settings.general.edge.right" = "Droite";
@@ -420,8 +420,8 @@
 "settings.general.updates" = "Mises à jour";
 "settings.general.autoUpdate" = "Installer les mises à jour automatiquement";
 "settings.general.autoUpdate.detail" = "Les nouvelles versions se téléchargent en arrière-plan et s’installent quand vous quittez Evlat. Si Evlat reste ouvert, il propose une fois par jour de redémarrer pour l’installer.";
-"settings.general.keepParts" = "Tenir à jour les éléments d’Evlat";
-"settings.general.keepParts.detail" = "Quand ce qu’Evlat a écrit dans les fichiers de vos agents et serveurs est dépassé, Evlat le met à jour et ne vous sollicite que si vous devez agir.";
+"settings.general.keepParts" = "Tenir à jour ce qu’Evlat ajoute à vos agents";
+"settings.general.keepParts.detail" = "Quand ce qu’Evlat a ajouté aux fichiers de vos agents et serveurs est dépassé, Evlat le met à jour et ne vous sollicite que si vous devez agir.";
 "settings.general.body" = "Corps";
 "settings.general.body.detail" = "La façon dont la barre se tient au bord de l’écran.";
 "settings.general.body.always" = "Toujours visible";
@@ -596,6 +596,7 @@
 "setup.flow.agents.none.note" = "Les liens s’ouvrent dans le navigateur.";
 "setup.flow.agents.install" = "Installer {agent} ↗";
 "setup.flow.tile.connected" = "Connecté";
+"setup.flow.tile.off" = "Désactivé";
 "setup.flow.tile.outdated" = "obsolète";
 "setup.flow.tile.failed" = "écriture impossible";
 "setup.flow.connected.title" = "Connecté";

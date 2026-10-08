@@ -13,6 +13,14 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **A roomier first-run setup, beside the mascot.** It opens in four steps
+  — connect your agents, see each one heard (a ✓ appears when its first
+  event arrives), choose where the bar sits and when it hides, and a few
+  last touches — in a panel of one size, with the main button in the same
+  place on every step and Return pressing it. It stays up while you
+  try an agent in a terminal. Chat, servers and Docker sandboxes are set up
+  in Settings. There, General now says **Bar position**, **Always visible**
+  and **Keep what Evlat adds to your agents up to date**.
 - **Approve a server's sessions from the bar.** Claude Code on a server
   you added in Settings → Servers now asks the bar for permission
   — **Allow once** or **Deny** on the session's card — and its questions

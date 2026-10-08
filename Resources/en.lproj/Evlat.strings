@@ -484,7 +484,7 @@
 "settings.strip.review" = "Review";
 "settings.attention" = "needs attention";
 "settings.general.bar" = "Bar";
-"settings.general.edge" = "Edge";
+"settings.general.edge" = "Bar position";
 "settings.general.edge.detail" = "Which edge of the screen the bar sits on.";
 "settings.general.edge.left" = "Left";
 "settings.general.edge.right" = "Right";
@@ -497,11 +497,11 @@
 "settings.general.updates" = "Updates";
 "settings.general.autoUpdate" = "Install updates automatically";
 "settings.general.autoUpdate.detail" = "New versions download in the background and install when Evlat quits. If Evlat stays open, it asks once a day to restart and install.";
-"settings.general.keepParts" = "Keep Evlat’s parts up to date";
-"settings.general.keepParts.detail" = "When what Evlat wrote into your agents’ and servers’ files goes out of date, Evlat updates it and asks you only when you need to act.";
+"settings.general.keepParts" = "Keep what Evlat adds to your agents up to date";
+"settings.general.keepParts.detail" = "When what Evlat added to your agents’ and servers’ files goes out of date, Evlat updates it and asks you only when you need to act.";
 "settings.general.body" = "Body";
 "settings.general.body.detail" = "How the bar sits on the edge of the screen.";
-"settings.general.body.always" = "Always out";
+"settings.general.body.always" = "Always visible";
 "settings.general.body.smart" = "Smart hide";
 "settings.general.body.smart.detail" = "Out while no window is under it; tucked in while one is.";
 "settings.general.body.tucked" = "Tucked";
@@ -680,6 +680,7 @@
 "setup.flow.agents.none.note" = "The links open in your browser.";
 "setup.flow.agents.install" = "Install {agent} ↗";
 "setup.flow.tile.connected" = "Connected";
+"setup.flow.tile.off" = "Off";
 "setup.flow.tile.outdated" = "outdated";
 "setup.flow.tile.failed" = "couldn’t write";
 "setup.flow.connected.title" = "Connected";
