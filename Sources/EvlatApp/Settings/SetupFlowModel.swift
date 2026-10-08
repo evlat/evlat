@@ -79,7 +79,7 @@ final class SetupFlowModel: ObservableObject {
     /// A last-step row that is a switch.
     struct Switch: Equatable {
         let on: Bool
-        /// Nothing to write (set up already, someone else's): the switch is
+        /// Not Evlat's to touch (another program's file): the switch is
         /// drawn as it is and takes no press.
         let enabled: Bool
     }
@@ -101,6 +101,8 @@ final class SetupFlowModel: ObservableObject {
     @Published private(set) var reopened = false
     /// The last step's "Update automatically".
     @Published var autoUpdate = false
+    /// Set-up items of the last step turned off: "Finish" takes them out.
+    @Published private(set) var removals: Set<SetupItem> = []
 
     let setup: SetupModel
     /// Written by the controller when the language changes; the view
@@ -146,6 +148,7 @@ final class SetupFlowModel: ObservableObject {
         self.firstRun = firstRun
         connected = []
         heardFrom = [:]
+        removals = []
         setup.reload()
         if let open = setup.manualOpen { setup.toggleManual(open) }
         // Everything there is to write, but "Open at login": that one is
@@ -307,6 +310,13 @@ final class SetupFlowModel: ObservableObject {
         if on { setup.queued.insert(item) } else { setup.queued.remove(item) }
     }
 
+    /// A last-step switch: while there is something to write it is the
+    /// queue; once it is set up, off marks it for "Finish" to take out.
+    func setSwitch(_ item: SetupItem, _ on: Bool) {
+        guard setup.row(item)?.action == .remove else { return setQueued(item, on) }
+        if on { removals.remove(item) } else { removals.insert(item) }
+    }
+
     /// Where an agent that is not here is read about, for the first step
     /// when none is found.
     var installLinks: [ChatModel.InstallLink] { ChatModel.installLinks }
@@ -454,11 +464,16 @@ final class SetupFlowModel: ObservableObject {
     func previewSound() { settings.preview(.approval) }
 
     /// The login item and the command link: the switch is the queue while
-    /// there is something to write, and the state itself otherwise.
+    /// there is something to write, what "Finish" leaves of it once it is
+    /// set up, and a still picture when it is not Evlat's to touch (another
+    /// program's file at the link's path).
     func toggle(_ item: SetupItem) -> Switch? {
         guard let row = setup.row(item) else { return nil }
-        if row.action?.installs == true { return Switch(on: isQueued(item), enabled: true) }
-        return Switch(on: row.status == .installed, enabled: false)
+        switch row.action {
+        case .install?, .update?: return Switch(on: isQueued(item), enabled: true)
+        case .remove?: return Switch(on: !removals.contains(item), enabled: true)
+        case nil: return Switch(on: row.status == .installed, enabled: false)
+        }
     }
 
     /// With an updater, "Update automatically" is its install switch and the
@@ -477,6 +492,10 @@ final class SetupFlowModel: ObservableObject {
     /// change, so a mixed state is not closed without being asked.
     private func finish() {
         setup.applyQueue(only: Self.finishItems)
+        // Settings' own press: the row's action, which for a set-up row is
+        // taking it out.
+        for item in removals where setup.row(item)?.action == .remove { setup.perform(item) }
+        removals = []
         if firstRun || autoUpdate != autoUpdateStart {
             if settings.hasUpdater() { settings.setAutomaticallyUpdates(autoUpdate) }
             settings.setKeepsPartsCurrent(autoUpdate)

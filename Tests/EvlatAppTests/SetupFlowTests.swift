@@ -609,13 +609,43 @@ final class SetupFlowTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let flow = flow(controller, step: .finish)
-        flow.setQueued(.loginItem, true)
-        flow.setQueued(.commandLink, false)
+        flow.setSwitch(.loginItem, true)
+        flow.setSwitch(.commandLink, false)
         flow.primary()
         XCTAssertTrue(writes.contains("login true"))
         XCTAssertFalse(writes.contains("link true"))
-        let again = self.flow(controller, step: .finish)
-        XCTAssertEqual(again.toggle(.loginItem), SetupFlowModel.Switch(on: true, enabled: false), "set up: shown, not offered")
+    }
+
+    /// What is set up already reads on and can be turned off: "Finish" then
+    /// takes it out. Left on, it is not written again.
+    func testAnInstalledItemCanBeTurnedOffAndFinishTakesItOut() throws {
+        let controller = try controller(home: home)
+        defer { controller.panel?.close() }
+        let first = flow(controller, step: .finish)
+        first.setSwitch(.loginItem, true)
+        first.primary()
+        XCTAssertTrue(writes.contains("login true"))
+        XCTAssertTrue(writes.contains("link true"))
+
+        writes = []
+        let kept = flow(controller, step: .finish)
+        XCTAssertEqual(kept.toggle(.loginItem), SetupFlowModel.Switch(on: true, enabled: true))
+        XCTAssertEqual(kept.toggle(.commandLink), SetupFlowModel.Switch(on: true, enabled: true))
+        kept.primary()
+        XCTAssertEqual(writes.filter { $0.hasPrefix("login") || $0.hasPrefix("link") }, [],
+                       "left on: nothing is written again")
+
+        writes = []
+        let off = flow(controller, step: .finish)
+        off.setSwitch(.loginItem, false)
+        off.setSwitch(.commandLink, false)
+        XCTAssertEqual(off.toggle(.loginItem), SetupFlowModel.Switch(on: false, enabled: true))
+        XCTAssertEqual(writes.filter { $0.hasPrefix("login") || $0.hasPrefix("link") }, [],
+                       "nothing moves before Finish")
+        off.primary()
+        XCTAssertTrue(writes.contains("login false"))
+        XCTAssertTrue(writes.contains("link false"))
+        XCTAssertEqual(off.setup.row(.loginItem)?.status, .missing)
     }
 
     // MARK: - Update automatically

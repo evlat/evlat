@@ -50,6 +50,10 @@ enum SetupPalette {
     static let screenTop = hex(0x3E86AE)
     static let screenBottom = hex(0x22547D)
     static let window = hex(0xE9EAEC)
+    static let menuBar = Color.white.opacity(0.22)
+    static let closeLight = hex(0xFF5F57)
+    static let minimizeLight = hex(0xFEBC2E)
+    static let zoomLight = hex(0x28C840)
 }
 
 /// The setup: one step, always the same 380 × 460. The step's body is
@@ -408,18 +412,18 @@ private struct BarStep: View {
                 .padding(.top, 14)
             HStack(spacing: 12) {
                 Choice(title: model.t("setup.flow.bar.left"), selected: edge.isLeft,
-                       picture: ScreenPicture(kind: .edge, left: true)) { model.chooseEdge(.left) }
+                       picture: ScreenPicture(left: true)) { model.chooseEdge(.left) }
                 Choice(title: model.t("setup.flow.bar.right"), selected: !edge.isLeft,
-                       picture: ScreenPicture(kind: .edge, left: false)) { model.chooseEdge(.right) }
+                       picture: ScreenPicture(left: false)) { model.chooseEdge(.right) }
             }
             .padding(.top, 10)
             SectionLabel(model.t("setup.flow.bar.visibility"), lang: model.lang)
                 .padding(.top, 14)
             HStack(spacing: 12) {
                 Choice(title: model.t("setup.flow.bar.always"), selected: model.visibility == .always,
-                       picture: ScreenPicture(kind: .always, left: edge.isLeft)) { model.chooseVisibility(.always) }
+                       picture: EdgePicture(left: edge.isLeft, tucked: false)) { model.chooseVisibility(.always) }
                 Choice(title: model.t("setup.flow.bar.smart"), selected: model.visibility == .smart,
-                       picture: ScreenPicture(kind: .smart, left: edge.isLeft)) { model.chooseVisibility(.smart) }
+                       picture: EdgePicture(left: edge.isLeft, tucked: true)) { model.chooseVisibility(.smart) }
             }
             .padding(.top, 10)
             // Two lines are kept for it: it is one sentence or the other,
@@ -455,36 +459,30 @@ private struct BarStep: View {
     }
 }
 
-/// One of the bar step's choices: a small screen and its name.
-private struct Choice: View {
+/// One of the bar step's choices: a picture and, under it, its name.
+private struct Choice<Picture: View>: View {
     let title: String
     let selected: Bool
-    let picture: ScreenPicture
+    let picture: Picture
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(spacing: 6) {
                 picture
-                    .frame(height: 40)
                 HStack(spacing: 7) {
-                    ZStack {
-                        Circle().strokeBorder(selected ? SetupPalette.text : SetupPalette.radio,
-                                              lineWidth: selected ? 4 : 1.5)
-                    }
-                    .frame(width: 12, height: 12)
+                    Circle()
+                        .strokeBorder(selected ? SetupPalette.text : SetupPalette.radio, lineWidth: selected ? 4 : 1.5)
+                        .frame(width: 12, height: 12)
                     Text(title)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(SetupPalette.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    Spacer(minLength: 0)
                 }
-                .padding(.leading, 4)
+                .padding(.horizontal, 4)
             }
-            .padding(.horizontal, 7)
-            .padding(.top, 7)
-            .padding(.bottom, 9)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(selected ? SetupPalette.fieldOn : SetupPalette.field))
@@ -498,64 +496,169 @@ private struct Choice: View {
     }
 }
 
-/// A still picture of a screen with the bar on it: where it docks, out all
-/// the time, or hidden behind a window and coming out for a moment (Smart
-/// hide's own motion is not drawn: a loop in SwiftUI would cost the idle
-/// bar's budget). A picture of the left edge is the right one mirrored.
+/// The pictures' height: both rows alike, and what the body's height in
+/// every language was measured with.
+private let pictureHeight: CGFloat = 48
+
+/// A whole Mac screen at 16:10, menu bar on top, with the bar on one edge,
+/// halfway down — where `BarPanel.origin` puts it.
 private struct ScreenPicture: View {
-    enum Kind { case edge, always, smart }
-    let kind: Kind
     let left: Bool
 
+    private static let size = CGSize(width: pictureHeight * 1.6, height: pictureHeight)
+    private static let menu: CGFloat = 4
+    /// The bar is drawn far wider than its share of a real screen (54 pt of
+    /// some 1,500): at that share it would be a hairline with no face.
+    private static let barWidth: CGFloat = 11
+
     var body: some View {
-        GeometryReader { box in
-            ZStack(alignment: .topTrailing) {
-                LinearGradient(colors: [SetupPalette.screenTop, SetupPalette.screenBottom], startPoint: .topLeading,
-                               endPoint: .bottomTrailing)
-                if kind != .edge {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(SetupPalette.window)
-                        .frame(width: box.size.width * 0.52, height: 30)
-                        .padding(.top, 8)
-                        .padding(.trailing, 5)
-                }
-                switch kind {
-                case .edge, .always: dockedBar
-                case .smart: hiddenBar
-                }
-            }
-            .frame(width: box.size.width, height: box.size.height, alignment: .topTrailing)
-            .scaleEffect(x: left ? -1 : 1, y: 1)
+        let size = Self.size
+        let bar = MiniBar(left: left, scale: Self.barWidth / AppController.barWidth)
+        return ZStack(alignment: .topLeading) {
+            LinearGradient(colors: [SetupPalette.screenTop, SetupPalette.screenBottom], startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+            Rectangle().fill(SetupPalette.menuBar).frame(height: Self.menu)
+            bar.offset(x: left ? 0 : size.width - bar.size.width,
+                       y: Self.menu + (size.height - Self.menu - bar.size.height) / 2)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
+        .accessibilityHidden(true)
+    }
+}
+
+/// A close-up of the edge with a window over it, the same in both choices
+/// so the bar is the only difference: out over the window, or tucked in
+/// with the mascot peeking (what Smart hide shows while something waits;
+/// its sliver is too thin to read here). Still: Smart hide's motion is not
+/// drawn, a loop in SwiftUI would cost the idle bar's budget.
+private struct EdgePicture: View {
+    let left: Bool
+    let tucked: Bool
+
+    private static let size = CGSize(width: 146, height: pictureHeight)
+    private static let scale: CGFloat = 0.3
+    /// The bar's head, from the picture's top; its foot runs out of the
+    /// picture, as the rest of the screen does.
+    private static let barTop: CGFloat = 3
+
+    var body: some View {
+        let size = Self.size
+        return ZStack(alignment: .topLeading) {
+            LinearGradient(colors: [SetupPalette.screenTop, SetupPalette.screenBottom], startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+            window
+            if tucked {
+                let peek = MiniPeek(left: left, scale: Self.scale)
+                let middle = Self.barTop
+                    + (AppController.mascotTopInset + AppController.mascotSize / 2) * Self.scale
+                peek.offset(x: left ? 0 : size.width - peek.size.width, y: middle - peek.size.height / 2)
+            } else {
+                let bar = MiniBar(left: left, scale: Self.scale)
+                bar.offset(x: left ? 0 : size.width - bar.size.width, y: Self.barTop)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityHidden(true)
     }
 
-    /// The closed body: black, with the mascot and two rings.
-    private var dockedBar: some View {
-        VStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 1.5).fill(Color(white: 0.96)).frame(width: 5, height: 5)
-            Circle().strokeBorder(Color.white.opacity(0.6), lineWidth: 1).frame(width: 4, height: 4)
-            Circle().strokeBorder(Color.white.opacity(0.6), lineWidth: 1).frame(width: 4, height: 4)
+    /// A window reaching past the edge, its lights at its top left whichever
+    /// edge it is.
+    private var window: some View {
+        let size = Self.size
+        let width = size.width * 0.72
+        let inset: CGFloat = left ? 16 : 0
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous).fill(SetupPalette.window)
+            Rectangle().fill(Color.black.opacity(0.06)).frame(height: 11)
+            HStack(spacing: 2.6) {
+                Circle().fill(SetupPalette.closeLight)
+                Circle().fill(SetupPalette.minimizeLight)
+                Circle().fill(SetupPalette.zoomLight)
+            }
+            .frame(width: 16, height: 4)
+            .padding(.leading, 6 + inset)
+            .padding(.top, 3.5)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach([52, 68, 40, 60] as [CGFloat], id: \.self) { length in
+                    Capsule().fill(Color.black.opacity(0.12)).frame(width: length, height: 2.6)
+                }
+            }
+            .padding(.leading, 9 + inset)
+            .padding(.top, 18)
         }
-        .padding(.top, 3)
-        .frame(width: 9, height: 30, alignment: .top)
-        .background(UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 4).fill(Color.black))
-        .padding(.top, 6)
+        .frame(width: width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+        .offset(x: left ? -6 : size.width - width + 6, y: 9)
     }
+}
 
-    /// Under the window: a sliver of the edge, and the mascot looking out.
-    private var hiddenBar: some View {
-        ZStack(alignment: .topTrailing) {
-            UnevenRoundedRectangle(topLeadingRadius: 1, bottomLeadingRadius: 1)
-                .fill(Color.white.opacity(0.75))
-                .frame(width: 2, height: 18)
-                .padding(.top, 12)
-            UnevenRoundedRectangle(topLeadingRadius: 3, bottomLeadingRadius: 3)
-                .fill(Color(white: 0.96))
-                .frame(width: 9, height: 9)
-                .padding(.top, 10)
+/// The closed bar with two rows, drawn at its own geometry (`BarShape`, the
+/// mascot, the rings) and shrunk by `scale`, so the pictures are the bar and
+/// not a drawing of it.
+private struct MiniBar: View {
+    let left: Bool
+    let scale: CGFloat
+
+    private static let full = CGSize(width: AppController.barWidth, height: AppController.barLength(slots: 2))
+    var size: CGSize { CGSize(width: Self.full.width * scale, height: Self.full.height * scale) }
+
+    var body: some View {
+        let shape = BarShape(corner: AppController.barCorner, flare: AppController.barFlare,
+                             edge: left ? .left : .right)
+        let ring = AppController.indicatorSize
+        return ZStack(alignment: .top) {
+            shape.fill(BarPalette.body)
+                .overlay(shape.outline.stroke(Color.white.opacity(0.14), lineWidth: 1.5))
+            VStack(spacing: AppController.indicatorSpacing) {
+                MascotBody(pose: MascotPose.resting(for: .idle), size: AppController.mascotSize)
+                    .frame(width: AppController.mascotSize, height: AppController.mascotSize)
+                    .padding(.bottom, AppController.indicatorTopGap - AppController.indicatorSpacing)
+                // One waiting, one working: the two the bar is for.
+                Circle().strokeBorder(SessionIndicator.amber, lineWidth: 2.5)
+                    .frame(width: ring, height: ring)
+                Circle().trim(from: 0, to: 0.7)
+                    .stroke(BarPalette.textPrimary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .frame(width: ring - 3, height: ring - 3)
+                    .frame(width: ring, height: ring)
+            }
+            .padding(.top, AppController.mascotTopInset)
         }
+        .frame(width: Self.full.width, height: Self.full.height)
+        .shadow(color: .black.opacity(0.4), radius: 8, x: left ? 3 : -3)
+        .scaleEffect(scale, anchor: .topLeading)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+}
+
+/// The peek, shrunk by `scale`, in the glow of a wait. Wider than the real
+/// one (`BodyPresence.peekWidth`), which shows half the face: at this size
+/// half is only a white square, three quarters is the mascot.
+private struct MiniPeek: View {
+    let left: Bool
+    let scale: CGFloat
+
+    private static let full = CGSize(width: 32, height: BarBody.peekLength)
+    var size: CGSize { CGSize(width: Self.full.width * scale, height: Self.full.height * scale) }
+
+    var body: some View {
+        let shape = BarShape(corner: BarBody.peekCorner, flare: BarBody.peekFlare, edge: left ? .left : .right)
+        return ZStack {
+            shape.fill(BarPalette.body)
+                .overlay(shape.outline.stroke(Color.white.opacity(0.18), lineWidth: 1.5))
+            MascotBody(pose: MascotPose.resting(for: .idle), size: AppController.mascotSize)
+                .frame(width: AppController.mascotSize, height: AppController.mascotSize)
+                .offset(x: (left ? -1 : 1) * (Self.full.width / 2 - 12))
+                .mask(shape)
+        }
+        .frame(width: Self.full.width, height: Self.full.height)
+        .shadow(color: SessionIndicator.amber.opacity(0.7), radius: 8)
+        .scaleEffect(scale, anchor: .topLeading)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 }
 
@@ -592,7 +695,7 @@ private struct FinishStep: View {
     }
 
     private func binding(_ item: SetupItem, _ state: SetupFlowModel.Switch) -> Binding<Bool> {
-        Binding(get: { state.on }, set: { model.setQueued(item, $0) })
+        Binding(get: { state.on }, set: { model.setSwitch(item, $0) })
     }
 }
 
@@ -624,10 +727,11 @@ private struct SwitchRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if let play {
                 Button(action: play) {
-                    Text("▶")
-                        .font(.system(size: 8))
+                    // The symbol carries its own optical centring; a nudge on
+                    // top of it set the triangle a point right of the ring's middle.
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 7))
                         .foregroundStyle(SetupPalette.text)
-                        .padding(.leading, 2)
                         .frame(width: 22, height: 22)
                         .overlay(Circle().strokeBorder(SetupPalette.playLine))
                         .contentShape(Circle())
