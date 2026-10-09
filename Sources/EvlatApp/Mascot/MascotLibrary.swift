@@ -88,7 +88,7 @@ struct MascotLibrary: Equatable {
     /// The character in one folder, held to the contract, or why not.
     static func character(in folder: URL, id: String) -> Result<MascotCharacter, Reason> {
         let exists = { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }
-        let character: MascotCharacter
+        var character: MascotCharacter
         do {
             if exists(CharacterFile.name) {
                 character = try CharacterFile.character(in: folder, id: id)
@@ -105,6 +105,9 @@ struct MascotLibrary: Equatable {
             return .failure(.empty)
         }
         if let broken = MascotContract.violations(of: character).first { return .failure(.contract(broken)) }
+        // A found character is in no string table: a file that names
+        // nobody is called by its folder.
+        if character.name?.isEmpty != false { character.name = folder.lastPathComponent }
         return .success(character)
     }
 }

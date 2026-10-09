@@ -100,6 +100,7 @@ final class MascotLibraryTests: XCTestCase {
         let library = MascotLibrary.read(MascotLibrary.sources(home: home))
         XCTAssertEqual(library.characters.map(\.id), ["evlat:both", "evlat:lantern"])
         XCTAssertEqual(library.characters.first?.rig, Pati.character.rig, "the file, not the pet")
+        XCTAssertEqual(library.characters.map(\.name), ["both", "Lantern"], "a file that names nobody: its folder")
         XCTAssertEqual(library.failures, [MascotLibrary.Failure(source: "evlat", folder: "bad",
                                                                 reason: .file(.newerVersion(9)))])
     }
@@ -125,7 +126,9 @@ final class MascotLibraryTests: XCTestCase {
     /// chosen and stores it like any other.
     func testAFoundCharacterIsOfferedChosenAndStored() throws {
         try pet("mochi", in: ownFolder)
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "evlat-library-\(UUID().uuidString)"))
+        let suite = "evlat.tests.library.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         let controller = AppController(defaults: defaults, home: home)
         XCTAssertEqual(controller.mascotLooks.map(\.id), MascotCharacters.all.map(\.id), "nothing read yet")
         controller.readMascots()
