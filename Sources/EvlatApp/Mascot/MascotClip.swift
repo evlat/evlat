@@ -248,6 +248,19 @@ struct MascotClip: Equatable {
     }
 }
 
+extension MascotClip {
+    /// The same clip with one of a character's own controls held at `value`
+    /// from its first step to its last: Evlat's clip for a phase, worn by a
+    /// character that says the phase with something of its own as well.
+    func setting(_ control: MascotControl, to value: Double) -> MascotClip {
+        MascotClip(steps: steps.map { step in
+            var held = step
+            held.pose = step.pose.setting(control, to: value)
+            return held
+        }, loops: loops)
+    }
+}
+
 extension MascotPose {
     /// Both scale axes together — a breath, not a squash.
     func scaled(by factor: Double) -> MascotPose {

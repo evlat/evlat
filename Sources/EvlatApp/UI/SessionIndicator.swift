@@ -930,8 +930,10 @@ struct SessionIndicator: View {
 
     private var markColor: Color { passive ? BarPalette.textSecondary : Self.color(phase) }
 
-    /// The phase's colour, for the mark and the outcome dot.
-    static func color(_ phase: Phase) -> Color {
+    /// The phase's colour, for the mark and the outcome dot — and for a
+    /// character that wears the bar's colours (`Bit`'s eyes), which reads
+    /// it from a static rig, off the main actor.
+    nonisolated static func color(_ phase: Phase) -> Color {
         switch phase {
         case .idle: return BarPalette.textSecondary
         case .working: return BarPalette.textPrimary
@@ -1003,9 +1005,9 @@ struct SessionIndicator: View {
         }
     }
 
-    static let amber = Color(red: 1.0, green: 0.72, blue: 0.18)
-    static let green = Color(red: 0.30, green: 0.85, blue: 0.45)
-    static let red = Color(red: 0.95, green: 0.30, blue: 0.28)
+    nonisolated static let amber = Color(red: 1.0, green: 0.72, blue: 0.18)
+    nonisolated static let green = Color(red: 0.30, green: 0.85, blue: 0.45)
+    nonisolated static let red = Color(red: 0.95, green: 0.30, blue: 0.28)
 }
 
 /// An outside job's progress inside its ring: a faint disc and, over it, a

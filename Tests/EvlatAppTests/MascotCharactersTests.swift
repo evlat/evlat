@@ -57,6 +57,30 @@ final class MascotCharactersTests: XCTestCase {
                              "the antenna droops")
     }
 
+    /// Bit's eyes wear the bar's colours — the rings' own — in the phases
+    /// that have one, through the whole phase and its gesture, and none in
+    /// the others or while a file is caught.
+    func testBitsEyesWearTheBarsColours() throws {
+        let bit = Bit.character
+        func shown(_ phase: Phase, in pose: MascotPose) throws -> [Double] {
+            try ["leftEye", "rightEye"].map { try resolved("\($0).\(phase.rawValue)", of: bit, in: pose).opacity }
+        }
+        for tint in Bit.tints {
+            XCTAssertEqual(try part("leftEye.\(tint.phase.rawValue)", of: bit).fill,
+                           SessionIndicator.color(tint.phase), "the ring's colour, read from the ring")
+            for phase in Phase.allCases {
+                let want: Double = phase == tint.phase ? 1 : 0
+                for step in bit.clip(for: phase, pacing: .normal).steps {
+                    XCTAssertEqual(try shown(tint.phase, in: step.pose), [want, want], "\(tint.phase) in \(phase)")
+                }
+            }
+            XCTAssertEqual(try shown(tint.phase, in: MascotPose.catching), [0, 0], "a caught file: ice white")
+        }
+        for step in try XCTUnwrap(bit.motions["blink"]).steps {
+            XCTAssertEqual(try shown(.waiting, in: step.pose), [1, 1], "the blink keeps the wait's amber")
+        }
+    }
+
     /// Puf turns height into floating: a breath lifts it, a failure sinks it.
     func testPufRisesOnABreathAndSinksOnAFailure() throws {
         let puf = Puf.character

@@ -18,6 +18,9 @@ renames that heading to its version.
   the cube, and a pet's folder put in the mascots folder ("Open Folder"
   there) does too. A pet shows waiting, working and done with its own
   frames, and waves when a wait goes on.
+- **Bit lights up.** The robot has a metal back, a bolt each side and a
+  lit screen, and its eyes take the bar's colours: amber while a session
+  waits on you, green when work is done, red when it failed.
 - **Draw a mascot of your own.** A `character.json` in the mascots folder
   describes one the way Evlat's are made — its parts, how they move and
   when — and appears beside them. A folder that can't be shown says why
