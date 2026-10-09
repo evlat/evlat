@@ -124,21 +124,6 @@ final class MascotCharactersTests: XCTestCase {
         }
     }
 
-    /// A gesture ends on its phase's resting pose — the pose a one-shot
-    /// phase holds once it has arrived, and where the player takes the
-    /// phase back up — so it does not jump out.
-    func testEveryGestureEndsOnItsPhasesRest() throws {
-        for character in [Pati.character, Bit.character, Puf.character] {
-            for rule in character.behavior.rules {
-                for pick in rule.play {
-                    let gesture = try XCTUnwrap(character.motions[pick.motion])
-                    XCTAssertEqual(gesture.steps.last?.pose, character.resting(for: rule.phase),
-                                   "\(character.id) \(pick.motion)")
-                }
-            }
-        }
-    }
-
     /// Pati's twitch and Bit's blink move their own control and nothing
     /// else: the face stays as the wait left it. (Puf's hop is the body
     /// itself, written in the standard controls.)

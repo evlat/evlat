@@ -145,6 +145,21 @@ final class MascotCharacterContractTests: XCTestCase {
         }
     }
 
+    /// A gesture a rule plays in a phase ends on that phase's rest — the
+    /// pose a one-shot phase holds once it has arrived, and where the player
+    /// takes the phase back up — so it never jumps out.
+    func testEveryGestureEndsOnItsPhasesRest() {
+        for character in characters {
+            for (i, rule) in character.behavior.rules.enumerated() {
+                for pick in rule.play {
+                    XCTAssertEqual(character.motions[pick.motion]?.steps.last?.pose,
+                                   character.resting(for: rule.phase),
+                                   "\(character.id) rule \(i): \(pick.motion) ends off \(rule.phase)'s rest")
+                }
+            }
+        }
+    }
+
     /// A motion is a gesture on top of a phase: it plays once and hands the
     /// phase back. One that looped would never hand it back.
     func testMotionsPlayOnce() {

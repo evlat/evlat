@@ -28,13 +28,13 @@ final class MascotBehaviorTests: XCTestCase {
     /// At its time a stage speaks once, and the wake moves on to the next.
     func testAStageSpeaksOnceAndTheNextIsAwaited() {
         let first = decide(.waiting, at: 60)
-        XCTAssertEqual(first.motion, "flicker")
+        XCTAssertEqual(first.motion, "flicker.wait")
         XCTAssertEqual(first.wake ?? 0, 240, accuracy: 1e-9)
         let again = decide(.waiting, at: 61, memory: first.memory)
         XCTAssertNil(again.motion, "a once-per-phase rule does not repeat")
         XCTAssertEqual(again.wake ?? 0, 239, accuracy: 1e-9)
         let second = decide(.waiting, at: 300, memory: again.memory)
-        XCTAssertEqual(second.motion, "sway")
+        XCTAssertEqual(second.motion, "sway.wait")
         XCTAssertNil(second.wake, "nothing is left to wait for")
     }
 
@@ -43,7 +43,7 @@ final class MascotBehaviorTests: XCTestCase {
     /// speaks, and the earlier one is spent with it rather than played next.
     func testAskedLateOnlyTheFurthestStageSpeaks() {
         let late = decide(.waiting, at: 600)
-        XCTAssertEqual(late.motion, "sway")
+        XCTAssertEqual(late.motion, "sway.wait")
         let after = decide(.waiting, at: 601, memory: late.memory)
         XCTAssertNil(after.motion, "the one-minute stage must not play after the five-minute one")
         XCTAssertNil(after.wake)

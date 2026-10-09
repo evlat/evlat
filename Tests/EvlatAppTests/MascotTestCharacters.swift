@@ -43,15 +43,16 @@ enum MascotTestCharacters {
                 sway: MascotControl.Range(-1, 1, rest: 0)
             ]),
         states: [.waiting: waiting],
-        motions: ["flicker": flicker, "sway": swayOnce],
+        motions: ["flicker": flicker, "sway": swayOnce, "flicker.wait": flickerGesture(on: waitingRest),
+                  "sway.wait": swayGesture(on: waitingRest)],
         behavior: behavior
     )
 
     /// A wait answered in two stages, and an accent while work goes on with
     /// a finish still unseen.
     static let behavior = MascotBehavior(rules: [
-        MascotRule(phase: .waiting, after: 60, play: [.init("flicker")]),
-        MascotRule(phase: .waiting, after: 300, play: [.init("sway")]),
+        MascotRule(phase: .waiting, after: 60, play: [.init("flicker.wait")]),
+        MascotRule(phase: .waiting, after: 300, play: [.init("sway.wait")]),
         MascotRule(phase: .working, when: [MascotCondition(fact: .news, atLeast: 1)], after: 1, every: 20,
                    play: [.init("flicker"), .init("sway", weight: 3)])
     ])
@@ -67,8 +68,10 @@ enum MascotTestCharacters {
     }
 
     /// Lit, and still: the bulb says it, not the eyes.
+    static let waitingRest = MascotPose(eyeOpen: 1.1).setting(glow, to: 1)
+
     static let waiting: MascotClip = {
-        let rest = MascotPose(eyeOpen: 1.1).setting(glow, to: 1)
+        let rest = waitingRest
         return MascotClip(steps: [
             .entering(rest, hold: 0.6),
             .eased(rest.setting(glow, to: 0.5), over: 0.15, hold: 0.3),
@@ -76,21 +79,25 @@ enum MascotTestCharacters {
         ], loops: false)
     }()
 
-    static let swayOnce: MascotClip = {
-        let at = MascotPose.resting(for: .working)
-        return MascotClip(steps: [
+    static let swayOnce = swayGesture(on: MascotPose.resting(for: .working))
+
+    /// A gesture is built on the rest of the phase it plays in: it leaves
+    /// from that pose and comes back to it.
+    static func swayGesture(on at: MascotPose) -> MascotClip {
+        MascotClip(steps: [
             .eased(at.setting(sway, to: 1), over: 0.25, hold: 0.3),
             .eased(at.setting(sway, to: -1), over: 0.35, hold: 0.4),
             .eased(at, over: 0.25, hold: 0.3)
         ], loops: false)
-    }()
+    }
 
-    static let flicker: MascotClip = {
-        let at = MascotPose.resting(for: .working)
-        return MascotClip(steps: [
+    static let flicker = flickerGesture(on: MascotPose.resting(for: .working))
+
+    static func flickerGesture(on at: MascotPose) -> MascotClip {
+        MascotClip(steps: [
             .eased(at.setting(glow, to: 1).setting(sway, to: 0.6), over: 0.12, hold: 0.2),
             .eased(at.setting(glow, to: 0.1).setting(sway, to: -0.6), over: 0.12, hold: 0.2),
             .eased(at, over: 0.2, hold: 0.25)
         ], loops: false)
-    }()
+    }
 }
