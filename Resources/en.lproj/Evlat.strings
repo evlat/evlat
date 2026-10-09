@@ -533,6 +533,7 @@
 "settings.mascot.look.yours" = "Your own mascots";
 "settings.mascot.look.yours.detail" = "Put a mascot’s folder — a pet’s pet.json and picture, or a character.json — in the mascots folder. Your {agents} pets show up here by themselves.";
 "settings.mascot.look.open" = "Open Folder";
+"settings.mascot.look.guide" = "How to Make One";
 "settings.mascot.look.failed" = "“{name}” isn’t shown: {reason}.";
 "settings.mascot.look.failed.manifest" = "its pet.json can’t be read";
 "settings.mascot.look.failed.outside" = "its picture is outside its folder";

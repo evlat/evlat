@@ -118,6 +118,11 @@ final class MascotLibraryTests: XCTestCase {
         XCTAssertTrue(rule.contains("review rests tilted"), rule)
     }
 
+    /// Settings' "How to Make One" opens the website's guide.
+    func testTheGuideIsTheWebsitesMascotPage() {
+        XCTAssertEqual(MascotLibrary.guide.absoluteString, "https://evlat.kalaomer.com/docs/mascots")
+    }
+
     func testNoFolderIsNoCharacters() {
         XCTAssertEqual(MascotLibrary.read(MascotLibrary.sources(home: home)), MascotLibrary())
     }

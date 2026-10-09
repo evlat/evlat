@@ -453,6 +453,7 @@
 "settings.mascot.look.yours" = "你自己的吉祥物";
 "settings.mascot.look.yours.detail" = "把吉祥物的資料夾（寵物的 pet.json 和圖片，或一個 character.json）放進吉祥物資料夾。你在 {agents} 裡的寵物會自動出現在這裡。";
 "settings.mascot.look.open" = "打開資料夾";
+"settings.mascot.look.guide" = "製作方法";
 "settings.mascot.look.failed" = "「{name}」未顯示：{reason}。";
 "settings.mascot.look.failed.manifest" = "無法讀取它的 pet.json";
 "settings.mascot.look.failed.outside" = "它的圖片在它的資料夾之外";

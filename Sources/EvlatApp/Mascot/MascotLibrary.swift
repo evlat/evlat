@@ -55,6 +55,10 @@ struct MascotLibrary: Equatable {
     /// The prefix of Evlat's own folder's characters.
     static let ownPrefix = "evlat"
 
+    /// How to make one: the format, the rules a mascot keeps, and a prompt
+    /// for an agent (the website's guide, `docs-src/mascots.html`).
+    static let guide = URL(string: "https://evlat.kalaomer.com/docs/mascots")!
+
     /// Evlat's own folder, then each agent's pets, under `home`.
     static func sources(home: URL, agents: [any Agent] = Agents.all) -> [Source] {
         [Source(prefix: ownPrefix, folder: folder(home: home))]

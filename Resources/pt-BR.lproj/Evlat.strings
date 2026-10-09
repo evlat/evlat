@@ -454,6 +454,7 @@
 "settings.mascot.look.yours" = "Seus próprios mascotes";
 "settings.mascot.look.yours.detail" = "Coloque a pasta de um mascote — o pet.json e a imagem de um pet, ou um character.json — na pasta de mascotes. Seus pets do {agents} aparecem aqui sozinhos.";
 "settings.mascot.look.open" = "Abrir pasta";
+"settings.mascot.look.guide" = "Como fazer um";
 "settings.mascot.look.failed" = "“{name}” não aparece: {reason}.";
 "settings.mascot.look.failed.manifest" = "o pet.json dele não pode ser lido";
 "settings.mascot.look.failed.outside" = "a imagem dele está fora da pasta dele";

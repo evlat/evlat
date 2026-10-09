@@ -453,6 +453,7 @@
 "settings.mascot.look.yours" = "Власні маскоти";
 "settings.mascot.look.yours.detail" = "Покладіть теку маскота — pet.json і зображення улюбленця або character.json — у теку маскотів. Улюбленці з {agents} з’являються тут самі.";
 "settings.mascot.look.open" = "Відкрити теку";
+"settings.mascot.look.guide" = "Як зробити";
 "settings.mascot.look.failed" = "«{name}» не показано: {reason}.";
 "settings.mascot.look.failed.manifest" = "його pet.json не читається";
 "settings.mascot.look.failed.outside" = "його зображення лежить поза його текою";

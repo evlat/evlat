@@ -453,6 +453,7 @@
 "settings.mascot.look.yours" = "Eigene Maskottchen";
 "settings.mascot.look.yours.detail" = "Lege den Ordner eines Maskottchens – die pet.json und das Bild eines Pets oder eine character.json – in den Maskottchen-Ordner. Deine {agents}-Pets erscheinen hier von selbst.";
 "settings.mascot.look.open" = "Ordner öffnen";
+"settings.mascot.look.guide" = "Anleitung";
 "settings.mascot.look.failed" = "„{name}“ wird nicht gezeigt: {reason}.";
 "settings.mascot.look.failed.manifest" = "seine pet.json lässt sich nicht lesen";
 "settings.mascot.look.failed.outside" = "sein Bild liegt außerhalb seines Ordners";

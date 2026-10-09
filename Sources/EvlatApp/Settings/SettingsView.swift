@@ -391,6 +391,8 @@ private struct MascotSection: View {
             RowBox {
                 HStack(spacing: 10) {
                     RowTitle(name: model.t("settings.mascot.look.yours"), detail: model.lookFolderDetail)
+                    Button(model.t("settings.mascot.look.guide")) { model.openLookGuide() }
+                        .buttonStyle(SmallButtonStyle())
                     Button(model.t("settings.mascot.look.open")) { model.openLookFolder() }
                         .buttonStyle(SmallButtonStyle())
                 }

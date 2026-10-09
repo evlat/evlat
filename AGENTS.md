@@ -574,6 +574,13 @@ marked and versioned, generated from the Swift constants, run under
 version above this build's is not called old (another Mac's newer Evlat
 installed it).
 
+A mascot's `character.json` is a published format (`CharacterFile`, the
+website's `mascots` page, the README's "Your own mascot"): users and their
+agents write it by hand. A file written for `version` 1 keeps reading as it
+did; a change it could not read bumps `CharacterFile.version`, and a field,
+a shape or a rule of the contract added or changed updates the guide in the
+same piece of work.
+
 What Evlat writes into a Docker sandbox (`SandboxInstall`, its file the
 catalog's `Agents.sandboxInstall`) is the fourth installed contract: one
 file of Evlat's own, `/etc/claude-code/managed-settings.d/evlat.json`
@@ -587,7 +594,8 @@ was given, so they are pinned (`SandboxInstallTests`, the argv in
 it is written into every sandbox.
 
 The website documents these contracts for users: `../evlat-landing/docs-src`
-(the `evlat` command, `/signal`, remote servers) and
+(the `evlat` command, `/signal`, remote servers, your own mascot and
+`evlat mascot`) and
 `../evlat-landing/src/pages/works-with.astro` (agents, terminals with a tab
 link, Docker sandboxes; `sandboxes.astro` and `herdr.astro` beside it).
 A change a user would notice there (a flag, a default, an exit code, a body

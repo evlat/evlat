@@ -24,7 +24,9 @@ renames that heading to its version.
 - **Draw a mascot of your own.** A `character.json` in the mascots folder
   describes one the way Evlat's are made — its parts, how they move and
   when — and appears beside them. A folder that can't be shown says why
-  under the tiles.
+  under the tiles. "How to Make One" there opens the guide, with a prompt
+  to hand the job to your coding agent, and `evlat mascot check` lists
+  every rule a mascot breaks and draws its states into a picture.
 - **A finish no longer leaves the mascot's head tilted.** It still leans
   when work is done, as if to ask "is this right?", then sits back
   upright; the green ring keeps telling you until you look.

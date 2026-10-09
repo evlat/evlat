@@ -454,6 +454,7 @@
 "settings.mascot.look.yours" = "Vos propres mascottes";
 "settings.mascot.look.yours.detail" = "Placez le dossier d’une mascotte — le pet.json et l’image d’un pet, ou un character.json — dans le dossier des mascottes. Vos pets {agents} apparaissent ici d’eux-mêmes.";
 "settings.mascot.look.open" = "Ouvrir le dossier";
+"settings.mascot.look.guide" = "Comment en faire un";
 "settings.mascot.look.failed" = "« {name} » n’est pas affiché : {reason}.";
 "settings.mascot.look.failed.manifest" = "son pet.json est illisible";
 "settings.mascot.look.failed.outside" = "son image est hors de son dossier";

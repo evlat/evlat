@@ -453,6 +453,7 @@
 "settings.mascot.look.yours" = "나만의 마스코트";
 "settings.mascot.look.yours.detail" = "마스코트 폴더(펫의 pet.json과 이미지, 또는 character.json)를 마스코트 폴더에 넣으세요. {agents} 펫은 여기에 저절로 나타납니다.";
 "settings.mascot.look.open" = "폴더 열기";
+"settings.mascot.look.guide" = "만드는 방법";
 "settings.mascot.look.failed" = "‘{name}’을(를) 표시하지 않습니다: {reason}.";
 "settings.mascot.look.failed.manifest" = "pet.json을 읽을 수 없습니다";
 "settings.mascot.look.failed.outside" = "이미지가 폴더 밖에 있습니다";

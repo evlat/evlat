@@ -454,6 +454,7 @@
 "settings.mascot.look.yours" = "Свои маскоты";
 "settings.mascot.look.yours.detail" = "Положите папку маскота — pet.json и картинку питомца или character.json — в папку маскотов. Питомцы из {agents} появляются здесь сами.";
 "settings.mascot.look.open" = "Открыть папку";
+"settings.mascot.look.guide" = "Как сделать";
 "settings.mascot.look.failed" = "«{name}» не показан: {reason}.";
 "settings.mascot.look.failed.manifest" = "его pet.json не читается";
 "settings.mascot.look.failed.outside" = "его картинка лежит вне его папки";

@@ -505,6 +505,9 @@ final class SettingsModel: ObservableObject {
 
     func openLookFolder() { host.openMascotFolder() }
 
+    /// The guide to making one, in the browser.
+    func openLookGuide() { NSWorkspace.shared.open(MascotLibrary.guide) }
+
     /// Where a user's own mascots go, and whose pets come by themselves.
     var lookFolderDetail: String {
         let agents = Agents.all.filter { $0.pets != nil }.map { t($0.display.nameKey) }

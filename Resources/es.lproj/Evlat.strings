@@ -453,6 +453,7 @@
 "settings.mascot.look.yours" = "Tus propias mascotas";
 "settings.mascot.look.yours.detail" = "Pon la carpeta de una mascota —el pet.json y la imagen de un pet, o un character.json— en la carpeta de mascotas. Tus pets de {agents} aparecen aquí solos.";
 "settings.mascot.look.open" = "Abrir carpeta";
+"settings.mascot.look.guide" = "Cómo hacer uno";
 "settings.mascot.look.failed" = "«{name}» no se muestra: {reason}.";
 "settings.mascot.look.failed.manifest" = "su pet.json no se puede leer";
 "settings.mascot.look.failed.outside" = "su imagen está fuera de su carpeta";
