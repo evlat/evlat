@@ -64,25 +64,14 @@ final class MascotClipTests: XCTestCase {
     /// What actually costs CPU is **time in motion**, and now that every step carries its own, the guard can be
     /// written in the currency the threshold is in.
     ///
-    /// The ceiling is derived from measurement, not chosen. The most expensive
-    /// of the three `working` candidates measured read **2.11%
-    /// over 90 s at a duty cycle of 0.299**; the same shape stretched to this
-    /// ceiling would cost 2.11 × 0.35 / 0.299 ≈ **2.47%**, against the **3.77%**
-    /// threshold while a clip is running. The clip that shipped reads 1.84%
-    /// at 0.215, and the idle foot 0.04%.
-    ///
-    /// It is a guard, not a proof: cost also tracks how often the step index
-    /// changes, and the candidates' in-clip readings (5.16% / 9.16% / 7.68%)
-    /// differed by more than their duty cycles did. The gate is the measured
-    /// 90 s leg, re-run against the threshold; this line is
-    /// what stops a clip from drifting there between measurements.
+    /// The ceiling and where it comes from are `MascotContract.maxDutyCycle`.
     func testLoopingClipsStayInsideTheDutyCycleBudget() {
         for (name, rest, clip) in allClips() {
             guard clip.loops else { continue }
             XCTAssertGreaterThan(clip.movingTime, 0,
                                  "\(name): a clip that never leaves rest is not a clip")
             let duty = clip.dutyCycle ?? 1
-            XCTAssertLessThanOrEqual(duty, MascotClipTests.maxDutyCycle,
+            XCTAssertLessThanOrEqual(duty, MascotContract.maxDutyCycle,
                                      "\(name): \(duty) of the cycle is motion")
             // A clip whose steps all sit at rest would pass the line above with
             // a duty cycle of zero; this is the same claim from the other side.
@@ -90,8 +79,6 @@ final class MascotClipTests: XCTestCase {
                           "\(name): nothing in this clip leaves the resting pose")
         }
     }
-
-    static let maxDutyCycle = 0.35
 
     /// `idle`'s breath is a breath, not a squash: both axes grow together.
     /// The area test cannot see this — a bob keeps the area by construction —

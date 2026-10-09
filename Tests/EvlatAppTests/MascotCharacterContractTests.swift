@@ -3,15 +3,9 @@ import SwiftUI
 import EvlatCore
 @testable import EvlatApp
 
-/// **The character contract**, held for every character Evlat ships and for
-/// the test characters that use what the shipped ones do not yet.
-///
-/// A character is free in how it looks and moves; what it is not free in is
-/// below: that its rig names only what it declared, that its clips burst
-/// rather than run (the CPU budget the measured clips set), and that the five
-/// phases read apart — `waiting` above all, which is the product. These
-/// are the checks v0 ran on every pet it loaded (`ShippedPetTests`), applied
-/// to the list in `MascotCharacters` instead of to files.
+/// **The character contract** (`MascotContract`), held for every character
+/// Evlat ships and for the test characters that use what the shipped ones
+/// do not yet — and each of its rules shown to catch the break it names.
 final class MascotCharacterContractTests: XCTestCase {
     private var characters: [MascotCharacter] { MascotCharacters.all + [MascotTestCharacters.lantern] }
 
@@ -28,205 +22,73 @@ final class MascotCharacterContractTests: XCTestCase {
         XCTAssertTrue(MascotCharacters.all.contains(MascotCharacters.default))
     }
 
-    /// SwiftUI tells parts apart by name: two parts with one name would
-    /// animate as one.
-    func testEveryPartNameIsUniqueWithinItsRig() {
+    /// Every character keeps every rule of the contract (`MascotContract`) —
+    /// the same check the library runs on a character found on disk.
+    func testEveryCharacterKeepsTheContract() {
         for character in characters {
-            let names = character.rig.parts.map(\.name)
-            XCTAssertEqual(Set(names).count, names.count, "\(character.id): \(names)")
+            XCTAssertEqual(MascotContract.violations(of: character), [], character.id)
         }
     }
 
-    /// A binding on a name nobody declared drives nothing, silently — the
-    /// typo v0's loader refused. And a binding whose input has no width
-    /// divides by zero.
-    func testEveryBindingNamesAKnownControlOverARealRange() {
-        for character in characters {
-            let known = Set(MascotControl.standard).union(character.rig.controls.keys)
-            for (control, range) in character.rig.controls {
-                XCTAssertFalse(MascotControl.standard.contains(control),
-                               "\(character.id): \(control) is standard, not its own")
-                XCTAssertLessThan(range.lower, range.upper, "\(character.id): \(control)")
-                XCTAssertTrue(range.contains(range.rest), "\(character.id): \(control) rests outside its range")
-            }
-            for part in character.rig.parts {
-                for binding in part.bindings {
-                    XCTAssertTrue(known.contains(binding.control),
-                                  "\(character.id).\(part.name): \(binding.control) is not declared")
-                    XCTAssertNotEqual(binding.input.start, binding.input.end,
-                                      "\(character.id).\(part.name): \(binding.control)")
-                }
-            }
-        }
-    }
-
-    /// A clip sets only the controls the rig declared, and only inside their
-    /// ranges — Evlat's clips set none of them.
-    func testEveryClipSetsOnlyDeclaredControlsWithinTheirRanges() {
-        for character in characters {
-            for (name, clip) in clips(of: character) {
-                for (i, step) in clip.steps.enumerated() {
-                    for (control, value) in step.pose.own {
-                        let range = character.rig.controls[control]
-                        XCTAssertNotNil(range, "\(character.id) \(name) step \(i): \(control) is not declared")
-                        XCTAssertTrue(range?.contains(value) ?? false,
-                                      "\(character.id) \(name) step \(i): \(control) = \(value)")
-                    }
-                }
-            }
-        }
+    /// Evlat's clips are the default every character may play: they know no
+    /// character's own controls.
+    func testEvlatsClipsSetNoOwnControls() {
         for phase in Phase.allCases {
             XCTAssertTrue(MascotClip.clip(for: phase, pacing: .normal).steps.allSatisfy { $0.pose.own.isEmpty },
                           "\(phase): Evlat's clips know no character's own controls")
         }
     }
 
-    /// The same rule as Evlat's clips (`MascotClipTests`), for every clip a
-    /// character plays: a zero hold is a busy loop, and a step still moving
-    /// when the next starts reads as drift.
-    func testEveryStepHoldsForARealTimeAndLandsWithinIt() {
-        for character in characters {
-            for (name, clip) in clips(of: character) {
-                XCTAssertFalse(clip.steps.isEmpty, "\(character.id) \(name): never moves")
-                for (i, step) in clip.steps.enumerated() {
-                    XCTAssertGreaterThan(step.hold, 0, "\(character.id) \(name) step \(i)")
-                    XCTAssertGreaterThan(step.motion, 0, "\(character.id) \(name) step \(i)")
-                    XCTAssertLessThanOrEqual(step.motion, step.hold + 1e-9, "\(character.id) \(name) step \(i)")
-                }
-            }
+    /// Each rule catches what it is there for: a character broken one way is
+    /// told so, and by the rule that names it.
+    func testEachRuleCatchesItsBreak() {
+        let lantern = MascotTestCharacters.lantern
+        let glow = MascotTestCharacters.glow
+        let still = MascotPose.resting(for: .idle)
+        func with(rig: MascotRig? = nil, states: [Phase: MascotClip]? = nil, motions: [String: MascotClip]? = nil,
+                  rules: [MascotRule]? = nil) -> MascotCharacter {
+            MascotCharacter(id: "broken", rig: rig ?? lantern.rig,
+                            states: lantern.states.merging(states ?? [:]) { $1 },
+                            motions: motions ?? lantern.motions,
+                            behavior: rules.map { MascotBehavior(rules: $0) } ?? lantern.behavior)
         }
-    }
-
-    /// Every phase change feels the same, whoever is drawn: it lands on the
-    /// shared spring. A phase rests at its clip's last step — the pose the
-    /// asleep mascot draws — and a loop ends on the pose it began with, so
-    /// its seam is not a jump.
-    func testEveryPhaseEntersOnTheSpringAndALoopEndsWhereItBegan() {
-        for character in characters {
-            for phase in Phase.allCases {
-                let clip = character.clip(for: phase, pacing: .normal)
-                XCTAssertEqual(clip.steps.first?.curve, MascotPose.transition, "\(character.id) \(phase)")
-                if clip.loops {
-                    XCTAssertEqual(clip.steps.last?.pose, clip.steps.first?.pose,
-                                   "\(character.id) \(phase): the loop's seam is a jump")
-                }
-                XCTAssertEqual(character.resting(for: phase), clip.steps.last?.pose)
-            }
+        func rig(adding part: MascotPart) -> MascotRig {
+            var rig = lantern.rig
+            rig.root.children.append(part)
+            return rig
         }
-    }
-
-    /// **Nothing rests tilted.** A lean held for as long as a phase lasts
-    /// reads as stuck — `review` held one until the finish was seen. A
-    /// character may lean as a gesture, on arrival or in its own motions,
-    /// and lets it go.
-    func testNoPhaseRestsTilted() {
-        for character in characters {
-            for phase in Phase.allCases {
-                XCTAssertEqual(character.resting(for: phase).tilt, 0, "\(character.id) \(phase)")
-            }
-        }
-    }
-
-    /// **Clips burst.** A phase a character sits in for hours keeps a sparse
-    /// rhythm, under the same ceiling Evlat's own clips are held to — the one
-    /// derived from measurement (`MascotClipTests.maxDutyCycle`).
-    func testLoopingPhasesStayInsideTheDutyCycleBudget() {
-        for character in characters {
-            for phase in Phase.allCases {
-                let clip = character.clip(for: phase, pacing: .normal)
-                guard clip.loops else { continue }
-                XCTAssertGreaterThan(clip.movingTime, 0, "\(character.id) \(phase): a loop that never moves")
-                XCTAssertLessThanOrEqual(clip.dutyCycle ?? 1, MascotClipTests.maxDutyCycle,
-                                         "\(character.id) \(phase)")
-            }
-        }
-    }
-
-    /// **The five phases read apart.** No two rest at the same pose, and
-    /// `waiting` arrives moving: however a character says it is waiting,
-    /// it must say it.
-    func testTheFivePhasesReadApart() {
-        for character in characters {
-            let rests = Phase.allCases.map { character.resting(for: $0) }
-            for (a, first) in rests.enumerated() {
-                for (b, second) in rests.enumerated() where b > a {
-                    XCTAssertNotEqual(first, second,
-                                      "\(character.id): \(Phase.allCases[a]) and \(Phase.allCases[b]) rest alike")
-                }
-            }
-            XCTAssertGreaterThan(character.clip(for: .waiting, pacing: .normal).movingTime, 0,
-                                 "\(character.id): waiting has to arrive moving")
-        }
-    }
-
-    /// A gesture a rule plays in a phase ends on that phase's rest — the
-    /// pose a one-shot phase holds once it has arrived, and where the player
-    /// takes the phase back up — so it never jumps out.
-    func testEveryGestureEndsOnItsPhasesRest() {
-        for character in characters {
-            for (i, rule) in character.behavior.rules.enumerated() {
-                for pick in rule.play {
-                    XCTAssertEqual(character.motions[pick.motion]?.steps.last?.pose,
-                                   character.resting(for: rule.phase),
-                                   "\(character.id) rule \(i): \(pick.motion) ends off \(rule.phase)'s rest")
-                }
-            }
-        }
-    }
-
-    /// A motion is a gesture on top of a phase: it plays once and hands the
-    /// phase back. One that looped would never hand it back.
-    func testMotionsPlayOnce() {
-        for character in characters {
-            for (name, motion) in character.motions {
-                XCTAssertFalse(motion.loops, "\(character.id) motion \(name)")
-            }
-        }
-    }
-
-    /// A rule plays the character's own gestures, at real times, with real
-    /// weights. A gesture name the character does not have would be a rule
-    /// that silently never plays.
-    func testEveryRuleNamesItsOwnGesturesAtRealTimes() {
-        for character in characters {
-            for (i, rule) in character.behavior.rules.enumerated() {
-                let at = "\(character.id) rule \(i)"
-                XCTAssertFalse(rule.play.isEmpty, at)
-                for pick in rule.play {
-                    XCTAssertNotNil(character.motions[pick.motion], "\(at): no gesture \(pick.motion)")
-                    XCTAssertGreaterThan(pick.weight, 0, at)
-                }
-                XCTAssertGreaterThanOrEqual(rule.after, 0, at)
-                // A one-shot phase's arrival is never cut short (the player
-                // waits for it); a looping phase's entry is only the shared
-                // spring, which a gesture at `after` 0 would land on top of.
-                // What a character does on entering a phase is that phase's
-                // own clip, not a rule.
-                if character.clip(for: rule.phase, pacing: .normal).loops {
-                    XCTAssertGreaterThanOrEqual(rule.after, MascotPose.transitionDuration,
-                                                "\(at): it would cut the phase change's spring short")
-                }
-                if let every = rule.every { XCTAssertGreaterThan(every, 0, at) }
-                for condition in rule.when {
-                    XCTAssertLessThanOrEqual(condition.atLeast, condition.atMost, at)
-                }
-            }
-        }
-    }
-
-    /// **A rule that repeats pays for its gestures.** Played every `every`
-    /// seconds on top of its phase, its longest gesture adds that share of
-    /// time in motion to the phase's own: together they stay under the same
-    /// ceiling the clips are held to.
-    func testRepeatingRulesStayInsideTheDutyCycleBudget() {
-        for character in characters {
-            for (i, rule) in character.behavior.rules.enumerated() {
-                guard let every = rule.every else { continue }
-                let longest = rule.play.compactMap { character.motions[$0.motion]?.movingTime }.max() ?? 0
-                let phase = character.clip(for: rule.phase, pacing: .normal).dutyCycle ?? 0
-                XCTAssertLessThanOrEqual(phase + longest / every, MascotClipTests.maxDutyCycle,
-                                         "\(character.id) rule \(i)")
-            }
+        let once = MascotClip(steps: [.entering(still, hold: 1)], loops: false)
+        let cases: [(String, MascotCharacter)] = [
+            ("share a name", with(rig: rig(adding: MascotPart(name: "body")))),
+            ("is not declared", with(rig: rig(adding: MascotPart(
+                name: "typo", bindings: [MascotBinding(MascotControl("bulb.glw"), .opacity, from: (0, 1), to: (0, 1))])))),
+            ("no input range", with(rig: rig(adding: MascotPart(
+                name: "flat", bindings: [MascotBinding(.yaw, .offsetX, from: (1, 1), to: (0, 1))])))),
+            ("is outside its range", with(states: [.waiting: MascotClip(steps: [
+                .entering(MascotTestCharacters.waitingRest.setting(glow, to: 2), hold: 1)], loops: false)])),
+            ("holds 0", with(states: [.waiting: MascotClip(steps: [.entering(still, hold: 0)], loops: false)])),
+            ("does not enter on the shared spring", with(states: [.review: MascotClip(steps: [
+                .eased(MascotPose.resting(for: .review), over: 0.2, hold: 1)], loops: false)])),
+            ("seam is a jump", with(states: [.idle: MascotClip(steps: [
+                .entering(still, hold: 4), .eased(still.scaled(by: 1.05), over: 0.4, hold: 1)], loops: true)])),
+            ("over 0.35", with(states: [.idle: MascotClip(steps: [
+                .entering(still, hold: 1), .eased(still.scaled(by: 1.05), over: 0.5, hold: 0.5),
+                .eased(still, over: 0.5, hold: 0.5)], loops: true)])),
+            ("rests tilted", with(states: [.review: MascotClip(steps: [
+                .entering(MascotPose(tilt: 9), hold: 1)], loops: false)])),
+            ("rest alike", with(states: [.review: MascotClip(steps: [
+                .entering(MascotTestCharacters.waitingRest, hold: 1)], loops: false)])),
+            ("motion once loops", with(motions: ["once": MascotClip(steps: once.steps, loops: true)])),
+            ("no gesture", with(rules: [MascotRule(phase: .waiting, after: 1, play: [.init("nothing")])])),
+            ("ends off waiting's rest", with(rules: [MascotRule(phase: .waiting, after: 1, play: [.init("flicker")])])),
+            ("cut the phase change's spring short", with(rules: [
+                MascotRule(phase: .working, after: 0, play: [.init("flicker")])])),
+            ("of the time with its phase", with(rules: [
+                MascotRule(phase: .working, after: 1, every: 1, play: [.init("flicker")])]))
+        ]
+        for (fragment, character) in cases {
+            let found = MascotContract.violations(of: character)
+            XCTAssertTrue(found.contains { $0.contains(fragment) }, "\(fragment): \(found)")
         }
     }
 

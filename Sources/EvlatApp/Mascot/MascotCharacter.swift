@@ -17,8 +17,8 @@ import EvlatCore
 ///
 /// What is not the character's to decide is that the five phases read apart
 /// — above all that `waiting` is noticed, which is the whole product.
-/// `MascotCharacterContractTests` holds every character in
-/// `MascotCharacters.all` to that, and to the CPU budget the clips burst in.
+/// `MascotContract` holds every character to that, and to the CPU budget
+/// the clips burst in.
 ///
 /// Characters are written in code, one folder each: there is no file format
 /// and nothing is loaded from outside, so a character is checked by the
