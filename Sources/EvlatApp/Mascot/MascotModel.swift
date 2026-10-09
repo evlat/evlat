@@ -64,17 +64,17 @@ public final class MascotModel: ObservableObject {
     /// frames nobody sees.
     public var isAwake: Bool { (hasLive || override != nil) && isShown }
 
-    /// Takes the sessions' counts from a snapshot — only while the character
-    /// has rules to read them, and only when they changed. A character
-    /// without rules is not even counted for, so the face redraws exactly as
-    /// often as before.
+    /// Takes the sessions' counts from a snapshot — only while the
+    /// character has a rule that reads them, and only when they changed. A
+    /// character without one is not even counted for, so the face redraws
+    /// exactly as often as before.
     func hear(_ snapshot: Registry.Snapshot) {
-        guard !character.behavior.isEmpty else { return }
+        guard character.behavior.readsSessions else { return }
         hear(MascotContext.Sessions(snapshot))
     }
 
     func hear(_ sessions: MascotContext.Sessions) {
-        guard !character.behavior.isEmpty, sessions != self.sessions else { return }
+        guard character.behavior.readsSessions, sessions != self.sessions else { return }
         self.sessions = sessions
     }
 

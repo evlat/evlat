@@ -8,8 +8,32 @@ import SwiftUI
 /// it works and flat when something failed. A blink leaves them where they
 /// are: the opening only reaches them above its resting 1. Behind the head,
 /// they move against the gaze.
+///
+/// Its own gesture is an ear twitch while it waits on you: the pricked right
+/// ear flicks twice, the way a cat's does at a sound — once 45 seconds into
+/// the wait, once more at three minutes if it goes on.
 enum Pati {
-    static let character = MascotCharacter(id: "pati", rig: rig)
+    static let character = MascotCharacter(id: "pati", rig: rig, motions: ["twitch": twitch],
+                                           behavior: behavior)
+
+    /// The right ear's flick, apart from what the eyes do to both.
+    static let twitchControl = MascotControl("ear.twitch")
+
+    static let behavior = MascotBehavior(rules: [
+        MascotRule(phase: .waiting, after: 45, play: [.init("twitch")]),
+        MascotRule(phase: .waiting, after: 180, play: [.init("twitch")])
+    ])
+
+    /// Out, back past rest, out a little less, home: 0.3 s of motion.
+    static let twitch: MascotClip = {
+        let rest = MascotPose.resting(for: .waiting)
+        return MascotClip(steps: [
+            .eased(rest.setting(twitchControl, to: 1), over: 0.07, hold: 0.09),
+            .eased(rest.setting(twitchControl, to: -0.6), over: 0.07, hold: 0.09),
+            .eased(rest.setting(twitchControl, to: 0.8), over: 0.06, hold: 0.08),
+            .eased(rest, over: 0.10, hold: 0.14)
+        ], loops: false)
+    }()
 
     static let white = Color(white: 0.92)
 
@@ -30,7 +54,7 @@ enum Pati {
             .eye(side: 1, y: 0.13, width: 0.12, height: 0.26, gap: 0.17, gaze: (0.10, 0.07),
                  fill: Color.black.opacity(0.92))
         ]
-    ))
+    ), controls: [twitchControl: MascotControl.Range(-1, 1, rest: 0)])
 
     /// One ear, turning about its base; `side` is −1 for the left.
     static func ear(side s: Double) -> MascotPart {
@@ -50,6 +74,6 @@ enum Pati {
                 MascotBinding(.eyeSquint, .rotation, from: (0.15, 0.5), to: (0, s * 30)),
                 MascotBinding(.eyeSquint, .offsetY, from: (0.15, 0.5), to: (0, 0.05)),
                 MascotBinding(.yaw, .offsetX, from: (-1, 1), to: (0.03, -0.03))
-            ])
+            ] + (s > 0 ? [MascotBinding(twitchControl, .rotation, from: (-1, 1), to: (-22, 22))] : []))
     }
 }

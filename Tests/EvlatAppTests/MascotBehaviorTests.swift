@@ -135,12 +135,16 @@ final class MascotModelContextTests: XCTestCase {
         XCTAssertEqual(model.phaseSince.timeIntervalSince1970, 1090, "the forced phase still draws")
     }
 
-    /// The cube has no rules, so the counts are never published to it — the
-    /// face redraws exactly as often as it did before rules existed.
+    /// The counts are published only to a character with a rule that reads
+    /// them — not to the cube, which has no rules, nor to Pati, whose rules
+    /// count time alone — so the face redraws exactly as often as before.
     func testACharacterWithoutRulesIsNotToldTheSessions() {
         let model = MascotModel()
         model.hear(.init(waiting: 2))
         XCTAssertEqual(model.sessions, MascotContext.Sessions())
+        model.character = Pati.character
+        model.hear(.init(waiting: 2))
+        XCTAssertEqual(model.sessions, MascotContext.Sessions(), "rules on time alone")
         model.character = MascotTestCharacters.lantern
         model.hear(.init(waiting: 2))
         XCTAssertEqual(model.sessions, MascotContext.Sessions(waiting: 2))

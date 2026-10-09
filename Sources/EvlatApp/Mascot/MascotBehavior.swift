@@ -79,6 +79,11 @@ struct MascotBehavior: Equatable {
 
     var isEmpty: Bool { rules.isEmpty }
 
+    /// Whether any rule reads the sessions behind the face. Only then does
+    /// the model pass them on (`MascotModel.hear`): a character whose rules
+    /// count time alone redraws no more often than one with none.
+    var readsSessions: Bool { rules.contains { !$0.when.isEmpty } }
+
     /// What the behavior remembers within one phase; the player starts it
     /// over on every phase change.
     struct Memory: Equatable {

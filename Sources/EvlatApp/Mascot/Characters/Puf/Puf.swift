@@ -6,8 +6,37 @@ import SwiftUI
 /// height: a ghost does not stretch, it rises. Half of the squash is kept as
 /// squash; growing taller — the idle breath, `waiting`'s swell, a file
 /// caught — lifts it, and squashing — `failed` — lets it sink.
+///
+/// Its own gesture is a hop of joy when work is done: once the finish has
+/// arrived it rises, sways twice and settles back, wide-eyed. Once per
+/// finish; the green ring keeps saying it after.
 enum Puf {
-    static let character = MascotCharacter(id: "puf", rig: rig)
+    static let character = MascotCharacter(id: "puf", rig: rig, motions: ["hop": hop], behavior: behavior)
+
+    static let behavior = MascotBehavior(rules: [
+        MascotRule(phase: .review, play: [.init("hop")])
+    ])
+
+    /// Up, a sway either side of the finish's own tilt, down: written in
+    /// the standard controls alone — a taller ghost is a higher one.
+    static let hop: MascotClip = {
+        let rest = MascotPose.resting(for: .review)
+        var up = rest
+        up.scaleY = 1.05
+        up.eyeOpen = 1.15
+        up.eyeSquint = 0
+        var left = up
+        left.tilt = rest.tilt - 7
+        left.scaleY = 1.035
+        var right = up
+        right.tilt = rest.tilt + 6
+        return MascotClip(steps: [
+            .eased(up, over: 0.22, hold: 0.24),
+            .eased(left, over: 0.16, hold: 0.18),
+            .eased(right, over: 0.16, hold: 0.18),
+            .eased(rest, over: 0.30, hold: 0.34)
+        ], loops: false)
+    }()
 
     static let white = Color(white: 0.92)
 

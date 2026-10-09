@@ -69,6 +69,106 @@ final class MascotCharactersTests: XCTestCase {
                              "a failure sinks it")
     }
 
+    // MARK: - Their own gestures
+
+    private func decide(_ character: MascotCharacter, _ phase: Phase, at seconds: Double,
+                        memory: MascotBehavior.Memory = .init()) -> MascotBehavior.Decision {
+        character.behavior.decide(MascotContext(phase: phase, secondsInPhase: seconds, sessions: .init()),
+                                  memory: memory, random: { 0 })
+    }
+
+    /// Walks a phase from its start, answering each wake as the player
+    /// would, and says when a gesture played.
+    private func timeline(_ character: MascotCharacter, _ phase: Phase, for seconds: Double) -> [(Double, String)] {
+        var played: [(Double, String)] = []
+        var memory = MascotBehavior.Memory()
+        var t = 0.0
+        while t <= seconds {
+            let decision = decide(character, phase, at: t, memory: memory)
+            memory = decision.memory
+            if let motion = decision.motion { played.append((t, motion)) }
+            guard let wake = decision.wake else { break }
+            t += wake
+        }
+        return played
+    }
+
+    /// Pati twitches an ear twice in a long wait — at 45 s and at three
+    /// minutes — and in no other phase.
+    func testPatiTwitchesTwiceInALongWaitAndNowhereElse() {
+        let played = timeline(Pati.character, .waiting, for: 3600)
+        XCTAssertEqual(played.map(\.0), [45, 180])
+        XCTAssertEqual(Set(played.map(\.1)), ["twitch"])
+        for phase in Phase.allCases where phase != .waiting {
+            XCTAssertTrue(timeline(Pati.character, phase, for: 3600).isEmpty, "\(phase)")
+        }
+    }
+
+    /// Bit blinks its bulb at 30 s and at two minutes of a wait, and in no
+    /// other phase.
+    func testBitBlinksTwiceInALongWaitAndNowhereElse() {
+        let played = timeline(Bit.character, .waiting, for: 3600)
+        XCTAssertEqual(played.map(\.0), [30, 120])
+        XCTAssertEqual(Set(played.map(\.1)), ["blink"])
+        for phase in Phase.allCases where phase != .waiting {
+            XCTAssertTrue(timeline(Bit.character, phase, for: 3600).isEmpty, "\(phase)")
+        }
+    }
+
+    /// Puf hops once per finish, as soon as the finish has arrived (the
+    /// player waits out the arrival), and in no other phase.
+    func testPufHopsOncePerFinish() {
+        XCTAssertEqual(timeline(Puf.character, .review, for: 3600).map(\.1), ["hop"])
+        for phase in Phase.allCases where phase != .review {
+            XCTAssertTrue(timeline(Puf.character, phase, for: 3600).isEmpty, "\(phase)")
+        }
+    }
+
+    /// A gesture ends on its phase's resting pose — the pose a one-shot
+    /// phase holds once it has arrived, and where the player takes the
+    /// phase back up — so it does not jump out.
+    func testEveryGestureEndsOnItsPhasesRest() throws {
+        for character in [Pati.character, Bit.character, Puf.character] {
+            for rule in character.behavior.rules {
+                for pick in rule.play {
+                    let gesture = try XCTUnwrap(character.motions[pick.motion])
+                    XCTAssertEqual(gesture.steps.last?.pose, character.resting(for: rule.phase),
+                                   "\(character.id) \(pick.motion)")
+                }
+            }
+        }
+    }
+
+    /// Pati's twitch and Bit's blink move their own control and nothing
+    /// else: the face stays as the wait left it. (Puf's hop is the body
+    /// itself, written in the standard controls.)
+    func testTheEarAndTheBulbMoveNothingElse() throws {
+        for (character, name, phase) in [(Pati.character, "twitch", Phase.waiting), (Bit.character, "blink", .waiting)] {
+            var rest = character.resting(for: phase)
+            rest.own = [:]
+            for (i, step) in try XCTUnwrap(character.motions[name]).steps.enumerated() {
+                var bare = step.pose
+                bare.own = [:]
+                XCTAssertEqual(bare, rest, "\(character.id) \(name) step \(i)")
+            }
+        }
+    }
+
+    /// Bit's blink puts the bulb out while it waits; Pati's twitch turns
+    /// the right ear alone.
+    func testTheGesturesMoveWhatTheySay() throws {
+        let bit = Bit.character
+        let lit = try resolved("bulb", of: bit, in: bit.resting(for: .waiting)).opacity
+        let out = try resolved("bulb", of: bit, in: bit.resting(for: .waiting).setting(Bit.dimControl, to: 1)).opacity
+        XCTAssertLessThan(out, lit * 0.2)
+        let pati = Pati.character
+        let twitched = pati.resting(for: .waiting).setting(Pati.twitchControl, to: 1)
+        XCTAssertEqual(try resolved("leftEar", of: pati, in: twitched),
+                       try resolved("leftEar", of: pati, in: pati.resting(for: .waiting)))
+        XCTAssertNotEqual(try resolved("rightEar", of: pati, in: twitched).rotation,
+                          try resolved("rightEar", of: pati, in: pati.resting(for: .waiting)).rotation)
+    }
+
     /// A polygon's outline stays inside the frame it is drawn in: its arcs
     /// round the corners in, never out.
     func testAPolygonStaysInsideItsFrame() {
