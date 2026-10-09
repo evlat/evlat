@@ -201,7 +201,8 @@ enum CharacterFile {
 
     /// One of the shapes, by name: `{"capsule": {"minimumHeight": 0.35}}`,
     /// `{"roundedRectangle": {"cornerRadius": 0.3}}`,
-    /// `{"polygon": {"points": [[0, 0], [1, 0], [0.5, 1]], "cornerRadius": 0.02}}`,
+    /// `{"polygon": {"points": [[0, 0], [1, 0], [0.5, 1]], "cornerRadius": 0.02}}` —
+    /// with `"morphs"` to move its points (`MascotMorph`) —
     /// `{"image": "ear.png"}`, or a sheet's cells named by a control:
     /// `{"cells": {"image": "blink.png", "columns": 4, "rows": 1, "by": "lid"}}`.
     struct Shape: Decodable {
@@ -210,7 +211,11 @@ enum CharacterFile {
         private enum Keys: String, CodingKey { case capsule, roundedRectangle, polygon, image, cells }
         private struct Capsule: Decodable { var minimumHeight: Double }
         private struct Rounded: Decodable { var cornerRadius: Double }
-        private struct Polygon: Decodable { var points: [Pair]; var cornerRadius: Double }
+        private struct Polygon: Decodable { var points: [Pair]; var cornerRadius: Double; var morphs: [Morph]? }
+        /// `{"control": "eyeOpen", "from": [1, 0], "points": [[x, y], …]}`: the
+        /// outline at full weight, reached as the control goes from the
+        /// first number to the second.
+        private struct Morph: Decodable { var control: String; var from: Pair; var points: [Pair] }
         private struct Cells: Decodable { var image: String; var columns: Int; var rows: Int; var by: String }
 
         init(from decoder: Decoder) throws {
@@ -226,7 +231,11 @@ enum CharacterFile {
                 shape = .roundedRectangle(cornerRadius: try c.decode(Rounded.self, forKey: key).cornerRadius)
             case .polygon:
                 let polygon = try c.decode(Polygon.self, forKey: key)
-                shape = .polygon(points: polygon.points.map(\.point), cornerRadius: polygon.cornerRadius)
+                shape = .polygon(points: polygon.points.map(\.point), cornerRadius: polygon.cornerRadius,
+                                 morphs: (polygon.morphs ?? []).map {
+                                     MascotMorph(MascotControl($0.control), from: ($0.from.x, $0.from.y),
+                                                 to: $0.points.map(\.point))
+                                 })
             case .image:
                 shape = .cells(try CharacterFile.sheet(try c.decode(String.self, forKey: key), columns: 1, rows: 1,
                                                        in: folder), by: nil)

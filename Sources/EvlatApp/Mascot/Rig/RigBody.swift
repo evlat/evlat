@@ -32,7 +32,7 @@ private struct RigLayer: View {
             if let shape = part.shape {
                 RigShape(shape: shape, fill: part.fill, size: size,
                          width: part.size.width * r.width, height: part.size.height * r.height,
-                         cell: shape.cell(in: pose, rig: rig))
+                         cell: shape.cell(in: pose, rig: rig), weights: shape.weights(in: pose, rig: rig))
                     .offset(x: part.center.x * size, y: part.center.y * size)
             }
             ForEach(part.children, id: \.name) { child in
@@ -56,6 +56,8 @@ private struct RigShape: View {
     let height: Double
     /// The cell a `.cells` shape draws.
     let cell: Int?
+    /// A polygon's morph weights, in its morphs' order.
+    let weights: [Double]
 
     var body: some View {
         switch shape {
@@ -67,8 +69,9 @@ private struct RigShape: View {
             Capsule(style: .continuous)
                 .fill(fill)
                 .frame(width: size * width, height: size * max(width * minimumHeight, height))
-        case .polygon(let points, let corner):
-            RoundedPolygon(points: points, radius: size * corner)
+        case .polygon(let points, let corner, let morphs):
+            RoundedPolygon(points: points, radius: size * corner, morphs: morphs,
+                           weights: MorphWeights(weights))
                 .fill(fill)
                 .frame(width: size * width, height: size * height)
         case .cells(let sheet, _):
@@ -91,6 +94,14 @@ private struct RigShape: View {
 }
 
 extension MascotShape {
+    /// A polygon's morph weights in `pose`, read from the pose the step
+    /// names: the spring interpolates them on the way (`RoundedPolygon`'s
+    /// `animatableData`). A control the rig never declared weighs nothing.
+    func weights(in pose: MascotPose, rig: MascotRig) -> [Double] {
+        guard case .polygon(_, _, let morphs) = self else { return [] }
+        return morphs.map { morph in rig.value(of: morph.control, in: pose).map(morph.weight) ?? 0 }
+    }
+
     /// The cell a `.cells` shape draws in `pose`: its control's value read
     /// from the pose the step names — never one a spring is passing
     /// through, so an overshoot cannot show a neighbouring frame.
@@ -111,9 +122,19 @@ extension MascotShape {
 struct RoundedPolygon: Shape {
     let points: [CGPoint]
     let radius: CGFloat
+    var morphs: [MascotMorph] = []
+    /// How far each morph has gone. Animatable: a spring carries an eye
+    /// shutting through every lid in between, not from open to shut.
+    var weights = MorphWeights([])
+
+    var animatableData: MorphWeights {
+        get { weights }
+        set { weights = newValue }
+    }
 
     func path(in rect: CGRect) -> Path {
-        let at = points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+        let at = MascotMorph.blend(points, morphs, weights: weights.values)
+            .map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
         guard at.count > 2, let first = at.first, let last = at.last else { return Path() }
         var path = Path()
         path.move(to: CGPoint(x: (last.x + first.x) / 2, y: (last.y + first.y) / 2))
@@ -138,4 +159,33 @@ struct RoundedPolygon: Shape {
         guard half > 1e-6 else { return 0 }
         return min(radius, min(lu, lv) / 2 * tan(half))
     }
+}
+
+/// A polygon's morph weights as SwiftUI interpolates them: a vector of
+/// numbers, one per morph. Two vectors of different lengths — a character
+/// changed — add as if the shorter were padded with zeros.
+struct MorphWeights: VectorArithmetic {
+    var values: [Double]
+
+    init(_ values: [Double]) { self.values = values }
+
+    static var zero: MorphWeights { MorphWeights([]) }
+
+    private static func pair(_ a: MorphWeights, _ b: MorphWeights, _ f: (Double, Double) -> Double) -> MorphWeights {
+        let n = max(a.values.count, b.values.count)
+        return MorphWeights((0..<n).map { i in
+            f(i < a.values.count ? a.values[i] : 0, i < b.values.count ? b.values[i] : 0)
+        })
+    }
+
+    static func + (a: MorphWeights, b: MorphWeights) -> MorphWeights { pair(a, b, +) }
+    static func - (a: MorphWeights, b: MorphWeights) -> MorphWeights { pair(a, b, -) }
+    static func += (a: inout MorphWeights, b: MorphWeights) { a = a + b }
+    static func -= (a: inout MorphWeights, b: MorphWeights) { a = a - b }
+
+    mutating func scale(by rhs: Double) { values = values.map { $0 * rhs } }
+
+    var magnitudeSquared: Double { values.reduce(0) { $0 + $1 * $1 } }
+
+    static func == (a: MorphWeights, b: MorphWeights) -> Bool { (a - b).values.allSatisfy { $0 == 0 } }
 }

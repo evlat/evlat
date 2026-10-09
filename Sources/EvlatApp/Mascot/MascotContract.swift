@@ -60,6 +60,16 @@ enum MascotContract {
             if case .cells(_, let control?)? = part.shape {
                 check(known.contains(control), "\(part.name): its cells' \(control) is not declared")
             }
+            // A morph names a declared control over a real range, and moves
+            // every point the outline has — no more, no fewer.
+            if case .polygon(let points, _, let morphs)? = part.shape {
+                for morph in morphs {
+                    check(known.contains(morph.control), "\(part.name): its morph's \(morph.control) is not declared")
+                    check(morph.input.start != morph.input.end, "\(part.name): a morph on \(morph.control) has no input range")
+                    check(morph.points.count == points.count,
+                          "\(part.name): a morph on \(morph.control) has \(morph.points.count) points, the outline \(points.count)")
+                }
+            }
             for binding in part.bindings {
                 check(known.contains(binding.control), "\(part.name): \(binding.control) is not declared")
                 check(binding.input.start != binding.input.end, "\(part.name): \(binding.control) has no input range")

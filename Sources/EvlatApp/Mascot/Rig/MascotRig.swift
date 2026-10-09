@@ -241,12 +241,52 @@ enum MascotShape: Equatable {
     /// A closed outline through `points`, each a fraction of the part's own
     /// frame (`0…1`, y down), every corner rounded by `cornerRadius` — a
     /// fraction of the mascot's side, as the rectangle's is. An ear, a hem,
-    /// anything a rectangle and a capsule cannot draw.
-    case polygon(points: [CGPoint], cornerRadius: Double)
+    /// anything a rectangle and a capsule cannot draw. Its `morphs` move its
+    /// points one by one (`MascotMorph`).
+    case polygon(points: [CGPoint], cornerRadius: Double, morphs: [MascotMorph] = [])
     /// One cell of a picture sheet, fitted into the part's frame: the cell
     /// `control` names, rounded, row by row from the top left — the first
     /// with no control, a picture that is only drawn. Clips move it with
     /// cuts (`MascotClip.Step.cut`), never a curve — a frame is there or it
     /// is not, and a cell half-way between two is a third one.
     case cells(MascotSheet, by: MascotControl?)
+}
+
+/// A shape key: where each point of a polygon goes as a control moves.
+///
+/// A binding moves a whole part; a morph moves its outline's points each
+/// their own way — what an eye needs to shut from the top, round out in
+/// surprise or push up from below in a smile, rather than squash as a box
+/// would. `points` is the whole outline at full weight, point for point
+/// with the polygon's own; the weight is `control` over `input`, clamped,
+/// onto 0…1, as a binding's output is. Several morphs add, each point moved
+/// by every weight times its own offset, so a blink and a smile compose.
+struct MascotMorph: Equatable {
+    var control: MascotControl
+    var input: MascotSpan
+    var points: [CGPoint]
+
+    init(_ control: MascotControl, from input: (Double, Double), to points: [CGPoint]) {
+        self.control = control
+        self.input = MascotSpan(input.0, input.1)
+        self.points = points
+    }
+
+    /// How far toward `points` a control's value goes: 0 at `input.start`,
+    /// 1 at `input.end`, held at either end beyond.
+    func weight(for value: Double) -> Double {
+        MascotBinding(control, .opacity, from: (input.start, input.end), to: (0, 1)).output(for: value)
+    }
+
+    /// `base` moved by each morph at its weight.
+    static func blend(_ base: [CGPoint], _ morphs: [MascotMorph], weights: [Double]) -> [CGPoint] {
+        var out = base
+        for (morph, weight) in zip(morphs, weights) where weight != 0 && morph.points.count == base.count {
+            for i in out.indices {
+                out[i].x += (morph.points[i].x - base[i].x) * weight
+                out[i].y += (morph.points[i].y - base[i].y) * weight
+            }
+        }
+        return out
+    }
 }
