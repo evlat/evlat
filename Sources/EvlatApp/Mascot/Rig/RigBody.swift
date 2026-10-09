@@ -103,6 +103,11 @@ extension MascotShape {
 
 /// `MascotShape.polygon`'s outline: each corner an arc tangent to its two
 /// edges, so the outline stays smooth however few points it has.
+///
+/// A corner's arc is never wider than its edges allow: where the radius
+/// would reach past half the shorter edge, it shrinks to fit. A sharp
+/// corner squeezed thin — a pointed eye shutting in a blink — otherwise
+/// threw its tangent far outside the shape, a line across the bar (seen).
 struct RoundedPolygon: Shape {
     let points: [CGPoint]
     let radius: CGFloat
@@ -113,9 +118,24 @@ struct RoundedPolygon: Shape {
         var path = Path()
         path.move(to: CGPoint(x: (last.x + first.x) / 2, y: (last.y + first.y) / 2))
         for (i, corner) in at.enumerated() {
-            path.addArc(tangent1End: corner, tangent2End: at[(i + 1) % at.count], radius: radius)
+            let before = at[(i + at.count - 1) % at.count], after = at[(i + 1) % at.count]
+            path.addArc(tangent1End: corner, tangent2End: after,
+                        radius: Self.radius(radius, at: corner, between: before, and: after))
         }
         path.closeSubpath()
         return path
+    }
+
+    /// The largest radius up to `radius` whose arc touches each edge within
+    /// its first half — the arc's tangent lies `r / tan(θ/2)` from the
+    /// corner, θ the corner's angle.
+    static func radius(_ radius: CGFloat, at corner: CGPoint, between a: CGPoint, and b: CGPoint) -> CGFloat {
+        let u = CGPoint(x: a.x - corner.x, y: a.y - corner.y), v = CGPoint(x: b.x - corner.x, y: b.y - corner.y)
+        let lu = (u.x * u.x + u.y * u.y).squareRoot(), lv = (v.x * v.x + v.y * v.y).squareRoot()
+        guard lu > 0, lv > 0 else { return 0 }
+        let cosine = max(-1, min(1, (u.x * v.x + u.y * v.y) / (lu * lv)))
+        let half = acos(cosine) / 2
+        guard half > 1e-6 else { return 0 }
+        return min(radius, min(lu, lv) / 2 * tan(half))
     }
 }

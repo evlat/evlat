@@ -189,4 +189,19 @@ final class MascotCharactersTests: XCTestCase {
         XCTAssertTrue(RoundedPolygon(points: Array(points.prefix(2)), radius: 2).path(in: rect).isEmpty,
                       "two points are no outline")
     }
+
+    /// A sharp-cornered outline squeezed thin — a pointed eye in a blink —
+    /// keeps its corners inside it: the radius shrinks to what the edges
+    /// allow, rather than throwing a tangent across the bar.
+    func testAThinSharpPolygonStaysInsideItsFrame() {
+        let lens = [CGPoint(x: 0, y: 0.92), CGPoint(x: 0.1, y: 0.3), CGPoint(x: 0.5, y: 0.02),
+                    CGPoint(x: 1, y: 0), CGPoint(x: 0.92, y: 0.55), CGPoint(x: 0.45, y: 0.98)]
+        for height in [30.0, 2, 0.4] {
+            let rect = CGRect(x: 0, y: 0, width: 40, height: height)
+            let box = RoundedPolygon(points: lens, radius: 3).path(in: rect).boundingRect
+            XCTAssertTrue(rect.insetBy(dx: -1e-6, dy: -1e-6).contains(box), "\(height): \(box)")
+        }
+        XCTAssertEqual(RoundedPolygon.radius(2, at: .zero, between: CGPoint(x: 10, y: 0), and: CGPoint(x: 0, y: 10)), 2,
+                       "a corner with room keeps its radius")
+    }
 }
