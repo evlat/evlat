@@ -13,23 +13,6 @@ renames that heading to its version.
 
 ## Unreleased
 
-- **Your Codex pets can be the mascot.** Pets you keep in Codex — your own,
-  or ones installed from petdex — appear in Settings → Mascot → Look beside
-  the cube, and a pet's folder put in the mascots folder ("Open Folder"
-  there) does too. A pet shows waiting, working and done with its own
-  frames, and waves when a wait goes on.
-- **Bit lights up.** The robot has a metal back, a bolt each side and a
-  lit screen, and its eyes take the bar's colours: amber while a session
-  waits on you, green when work is done, red when it failed.
-- **Draw a mascot of your own.** A `character.json` in the mascots folder
-  describes one the way Evlat's are made — its parts, how they move and
-  when — and appears beside them. A folder that can't be shown says why
-  under the tiles. "How to Make One" there opens the guide, with a prompt
-  to hand the job to your coding agent, and `evlat mascot check` lists
-  every rule a mascot breaks and draws its states into a picture.
-- **A finish no longer leaves the mascot's head tilted.** It still leans
-  when work is done, as if to ask "is this right?", then sits back
-  upright; the green ring keeps telling you until you look.
 - **Choose your mascot.** Settings → Mascot → Look offers Pati the cat,
   Bit the robot and Puf the ghost beside the cube. Each shows waiting,
   working and done in its own way — Pati's ears prick up when a session
@@ -37,6 +20,26 @@ renames that heading to its version.
   Settings shows how it looks while it waits. A wait that goes on is
   answered twice more: Pati twitches an ear, Bit blinks its bulb. Puf
   hops once when work is done.
+- **Your Codex pets can be the mascot.** Pets you keep in Codex — your own,
+  or ones installed from petdex — appear in Settings → Mascot → Look beside
+  the cube, and a pet's folder put in the mascots folder ("Open Folder"
+  there) does too. A pet shows waiting, working and done with its own
+  frames, and waves when a wait goes on.
+- **Draw a mascot of your own.** A `character.json` in the mascots folder
+  describes one the way Evlat's are made — its parts, how they move and
+  when, down to an eye that shuts from the top rather than squashing — and
+  appears beside them. **How to Make One** there opens the guide,
+  [evlat.kalaomer.com/docs/mascots](https://evlat.kalaomer.com/docs/mascots),
+  with a prompt that hands the job to your coding agent.
+  `evlat mascot check` lists every rule a mascot breaks and draws its
+  states into a picture; a folder Settings can't show says why under the
+  tiles.
+- **Bit lights up.** The robot has a metal back, a bolt each side and a
+  lit screen, and its eyes take the bar's colours: amber while a session
+  waits on you, green when work is done, red when it failed.
+- **A finish no longer leaves the mascot's head tilted.** It still leans
+  when work is done, as if to ask "is this right?", then sits back
+  upright; the green ring keeps telling you until you look.
 - **A spent usage window says 100%.** Run past its limit, Claude's 5-hour
   window could read “101%” on the open bar; it now stops at 100%.
 - **A roomier first-run setup, beside the mascot.** It opens in a panel of
