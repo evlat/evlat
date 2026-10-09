@@ -22,13 +22,20 @@ final class MascotClipTests: XCTestCase {
         }
     }
 
-    /// Entering a clip is entering the phase, so the first step is the phase's
-    /// resting pose on the shared transition curve. Two `.animation` modifiers
-    /// are in play on a phase change; this makes it not matter which one wins.
-    func testEveryClipStartsAtRestOnTheTransitionCurve() {
+    /// Entering a clip is entering the phase, so the first step is on the
+    /// shared transition curve. Two `.animation` modifiers are in play on a
+    /// phase change; this makes it not matter which one wins.
+    ///
+    /// **Contract change.** Step 0 used to be the resting pose for every
+    /// clip. A loop's still is — it wraps back to it — but a one-shot clip may
+    /// arrive somewhere else and settle: `review` arrives leaning and comes
+    /// back upright. Where every clip ends is the resting pose
+    /// (`testWaitingAndReviewPlayOnceAndHoldTheirLastPose`,
+    /// `testALoopingClipEndsWhereItBegan`).
+    func testEveryClipEntersOnTheTransitionCurveAndALoopAtRest() {
         for (name, rest, clip) in allClips() {
-            XCTAssertEqual(clip.steps[0].pose, rest, "\(name)")
             XCTAssertEqual(clip.steps[0].curve, MascotPose.transition, "\(name)")
+            if clip.loops { XCTAssertEqual(clip.steps[0].pose, rest, "\(name)") }
         }
     }
 
@@ -204,26 +211,29 @@ final class MascotClipTests: XCTestCase {
     /// part of the face owns, and the list has to change on purpose for it to
     /// pass. Three channels are never on it, for any clip:
     ///
-    /// - **tilt and squint** say *which* phase this is, not what it is doing
-    ///   inside it; they belong to `resting(for:)`. `review`'s tilt arrives on
-    ///   step 0's spring, and its gesture is a nod instead.
+    /// - **squint** says *which* phase this is, not what it is doing inside
+    ///   it; it belongs to `resting(for:)`.
     /// - **`gazeMix`** is a phase constant. Animating it per step
     ///   would make the eyes drift between following and not following — a
     ///   second gaze authority, the exact arrangement the clip layer exists to end.
+    ///
+    /// Tilt used to be on that list, `review`'s identity held in its resting
+    /// pose. Held until the finish was seen it read as stuck, so it is now
+    /// `review`'s arrival — a lean asked once and let go — and the clip owns it.
     func testEachClipDrivesOnlyItsOwnChannels() {
         let driven: [Phase: Set<Channel>] = [
             .idle: [.eyeOpen, .scale],
             .working: [.eyeOpen, .scale, .aim],
             .waiting: [.eyeOpen, .scale],
-            .review: [.eyeOpen, .scale, .aim],
+            .review: [.eyeOpen, .scale, .aim, .tilt],
             .failed: [.eyeOpen, .scale, .aim]
         ]
-        let tableOnly: Set<Channel> = [.tilt, .squint, .gazeMix]
+        let tableOnly: Set<Channel> = [.squint, .gazeMix]
         for phase in Phase.allCases {
             let rest = MascotPose.resting(for: phase)
             let allowed = driven[phase] ?? []
             XCTAssertTrue(allowed.isDisjoint(with: tableOnly),
-                          "\(phase): tilt, squint and gazeMix belong to the table")
+                          "\(phase): squint and gazeMix belong to the table")
             var used: Set<Channel> = []
             for (i, step) in MascotClip.clip(for: phase, pacing: .normal).steps.enumerated() {
                 let touched = Channel.touched(by: step.pose, from: rest)

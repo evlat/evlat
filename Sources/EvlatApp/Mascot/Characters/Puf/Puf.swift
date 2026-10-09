@@ -8,7 +8,8 @@ import SwiftUI
 /// caught — lifts it, and squashing — `failed` — lets it sink.
 ///
 /// Its own gesture is a hop of joy when work is done: once the finish has
-/// arrived it rises, sways twice and settles back, wide-eyed. Once per
+/// arrived and its head is back upright it rises, sways twice and settles
+/// back, wide-eyed. Once per
 /// finish; the green ring keeps saying it after.
 enum Puf {
     static let character = MascotCharacter(id: "puf", rig: rig, motions: ["hop": hop], behavior: behavior)
@@ -17,8 +18,8 @@ enum Puf {
         MascotRule(phase: .review, play: [.init("hop")])
     ])
 
-    /// Up, a sway either side of the finish's own tilt, down: written in
-    /// the standard controls alone — a taller ghost is a higher one.
+    /// Up, a sway either side of upright, down: written in the standard
+    /// controls alone — a taller ghost is a higher one.
     static let hop: MascotClip = {
         let rest = MascotPose.resting(for: .review)
         var up = rest

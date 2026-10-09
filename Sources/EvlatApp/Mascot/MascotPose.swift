@@ -90,10 +90,12 @@ public struct MascotPose: Equatable {
             // and locks onto whoever it is waiting for.
             return MascotPose(eyeOpen: 1.28, scaleX: 1.03, scaleY: 1.04)
         case .review:
-            // Head tilt plus a slight squint: "had a look — is this right?"
-            // Turned toward you but not locked on: the question is about the
-            // work, which `review`'s clip glances down at.
-            return MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, tilt: 9, gazeMix: 0.60)
+            // A slight squint, upright: content with the work. Turned toward
+            // you but not locked on. The head tilt — "had a look — is this
+            // right?" — is asked once, in `review`'s clip, and not held: a
+            // tilt kept until the finish was seen read as stuck. The green
+            // ring keeps telling the finish.
+            return MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, gazeMix: 0.60)
         case .failed:
             // Lids low, body squashed. The shudder is its own channel and lives
             // in `MascotShake`. Half of the cursor: it still knows you are

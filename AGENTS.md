@@ -337,7 +337,9 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   `Sources/EvlatApp/Mascot/Characters/` and enter by being listed in
   `MascotCharacters.all`, which `MascotCharacterContractTests` checks: the
   five phases read apart, looping clips stay under the duty-cycle ceiling,
-  and a rig names only controls it declared. A character may replace any
+  nothing rests tilted (a held lean reads as stuck — `review` leans on
+  arrival and comes back upright, the ring keeps the finish), and a rig
+  names only controls it declared. A character may replace any
   phase's clip with its own; Evlat's clips (`MascotClip`) are the default.
   Settings → Mascot → Look chooses one (`mascot.character`; nothing stored,
   or an id no character has any more, is the cube).

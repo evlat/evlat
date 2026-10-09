@@ -13,6 +13,9 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **A finish no longer leaves the mascot's head tilted.** It still leans
+  when work is done, as if to ask "is this right?", then sits back
+  upright; the green ring keeps telling you until you look.
 - **Choose your mascot.** Settings → Mascot → Look offers Pati the cat,
   Bit the robot and Puf the ghost beside the cube. Each shows waiting,
   working and done in its own way — Pati's ears prick up when a session

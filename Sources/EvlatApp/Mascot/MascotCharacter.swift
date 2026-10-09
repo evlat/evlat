@@ -43,9 +43,11 @@ struct MascotCharacter: Equatable {
         return pacing == .continuous ? own.continuous : own
     }
 
-    /// The pose a phase rests at: the first step of its clip, which is where
-    /// a phase change lands and what the asleep mascot draws.
+    /// The pose a phase rests at: the last step of its clip — the one a
+    /// one-shot phase holds once it has arrived, and the one a loop wraps
+    /// back to its start from. The asleep mascot draws it, and a gesture
+    /// hands the phase back to it.
     func resting(for phase: Phase) -> MascotPose {
-        clip(for: phase, pacing: .normal).steps.first?.pose ?? MascotPose.resting(for: phase)
+        clip(for: phase, pacing: .normal).steps.last?.pose ?? MascotPose.resting(for: phase)
     }
 }

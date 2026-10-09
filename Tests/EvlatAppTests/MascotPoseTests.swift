@@ -37,16 +37,18 @@ final class MascotPoseTests: XCTestCase {
                           "the lids come down on failure")
     }
 
-    /// `review` is the only phase that tilts the head.
-    func testOnlyReviewTilts() {
+    /// **Contract change.** This test was `testOnlyReviewTilts`: `review`
+    /// rested with its head tilted until the finish was seen, and that read
+    /// as stuck. Now no phase rests tilted; `review` leans on arrival and
+    /// comes back upright (`MascotClip.review`), and the green ring keeps
+    /// telling the finish.
+    func testNoPhaseRestsTilted() {
         for phase in Phase.allCases {
-            let tilt = MascotPose.resting(for: phase).tilt
-            if phase == .review {
-                XCTAssertNotEqual(tilt, 0)
-            } else {
-                XCTAssertEqual(tilt, 0, "\(phase)")
-            }
+            XCTAssertEqual(MascotPose.resting(for: phase).tilt, 0, "\(phase)")
         }
+        let review = MascotClip.clip(for: .review, pacing: .normal)
+        XCTAssertTrue(review.steps.contains { $0.pose.tilt != 0 }, "review still asks with a lean")
+        XCTAssertEqual(review.steps.last?.pose.tilt, 0, "and lets it go")
     }
 
     /// **Contract change.** This test used to be
@@ -141,8 +143,9 @@ final class MascotPoseTests: XCTestCase {
         XCTAssertEqual(MascotPose.resting(for: .idle), MascotPose(gazeMix: 0.85))
         XCTAssertEqual(MascotPose.resting(for: .working), MascotPose(eyeOpen: 0.92, eyeSquint: 0.34, gazeMix: 0.30))
         XCTAssertEqual(MascotPose.resting(for: .waiting), MascotPose(eyeOpen: 1.28, scaleX: 1.03, scaleY: 1.04))
+        // `review` lost its held tilt on purpose (`testNoPhaseRestsTilted`).
         XCTAssertEqual(MascotPose.resting(for: .review),
-                       MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, tilt: 9, gazeMix: 0.60))
+                       MascotPose(eyeOpen: 1.02, eyeSquint: 0.12, gazeMix: 0.60))
         XCTAssertEqual(MascotPose.resting(for: .failed),
                        MascotPose(eyeOpen: 0.55, eyeSquint: 0.5, scaleX: 1.07, scaleY: 0.9, gazeMix: 0.45))
     }

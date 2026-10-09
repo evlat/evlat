@@ -119,8 +119,13 @@ final class MascotMeasurementTests: XCTestCase {
                            "\(phase): the in-clip leg has to be all clip")
             XCTAssertLessThan(burst.cycle, clip.cycle, "\(phase): the waiting is what was removed")
             // A one-shot clip's own `movingTime` counts the entering spring
-            // (it is entered from another phase); the looping variant does not.
-            let entering = clip.loops ? 0 : clip.steps[0].motion
+            // (it is entered from another phase). The looping variant
+            // re-enters step 0 from the clip's last pose: where that is the
+            // same pose the step goes nowhere and is dropped; where it is not
+            // — `review` arrives leaning and ends upright — every pass leans
+            // again, and that is motion.
+            let lastIsFirst = clip.steps.last?.pose == clip.steps[0].pose
+            let entering = clip.loops || !lastIsFirst ? 0 : clip.steps[0].motion
             XCTAssertEqual(burst.movingTime, clip.movingTime - entering, accuracy: 1e-9,
                            "\(phase): the same motion, not less of it")
             XCTAssertTrue(burst.loops, "\(phase): it has to keep running to be read")

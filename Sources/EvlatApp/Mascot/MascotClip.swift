@@ -332,24 +332,32 @@ extension MascotClip {
         ], loops: false)
     }
 
-    /// **`review`: one look down at the work, then back up to you.** No loop.
+    /// **`review`: one look down at the work, then back up to you, and upright.**
+    /// No loop.
     ///
-    /// The head tilt is the phase's identity and it arrives on step 0's spring;
-    /// the clip may not touch it (`MascotClipTests` — tilt and squint belong to
-    /// the table). The gesture is therefore a nod: the eyes drop onto the work
-    /// while the body dips, come back up with a small lift, blink, and hold.
-    /// "Had a look — is this right?" asked once, not on repeat.
+    /// The head tilts on arrival — "had a look — is this right?" — and the
+    /// gesture is a nod under it: the eyes drop onto the work while the body
+    /// dips, come back up with a small lift, blink. Then the head comes back
+    /// upright and holds there. It used to hold the tilt until the finish was
+    /// seen, which read as stuck; the green ring keeps telling the finish
+    /// (`AGENTS.md`: a phase rests upright, `MascotCharacterContractTests`).
     static func review() -> MascotClip {
         let rest = MascotPose.resting(for: .review)
+        var asking = rest
+        asking.tilt = reviewTilt
         return MascotClip(steps: [
-            .entering(rest, hold: 0.7),
-            .eased(rest.aimed(yaw: 0.10, pitch: 0.45).bobbed(0.975), over: 0.40, hold: 0.9),
-            .eased(rest.bobbed(1.015), over: 0.35, hold: 0.4),
-            .eased(rest, over: 0.25, hold: 0.6),
-            blink(rest),
-            open(rest, hold: 0.5)
+            .entering(asking, hold: 0.7),
+            .eased(asking.aimed(yaw: 0.10, pitch: 0.45).bobbed(0.975), over: 0.40, hold: 0.9),
+            .eased(asking.bobbed(1.015), over: 0.35, hold: 0.4),
+            .eased(asking, over: 0.25, hold: 0.6),
+            blink(asking),
+            open(asking, hold: 0.4),
+            .eased(rest, over: 0.45, hold: 0.5)
         ], loops: false)
     }
+
+    /// The question's lean, degrees: asked on arrival, never held.
+    static let reviewTilt = 9.0
 
     /// **`failed`: the shudder, then a slow slump.** Loops, sparsely.
     ///

@@ -98,17 +98,31 @@ final class MascotCharacterContractTests: XCTestCase {
     }
 
     /// Every phase change feels the same, whoever is drawn: it lands on the
-    /// shared spring. And a phase's clip ends on the pose it began with — the
-    /// pose the asleep mascot draws, and the one a loop wraps back to — so
-    /// neither the loop's seam nor falling asleep is a jump.
-    func testEveryPhaseEntersOnTheSpringAndEndsWhereItRests() {
+    /// shared spring. A phase rests at its clip's last step — the pose the
+    /// asleep mascot draws — and a loop ends on the pose it began with, so
+    /// its seam is not a jump.
+    func testEveryPhaseEntersOnTheSpringAndALoopEndsWhereItBegan() {
         for character in characters {
             for phase in Phase.allCases {
                 let clip = character.clip(for: phase, pacing: .normal)
                 XCTAssertEqual(clip.steps.first?.curve, MascotPose.transition, "\(character.id) \(phase)")
-                XCTAssertEqual(clip.steps.last?.pose, clip.steps.first?.pose,
-                               "\(character.id) \(phase): it does not end where it rests")
-                XCTAssertEqual(character.resting(for: phase), clip.steps.first?.pose)
+                if clip.loops {
+                    XCTAssertEqual(clip.steps.last?.pose, clip.steps.first?.pose,
+                                   "\(character.id) \(phase): the loop's seam is a jump")
+                }
+                XCTAssertEqual(character.resting(for: phase), clip.steps.last?.pose)
+            }
+        }
+    }
+
+    /// **Nothing rests tilted.** A lean held for as long as a phase lasts
+    /// reads as stuck — `review` held one until the finish was seen. A
+    /// character may lean as a gesture, on arrival or in its own motions,
+    /// and lets it go.
+    func testNoPhaseRestsTilted() {
+        for character in characters {
+            for phase in Phase.allCases {
+                XCTAssertEqual(character.resting(for: phase).tilt, 0, "\(character.id) \(phase)")
             }
         }
     }
