@@ -244,8 +244,9 @@ enum MascotShape: Equatable {
     /// anything a rectangle and a capsule cannot draw.
     case polygon(points: [CGPoint], cornerRadius: Double)
     /// One cell of a picture sheet, fitted into the part's frame: the cell
-    /// `control` names, rounded, row by row from the top left. Clips move
-    /// it with cuts (`MascotClip.Step.cut`), never a curve — a frame is
-    /// there or it is not, and a cell half-way between two is a third one.
-    case cells(MascotSheet, by: MascotControl)
+    /// `control` names, rounded, row by row from the top left — the first
+    /// with no control, a picture that is only drawn. Clips move it with
+    /// cuts (`MascotClip.Step.cut`), never a curve — a frame is there or it
+    /// is not, and a cell half-way between two is a third one.
+    case cells(MascotSheet, by: MascotControl?)
 }

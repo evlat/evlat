@@ -72,9 +72,10 @@ private struct RigShape: View {
                 .fill(fill)
                 .frame(width: size * width, height: size * height)
         case .cells(let sheet, _):
-            // One `Image` whose picture changes, never a view swapped for
-            // another: a swap inside the step's animation would fade one
-            // frame into the next.
+            // A frame is there or it is not. Changed inside the step's
+            // animation, the picture would fade from one cell into the next
+            // — seen: a half-transparent bird between two frames — so the
+            // change carries no animation. Scale above it still springs.
             Group {
                 if let image = cell.flatMap(sheet.cell) {
                     Image(decorative: image, scale: 1).resizable().interpolation(.high)
@@ -84,6 +85,7 @@ private struct RigShape: View {
             }
             .aspectRatio(contentMode: .fit)
             .frame(width: size * width, height: size * height)
+            .transaction { $0.animation = nil }
         }
     }
 }
@@ -93,8 +95,9 @@ extension MascotShape {
     /// from the pose the step names — never one a spring is passing
     /// through, so an overshoot cannot show a neighbouring frame.
     func cell(in pose: MascotPose, rig: MascotRig) -> Int? {
-        guard case .cells(_, let control) = self, let value = rig.value(of: control, in: pose) else { return nil }
-        return Int(value.rounded())
+        guard case .cells(_, let control) = self else { return nil }
+        guard let control else { return 0 }
+        return rig.value(of: control, in: pose).map { Int($0.rounded()) }
     }
 }
 

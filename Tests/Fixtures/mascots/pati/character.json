@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "controls": { "ear.twitch": { "lower": -1, "upper": 1, "rest": 0 } },
+  "root": {
+    "name": "pati",
+    "bindings": [
+      { "control": "scaleX", "property": "scaleX", "from": [0, 2] },
+      { "control": "scaleY", "property": "scaleY", "from": [0, 2] },
+      { "control": "tilt", "property": "rotation", "from": [-180, 180] }
+    ],
+    "children": [
+      {
+        "name": "leftEar",
+        "shape": {
+          "polygon": { "points": [[0.02, 1], [0.16, 0], [0.98, 0.78], [1, 1]], "cornerRadius": 0.045 }
+        },
+        "fill": { "white": 0.92 },
+        "center": [-0.255, -0.3],
+        "size": [0.4, 0.4],
+        "pivot": [-0.24, -0.13],
+        "bindings": [
+          { "control": "eyeOpen", "property": "rotation", "from": [1.0, 1.4], "to": [0, 12] },
+          { "control": "eyeOpen", "property": "offsetY", "from": [1.0, 1.4], "to": [0, -0.05] },
+          { "control": "eyeSquint", "property": "rotation", "from": [0.15, 0.5], "to": [0, -30] },
+          { "control": "eyeSquint", "property": "offsetY", "from": [0.15, 0.5], "to": [0, 0.05] },
+          { "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [0.03, -0.03] }
+        ],
+        "children": [
+          {
+            "name": "leftEarInside",
+            "shape": { "polygon": { "points": [[0.12, 1], [0.22, 0], [0.88, 0.92]], "cornerRadius": 0.03 } },
+            "fill": { "red": 0.96, "green": 0.7, "blue": 0.74 },
+            "center": [-0.267, -0.275],
+            "size": [0.22, 0.24]
+          }
+        ]
+      },
+      {
+        "name": "rightEar",
+        "shape": {
+          "polygon": { "points": [[0, 1], [0.02, 0.78], [0.84, 0], [0.98, 1]], "cornerRadius": 0.045 }
+        },
+        "fill": { "white": 0.92 },
+        "center": [0.255, -0.3],
+        "size": [0.4, 0.4],
+        "pivot": [0.24, -0.13],
+        "bindings": [
+          { "control": "eyeOpen", "property": "rotation", "from": [1.0, 1.4], "to": [0, -12] },
+          { "control": "eyeOpen", "property": "offsetY", "from": [1.0, 1.4], "to": [0, -0.05] },
+          { "control": "eyeSquint", "property": "rotation", "from": [0.15, 0.5], "to": [0, 30] },
+          { "control": "eyeSquint", "property": "offsetY", "from": [0.15, 0.5], "to": [0, 0.05] },
+          { "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [0.03, -0.03] },
+          { "control": "ear.twitch", "property": "rotation", "from": [-1, 1], "to": [-22, 22] }
+        ],
+        "children": [
+          {
+            "name": "rightEarInside",
+            "shape": { "polygon": { "points": [[0.12, 0.92], [0.78, 0], [0.88, 1]], "cornerRadius": 0.03 } },
+            "fill": { "red": 0.96, "green": 0.7, "blue": 0.74 },
+            "center": [0.267, -0.275],
+            "size": [0.22, 0.24]
+          }
+        ]
+      },
+      {
+        "name": "head",
+        "shape": { "roundedRectangle": { "cornerRadius": 0.38 } },
+        "fill": { "white": 0.92 },
+        "center": [0, 0.1],
+        "size": [1.0, 0.8]
+      },
+      {
+        "eye": {
+          "side": -1,
+          "y": 0.1,
+          "width": 0.12,
+          "height": 0.27,
+          "gap": 0.2,
+          "gaze": [0.1, 0.06],
+          "fill": { "name": "black", "opacity": 0.92 }
+        }
+      },
+      {
+        "eye": {
+          "side": 1,
+          "y": 0.1,
+          "width": 0.12,
+          "height": 0.27,
+          "gap": 0.2,
+          "gaze": [0.1, 0.06],
+          "fill": { "name": "black", "opacity": 0.92 }
+        }
+      },
+      {
+        "name": "nose",
+        "shape": { "polygon": { "points": [[0, 0], [1, 0], [0.5, 1]], "cornerRadius": 0.02 } },
+        "fill": { "red": 0.96, "green": 0.7, "blue": 0.74 },
+        "center": [0, 0.31],
+        "size": [0.13, 0.085],
+        "bindings": [
+          { "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.07, 0.07] },
+          { "control": "pitch", "property": "offsetY", "from": [-1, 1], "to": [-0.04, 0.04] }
+        ]
+      },
+      {
+        "name": "leftWhiskerUp",
+        "shape": {
+          "polygon": {
+            "points": [[1.0, 0.75], [0.0, 0.15], [0.0, 0.32999999999999996], [1.0, 0.97]],
+            "cornerRadius": 0.004
+          }
+        },
+        "fill": { "white": 0.92 },
+        "center": [-0.5, 0.3],
+        "size": [0.26, 0.12],
+        "bindings": [{ "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.04, 0.04] }]
+      },
+      {
+        "name": "leftWhiskerDown",
+        "shape": {
+          "polygon": { "points": [[1.0, 0.15], [0.0, 0.82], [0.0, 1.0], [1.0, 0.37]], "cornerRadius": 0.004 }
+        },
+        "fill": { "white": 0.92 },
+        "center": [-0.5, 0.35],
+        "size": [0.26, 0.12],
+        "bindings": [{ "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.04, 0.04] }]
+      },
+      {
+        "name": "rightWhiskerUp",
+        "shape": {
+          "polygon": {
+            "points": [[0.0, 0.75], [1.0, 0.15], [1.0, 0.32999999999999996], [0.0, 0.97]],
+            "cornerRadius": 0.004
+          }
+        },
+        "fill": { "white": 0.92 },
+        "center": [0.5, 0.3],
+        "size": [0.26, 0.12],
+        "bindings": [{ "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.04, 0.04] }]
+      },
+      {
+        "name": "rightWhiskerDown",
+        "shape": {
+          "polygon": { "points": [[0.0, 0.15], [1.0, 0.82], [1.0, 1.0], [0.0, 0.37]], "cornerRadius": 0.004 }
+        },
+        "fill": { "white": 0.92 },
+        "center": [0.5, 0.35],
+        "size": [0.26, 0.12],
+        "bindings": [{ "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.04, 0.04] }]
+      }
+    ]
+  },
+  "motions": {
+    "twitch": {
+      "loops": false,
+      "steps": [
+        { "pose": { "from": "waiting", "ear.twitch": 1 }, "move": 0.07, "hold": 0.09 },
+        { "pose": { "from": "waiting", "ear.twitch": -0.6 }, "move": 0.07, "hold": 0.09 },
+        { "pose": { "from": "waiting", "ear.twitch": 0.8 }, "move": 0.06, "hold": 0.08 },
+        { "pose": { "from": "waiting" }, "move": 0.1, "hold": 0.14 }
+      ]
+    }
+  },
+  "rules": [
+    { "phase": "waiting", "after": 45, "play": ["twitch"] },
+    { "phase": "waiting", "after": 180, "play": ["twitch"] }
+  ]
+}

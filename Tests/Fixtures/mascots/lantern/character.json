@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "name": "Lantern",
+  "controls": {
+    "bulb.glow": { "lower": 0, "upper": 1, "rest": 0.3 },
+    "antenna.sway": { "lower": -1, "upper": 1, "rest": 0 }
+  },
+  "root": {
+    "name": "lantern",
+    "bindings": [
+      { "control": "scaleX", "property": "scaleX", "from": [0, 2] },
+      { "control": "scaleY", "property": "scaleY", "from": [0, 2] },
+      { "control": "tilt", "property": "rotation", "from": [-180, 180] }
+    ],
+    "children": [
+      {
+        "name": "stem",
+        "shape": { "capsule": { "minimumHeight": 1 } },
+        "fill": { "name": "gray" },
+        "center": [0, -0.5],
+        "size": [0.06, 0.2],
+        "pivot": [0, -0.4],
+        "bindings": [{ "control": "antenna.sway", "property": "rotation", "from": [-1, 1], "to": [-20, 20] }],
+        "children": [
+          {
+            "name": "bulb",
+            "shape": { "capsule": { "minimumHeight": 1 } },
+            "fill": { "name": "yellow" },
+            "center": [0, -0.62],
+            "size": [0.14, 0.14],
+            "bindings": [{ "control": "bulb.glow", "property": "opacity", "from": [0, 1], "to": [0.2, 1] }]
+          }
+        ]
+      },
+      {
+        "name": "body",
+        "shape": { "roundedRectangle": { "cornerRadius": 0.45 } },
+        "fill": { "name": "white" },
+        "size": [0.9, 0.9]
+      },
+      {
+        "name": "leftEye",
+        "shape": { "capsule": { "minimumHeight": 0.4 } },
+        "fill": { "name": "black" },
+        "center": [-0.16, 0],
+        "size": [0.12, 0.24],
+        "bindings": [
+          { "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.08, 0.08] },
+          { "control": "pitch", "property": "offsetY", "from": [-1, 1], "to": [-0.06, 0.06] },
+          { "control": "eyeOpen", "property": "height", "from": [0, 2] }
+        ]
+      },
+      {
+        "name": "rightEye",
+        "shape": { "capsule": { "minimumHeight": 0.4 } },
+        "fill": { "name": "black" },
+        "center": [0.16, 0],
+        "size": [0.12, 0.24],
+        "bindings": [
+          { "control": "yaw", "property": "offsetX", "from": [-1, 1], "to": [-0.08, 0.08] },
+          { "control": "pitch", "property": "offsetY", "from": [-1, 1], "to": [-0.06, 0.06] },
+          { "control": "eyeOpen", "property": "height", "from": [0, 2] }
+        ]
+      }
+    ]
+  },
+  "states": {
+    "waiting": {
+      "loops": false,
+      "steps": [
+        { "pose": { "eyeOpen": 1.1, "bulb.glow": 1 }, "move": "spring", "hold": 0.6 },
+        { "pose": { "eyeOpen": 1.1, "bulb.glow": 0.5 }, "move": 0.15, "hold": 0.3 },
+        { "pose": { "eyeOpen": 1.1, "bulb.glow": 1 }, "move": 0.15, "hold": 0.4 }
+      ]
+    }
+  },
+  "motions": {
+    "flicker": {
+      "steps": [
+        {
+          "pose": { "from": "working", "bulb.glow": 1, "antenna.sway": 0.6 },
+          "move": 0.12,
+          "hold": 0.2
+        },
+        {
+          "pose": { "from": "working", "bulb.glow": 0.1, "antenna.sway": -0.6 },
+          "move": 0.12,
+          "hold": 0.2
+        },
+        { "pose": { "from": "working" }, "move": 0.2, "hold": 0.25 }
+      ]
+    },
+    "sway": {
+      "steps": [
+        { "pose": { "from": "working", "antenna.sway": 1 }, "move": 0.25, "hold": 0.3 },
+        { "pose": { "from": "working", "antenna.sway": -1 }, "move": 0.35, "hold": 0.4 },
+        { "pose": { "from": "working" }, "move": 0.25, "hold": 0.3 }
+      ]
+    },
+    "flicker.wait": {
+      "steps": [
+        {
+          "pose": { "eyeOpen": 1.1, "bulb.glow": 1, "antenna.sway": 0.6 },
+          "move": 0.12,
+          "hold": 0.2
+        },
+        {
+          "pose": { "eyeOpen": 1.1, "bulb.glow": 0.1, "antenna.sway": -0.6 },
+          "move": 0.12,
+          "hold": 0.2
+        },
+        { "pose": { "eyeOpen": 1.1, "bulb.glow": 1 }, "move": 0.2, "hold": 0.25 }
+      ]
+    },
+    "sway.wait": {
+      "steps": [
+        { "pose": { "eyeOpen": 1.1, "bulb.glow": 1, "antenna.sway": 1 }, "move": 0.25, "hold": 0.3 },
+        {
+          "pose": { "eyeOpen": 1.1, "bulb.glow": 1, "antenna.sway": -1 },
+          "move": 0.35,
+          "hold": 0.4
+        },
+        { "pose": { "eyeOpen": 1.1, "bulb.glow": 1 }, "move": 0.25, "hold": 0.3 }
+      ]
+    }
+  },
+  "rules": [
+    { "phase": "waiting", "after": 60, "play": ["flicker.wait"] },
+    { "phase": "waiting", "after": 300, "play": ["sway.wait"] },
+    {
+      "phase": "working",
+      "when": [{ "fact": "news", "atLeast": 1 }],
+      "after": 1,
+      "every": 20,
+      "play": ["flicker", { "motion": "sway", "weight": 3 }]
+    }
+  ]
+}

@@ -57,6 +57,9 @@ enum MascotContract {
             check(range.contains(range.rest), "\(control) rests outside its range")
         }
         for part in rig.parts {
+            if case .cells(_, let control?)? = part.shape {
+                check(known.contains(control), "\(part.name): its cells' \(control) is not declared")
+            }
             for binding in part.bindings {
                 check(known.contains(binding.control), "\(part.name): \(binding.control) is not declared")
                 check(binding.input.start != binding.input.end, "\(part.name): \(binding.control) has no input range")
