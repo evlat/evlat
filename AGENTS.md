@@ -808,6 +808,11 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   0.160.0, a temporary `CODEX_HOME`, measured). The TUI's `/hooks` trusts
   it again; what the TUI shows on its own was not measured.
 
+- **A `URL` keeps the resource values it read once.** A picture rewritten
+  in place read its old size and date through `resourceValues` on the same
+  `URL`, so the changed file passed for the one already decoded;
+  `FileManager.attributesOfItem` reads them fresh (`MascotSheet.sheet(at:)`).
+
 ### SwiftUI and AppKit
 
 - **A struct `View`'s `let` is not storage.** Views are rebuilt on every parent
@@ -847,6 +852,11 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
 - **A test run's windows land on the user's screen and keyboard.** Under
   XCTest every window is offstage (`WindowStage`). A new window or
   activation goes through `WindowStage` too.
+- **An `Image` whose picture changes inside an animated transaction
+  crossfades.** A pet's next frame, cut inside the step's curve, was caught
+  half-transparent over the one before it; with the image's subtree's
+  animation set to `nil` (`RigShape`'s `.cells`), 80 captures over three
+  bursts held only the row's six frames. The springs above it still run.
 - **An `NSWindow` subclass must not override `alphaValue`.**
   `window.animator().alphaValue = 1` called the Swift override with the
   animator proxy as `self`; `super.alphaValue` then crashed
