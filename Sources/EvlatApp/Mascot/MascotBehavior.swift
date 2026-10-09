@@ -73,6 +73,14 @@ struct MascotContext: Equatable {
 /// the character's own list; nothing outside the character, and no model,
 /// picks one.
 ///
+/// A gesture **replaces** the phase's pose while it plays, standard controls
+/// and all. In a one-shot phase, held at its rest, that is seamless. In a
+/// looping one it pulls the face from wherever the loop had it — `working`
+/// aims the eyes down and aside — back to the gesture's own pose, and the
+/// loop starts again from its top after it. So the shipped characters keep
+/// their gestures to `waiting` and `review`; a gesture of own controls laid
+/// over a running loop is not built.
+///
 /// A character with no rules is never asked, and draws exactly as before.
 struct MascotBehavior: Equatable {
     var rules: [MascotRule] = []
