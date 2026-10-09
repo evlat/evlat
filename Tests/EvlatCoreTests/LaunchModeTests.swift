@@ -52,10 +52,13 @@ final class LaunchModeTests: XCTestCase {
         XCTAssertEqual(LaunchMode.of(["Evlat", "--list"]), .diagnostics)
         XCTAssertEqual(LaunchMode.of(["Evlat", "--capture", "5"]), .diagnostics)
         XCTAssertEqual(LaunchMode.of(["Evlat", "--list", "--capture", "90"]), .diagnostics)
+        XCTAssertEqual(LaunchMode.of(["evlat", "mascot", "check", "~/x"]), .mascot)
+        XCTAssertEqual(LaunchMode.of(["Evlat", "mascot"]), .mascot, "its own usage, not the app")
+        XCTAssertEqual(LaunchMode.of(["Evlat", "watch", "mascot"]), .command)
     }
 
     func testTheUsageNamesEveryWay() {
-        for word in ["watch", "signal", "--list", "--capture", "no arguments"] {
+        for word in ["watch", "signal", "--list", "--capture", "mascot check", "no arguments"] {
             XCTAssertTrue(LaunchMode.usage.contains(word), word)
         }
     }

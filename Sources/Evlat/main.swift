@@ -35,6 +35,14 @@ case .diagnostics:
     let capture = AppController.captureWindow(CommandLine.arguments)
     AppController.printSignalsAndExit(capturingFor: capture)
 
+case .mascot:
+    // `Evlat mascot check FOLDER`: the same reading and rules as Settings →
+    // Mascot, every broken rule printed — for whoever makes a mascot, a
+    // person or an agent. Draws its preview off screen; opens no window.
+    let result = MainActor.assumeIsolated { MascotCheck.run(Array(CommandLine.arguments.dropFirst(2))) }
+    if !result.output.isEmpty { print(result.output) }
+    exit(result.status)
+
 case .help:
     print(LaunchMode.usage)
     exit(0)

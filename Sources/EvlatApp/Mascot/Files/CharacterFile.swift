@@ -95,6 +95,24 @@ enum CharacterFile {
             name: file.name)
     }
 
+    /// What the decoder said when the file in `folder` could not be read —
+    /// its own words, for a person or an agent fixing it (`MascotCheck`);
+    /// `nil` when it reads.
+    static func detail(in folder: URL) -> String? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent(name)) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.userInfo[.mascotFolder] = folder
+        do {
+            _ = try decoder.decode(File.self, from: data)
+            return nil
+        } catch let DecodingError.dataCorrupted(context), let DecodingError.keyNotFound(_, context),
+                let DecodingError.typeMismatch(_, context), let DecodingError.valueNotFound(_, context) {
+            return context.debugDescription
+        } catch {
+            return "\(error)"
+        }
+    }
+
     // MARK: - The file, as decoded
 
     struct File: Decodable {

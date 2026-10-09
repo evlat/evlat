@@ -561,6 +561,9 @@ when Evlat is closed — is `WatchTests`', against the compiled binary.
 `LaunchMode.of`: the app opens only with no arguments or with what the system
 adds (`-psn_…`, `-NS…`/`-Apple…` pairs); an unknown word prints usage and exits
 `2` — a new subcommand not added there does **not** fall through to the app.
+`evlat mascot check FOLDER [--preview FILE.png]` reads a mascot folder as
+Settings does and prints every rule it breaks (`MascotCheck`; exit 0 offered,
+1 not, 2 usage); it draws its preview off screen and opens no window.
 With `EVLAT_ASKPASS` in the environment the binary is `ssh`'s askpass helper
 instead (`LaunchMode`).
 

@@ -17,6 +17,9 @@ public enum LaunchMode: Equatable {
     case command
     /// `argv[1]` is `--list` or `--capture`.
     case diagnostics
+    /// `argv[1]` is `mascot`: a mascot folder read and checked as Settings
+    /// reads it (`MascotCheck`). Never builds the app.
+    case mascot
     /// `--help`, `-h` or `help` in `argv[1]`: usage on stdout, exit 0.
     case help
     /// Anything else: one line and the usage on stderr, exit 2.
@@ -35,6 +38,8 @@ public enum LaunchMode: Equatable {
     /// The diagnostics' words, read from `argv[1]` only.
     public static let diagnosticsWords: Set<String> = ["--list", "--capture"]
     static let helpWords: Set<String> = ["--help", "-h", "help"]
+    /// The mascot tool's word, read from `argv[1]` only.
+    public static let mascotWord = "mascot"
 
     /// The name the command link gives the binary (`~/.local/bin/evlat`).
     /// Called by it with nothing after, the binary prints its usage:
@@ -63,6 +68,7 @@ public enum LaunchMode: Equatable {
             return name == linkName ? .usageError("a command is needed") : .app
         }
         if diagnosticsWords.contains(first) { return .diagnostics }
+        if first == mascotWord { return .mascot }
         if helpWords.contains(first) { return .help }
         if isLaunchArguments(arguments) { return .app }
         return .usageError(first.hasPrefix("-") ? "unknown option \(first)" : "unknown command \(first)")
@@ -101,6 +107,9 @@ public enum LaunchMode: Equatable {
                 prints the signals and Evlat's socket, then exits.
         Evlat --capture [SECONDS]
                 holds Evlat's socket for SECONDS (default 30) and prints what arrives.
+        Evlat mascot check FOLDER [--preview FILE.png]
+                reads a mascot's folder as Settings → Mascot does and prints every
+                rule it breaks; --preview draws its five states into FILE.png.
         Evlat   with no arguments opens the bar; `evlat` (the command link) prints this.
         """
 }
