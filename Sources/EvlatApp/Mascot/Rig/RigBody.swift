@@ -31,7 +31,8 @@ private struct RigLayer: View {
         return ZStack {
             if let shape = part.shape {
                 RigShape(shape: shape, fill: part.fill, size: size,
-                         width: part.size.width * r.width, height: part.size.height * r.height)
+                         width: part.size.width * r.width, height: part.size.height * r.height,
+                         cell: shape.cell(in: pose, rig: rig))
                     .offset(x: part.center.x * size, y: part.center.y * size)
             }
             ForEach(part.children, id: \.name) { child in
@@ -53,6 +54,8 @@ private struct RigShape: View {
     let size: CGFloat
     let width: Double
     let height: Double
+    /// The cell a `.cells` shape draws.
+    let cell: Int?
 
     var body: some View {
         switch shape {
@@ -68,7 +71,30 @@ private struct RigShape: View {
             RoundedPolygon(points: points, radius: size * corner)
                 .fill(fill)
                 .frame(width: size * width, height: size * height)
+        case .cells(let sheet, _):
+            // One `Image` whose picture changes, never a view swapped for
+            // another: a swap inside the step's animation would fade one
+            // frame into the next.
+            Group {
+                if let image = cell.flatMap(sheet.cell) {
+                    Image(decorative: image, scale: 1).resizable().interpolation(.high)
+                } else {
+                    Color.clear
+                }
+            }
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size * width, height: size * height)
         }
+    }
+}
+
+extension MascotShape {
+    /// The cell a `.cells` shape draws in `pose`: its control's value read
+    /// from the pose the step names — never one a spring is passing
+    /// through, so an overshoot cannot show a neighbouring frame.
+    func cell(in pose: MascotPose, rig: MascotRig) -> Int? {
+        guard case .cells(_, let control) = self, let value = rig.value(of: control, in: pose) else { return nil }
+        return Int(value.rounded())
     }
 }
 

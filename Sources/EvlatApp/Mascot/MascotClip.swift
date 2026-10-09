@@ -64,6 +64,22 @@ struct MascotClip: Equatable {
         static func eased(_ pose: MascotPose, over motion: Double, hold: Double) -> Step {
             Step(pose: pose, curve: .easeInOut(duration: motion), hold: hold, motion: motion)
         }
+
+        /// A step that changes frame rather than moving: one drawn frame,
+        /// then still until `hold` is up — a picture sheet's next cell
+        /// (`MascotShape.cells`).
+        ///
+        /// Its `motion` is that one frame, so the duty cycle counts a cut as
+        /// the frame it costs. That is the arithmetic, not the measurement:
+        /// cost also tracks how often the step index changes, and a sheet's
+        /// burst changes it every frame — for a sheet, the gate is its
+        /// measured 90 s leg (`MascotContract.maxDutyCycle`).
+        static func cut(_ pose: MascotPose, hold: Double) -> Step {
+            Step(pose: pose, curve: .linear(duration: cutMotion), hold: hold, motion: cutMotion)
+        }
+
+        /// One frame at 60 Hz.
+        static let cutMotion = 1.0 / 60
     }
 
     /// Walked in order.
