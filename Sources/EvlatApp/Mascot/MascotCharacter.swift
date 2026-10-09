@@ -33,9 +33,15 @@ struct MascotCharacter: Equatable {
     var motions: [String: MascotClip] = [:]
     /// When it plays them. Empty, the character is never asked.
     var behavior = MascotBehavior()
+    /// The name its own files give it, for a character found on disk
+    /// (`MascotLibrary`); Evlat's are in the string tables (`nameKey`).
+    var name: String?
 
     /// Its name in the string tables: `mascot.look.<id>`.
     var nameKey: String { "mascot.look." + id }
+
+    /// What the picker calls it: its own name, else the tables'.
+    func title(_ t: (String) -> String) -> String { name ?? t(nameKey) }
 
     /// The clip a phase plays on this character.
     func clip(for phase: Phase, pacing: MascotPacing = MascotPacing.selected) -> MascotClip {

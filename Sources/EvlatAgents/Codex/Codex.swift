@@ -30,6 +30,10 @@ struct Codex: Agent {
 
     let display = AgentDisplay(nameKey: "source.codex", outline: Self.outline)
 
+    /// Where the Codex app keeps its pets, and where petdex installs them
+    /// (`petdex install` writes each to this folder too).
+    let pets: String? = ".codex/pets"
+
     /// Its rate-limit windows, read from its newest rollout file.
     func providers(_ context: ProviderContext) -> [Provider] {
         [CodexUsageProvider(home: context.home)]

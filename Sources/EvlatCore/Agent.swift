@@ -48,6 +48,10 @@ public protocol Agent {
     /// session's process (`RemoteHost`); `nil` when it keeps none, and then
     /// its remote rows have no `[Go to session]`.
     var sessionRecords: SessionRecords? { get }
+    /// The folder, relative to a home, where the agent keeps its animated
+    /// pets — one folder each, a `pet.json` beside a picture sheet — which
+    /// the shell offers as mascots; `nil` when it keeps none.
+    var pets: String? { get }
     /// The agent's own providers beside its hooks: what it reads from its
     /// own files. Registered while the agent is switched on.
     func providers(_ context: ProviderContext) -> [Provider]
@@ -57,6 +61,8 @@ extension Agent {
     public var chat: (any ChatBackend)? { nil }
 
     public var sessionRecords: SessionRecords? { nil }
+
+    public var pets: String? { nil }
 
     /// Whether the agent is on this Mac: one of its `presence` directories.
     public func isPresent(home: URL) -> Bool {
