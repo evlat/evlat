@@ -104,6 +104,13 @@ final class SettingsModel: ObservableObject {
         /// Mascot → Look: the drawn character's id, and the choice.
         var mascotCharacter: () -> String = { MascotCharacters.default.id }
         var setMascotCharacter: (String) -> Void = { _ in }
+        /// The characters offered — Evlat's and the found ones — the found
+        /// folders that are not, and the reading and the folder behind them
+        /// (`MascotLibrary`).
+        var mascotLooks: () -> [MascotCharacter] = { MascotCharacters.all }
+        var mascotFailures: () -> [MascotLibrary.Failure] = { [] }
+        var readMascots: () -> Void = {}
+        var openMascotFolder: () -> Void = {}
         /// macOS's alert sounds, offered after Evlat's own.
         var systemSounds: () -> [String] = { AlertSound.installedSystemNames }
         /// The characters sheet; `nil` with no home or in an isolated
@@ -482,8 +489,48 @@ final class SettingsModel: ObservableObject {
         objectWillChange.send()
     }
 
-    /// The characters the Look group offers, in the catalog's order.
-    var looks: [MascotCharacter] { MascotCharacters.all }
+    /// The characters the Look group offers: the catalog's, then the found
+    /// ones.
+    var looks: [MascotCharacter] { host.mascotLooks() }
+
+    /// The found folders that are not offered, each with why.
+    var lookFailures: [MascotLibrary.Failure] { host.mascotFailures() }
+
+    /// Reads the folders again: the group is opened, so what the user just
+    /// put there shows.
+    func readLooks() {
+        host.readMascots()
+        objectWillChange.send()
+    }
+
+    func openLookFolder() { host.openMascotFolder() }
+
+    /// Where a user's own mascots go, and whose pets come by themselves.
+    var lookFolderDetail: String {
+        let agents = Agents.all.filter { $0.pets != nil }.map { t($0.display.nameKey) }
+        return t("settings.mascot.look.yours.detail", ["agents": agents.joined(separator: ", ")])
+    }
+
+    /// Why a found folder is not offered, in a line.
+    func lookFailureLine(_ failure: MascotLibrary.Failure) -> String {
+        let reason: String
+        switch failure.reason {
+        case .empty: reason = t("settings.mascot.look.failed.empty")
+        case .file(.unreadable(let at)):
+            reason = at.isEmpty ? t("settings.mascot.look.failed.file")
+                                : t("settings.mascot.look.failed.file.at", ["at": at])
+        case .file(.newerVersion): reason = t("settings.mascot.look.failed.version")
+        case .file(.pictureOutside): reason = t("settings.mascot.look.failed.outside")
+        case .file(.noPicture): reason = t("settings.mascot.look.failed.picture")
+        case .pet(.unreadableManifest): reason = t("settings.mascot.look.failed.manifest")
+        case .pet(.pictureOutside): reason = t("settings.mascot.look.failed.outside")
+        case .pet(.noPicture): reason = t("settings.mascot.look.failed.picture")
+        case .pet(.wrongSize(let width, let height)):
+            reason = t("settings.mascot.look.failed.size", ["width": String(width), "height": String(height)])
+        case .contract: reason = t("settings.mascot.look.failed.contract")
+        }
+        return t("settings.mascot.look.failed", ["name": failure.folder, "reason": reason])
+    }
 
     /// The character the bar draws.
     var look: String { host.mascotCharacter() }

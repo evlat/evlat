@@ -20,9 +20,10 @@ import EvlatCore
 /// `MascotContract` holds every character to that, and to the CPU budget
 /// the clips burst in.
 ///
-/// Characters are written in code, one folder each: there is no file format
-/// and nothing is loaded from outside, so a character is checked by the
-/// compiler and the contract tests before anyone sees it.
+/// Evlat's characters are written in code, one folder each, and checked by
+/// the compiler and the contract tests before anyone sees them. Others are
+/// found on disk (`MascotLibrary`) — an agent's pets (`PetAtlas`) — and
+/// checked by the same contract as they are read.
 struct MascotCharacter: Equatable {
     /// Unique among the characters; what a stored choice will name.
     let id: String

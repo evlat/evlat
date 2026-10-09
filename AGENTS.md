@@ -342,7 +342,21 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   names only controls it declared. A character may replace any
   phase's clip with its own; Evlat's clips (`MascotClip`) are the default.
   Settings → Mascot → Look chooses one (`mascot.character`; nothing stored,
-  or an id no character has any more, is the cube).
+  or an id no character has any more, is the cube). Beside Evlat's, it
+  offers the characters found on disk (`MascotLibrary`): each agent's pets
+  (`Agent.pets`; Codex's `~/.codex/pets`, where petdex installs too) and
+  Evlat's own `~/.config/evlat/mascots/`, one folder a character, ids
+  `<source>:<folder>`. A folder holds a `character.json` — the rig, clips
+  and rules above spelled as JSON (`CharacterFile`; Pati and the test
+  lantern read back from theirs equal to the code, `Tests/Fixtures/mascots/`)
+  — or a pet: a `pet.json` beside one picture sheet, the Codex app's
+  format (`PetAtlas`), whose rows play as **bursts** — once through, then
+  still — never Codex's endless loop. Either is held to the same contract
+  as it is read, or left out with the reason said in Settings. Read at
+  launch and when Settings → Mascot opens, never watched; a picture's
+  pixels are decoded when it is first drawn (`MascotSheet`). Measured on a
+  release build, `working` forced, no row, HID idle throughout, 90 s: a
+  pet's bursts 0.36% and 0.40%, the cube beside it 2.26% and 2.18%.
   When it plays gestures of its own is its `MascotBehavior`: rules over a
   typed context the shell hands it (`MascotContext`), asked **on events,
   never on a tick** — phase entered, sessions changed, gesture ended, or a
@@ -586,7 +600,10 @@ no website change.
 `~/.claude/settings.json`, `~/.claude/statusline-*.sh`, `~/.codex/hooks.json`,
 `~/.codex/config.toml`, `~/.gemini/config/hooks.json`,
 `~/.gemini/antigravity-cli/settings.json`, `~/.local/bin/evlat`, `~/.openpeon/packs`
-and login items belong to the user. **Agents do not write them.** Writers are tested against a temporary root
+and login items belong to the user. **Agents do not write them.** An agent's
+pets (`~/.codex/pets`) are read for the mascot, never written; in
+`~/.config/evlat/mascots/` Evlat reads too, and makes only the empty folder,
+on the user's "Open Folder". Writers are tested against a temporary root
 (`EVLAT_HOME`, or a `home:` parameter in tests); no writer has a default path.
 So does the login keychain: no test or trial writes an Evlat entry to it.
 Inside a Docker sandbox Evlat writes only its own file and that sandbox's
@@ -666,7 +683,7 @@ own.
 | `EVLAT_CHATS` | temporary chat root |
 | `EVLAT_PHASE` | force the mascot's phase at launch (the "Force state" menu item, scriptable) |
 | `EVLAT_BODY` | force the body's mode (`always`, `smart`, `tucked`, `hidden`) at launch; the stored mode is never written |
-| `EVLAT_MASCOT` | draw that character (`cube`, `pati`, `bit`, `puf`; `MascotCharacters.all`) at launch; the stored choice is never written |
+| `EVLAT_MASCOT` | draw that character (`cube`, `pati`, `bit`, `puf`; `MascotCharacters.all`; or a found one's `<source>:<folder>`, read under the home) at launch; the stored choice is never written |
 | `EVLAT_<NAME>` | a chat backend's program to run, `EVLAT_CLAUDE`, `EVLAT_CODEX` (tests use `Tests/Fixtures/fake-claude`, `fake-codex-app-server`) |
 | `EVLAT_EDGE`, `EVLAT_SELECT`, `EVLAT_SCROLL` | dock at `left`/`right`, open the list with a card up (`first` or an entity), open it scrolled — at launch, for looking and measuring; never written (`AppController`) |
 | `EVLAT_MASCOT_PACING` | `continuous` takes the clips' waits out, for the in-clip leg of a measurement (`MascotPacing`) |

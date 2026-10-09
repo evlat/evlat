@@ -32,7 +32,7 @@ enum PetAtlas {
     }
 
     /// Why a folder is not offered as a mascot.
-    enum Failure: Error, Equatable {
+    enum Failure: Error, Hashable {
         /// No `pet.json`, or one that is not a manifest.
         case unreadableManifest
         /// `spritesheetPath` leaves the pet's folder.

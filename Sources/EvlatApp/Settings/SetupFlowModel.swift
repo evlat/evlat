@@ -116,7 +116,9 @@ final class SetupFlowModel: ObservableObject {
 
     /// The chosen character's rig, for the setup's mascot and its pictures
     /// of the bar.
-    var mascotRig: MascotRig { MascotCharacters.character(id: settings.mascotCharacter()).rig }
+    var mascotRig: MascotRig {
+        MascotCharacters.character(id: settings.mascotCharacter(), among: settings.mascotLooks()).rig
+    }
     private let close: () -> Void
     /// The rows' changes, passed on: the step views observe this model, not
     /// the `SetupModel` under it, and a view whose inputs are the same

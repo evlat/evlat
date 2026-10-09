@@ -252,6 +252,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The character came from `EVLAT_MASCOT`: a choice in Settings is drawn
     /// but never stored, as for `bodyForced`.
     var mascotForced = false
+    /// The characters found on disk (`MascotLibrary`): read at launch and
+    /// again when Settings → Mascot opens — only with a home, so a
+    /// controller built without one (every test) never reads the user's.
+    var mascotLibrary = MascotLibrary()
+    /// What Settings → Mascot → Look offers: Evlat's, then the found ones.
+    var mascotLooks: [MascotCharacter] { MascotCharacters.all + mascotLibrary.characters }
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
@@ -1014,23 +1020,43 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// `EVLAT_MASCOT=<id>` draws that character from launch — for looking at
     /// one and measuring it (`EVLAT_PHASE × EVLAT_MASCOT`) without touching
     /// the user's choice, as `EVLAT_BODY` does for the body. Read, never
-    /// written. An id no character has is ignored.
+    /// written. An id no character has is ignored; case is not minded, as
+    /// a found character's id carries its folder's name.
     nonisolated static func forcedMascotCharacter(
-        _ environment: [String: String] = ProcessInfo.processInfo.environment
+        _ environment: [String: String] = ProcessInfo.processInfo.environment,
+        among looks: [MascotCharacter] = MascotCharacters.all
     ) -> String? {
         guard let id = environment["EVLAT_MASCOT"]?.trimmingCharacters(in: .whitespaces).lowercased(),
-              MascotCharacters.all.contains(where: { $0.id == id }) else { return nil }
-        return id
+              !id.isEmpty else { return nil }
+        return looks.first { $0.id.lowercased() == id }?.id
     }
 
     /// The character in force: `EVLAT_MASCOT`, then the stored one, then the
     /// cube.
     nonisolated static func mascotCharacter(
         _ defaults: UserDefaults?,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        among looks: [MascotCharacter] = MascotCharacters.all
     ) -> MascotCharacter {
-        MascotCharacters.character(id: forcedMascotCharacter(environment)
-                                       ?? defaults?.string(forKey: mascotCharacterKey))
+        MascotCharacters.character(id: forcedMascotCharacter(environment, among: looks)
+                                       ?? defaults?.string(forKey: mascotCharacterKey), among: looks)
+    }
+
+    /// Reads the characters found on disk again; with no home, none.
+    func readMascots() {
+        guard let home else { return }
+        let library = MascotLibrary.read(MascotLibrary.sources(home: home))
+        if library != mascotLibrary { mascotLibrary = library }
+    }
+
+    /// Settings → Mascot → Look → "Open Folder": Evlat's own folder, made
+    /// when it is not there yet — the one thing written for the library,
+    /// and only on the user's press.
+    func openMascotFolder() {
+        guard let home else { return }
+        let folder = MascotLibrary.folder(home: home)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
     }
 
     /// The mode in force: `EVLAT_BODY`, then the stored one.
@@ -1434,8 +1460,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = Self.storedBodyToggles(defaults)
         bodyMode = Self.bodyMode(defaults)
         bodyForced = Self.forcedBodyMode() != nil
-        mascot.character = Self.mascotCharacter(defaults)
-        mascotForced = Self.forcedMascotCharacter() != nil
+        readMascots()
+        mascot.character = Self.mascotCharacter(defaults, among: mascotLooks)
+        mascotForced = Self.forcedMascotCharacter(among: mascotLooks) != nil
         // The environment over the stored choice, the right over nothing.
         // Read here, never written back: only `setEdge` writes.
         let panel = installPanel(edge: Self.forcedEdge() ?? Self.storedEdge(defaults) ?? .right,
@@ -3134,6 +3161,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setSoundVolume: { [weak self] in self?.setSoundVolume($0) },
             mascotCharacter: { [weak self] in self?.mascot.character.id ?? MascotCharacters.default.id },
             setMascotCharacter: { [weak self] in self?.setMascotCharacter($0) },
+            mascotLooks: { [weak self] in self?.mascotLooks ?? MascotCharacters.all },
+            mascotFailures: { [weak self] in self?.mascotLibrary.failures ?? [] },
+            readMascots: { [weak self] in self?.readMascots() },
+            openMascotFolder: { [weak self] in self?.openMascotFolder() },
             packBrowser: { [weak self] in self?.packBrowser },
             hasUpdater: { [weak self] in self?.updater?.offersAutomaticUpdates == true },
             automaticallyUpdates: { [weak self] in self?.updater?.automaticallyUpdates() ?? false },
@@ -4443,7 +4474,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// Settings → Mascot → Look: drawn at once, stored unless forced.
     func setMascotCharacter(_ id: String) {
-        let character = MascotCharacters.character(id: id)
+        let character = MascotCharacters.character(id: id, among: mascotLooks)
         if !mascotForced { defaults?.set(character.id, forKey: Self.mascotCharacterKey) }
         mascot.character = character
     }

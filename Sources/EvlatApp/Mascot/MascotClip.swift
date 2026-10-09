@@ -9,12 +9,12 @@ import EvlatCore
 /// it does not play its own way (`MascotCharacter.states`). They are written
 /// in the standard controls only, so they move any rig that binds them.
 ///
-/// There is no `Decodable` and no loading from outside, for the clips or for
-/// the characters. v1's motion layer was 1202 lines because motion was
-/// **pet-pack data** read from files and the engine had no vocabulary of its
-/// own; here the vocabulary is the pose, characters are code, and the
-/// compiler and `MascotCharacterContractTests` check a character before it
-/// is ever drawn.
+/// Clips are not read from files. v1's motion layer was 1202 lines because
+/// motion was **pet-pack data** read from files and the engine had no
+/// vocabulary of its own; here the vocabulary is the pose. A character found
+/// on disk (`MascotLibrary`) is made into clips of this vocabulary as it is
+/// read — a pet's rows become cuts (`PetAtlas`) — and held to the same
+/// contract as Evlat's own (`MascotContract`) before it is ever drawn.
 ///
 /// Interpolation stays SwiftUI's job (`.animation(step.curve, value: step)`) and
 /// timing is a single `@State step` walking this array — see `ClipPlayer` in

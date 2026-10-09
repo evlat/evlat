@@ -379,14 +379,32 @@ private struct MascotSection: View {
     var body: some View {
         // "Look", not "Characters": the voices below are the characters.
         SettingsGroup(title: model.t("settings.mascot.look"), note: model.t("settings.mascot.look.note")) {
-            HStack(spacing: 10) {
+            // Four a row, as the shipped characters fill one; the found ones
+            // wrap under them.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
                 ForEach(model.looks, id: \.id) { character in
-                    LookTile(name: model.t(character.nameKey), character: character,
+                    LookTile(name: character.title { model.t($0) }, character: character,
                              selected: character.id == model.look) { model.setLook(character.id) }
                 }
             }
             .padding(12)
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.mascot.look.yours"), detail: model.lookFolderDetail)
+                    Button(model.t("settings.mascot.look.open")) { model.openLookFolder() }
+                        .buttonStyle(SmallButtonStyle())
+                }
+                ForEach(model.lookFailures, id: \.self) { failure in
+                    Text(model.lookFailureLine(failure))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(SettingsPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
+        // Read again each time the section opens: a folder just put in place
+        // shows without a restart, and nothing watches the disk meanwhile.
+        .onAppear { model.readLooks() }
         SettingsGroup(title: model.t("settings.mascot.sounds"),
                       note: model.t(model.voicePack == nil ? "settings.mascot.sounds.note"
                                                            : "settings.mascot.sounds.note.pack")) {

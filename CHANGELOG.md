@@ -13,6 +13,15 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **Your Codex pets can be the mascot.** Pets you keep in Codex — your own,
+  or ones installed from petdex — appear in Settings → Mascot → Look beside
+  the cube, and a pet's folder put in the mascots folder ("Open Folder"
+  there) does too. A pet shows waiting, working and done with its own
+  frames, and waves when a wait goes on.
+- **Draw a mascot of your own.** A `character.json` in the mascots folder
+  describes one the way Evlat's are made — its parts, how they move and
+  when — and appears beside them. A folder that can't be shown says why
+  under the tiles.
 - **A finish no longer leaves the mascot's head tilted.** It still leans
   when work is done, as if to ask "is this right?", then sits back
   upright; the green ring keeps telling you until you look.
