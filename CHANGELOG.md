@@ -11,100 +11,50 @@ Markdown; keep it to a few bullets.
 Work that lands on `main` adds its bullet under `## Unreleased`; the release
 renames that heading to its version.
 
-## Unreleased
+## 0.2.3
 
-- **Choose your mascot.** Settings → Mascot → Look offers Pati the cat,
-  Bit the robot and Puf the ghost beside the cube. Each shows waiting,
-  working and done in its own way — Pati's ears prick up when a session
-  waits on you, Bit's bulb lights, Puf rises — and pointing at one in
-  Settings shows how it looks while it waits. A wait that goes on is
-  answered twice more: Pati twitches an ear, Bit blinks its bulb. Puf
-  hops once when work is done.
-- **Your Codex pets can be the mascot.** Pets you keep in Codex — your own,
-  or ones installed from petdex — appear in Settings → Mascot → Look beside
-  the cube, and a pet's folder put in the mascots folder ("Open Folder"
-  there) does too. A pet shows waiting, working and done with its own
-  frames, and waves when a wait goes on.
-- **Draw a mascot of your own.** A `character.json` in the mascots folder
-  describes one the way Evlat's are made — its parts, how they move and
-  when, down to an eye that shuts from the top rather than squashing — and
-  appears beside them. **How to Make One** there opens the guide,
-  [evlat.kalaomer.com/docs/mascots](https://evlat.kalaomer.com/docs/mascots),
-  with a prompt that hands the job to your coding agent.
-  `evlat mascot check` lists every rule a mascot breaks and draws its
-  states into a picture; a folder Settings can't show says why under the
-  tiles.
-- **Bit lights up.** The robot has a metal back, a bolt each side and a
-  lit screen, and its eyes take the bar's colours: amber while a session
-  waits on you, green when work is done, red when it failed.
-- **A finish no longer leaves the mascot's head tilted.** It still leans
-  when work is done, as if to ask "is this right?", then sits back
-  upright; the green ring keeps telling you until you look.
-- **A spent usage window says 100%.** Run past its limit, Claude's 5-hour
-  window could read “101%” on the open bar; it now stops at 100%.
-- **A roomier first-run setup, beside the mascot.** It opens in a panel of
-  one size, with the main button in the same place on every step and
-  Return pressing it, and stays up while you try an agent in a terminal.
-  Four steps: connect your agents; see each one heard (a ✓ appears when
-  its first event arrives); choose where the bar sits and when it hides,
-  pictured with the bar itself; and a few last touches, where **Open Evlat
-  when the Mac starts** and the `evlat` command turn off as well as on.
-  Chat, servers and Docker sandboxes are set up in Settings. There,
-  General now says **Bar position**, **Always visible** and **Keep what
-  Evlat adds to your agents up to date**.
-- **Approve a server's sessions from the bar.** Claude Code on a server
-  you added in Settings → Servers now asks the bar for permission
-  — **Allow once** or **Deny** on the session's card — and its questions
-  are answered there too. Codex on a server asks for permission the same
-  way; while its card waits, Codex shows “Running hook”, two minutes at
-  most.
 - **Update your hooks once after this update.** Evlat now listens only on
   a socket in `~/.config/evlat/run`, a folder only you can enter, and no
-  longer on port 48151. Hooks set up by earlier versions go silent until
-  you update them: a window opens at launch listing them, this Mac's
-  agents and your servers, with **Update all**; the menu's **Review
-  updates…** opens it again, and Settings → This Mac and Servers show
-  the same, with **Update all** on top. Open Claude Code sessions take the
-  change with their next message; in Codex, open `/hooks` and trust
-  Evlat's new hooks.
-- **Evlat keeps its parts up to date.** Leave **Keep these up to date
-  automatically** checked when you press **Update all**, and from then on
-  Evlat updates the hooks it wrote into your agents' and servers' files,
-  and a server's `evlat` command, when they go out of date — this Mac's
-  at launch, a server's when it connects — and opens the window only when
-  you need to act, such as
-  Codex's `/hooks`. A usage line you took out or edited is left as it is.
-  Turn it off in Settings → General → Updates. Settings → This Mac and
-  Servers then say what Evlat updated and when, with **Review**.
-- **Settings has a Connections group.** Agents is now **This Mac**,
-  Remote Machines **Servers**, Sandboxes **Docker sandboxes**, side by side
-  under one heading; the `evlat` command moved to the bottom of This Mac.
-- **Several Macs on one server: update Evlat on every Mac first,** then
-  the server. An older Evlat can undo a newer one's setup there. A server
-  talks to one Mac at a time; the other says “another Evlat answers this
-  server” until that connection ends. Servers that don't let ssh forward a
-  socket are not supported.
-- **Your own scripts post to the socket now,** with no key:
+  longer on port 48151, so hooks set up by earlier versions go silent until
+  you update them. A window opens at launch listing them, this Mac's agents
+  and your servers, with **Update all**; the menu's **Review updates…**
+  opens it again. Leave **Keep these up to date automatically** checked and
+  from then on Evlat updates what it wrote by itself, opening the window
+  only when you need to act, such as Codex's `/hooks`. Open Claude Code
+  sessions take the change with their next message. Your own scripts post
+  to the socket now, with no key:
   `curl --unix-socket ~/.config/evlat/run/evlat.sock http://127.0.0.1:48151/signal …`.
-  Anything that posted to `127.0.0.1:48151` directly needs this change.
-- **Quiet at the tab you're watching.** With Bateri 0.4 or newer, a
-  session's finish sound, peek and reminders stay quiet while you're at its
-  tab — on this Mac, or over ssh from a Bateri tab, Bateri's own ssh and
-  several tabs on one server included. The bar still shows what
-  happened, and the finish stays new until you look at it.
-- **Go to session over Bateri's own ssh.** A session on a server you
-  reach through Bateri's ssh now has its **Go to session** button, and it
-  opens the tab the session runs in — also when several tabs share
-  Bateri's one connection to that server. The button also no longer goes
-  missing when your Mac reaches a server by two addresses, as a `.local`
-  name with both IPv4 and IPv6 does.
-- **Docker sandboxes with a long user name.** Where your user name is 15
-  characters or longer, `sbx` keeps its daemon's socket somewhere else,
-  and Evlat looked in the wrong place: Settings said the socket path was
-  too long, and sandboxes that started later were not set up. Evlat now
-  asks `sbx` where the socket is. And when an `sbx` update is out, the
-  notice `sbx` prints once a day no longer makes Evlat miss the sandbox
-  list.
+  With several Macs on one server, update Evlat on every Mac first, then
+  the server.
+- **Approve a server's sessions from the bar.** Claude Code and Codex on a
+  server you added in Settings → Servers now ask the bar for permission —
+  **Allow once** or **Deny** on the session's card — and Claude's questions
+  are answered there too. While its card waits, Codex shows “Running
+  hook”, two minutes at most.
+- **Choose your mascot, or bring your own.** Settings → Mascot → Look
+  offers Pati the cat, Bit the robot — now with a lit screen, its eyes in
+  the bar's colours — and Puf the ghost beside the cube, each showing
+  waiting, working and done its own way. Your Codex pets appear there too,
+  and so does any mascot you put in the mascots folder, a pet sheet or a
+  `character.json`: **How to Make One** opens the
+  [guide](https://evlat.kalaomer.com/docs/mascots), with a prompt for your
+  coding agent, and `evlat mascot check` lists every rule a mascot breaks
+  and draws its states. A finish no longer leaves the mascot's head tilted.
+- **A roomier first-run setup, and a tidier Settings.** The setup opens in
+  a panel beside the mascot, four steps with the main button in one place:
+  connect your agents, see each one heard, choose where the bar sits and
+  when it hides, and a few last touches, where **Open Evlat when the Mac
+  starts** and the `evlat` command turn off as well as on. In Settings,
+  This Mac, Servers and Docker sandboxes sit together under
+  **Connections**.
+- **Bateri: quiet at your tab, and the right tab over its ssh.** With
+  Bateri 0.4 or newer, a session's finish sound, peek and reminders stay
+  quiet while you're at its tab, on this Mac or over ssh; the finish stays
+  new until you look. **Go to session** now opens the tab of a session on
+  a server you reach through Bateri's own ssh.
+- **Fixes.** A spent usage window says 100%, not “101%”. Docker sandboxes
+  are set up again where your user name is 15 characters or longer, and an
+  `sbx` update notice no longer hides the sandbox list.
 
 ## 0.2.2
 
