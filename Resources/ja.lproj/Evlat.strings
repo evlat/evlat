@@ -306,6 +306,8 @@
 "setup.consent.what.usage" = "利用状況ライン";
 "setup.consent.what.hooks.remove" = "フックを削除";
 "setup.consent.what.usage.remove" = "利用状況ラインを削除し、以前のstatusLineに戻す";
+"setup.consent.what.ownedFile" = "Evlat専用のファイルを丸ごと書き込み、バックアップなし";
+"setup.consent.what.ownedFile.remove" = "Evlat専用のファイルを削除";
 "setup.consent.command" = "{file} · このEvlatへのリンク";
 "setup.consent.command.replace" = "{file} · 別のEvlat（{target}）へのリンクをこのEvlatに向け直す";
 "setup.consent.command.broken" = "{file} · 壊れたリンク（{target}へのもの）をこのEvlatへのリンクに置き換える";
@@ -363,8 +365,10 @@
 "setup.agent.part.hooks" = "フック";
 "setup.agent.part.hooksApprovals" = "フックと承認フック";
 "setup.agent.part.usage" = "利用状況ライン";
+"setup.agent.part.ownedFile" = "Evlatのファイル";
 "setup.agent.removeUsage" = "利用状況ラインを削除";
 "setup.agent.usageModified" = "利用状況ラインは手動で編集されています。Evlatはそのままにします。";
+"setup.agent.ownedForeign" = "あなたのファイルがすでにあります。Evlatはそのままにします。";
 "setup.agent.failure" = "{part}：{reason}";
 "setup.agent.off" = "オフ：セッション、利用状況、承認は表示されません。";
 "setup.agent.turnOff.title" = "{agent}をオフにしますか？";
@@ -383,6 +387,8 @@
 "setup.manual.remove.hooks" = "削除するには、{marker}を含むエントリを削除します。";
 "setup.manual.remove.usage" = "削除するには、以前のstatusLineに戻します。";
 "setup.manual.remove.command" = "削除するには：{line}";
+"setup.manual.ownedLead" = "これを {file} として保存してください：";
+"setup.manual.remove.file" = "削除するには、そのファイルを削除してください。";
 "setup.attention.hooksOutdated" = "{source}のフックが古くなっています。更新するまで、Evlatはそのセッションを検知できません";
 "setup.attention.hooksStale" = "{source}のフックが古くなっています";
 "setup.attention.refused" = "{item}：前回の変更は拒否されました";

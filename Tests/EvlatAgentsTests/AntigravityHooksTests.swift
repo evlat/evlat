@@ -12,7 +12,7 @@ final class AntigravityHooksTests: XCTestCase {
     override func setUpWithError() throws {
         home = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("evlat-antigravity-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: Antigravity().hooksFile(home: home).deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: Antigravity().hooksFile(home: home)!.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
     }
 
@@ -20,7 +20,7 @@ final class AntigravityHooksTests: XCTestCase {
         try? FileManager.default.removeItem(at: home)
     }
 
-    private var file: URL { Antigravity().hooksFile(home: home) }
+    private var file: URL { Antigravity().hooksFile(home: home)! }
 
     // MARK: - Fixtures (measured)
 
@@ -115,7 +115,7 @@ final class AntigravityHooksTests: XCTestCase {
         let fresh = home.appendingPathComponent("fresh")
         try FileManager.default.createDirectory(at: fresh.appendingPathComponent(".gemini/antigravity-cli"),
                                                 withIntermediateDirectories: true)
-        let file = Antigravity().hooksFile(home: fresh)
+        let file = Antigravity().hooksFile(home: fresh)!
         XCTAssertEqual(try LocalHooks.install(at: file, for: .antigravity), .written)
         XCTAssertEqual(try LocalHooks.state(at: file, for: .antigravity), .current)
     }

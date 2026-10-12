@@ -149,7 +149,7 @@ final class RemoteSettingsPlanTests: XCTestCase {
 
     /// The script carries a quoted path; the only `$` is the server's `HOME`.
     func testThePathIsTheServersHome() {
-        let script = RemoteSettings.readScript(path: Claude().integration.hooksFile, nonce: "N")
+        let script = RemoteSettings.readScript(path: Claude().integration.file, nonce: "N")
         XCTAssertTrue(script.contains(#"f="$HOME"/'.claude/settings.json'"#))
         XCTAssertFalse(script.contains(NSHomeDirectory()), "this Mac's home never enters")
         XCTAssertEqual(RemoteSettings.arguments(target: "devbox").suffix(3), ["--", "devbox", "sh -s"])

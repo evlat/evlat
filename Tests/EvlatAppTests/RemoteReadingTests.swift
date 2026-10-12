@@ -56,8 +56,8 @@ final class RemoteReadingTests: XCTestCase {
         var sshRuns: Int {
             ((try? String(contentsOf: runs, encoding: .utf8)) ?? "").split(separator: "\n").count
         }
-        var claude: URL { Claude().hooksFile(home: home) }
-        var codex: URL { Codex().hooksFile(home: home) }
+        var claude: URL { Claude().hooksFile(home: home)! }
+        var codex: URL { Codex().hooksFile(home: home)! }
         var command: URL { home.appendingPathComponent(RemoteCommand.commandPath) }
         var key: URL { home.appendingPathComponent(RemoteCommand.keyPath) }
         func file(_ name: String) -> URL { home.appendingPathComponent(name) }
@@ -121,14 +121,14 @@ final class RemoteReadingTests: XCTestCase {
     }
 
     private func folder(_ source: some Agent, in server: Server) throws {
-        try FileManager.default.createDirectory(at: source.hooksFile(home: server.home).deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: source.hooksFile(home: server.home)!.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
     }
 
     private func seed(_ source: some Agent, _ text: String?, in server: Server) throws {
         try folder(source, in: server)
         guard let text else { return }
-        try Data(text.utf8).write(to: source.hooksFile(home: server.home))
+        try Data(text.utf8).write(to: source.hooksFile(home: server.home)!)
     }
 
     private func read(_ server: Server) -> Result<RemoteSettings.Reading, RemoteSettings.Failure> {
@@ -467,11 +467,11 @@ final class RemoteReadingTests: XCTestCase {
 
             let pasted = try paste(shell, block, home: server.home, loginShell: server.shell)
             XCTAssertEqual(bytes(server.claude), theirs, "\(shell): theirs is kept")
-            XCTAssertTrue(pasted.errors.contains(Claude().integration.hooksFile), "\(shell): \(pasted.errors)")
+            XCTAssertTrue(pasted.errors.contains(Claude().integration.file), "\(shell): \(pasted.errors)")
             XCTAssertEqual(try HookSettings.state(at: server.codex, for: .codex), .current, "\(shell): Codex is written")
             XCTAssertEqual(bytes(server.command), Data(RemoteCommand.script.utf8), "\(shell): the command is written")
             let leftovers = try FileManager.default.contentsOfDirectory(
-                atPath: Claude().hooksFile(home: server.home).deletingLastPathComponent().path).filter { $0.hasSuffix(".tmp") }
+                atPath: Claude().hooksFile(home: server.home)!.deletingLastPathComponent().path).filter { $0.hasSuffix(".tmp") }
             XCTAssertEqual(leftovers, [], shell)
         }
     }
@@ -487,7 +487,7 @@ final class RemoteReadingTests: XCTestCase {
             try foreign.write(to: server.command)
 
             let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), agents: Agents.all))
-            XCTAssertFalse(block.contains(Codex().integration.hooksFile), "\(shell): no Codex on the server, no Codex part")
+            XCTAssertFalse(block.contains(Codex().integration.file), "\(shell): no Codex on the server, no Codex part")
             XCTAssertFalse(block.contains(RemoteCommand.marker), "\(shell): somebody else's evlat, no command part")
             XCTAssertEqual(try paste(shell, block, home: server.home, loginShell: server.shell).status, 0, shell)
 
@@ -496,7 +496,7 @@ final class RemoteReadingTests: XCTestCase {
             XCTAssertEqual((settings?["statusLine"] as? [String: Any])?["command"] as? String, modified,
                            "\(shell): the wrapper changed by hand is not touched")
             XCTAssertEqual(bytes(server.command), foreign, shell)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: server.home).deletingLastPathComponent().path),
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: server.home)!.deletingLastPathComponent().path),
                            "\(shell): no folder is made")
         }
     }

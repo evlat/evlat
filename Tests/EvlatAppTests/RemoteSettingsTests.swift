@@ -69,16 +69,16 @@ final class RemoteSettingsTests: XCTestCase {
         return ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count
     }
 
-    private func claude(_ home: URL) -> URL { Claude().hooksFile(home: home) }
-    private func codex(_ home: URL) -> URL { Codex().hooksFile(home: home) }
+    private func claude(_ home: URL) -> URL { Claude().hooksFile(home: home)! }
+    private func codex(_ home: URL) -> URL { Codex().hooksFile(home: home)! }
 
     /// The same file in both homes.
     private func seed(_ source: some Agent, _ text: String?, mode: Int = 0o644) throws {
         for home in [remote!, local!] {
-            try FileManager.default.createDirectory(at: source.hooksFile(home: home).deletingLastPathComponent(),
+            try FileManager.default.createDirectory(at: source.hooksFile(home: home)!.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             guard let text else { continue }
-            let file = source.hooksFile(home: home)
+            let file = source.hooksFile(home: home)!
             try Data(text.utf8).write(to: file)
             try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: file.path)
         }
@@ -167,7 +167,7 @@ final class RemoteSettingsTests: XCTestCase {
         for shell in shells {
             let ssh = try setUp(shell: shell)
             XCTAssertEqual(apply(.hooks(.claude), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: remote).deletingLastPathComponent().path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: remote)!.deletingLastPathComponent().path))
         }
     }
 
@@ -182,7 +182,7 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(result, .failure(.file(.changedUnderneath)), shell)
             XCTAssertEqual(bytes(claude(remote)), theirs, "\(shell): theirs is kept")
             let leftovers = try FileManager.default.contentsOfDirectory(
-                atPath: Claude().hooksFile(home: remote).deletingLastPathComponent().path).filter { $0.hasSuffix(".tmp") }
+                atPath: Claude().hooksFile(home: remote)!.deletingLastPathComponent().path).filter { $0.hasSuffix(".tmp") }
             XCTAssertEqual(leftovers, [], "\(shell): no temporary file stays")
         }
     }
@@ -299,7 +299,7 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(results.map(\.0), [.hooks(.claude), .hooks(.codex)])
             XCTAssertEqual(results.map(\.1), [.success(.written), .failure(.file(.noDirectory))], shell)
             XCTAssertFalse(installer.isBusy("m"))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: remote).deletingLastPathComponent().path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: remote)!.deletingLastPathComponent().path))
         }
     }
 
@@ -328,13 +328,13 @@ final class RemoteSettingsTests: XCTestCase {
                 try FileManager.default.createDirectory(at: home.appendingPathComponent(".gemini/antigravity-cli"),
                                                         withIntermediateDirectories: true)
             }
-            let file = Antigravity().hooksFile(home: remote)
+            let file = Antigravity().hooksFile(home: remote)!
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .state(.missing), "\(shell): the agent is there, its hooks are not")
             XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .success(.written), shell)
-            XCTAssertEqual(try LocalHooks.install(at: Antigravity().hooksFile(home: local),
+            XCTAssertEqual(try LocalHooks.install(at: Antigravity().hooksFile(home: local)!,
                                                   for: .antigravity), .written)
-            XCTAssertEqual(bytes(file), bytes(Antigravity().hooksFile(home: local)), shell)
+            XCTAssertEqual(bytes(file), bytes(Antigravity().hooksFile(home: local)!), shell)
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .state(.current), shell)
             XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .success(.unchanged), shell)
@@ -399,10 +399,10 @@ final class RemoteSettingsTests: XCTestCase {
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .noDirectory, shell)
             // A shared folder left behind does not say the agent is there.
-            try FileManager.default.createDirectory(at: Antigravity().hooksFile(home: remote).deletingLastPathComponent(),
+            try FileManager.default.createDirectory(at: Antigravity().hooksFile(home: remote)!.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             XCTAssertEqual(apply(.hooks(.antigravity), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: Antigravity().hooksFile(home: remote).path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Antigravity().hooksFile(home: remote)!.path))
             XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().hooks(.antigravity),
                            .noDirectory, shell)
         }

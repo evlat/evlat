@@ -45,8 +45,8 @@ public enum RemoteSettings {
         /// is only made for an agent that has one (`relays`).
         public var path: String {
             switch self {
-            case .hooks(let source), .agent(let source): return source.integration.hooksFile
-            case .statusLine(let source): return source.integration.relay?.file ?? source.integration.hooksFile
+            case .hooks(let source), .agent(let source): return source.integration.file
+            case .statusLine(let source): return source.integration.settings?.relay?.file ?? source.integration.file
             case .pathLine(let file): return file
             }
         }
@@ -54,12 +54,12 @@ public enum RemoteSettings {
         /// When the file's folder is missing, the directories (relative to
         /// `$HOME`) any one of which lets the scripts open it — the agent's
         /// presence, for an agent whose hooks folder is opened
-        /// (`Parts.opensHooksDirectory`). Empty: a missing folder is
+        /// (`Settings.opensHooksDirectory`). Empty: a missing folder is
         /// `noDirectory`, the agent is not on the server.
         public var opening: [String] {
             switch self {
             case .hooks(let source), .agent(let source):
-                return source.integration.opensHooksDirectory ? source.presence : []
+                return source.integration.settings?.opensHooksDirectory == true ? source.presence : []
             case .statusLine, .pathLine:
                 return []
             }
@@ -81,7 +81,13 @@ public enum RemoteSettings {
     /// Whether `source`'s unit on a server includes the usage line
     /// (`Relay.onServers`). The same file as its hooks: such an agent's
     /// status line lives in its settings.
-    public static func relays(_ source: some Agent) -> Bool { source.integration.relay?.onServers == true }
+    public static func relays(_ source: some Agent) -> Bool { source.integration.settings?.relay?.onServers == true }
+
+    /// Whether a server's unit covers `source`. What is written over `ssh`
+    /// is JSON merged into the agent's settings, so an agent whose unit is a
+    /// file of Evlat's own (`Parts.ownedFile`) is left out of every script
+    /// here, and a change for one is refused.
+    public static func serves(_ source: some Agent) -> Bool { source.integration.settings != nil }
 
     public enum Action: Equatable { case install, remove }
 
@@ -202,6 +208,11 @@ public enum RemoteSettings {
         do {
             if case .pathLine = change {
                 return try RemotePath.plan(action, original: original).map { Write(contents: $0, backup: nil) }
+            }
+            switch change {
+            case .hooks(let source), .statusLine(let source), .agent(let source):
+                guard serves(source) else { throw SettingsFile.Failure.malformed }
+            case .pathLine: break
             }
             let settings = try SettingsFile.parse(original)
             switch (change, action) {
@@ -412,11 +423,11 @@ public enum RemoteSettings {
                                      patience: Int = RemotePath.patience, probing: Bool = false) -> String {
         let unreadable = code(.unreadable)
         var script = probing ? RemoteTunnel.channelProbe(nonce: nonce) + "\n" : ""
-        for source in agents {
+        for source in agents where serves(source) {
             script += """
             (
             n=\(quoted(nonce))
-            \(prelude(path: source.integration.hooksFile, opening: Change.hooks(source).opening, creating: false))
+            \(prelude(path: source.integration.file, opening: Change.hooks(source).opening, creating: false))
             s=$(sum) || exit \(unreadable)
             printf '%s begin \(source.id.rawValue) %s\\n' "$n" "$s"
             if [ -e "$t" ]; then cat "$t" || exit \(unreadable); fi
@@ -487,13 +498,13 @@ public enum RemoteSettings {
     /// outside a part: an interactive zsh reads a comment as a command.
     public static func combinedScript(_ reading: Reading, agents: [any Agent]) -> String? {
         var parts: [String] = []
-        for source in agents {
+        for source in agents where serves(source) {
             guard case .success(let snapshot)? = reading.files[source.id] else { continue }
             // The automatic button's own transform: the unit, hooks and
             // usage line together.
             guard let write = (try? plan(.agent(source), .install, original: snapshot.bytes)) ?? nil else { continue }
-            parts.append(part(file: "~/" + source.integration.hooksFile,
-                              writeScript(path: source.integration.hooksFile, expected: snapshot.checksum, write: write,
+            parts.append(part(file: "~/" + source.integration.file,
+                              writeScript(path: source.integration.file, expected: snapshot.checksum, write: write,
                                           opening: Change.hooks(source).opening)))
         }
         let commandPart = reading.command != .foreign && !reading.command.isCurrent
@@ -597,7 +608,7 @@ public enum RemoteSettings {
         /// Stands for the user's own statusLine command in `wrapping`.
         public static let placeholder = "YOUR-STATUSLINE-COMMAND"
 
-        /// Each agent's hooks file (`Parts.hooksFile`), as a whole file's
+        /// Each agent's hooks file (`Settings.hooksFile`), as a whole file's
         /// JSON.
         let hooks: [AgentID: String]
         /// The `statusLine` for a file that has none.
@@ -628,7 +639,8 @@ public enum RemoteSettings {
     }
 
     /// For `agents`; the status line is the one a server relays (`relays`).
-    public static func manual(agents: [any Agent]) -> Manual {
+    public static func manual(agents all: [any Agent]) -> Manual {
+        let agents = all.filter { serves($0) }
         let statusLine = agents.first(where: { relays($0) }).flatMap { Manual.statusLine(for: $0) }
         return Manual(
             hooks: Dictionary(uniqueKeysWithValues: agents.map { source in

@@ -158,7 +158,7 @@ final class AntigravityUsageTests: XCTestCase {
         let home = URL(fileURLWithPath: "/h")
         XCTAssertEqual(Antigravity().statusLineFile(home: home)?.path,
                        "/h/.gemini/antigravity-cli/settings.json")
-        XCTAssertEqual(Claude().statusLineFile(home: home), Claude().hooksFile(home: home))
+        XCTAssertEqual(Claude().statusLineFile(home: home), Claude().hooksFile(home: home)!)
         XCTAssertNil(Codex().statusLineFile(home: home))
     }
 }

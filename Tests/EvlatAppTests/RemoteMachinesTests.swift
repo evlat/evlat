@@ -413,7 +413,7 @@ final class RemoteMachinesTests: XCTestCase {
     func testAJobIsOneAgentsUnit() {
         // One change per press: the agent's one file, its hooks and — where
         // the server gets one — its usage line in the same write.
-        for source in Agents.all {
+        for source in Agents.served {
             XCTAssertEqual(RemoteMachinesModel.Job.install(source.id).changes, [.agent(source)])
             XCTAssertEqual(RemoteMachinesModel.Job.remove(source.id).changes, [.agent(source)])
             XCTAssertEqual(RemoteMachinesModel.Job.install(source.id).action, .install)
@@ -545,7 +545,7 @@ final class RemoteMachinesTests: XCTestCase {
         for source in Agents.all {
             let card = RemoteMachinesModel.manual(source.id, in: "en")
             XCTAssertEqual(card.text, manual.hooks(for: source))
-            XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.integration.hooksFile], in: "en"))
+            XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.integration.file], in: "en"))
             // The usage line is a part on a server for one agent alone.
             XCTAssertEqual(card.statusLine != nil, RemoteSettings.relays(source), source.id.rawValue)
         }

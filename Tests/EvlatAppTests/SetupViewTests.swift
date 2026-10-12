@@ -66,7 +66,7 @@ final class SetupViewTests: XCTestCase {
             try AgentIntegration.install(home: fresh, for: .codex)
             try JSONSerialization.data(withJSONObject: [
                 "hooks": ["Stop": [["hooks": [["type": "command", "command": "curl http://127.0.0.1:48151/hook"]]]]]])
-                .write(to: Claude().hooksFile(home: fresh))
+                .write(to: Claude().hooksFile(home: fresh)!)
         case .listening, .heard:
             for source in Agents.all.ids { try AgentIntegration.install(home: fresh, for: source.agent) }
         case .crowded, .empty:

@@ -51,7 +51,7 @@ public enum StatusLineRelay {
     /// Whether the relay alone also asks for the agent's own line
     /// (`Relay.stacksWithDefault`).
     private static func stacks(_ source: some Agent) -> Bool {
-        source.integration.relay?.stacksWithDefault ?? false
+        source.integration.settings?.relay?.stacksWithDefault ?? false
     }
 
     /// The relay as it is written now. Inside the wrapper's single quotes,

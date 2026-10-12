@@ -381,7 +381,7 @@ final class SetupModel: ObservableObject {
         guard source.agent.isPresent(home: home) else {
             return row(item, .notFound, detail: files, failure: nil)
         }
-        let failure = host.agentFailure(source).map(failureText)
+        let failure = host.agentFailure(source).map { failureText($0, for: source) }
         if failure != nil { attention.append(.refused(item)) }
         guard let state = try? AgentIntegration.state(home: home, for: source.agent) else {
             return row(item, .unknown, detail: files, failure: failure)
@@ -396,15 +396,21 @@ final class SetupModel: ObservableObject {
             attention.append(.usageModified(source))
             note = L10n.t("setup.agent.usageModified", in: lang)
         }
+        if state.foreign { note = L10n.t("setup.agent.ownedForeign", in: lang) }
         let status: SetupStatus
         switch state.status {
         case .current: status = .installed
         case .outdated: status = .outdated
         case .missing: status = .missing
+        case .foreign: status = .foreign
         }
-        var parts = [SetupPart(name: L10n.t(Self.hooksPartKey(source, on: .mac), in: lang), file: "~/" + source.agent.integration.hooksFile,
-                               status: Self.status(state.hooks))]
-        if let relay = state.relay, let path = source.agent.integration.relay?.file {
+        // The unit's main part: the hooks in the agent's settings, or the
+        // file of Evlat's own, whose card says so.
+        let partKey = source.agent.integration.ownedFile != nil
+            ? "setup.agent.part.ownedFile" : Self.hooksPartKey(source, on: .mac)
+        var parts = [SetupPart(name: L10n.t(partKey, in: lang), file: "~/" + source.agent.integration.file,
+                               status: state.foreign ? .foreign : Self.status(state.hooks))]
+        if let relay = state.relay, let path = source.agent.integration.settings?.relay?.file {
             parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: "~/" + path,
                                    status: Self.status(relay)))
         }
@@ -451,9 +457,11 @@ final class SetupModel: ObservableObject {
         return path.hasPrefix(base) ? "~/" + path.dropFirst(base.count) : path
     }
 
-    /// "Hooks: <reason>": the part a refused write stopped in.
-    private func failureText(_ failure: AgentIntegration.Failure) -> String {
-        let part = failure.part == .hooks ? "setup.agent.part.hooks" : "setup.agent.part.usage"
+    /// "Hooks: <reason>": the part a refused write stopped in — for a file of
+    /// Evlat's own, that file.
+    private func failureText(_ failure: AgentIntegration.Failure, for source: AgentID) -> String {
+        let main = source.agent.integration.ownedFile != nil ? "setup.agent.part.ownedFile" : "setup.agent.part.hooks"
+        let part = failure.part == .hooks ? main : "setup.agent.part.usage"
         return L10n.t("setup.agent.failure", ["part": L10n.t(part, in: lang),
                                               "reason": L10n.t(AppController.failureKey(failure.reason), in: lang)],
                       in: lang)
@@ -539,13 +547,18 @@ final class SetupModel: ObservableObject {
                 files.append((file, [what]))
             }
         }
-        let hooksFile = "~/" + source.agent.integration.hooksFile
-        let relayFile = source.agent.integration.relay.map(\.file).map { "~/" + $0 }
+        let hooksFile = "~/" + source.agent.integration.file
+        let relayFile = source.agent.integration.settings?.relay.map(\.file).map { "~/" + $0 }
+        // A file of Evlat's own is written whole, with no backup: the
+        // consent says it instead of "hooks".
+        let owned = source.agent.integration.ownedFile != nil
         if action.installs {
-            if state.hooks != .current { add(hooksFile, "setup.consent.what.hooks") }
+            if state.hooks != .current { add(hooksFile, owned ? "setup.consent.what.ownedFile" : "setup.consent.what.hooks") }
             if state.installsRelay, let relayFile { add(relayFile, "setup.consent.what.usage") }
         } else {
-            if state.hooks != .missing { add(hooksFile, "setup.consent.what.hooks.remove") }
+            if state.hooks != .missing {
+                add(hooksFile, owned ? "setup.consent.what.ownedFile.remove" : "setup.consent.what.hooks.remove")
+            }
             if state.relay?.isEvlats == true, let relayFile { add(relayFile, "setup.consent.what.usage.remove") }
         }
         var lines = files.map {
@@ -559,7 +572,7 @@ final class SetupModel: ObservableObject {
 
     /// The usage line's own "Remove": its file alone.
     func relayRemovalConsent(_ source: AgentID) -> [String] {
-        guard let path = source.agent.integration.relay?.file else { return [] }
+        guard let path = source.agent.integration.settings?.relay?.file else { return [] }
         return [L10n.t("setup.consent.line", ["file": "~/" + path,
                                               "what": L10n.t("setup.consent.what.usage.remove", in: lang)], in: lang)]
     }
@@ -701,6 +714,11 @@ final class SetupModel: ObservableObject {
     func manual(_ item: SetupItem) -> SetupManual? {
         switch item {
         case .agent(let source):
+            if let owned = source.agent.integration.ownedFile {
+                return SetupManual(text: LocalHooks.manual(for: source.agent), wrapping: nil,
+                                   removal: L10n.t("setup.manual.remove.file", in: lang),
+                                   lead: L10n.t("setup.manual.ownedLead", ["file": "~/" + owned.file.path], in: lang))
+            }
             // An agent whose file has a shape of its own names its own way
             // out (`setup.manual.remove.<agent>`); the rest share one.
             let own = "setup.manual.remove.\(source.rawValue)"

@@ -379,6 +379,8 @@
 "setup.consent.what.usage" = "the usage line";
 "setup.consent.what.hooks.remove" = "hooks removed";
 "setup.consent.what.usage.remove" = "usage line removed, your previous statusLine back";
+"setup.consent.what.ownedFile" = "Evlat's own file, written whole; no backup";
+"setup.consent.what.ownedFile.remove" = "Evlat's own file removed";
 "setup.consent.command" = "{file} · a link to this copy of Evlat";
 "setup.consent.command.replace" = "{file} · the link to another copy ({target}) is pointed at this one";
 "setup.consent.command.broken" = "{file} · the broken link (to {target}) is replaced with one to this copy";
@@ -436,8 +438,10 @@
 "setup.agent.part.hooks" = "Hooks";
 "setup.agent.part.hooksApprovals" = "Hooks and the approval hook";
 "setup.agent.part.usage" = "Usage line";
+"setup.agent.part.ownedFile" = "Evlat's file";
 "setup.agent.removeUsage" = "Remove the usage line";
 "setup.agent.usageModified" = "Your usage line was edited by hand; Evlat leaves it as it is.";
+"setup.agent.ownedForeign" = "A file of yours is already there; Evlat leaves it as it is.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Off: its sessions, usage and approvals are not shown.";
 "setup.agent.turnOff.title" = "Turn off {agent}?";
@@ -456,6 +460,8 @@
 "setup.manual.remove.hooks" = "To remove, delete the entries that contain {marker}.";
 "setup.manual.remove.usage" = "To remove, put your previous statusLine back.";
 "setup.manual.remove.command" = "To remove: {line}";
+"setup.manual.ownedLead" = "Save this as {file}:";
+"setup.manual.remove.file" = "To remove, delete that file.";
 "setup.attention.hooksOutdated" = "{source} hooks are old: Evlat can't hear its sessions until you update them";
 "setup.attention.hooksStale" = "{source} hooks are old";
 "setup.attention.refused" = "{item}: the last change was refused";

@@ -22,8 +22,8 @@ final class HookSettingsTests: XCTestCase {
 
     private func settingsFile(_ source: some Agent) throws -> URL {
         try FileManager.default.createDirectory(
-            at: source.hooksFile(home: home).deletingLastPathComponent(), withIntermediateDirectories: true)
-        return source.hooksFile(home: home)
+            at: source.hooksFile(home: home)!.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return source.hooksFile(home: home)!
     }
 
     private func write(_ text: String, to url: URL) throws {
@@ -72,10 +72,10 @@ final class HookSettingsTests: XCTestCase {
     }
 
     func testThePathsDeriveFromTheHome() {
-        XCTAssertEqual(Claude().hooksFile(home: home).path, home.path + "/.claude/settings.json")
-        XCTAssertEqual(Codex().hooksFile(home: home).path, home.path + "/.codex/hooks.json")
-        XCTAssertEqual(Claude().hooksFile(home: home).deletingLastPathComponent().path, home.path + "/.claude")
-        XCTAssertEqual(Codex().hooksFile(home: home).deletingLastPathComponent().path, home.path + "/.codex")
+        XCTAssertEqual(Claude().hooksFile(home: home)!.path, home.path + "/.claude/settings.json")
+        XCTAssertEqual(Codex().hooksFile(home: home)!.path, home.path + "/.codex/hooks.json")
+        XCTAssertEqual(Claude().hooksFile(home: home)!.deletingLastPathComponent().path, home.path + "/.claude")
+        XCTAssertEqual(Codex().hooksFile(home: home)!.deletingLastPathComponent().path, home.path + "/.codex")
     }
 
     // MARK: - State
@@ -325,7 +325,7 @@ final class HookSettingsTests: XCTestCase {
 
     /// No directory is created: a Codex entry must not conjure `~/.codex`.
     func testAMissingDirectoryIsRefusedAndNotCreated() throws {
-        let url = Codex().hooksFile(home: home)
+        let url = Codex().hooksFile(home: home)!
         XCTAssertThrowsError(try HookSettings.install(at: url, for: .codex)) {
             XCTAssertEqual($0 as? HookSettings.Failure, .noDirectory)
         }

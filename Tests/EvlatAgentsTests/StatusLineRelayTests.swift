@@ -283,9 +283,9 @@ final class StatusLineRelayTests: XCTestCase {
     // MARK: - Files
 
     private func settingsFile() throws -> URL {
-        try FileManager.default.createDirectory(at: Claude().hooksFile(home: home).deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: Claude().hooksFile(home: home)!.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        return Claude().hooksFile(home: home)
+        return Claude().hooksFile(home: home)!
     }
 
     private func json(_ url: URL) throws -> Any {
@@ -394,10 +394,10 @@ final class StatusLineRelayTests: XCTestCase {
     }
 
     func testNoDirectoryIsNotCreated() {
-        let url = Claude().hooksFile(home: home)
+        let url = Claude().hooksFile(home: home)!
         XCTAssertThrowsError(try StatusLineRelay.install(at: url, source: .claude)) {
             XCTAssertEqual($0 as? SettingsFile.Failure, .noDirectory)
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home).deletingLastPathComponent().path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home)!.deletingLastPathComponent().path))
     }
 }

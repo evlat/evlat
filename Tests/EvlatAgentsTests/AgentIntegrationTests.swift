@@ -47,7 +47,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// relay's backup the `statusLine` it wrapped.
     func testClaudeIsOneFileAndOneWrite() throws {
         try directory(".claude")
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         let original = Data(#"{"model":"opus","statusLine":{"type":"command","command":"bash ~/s.sh"}}"#.utf8)
         try original.write(to: file)
         XCTAssertEqual(AgentIntegration.files(home: home, for: .claude), [file])
@@ -81,7 +81,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// command alone reads current here.
     func testThisMacsCodexWantsNoApprovalGroup() throws {
         try directory(".codex")
-        let file = Codex().hooksFile(home: home)
+        let file = Codex().hooksFile(home: home)!
         try AgentIntegration.install(home: home, for: .codex)
         XCTAssertEqual(try AgentIntegration.state(home: home, for: .codex).status, .current)
         XCTAssertFalse(String(decoding: try Data(contentsOf: file), as: UTF8.self).contains("/approval"))
@@ -91,7 +91,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// A usage line edited by hand stays byte for byte; the hooks go in.
     func testAHandEditedRelayIsNotWrittenOver() throws {
         try directory(".claude")
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
         try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": edited]]).write(to: file)
         try AgentIntegration.install(home: home, for: .claude)
@@ -110,7 +110,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// press is not refused.
     func testAStatusLineInAShapeNotOursIsNotAPart() throws {
         try directory(".claude")
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         for value: Any in ["bash s.sh", ["type": "static", "command": "cat"]] {
             try JSONSerialization.data(withJSONObject: ["statusLine": value]).write(to: file)
             XCTAssertEqual(try AgentIntegration.state(home: home, for: .claude).relay, .modified, "\(value)")
@@ -141,7 +141,7 @@ final class AgentIntegrationTests: XCTestCase {
         try directory(".gemini/antigravity-cli")
         let relay = home.appendingPathComponent(".gemini/antigravity-cli/settings.json")
         XCTAssertEqual(AgentIntegration.files(home: home, for: .antigravity),
-                       [Antigravity().hooksFile(home: home), relay])
+                       [Antigravity().hooksFile(home: home)!, relay])
         try AgentIntegration.install(home: home, for: .antigravity)
         XCTAssertEqual(try AgentIntegration.state(home: home, for: .antigravity),
                        AgentIntegration.State(hooks: .current, relay: .current))
@@ -176,10 +176,10 @@ final class AgentIntegrationTests: XCTestCase {
         XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .antigravity)) { error in
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .usage, reason: .malformed))
         }
-        XCTAssertEqual(try LocalHooks.state(at: Antigravity().hooksFile(home: home), for: .antigravity),
+        XCTAssertEqual(try LocalHooks.state(at: Antigravity().hooksFile(home: home)!, for: .antigravity),
                        .current, "the hooks' own file is written before")
         try directory(".claude")
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         try Data("{ not json".utf8).write(to: file)
         XCTAssertThrowsError(try AgentIntegration.install(home: home, for: .claude)) { error in
             XCTAssertEqual(error as? AgentIntegration.Failure, AgentIntegration.Failure(part: .hooks, reason: .malformed))
@@ -213,7 +213,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// usage line taken out stays out, one changed by hand stays as it is.
     func testKeepingCurrentWritesOnlyWhatIsOld() throws {
         try directory(".claude")
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         let old = String(decoding: try JSONSerialization.data(withJSONObject: HookSettings.installing(into: [:], for: .claude)),
                          as: UTF8.self).replacingOccurrences(of: "-m 2", with: "-m 1")
         var settings = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(old.utf8)) as? [String: Any])
@@ -240,7 +240,7 @@ final class AgentIntegrationTests: XCTestCase {
 
         try directory(".codex")
         XCTAssertFalse(try AgentIntegration.keepCurrent(home: home, for: .codex, enabled: true), "never installed")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: home).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Codex().hooksFile(home: home)!.path))
     }
 
     // MARK: - The one cut to the socket
@@ -255,7 +255,7 @@ final class AgentIntegrationTests: XCTestCase {
     /// timeout are old but not silent.
     func testTheBytesFromBeforeTheSocketAreKnown() throws {
         try directory(".claude")
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         XCTAssertFalse(AgentIntegration.predatesSocket(home: home, for: .claude), "no file")
 
         let tcp = try XCTUnwrap(LocalAPITests.tcpCommand["claude"])
@@ -292,14 +292,14 @@ final class AgentIntegrationTests: XCTestCase {
         try directory(".codex")
         let codex = try XCTUnwrap(LocalAPITests.tcpCommand["codex"])
         try write(["hooks": ["Stop": [["hooks": [["type": "command", "command": codex]]]]]],
-                  to: Codex().hooksFile(home: home))
+                  to: Codex().hooksFile(home: home)!)
         XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .codex))
 
         try directory(".gemini/antigravity")
         try directory(".gemini/config")
         try write(["evlat": ["enabled": true, "Stop": [["type": "command", "command":
             "curl -s -m 2 -X POST -H 'X-Evlat-Event: Stop' --data-binary @- http://127.0.0.1:48151/hook/antigravity >/dev/null 2>&1 || true"]]]],
-                  to: Antigravity().hooksFile(home: home))
+                  to: Antigravity().hooksFile(home: home)!)
         XCTAssertTrue(AgentIntegration.predatesSocket(home: home, for: .antigravity))
         try AgentIntegration.install(home: home, for: .antigravity)
         XCTAssertFalse(AgentIntegration.predatesSocket(home: home, for: .antigravity))

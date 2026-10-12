@@ -306,6 +306,8 @@
 "setup.consent.what.usage" = "用量列";
 "setup.consent.what.hooks.remove" = "移除 hook";
 "setup.consent.what.usage.remove" = "移除用量列，還原你原本的 statusLine";
+"setup.consent.what.ownedFile" = "Evlat 自己的檔案，整份寫入；不做備份";
+"setup.consent.what.ownedFile.remove" = "已移除 Evlat 自己的檔案";
 "setup.consent.command" = "{file} · 指向這份 Evlat 的連結";
 "setup.consent.command.replace" = "{file} · 原本指向另一份（{target}）的連結改為指向這一份";
 "setup.consent.command.broken" = "{file} · 損壞的連結（指向 {target}）改為指向這一份";
@@ -363,8 +365,10 @@
 "setup.agent.part.hooks" = "Hook";
 "setup.agent.part.hooksApprovals" = "Hook 和核准 hook";
 "setup.agent.part.usage" = "用量列";
+"setup.agent.part.ownedFile" = "Evlat 的檔案";
 "setup.agent.removeUsage" = "移除用量列";
 "setup.agent.usageModified" = "你的用量列已被手動編輯；Evlat 會保持原樣。";
+"setup.agent.ownedForeign" = "那裡已經有你的檔案；Evlat 不會更動它。";
 "setup.agent.failure" = "{part}：{reason}";
 "setup.agent.off" = "已關閉：不顯示它的工作階段、用量和核准請求。";
 "setup.agent.turnOff.title" = "要關閉 {agent} 嗎？";
@@ -383,6 +387,8 @@
 "setup.manual.remove.hooks" = "若要移除，請刪除含有 {marker} 的項目。";
 "setup.manual.remove.usage" = "若要移除，請把你原本的 statusLine 放回去。";
 "setup.manual.remove.command" = "若要移除：{line}";
+"setup.manual.ownedLead" = "將以下內容儲存為 {file}：";
+"setup.manual.remove.file" = "若要移除，請刪除該檔案。";
 "setup.attention.hooksOutdated" = "{source} 的 hook 已過時：更新之前，Evlat 無法得知它的工作階段狀態";
 "setup.attention.hooksStale" = "{source} 的 hook 已過時";
 "setup.attention.refused" = "{item}：上次的變更遭拒";

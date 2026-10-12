@@ -315,6 +315,8 @@
 "setup.consent.what.usage" = "kullanım satırı";
 "setup.consent.what.hooks.remove" = "hook'lar kaldırılır";
 "setup.consent.what.usage.remove" = "kullanım satırı kaldırılır, önceki statusLine geri gelir";
+"setup.consent.what.ownedFile" = "Evlat'ın kendi dosyası, bütünüyle yazılır; yedek yok";
+"setup.consent.what.ownedFile.remove" = "Evlat'ın kendi dosyası kaldırılır";
 "setup.consent.command" = "{file} · Evlat'ın bu kopyasına bağlantı";
 "setup.consent.command.replace" = "{file} · başka bir kopyaya ({target}) giden bağlantı bu kopyaya çevrilir";
 "setup.consent.command.broken" = "{file} · kırık bağlantı ({target}) bu kopyaya giden bağlantıyla değiştirilir";
@@ -372,8 +374,10 @@
 "setup.agent.part.hooks" = "Hook'lar";
 "setup.agent.part.hooksApprovals" = "Hook'lar ve onay hook'u";
 "setup.agent.part.usage" = "Kullanım satırı";
+"setup.agent.part.ownedFile" = "Evlat'ın dosyası";
 "setup.agent.removeUsage" = "Kullanım satırını kaldır";
 "setup.agent.usageModified" = "Kullanım satırın elle değiştirilmiş; Evlat ona dokunmaz.";
+"setup.agent.ownedForeign" = "Orada sana ait bir dosya zaten var; Evlat ona dokunmaz.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Kapalı: oturumları, kullanımı ve onayları gösterilmez.";
 "setup.agent.turnOff.title" = "{agent} kapatılsın mı?";
@@ -392,6 +396,8 @@
 "setup.manual.remove.hooks" = "Kaldırmak için {marker} içeren blokları sil.";
 "setup.manual.remove.usage" = "Kaldırmak için önceki statusLine'ını geri koy.";
 "setup.manual.remove.command" = "Kaldırmak: {line}";
+"setup.manual.ownedLead" = "Bunu {file} olarak kaydet:";
+"setup.manual.remove.file" = "Kaldırmak için o dosyayı sil.";
 "setup.attention.hooksOutdated" = "{source} hook'ları eski: güncelleyene dek Evlat oturumlarını duymaz";
 "setup.attention.hooksStale" = "{source} hook'ları eski";
 "setup.attention.refused" = "{item}: son değişiklik reddedildi";

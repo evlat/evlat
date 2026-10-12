@@ -2,17 +2,57 @@ import Foundation
 
 /// An agent on this Mac as one thing to install: its hooks (with the
 /// approval hook where the agent has one, `LocalHooks`) and its usage relay
-/// (`StatusLineRelay`) where the agent has a status line here. One state,
-/// one press, one removal — the user does not set up an agent in parts.
+/// (`StatusLineRelay`) where the agent has a status line here — or, for an
+/// agent that loads a file from a folder it scans, one file of Evlat's own
+/// (`OwnedFile`). One state, one press, one removal — the user does not set
+/// up an agent in parts.
 ///
 /// The parts' own writers stay as they are; this only decides which parts
 /// apply, how their states make one, and that parts in the same file are
 /// written together. Nothing here has a default path: `home` is the
 /// caller's, a temporary one in tests.
 public enum AgentIntegration {
-    /// What an agent installs on a Mac or a server, as values: the hooks
-    /// file and its shape, and the status line relay where it has one.
-    public struct Parts {
+    /// What an agent installs on a Mac, as values, in one of two forms: its
+    /// hooks merged into a settings file the agent owns jointly with the
+    /// user (`Settings`), or a file that is Evlat's own and written whole
+    /// (`OwnedFileParts`). Only the first has a hook command, a file shape
+    /// and a status line to wrap, so they are reached through `settings`
+    /// and a caller must say what it does for the other.
+    public enum Parts {
+        case settings(Settings)
+        case ownedFile(OwnedFileParts)
+
+        /// The settings form, as every agent that merges into a file
+        /// declares it.
+        public init(hooksFile: String, format: any HooksFormat = HookSettings.Format(),
+                    opensHooksDirectory: Bool = false, relay: Relay? = nil) {
+            self = .settings(Settings(hooksFile: hooksFile, format: format,
+                                      opensHooksDirectory: opensHooksDirectory, relay: relay))
+        }
+
+        public var settings: Settings? {
+            if case .settings(let parts) = self { return parts }
+            return nil
+        }
+
+        public var ownedFile: OwnedFileParts? {
+            if case .ownedFile(let parts) = self { return parts }
+            return nil
+        }
+
+        /// The file the unit's main part lives in, relative to a home:
+        /// the settings file, or Evlat's own.
+        public var file: String {
+            switch self {
+            case .settings(let parts): return parts.hooksFile
+            case .ownedFile(let parts): return parts.file.path
+            }
+        }
+    }
+
+    /// The settings form: the hooks file and its shape, and the status line
+    /// relay where the agent has one.
+    public struct Settings {
         /// The hooks file, relative to a home.
         public let hooksFile: String
         public let format: any HooksFormat
@@ -31,6 +71,22 @@ public enum AgentIntegration {
             self.format = format
             self.opensHooksDirectory = opensHooksDirectory
             self.relay = relay
+        }
+    }
+
+    /// The owned-file form: a file Evlat writes whole (`OwnedFile`), with no
+    /// hook command and no status line. Its unit is that one file.
+    public struct OwnedFileParts {
+        public let file: OwnedFile
+        /// Whether the install makes the file's directory when it is
+        /// missing. It only ever does so for an agent that is on this Mac
+        /// (`Agent.presence`): a folder the agent scans, which a missing
+        /// agent has no reason to find Evlat's file in.
+        public let opensDirectory: Bool
+
+        public init(file: OwnedFile, opensDirectory: Bool = false) {
+            self.file = file
+            self.opensDirectory = opensDirectory
         }
     }
 
@@ -78,18 +134,23 @@ public enum AgentIntegration {
         }
     }
 
-    /// The unit at a glance.
-    public enum Status: Equatable { case current, outdated, missing }
+    /// The unit at a glance. `foreign` is a file of the user's at the path
+    /// of Evlat's own (`OwnedFile`): nothing to press, never written over.
+    public enum Status: Equatable { case current, outdated, missing, foreign }
 
     public struct State: Equatable {
         public let hooks: LocalHooks.State
         /// `nil`: the relay is not a part here — no status line to wrap
         /// (Codex; the Antigravity app or IDE without its CLI).
         public let relay: StatusLineRelay.State?
+        /// The agent's file of its own has a file of the user's at its path.
+        /// `hooks` then reads missing, and the unit is `foreign`.
+        public let foreign: Bool
 
-        public init(hooks: LocalHooks.State, relay: StatusLineRelay.State?) {
+        public init(hooks: LocalHooks.State, relay: StatusLineRelay.State?, foreign: Bool = false) {
             self.hooks = hooks
             self.relay = relay
+            self.foreign = foreign
         }
 
         /// Every part that applies current → current; none there → missing;
@@ -98,6 +159,7 @@ public enum AgentIntegration {
         /// not a part: it is never written over, so it can neither complete
         /// the unit nor hold it back.
         public var status: Status {
+            if foreign { return .foreign }
             var parts: [Status] = [Self.status(hooks)]
             switch relay {
             case .current?: parts.append(.current)
@@ -145,24 +207,46 @@ public enum AgentIntegration {
     /// The files a press writes, the hooks file first; one entry when both
     /// parts live in the same file (Claude's `settings.json`).
     public static func files(home: URL, for source: some Agent) -> [URL] {
-        let hooks = source.hooksFile(home: home)
+        let hooks = source.unitFile(home: home)
         guard let relay = relayFile(home: home, for: source), !sameFile(relay, hooks) else { return [hooks] }
         return [hooks, relay]
     }
 
     /// Both parts read fresh. A hooks folder the install would make
-    /// (`Parts.opensHooksDirectory`) reads as missing rather than
+    /// (`Settings.opensHooksDirectory`) reads as missing rather than
     /// unreadable, so the card has its Install to press; any other refusal
     /// to read is thrown.
     public static func state(home: URL, for source: some Agent) throws -> State {
-        let hooks: LocalHooks.State
-        do {
-            hooks = try LocalHooks.state(at: source.hooksFile(home: home), for: source)
-        } catch SettingsFile.Failure.noDirectory where source.integration.opensHooksDirectory {
-            hooks = .missing
+        if let owned = source.integration.ownedFile {
+            switch try owned.file.state(home: home) {
+            case .missing: return State(hooks: .missing, relay: nil)
+            case .current: return State(hooks: .current, relay: nil)
+            case .outdated: return State(hooks: .outdated, relay: nil)
+            case .foreign: return State(hooks: .missing, relay: nil, foreign: true)
+            }
         }
+        let hooks = try hooksState(home: home, for: source)
         let relay = try relayFile(home: home, for: source).map { relayState(of: try SettingsFile.read($0), source: source) }
         return State(hooks: hooks, relay: relay)
+    }
+
+    /// The hooks part alone, read fresh: what a caller that does not need the
+    /// usage line asks (the launch's checks). A file of the user's where
+    /// Evlat's own would be reads missing.
+    public static func hooksState(home: URL, for source: some Agent) throws -> LocalHooks.State {
+        if let owned = source.integration.ownedFile {
+            switch try owned.file.state(home: home) {
+            case .current: return .current
+            case .outdated: return .outdated
+            case .missing, .foreign: return .missing
+            }
+        }
+        guard let url = source.hooksFile(home: home) else { return .missing }
+        do {
+            return try LocalHooks.state(at: url, for: source)
+        } catch SettingsFile.Failure.noDirectory where source.integration.settings?.opensHooksDirectory == true {
+            return .missing
+        }
     }
 
     /// Whether the agent's files still hold Evlat's bytes from before the
@@ -181,7 +265,7 @@ public enum AgentIntegration {
     /// share (Claude's `settings.json`). Old hooks that still answer —
     /// another timeout, a duplicate — are not this.
     public static func hooksPredateSocket(home: URL, for source: some Agent) -> Bool {
-        guard let settings = try? SettingsFile.read(source.hooksFile(home: home)) else { return false }
+        guard let file = source.hooksFile(home: home), let settings = try? SettingsFile.read(file) else { return false }
         return EvlatSocket.predates(settings.filter { $0.key != StatusLineRelay.key })
     }
 
@@ -189,7 +273,13 @@ public enum AgentIntegration {
     /// write, so that file is never left with half of them; a relay changed
     /// by hand is left as it is.
     public static func install(home: URL, for source: some Agent) throws {
-        let hooksFile = source.hooksFile(home: home)
+        if let owned = source.integration.ownedFile {
+            // The folder is made only for an agent that is here.
+            let opens = owned.opensDirectory && source.isPresent(home: home)
+            try write(.hooks) { try owned.file.install(home: home, opensDirectory: opens) }
+            return
+        }
+        guard let hooksFile = source.hooksFile(home: home) else { return }
         guard let relayFile = relayFile(home: home, for: source) else {
             try write(.hooks) { try LocalHooks.install(at: hooksFile, for: source) }
             return
@@ -224,7 +314,9 @@ public enum AgentIntegration {
     public static func keepCurrent(home: URL, for source: some Agent, enabled: Bool) throws -> Bool {
         switch automaticScope(try state(home: home, for: source), enabled: enabled) {
         case .unit?: try install(home: home, for: source)
-        case .hooks?: try write(.hooks) { _ = try LocalHooks.install(at: source.hooksFile(home: home), for: source) }
+        case .hooks?:
+            guard let file = source.hooksFile(home: home) else { return false }
+            try write(.hooks) { _ = try LocalHooks.install(at: file, for: source) }
         case nil: return false
         }
         return true
@@ -234,7 +326,11 @@ public enum AgentIntegration {
     /// one left from when the agent's status line was here. A relay changed
     /// by hand stays.
     public static func remove(home: URL, for source: some Agent) throws {
-        let hooksFile = source.hooksFile(home: home)
+        if let owned = source.integration.ownedFile {
+            try write(.hooks) { try owned.file.remove(home: home) }
+            return
+        }
+        guard let hooksFile = source.hooksFile(home: home) else { return }
         guard let relayFile = source.statusLineFile(home: home) else {
             try write(.hooks) { try LocalHooks.remove(at: hooksFile, for: source) }
             return
@@ -252,7 +348,7 @@ public enum AgentIntegration {
             // A hooks folder the install would make, and has not: no hooks
             // to take out, as `state` reads it — the relay still goes.
             do { try LocalHooks.remove(at: hooksFile, for: source) }
-            catch SettingsFile.Failure.noDirectory where source.integration.opensHooksDirectory {}
+            catch SettingsFile.Failure.noDirectory where source.integration.settings?.opensHooksDirectory == true {}
         }
         // No folder, no relay: the CLI was never here. An earlier copy's
         // wrapper is Evlat's and goes too.

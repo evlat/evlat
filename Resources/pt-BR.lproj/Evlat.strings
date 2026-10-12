@@ -307,6 +307,8 @@
 "setup.consent.what.usage" = "a linha de uso";
 "setup.consent.what.hooks.remove" = "hooks removidos";
 "setup.consent.what.usage.remove" = "linha de uso removida, sua statusLine anterior de volta";
+"setup.consent.what.ownedFile" = "arquivo próprio do Evlat, escrito por inteiro; sem backup";
+"setup.consent.what.ownedFile.remove" = "arquivo próprio do Evlat removido";
 "setup.consent.command" = "{file} · um link para esta cópia do Evlat";
 "setup.consent.command.replace" = "{file} · o link para outra cópia ({target}) passa a apontar para esta";
 "setup.consent.command.broken" = "{file} · o link quebrado (para {target}) é substituído por um para esta cópia";
@@ -364,8 +366,10 @@
 "setup.agent.part.hooks" = "Hooks";
 "setup.agent.part.hooksApprovals" = "Hooks e o hook de aprovação";
 "setup.agent.part.usage" = "Linha de uso";
+"setup.agent.part.ownedFile" = "Arquivo do Evlat";
 "setup.agent.removeUsage" = "Remover a linha de uso";
 "setup.agent.usageModified" = "Sua linha de uso foi editada à mão; o Evlat a deixa como está.";
+"setup.agent.ownedForeign" = "Já existe um arquivo seu ali; o Evlat o deixa como está.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Desativado: as sessões, o uso e as aprovações dele não aparecem.";
 "setup.agent.turnOff.title" = "Desativar {agent}?";
@@ -384,6 +388,8 @@
 "setup.manual.remove.hooks" = "Para remover, apague as entradas que contêm {marker}.";
 "setup.manual.remove.usage" = "Para remover, restaure a sua statusLine anterior.";
 "setup.manual.remove.command" = "Para remover: {line}";
+"setup.manual.ownedLead" = "Salve isto como {file}:";
+"setup.manual.remove.file" = "Para remover, apague esse arquivo.";
 "setup.attention.hooksOutdated" = "Os hooks do {source} estão desatualizados: o Evlat não percebe as sessões dele até você atualizá-los";
 "setup.attention.hooksStale" = "Os hooks do {source} estão desatualizados";
 "setup.attention.refused" = "{item}: a última mudança foi recusada";

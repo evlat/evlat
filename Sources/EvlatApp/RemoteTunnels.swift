@@ -218,7 +218,7 @@ final class RemoteTunnels {
     /// for no such machine, or while it follows every agent.
     func enabledAgents(of id: String) -> Set<AgentID>? {
         guard let machine = links[id]?.machine, machine.agents != nil else { return nil }
-        return machine.enabledAgents(of: Agents.all.ids)
+        return machine.enabledAgents(of: Agents.served.ids)
     }
 
     /// The machine's switches changed: kept on its entry (what the list
@@ -234,12 +234,12 @@ final class RemoteTunnels {
     /// Which agents a server actually relays is its install's business
     /// (`RemoteSettings.relays`): a provider nothing posts to draws nothing.
     private func syncUsage(_ link: Link) {
-        let wanted = link.machine.enabledAgents(of: Agents.all.ids).filter { $0.agent.statusLineUsage != nil }
+        let wanted = link.machine.enabledAgents(of: Agents.served.ids).filter { $0.agent.statusLineUsage != nil }
         for (source, provider) in link.usage where !wanted.contains(source) {
             registry.unregister(provider)
             link.usage[source] = nil
         }
-        for agent in Agents.all where wanted.contains(agent.id) && link.usage[agent.id] == nil {
+        for agent in Agents.served where wanted.contains(agent.id) && link.usage[agent.id] == nil {
             guard let usage = agent.statusLineUsage else { continue }
             let source = agent.id
             let provider = StatusLineUsageProvider(now: now, machine: link.machine.identity, source: source,

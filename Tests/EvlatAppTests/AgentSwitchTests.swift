@@ -193,7 +193,7 @@ final class AgentSwitchTests: XCTestCase {
         // would light up.
         let old = "curl -s http://127.0.0.1:\(LocalAPI.defaultPort)/hook/codex old"
         try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\#(old)"}]}]}}"#.utf8)
-            .write(to: Codex().hooksFile(home: home))
+            .write(to: Codex().hooksFile(home: home)!)
         let controller = controller()
         XCTAssertTrue(SetupModel(host: controller.setupHost, lang: "en").attention.contains(.hooksOutdated(.codex)))
         controller.setEnabled(.codex, false)
@@ -201,7 +201,7 @@ final class AgentSwitchTests: XCTestCase {
         XCTAssertEqual(model.attention, [])
         XCTAssertEqual(model.row(.agent(.codex))?.enabled, false)
         model.perform(.agent(.codex))
-        XCTAssertEqual(try LocalHooks.state(at: Codex().hooksFile(home: home), for: .codex), .outdated,
+        XCTAssertEqual(try LocalHooks.state(at: Codex().hooksFile(home: home)!, for: .codex), .outdated,
                        "an agent off offers no button")
     }
 

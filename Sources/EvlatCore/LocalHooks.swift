@@ -1,13 +1,18 @@
 import Foundation
 
 /// An agent's hooks, as the settings' one row: the command, in the agent's
-/// file shape (`Parts.format`), and, where the agent's approvals are
+/// file shape (`Settings.format`), and, where the agent's approvals are
 /// installed on that target (`ApprovalChannel.installs`), the approval
 /// group (`ApprovalHook`) together — installed, read and removed as one,
 /// one switch, not a setting per hook.
 ///
 /// The transformations are shared with a server's (`RemoteSettings`), which
 /// passes `.server`.
+///
+/// They are the settings form's (`AgentIntegration.Parts.settings`): an agent
+/// whose unit is a file of Evlat's own has no settings to merge into, so for
+/// it they change nothing and read missing — a caller that reaches them with
+/// one has skipped the form check (`Agents.served`, `AgentIntegration`).
 public enum LocalHooks {
     public typealias State = HookSettings.State
 
@@ -15,7 +20,8 @@ public enum LocalHooks {
     /// between is outdated, which is what offers the install that completes
     /// it — how a copy that had the command alone learns of approvals.
     public static func state(of settings: [String: Any], for agent: some Agent, target: HookTarget) -> State {
-        let command = agent.integration.format.state(of: settings, hooks: agent.hooks)
+        guard let form = agent.integration.settings else { return .missing }
+        let command = form.format.state(of: settings, hooks: agent.hooks)
         guard let channel = approvals(of: agent, on: target) else { return command }
         let approval = ApprovalHook.state(of: settings, for: channel)
         if command == .current && approval == .current { return .current }
@@ -25,7 +31,8 @@ public enum LocalHooks {
 
     public static func installing(into settings: [String: Any], for agent: some Agent,
                                   target: HookTarget) -> [String: Any] {
-        let command = agent.integration.format.installing(into: settings, hooks: agent.hooks)
+        guard let form = agent.integration.settings else { return settings }
+        let command = form.format.installing(into: settings, hooks: agent.hooks)
         guard let channel = approvals(of: agent, on: target) else { return command }
         return ApprovalHook.installing(into: command, for: channel)
     }
@@ -33,7 +40,8 @@ public enum LocalHooks {
     /// The approval group goes wherever it was installed from: only Evlat's
     /// own, so taking it from a target that would not get it is harmless.
     public static func removing(from settings: [String: Any], for agent: some Agent) -> [String: Any] {
-        let command = agent.integration.format.removing(from: settings, hooks: agent.hooks)
+        guard let form = agent.integration.settings else { return settings }
+        let command = form.format.removing(from: settings, hooks: agent.hooks)
         guard let channel = agent.approvals, !channel.installs.isEmpty else { return command }
         return ApprovalHook.removing(from: command, for: channel)
     }
@@ -44,9 +52,10 @@ public enum LocalHooks {
     }
 
     /// What a user pastes by hand for this Mac: the writer's bytes into an
-    /// empty file.
+    /// empty file — for a file of Evlat's own, the whole file.
     public static func manual(for source: some Agent) -> String {
-        String(decoding: (try? SettingsFile.encode(installing(into: [:], for: source, target: .mac))) ?? Data(),
+        if let owned = source.integration.ownedFile { return owned.file.contents }
+        return String(decoding: (try? SettingsFile.encode(installing(into: [:], for: source, target: .mac))) ?? Data(),
                as: UTF8.self)
     }
 
@@ -60,12 +69,12 @@ public enum LocalHooks {
     /// One write for both, so the file is never left with half of them.
     ///
     /// The hooks folder is made here when the agent's rule says so
-    /// (`Parts.opensHooksDirectory`): a shared folder that does not say the
+    /// (`Settings.opensHooksDirectory`): a shared folder that does not say the
     /// agent is installed need not exist yet. A folder that is the agent's
     /// own never is.
     @discardableResult
     public static func install(at url: URL, for source: some Agent) throws -> SettingsFile.Outcome {
-        if source.integration.opensHooksDirectory {
+        if source.integration.settings?.opensHooksDirectory == true {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                      withIntermediateDirectories: true)
         }

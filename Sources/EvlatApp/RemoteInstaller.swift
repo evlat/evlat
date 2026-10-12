@@ -133,14 +133,14 @@ final class RemoteInstaller {
                           deadline: TimeInterval? = nil) -> Swift.Result<RemoteSettings.Reading, RemoteSettings.Failure> {
         let nonce = UUID().uuidString
         guard let answer = try? run(ssh, RemoteSettings.arguments(target: target, controlPath: controlPath),
-                                    script: RemoteSettings.readingScript(nonce: nonce, agents: Agents.all,
+                                    script: RemoteSettings.readingScript(nonce: nonce, agents: Agents.served,
                                                                        patience: patience, probing: probing),
                                     deadline: deadline) else {
             return .failure(.unreachable)
         }
         do {
             return .success(try RemoteSettings.reading(exitCode: answer.status, output: answer.output, nonce: nonce,
-                                                      agents: Agents.all.ids))
+                                                      agents: Agents.served.ids))
         } catch {
             return .failure(.unreachable)
         }

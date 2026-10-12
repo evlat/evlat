@@ -306,6 +306,8 @@
 "setup.consent.what.usage" = "사용량 라인";
 "setup.consent.what.hooks.remove" = "훅 제거";
 "setup.consent.what.usage.remove" = "사용량 라인 제거, 이전 statusLine 복원";
+"setup.consent.what.ownedFile" = "Evlat 전용 파일을 통째로 작성, 백업 없음";
+"setup.consent.what.ownedFile.remove" = "Evlat 전용 파일 삭제";
 "setup.consent.command" = "{file} · 이 Evlat 사본으로의 링크";
 "setup.consent.command.replace" = "{file} · 다른 사본({target})을 가리키던 링크를 이 사본으로 변경";
 "setup.consent.command.broken" = "{file} · 끊어진 링크({target})를 이 사본으로의 링크로 교체";
@@ -363,8 +365,10 @@
 "setup.agent.part.hooks" = "훅";
 "setup.agent.part.hooksApprovals" = "훅과 승인 훅";
 "setup.agent.part.usage" = "사용량 라인";
+"setup.agent.part.ownedFile" = "Evlat 파일";
 "setup.agent.removeUsage" = "사용량 라인 제거";
 "setup.agent.usageModified" = "사용량 라인이 직접 편집되었습니다. Evlat은 그대로 둡니다.";
+"setup.agent.ownedForeign" = "이미 내 파일이 있습니다. Evlat은 그대로 둡니다.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "끔: 세션, 사용량, 승인이 표시되지 않습니다.";
 "setup.agent.turnOff.title" = "{agent}을(를) 끌까요?";
@@ -383,6 +387,8 @@
 "setup.manual.remove.hooks" = "제거하려면 {marker} 표시가 들어간 항목을 삭제하세요.";
 "setup.manual.remove.usage" = "제거하려면 이전 statusLine을 되돌려 놓으세요.";
 "setup.manual.remove.command" = "제거하려면: {line}";
+"setup.manual.ownedLead" = "이것을 {file}(으)로 저장하세요:";
+"setup.manual.remove.file" = "제거하려면 그 파일을 삭제하세요.";
 "setup.attention.hooksOutdated" = "{source} 훅이 오래됨: 업데이트하기 전까지 Evlat이 그 세션을 알 수 없음";
 "setup.attention.hooksStale" = "{source} 훅이 오래됨";
 "setup.attention.refused" = "{item}: 마지막 변경이 거부됨";

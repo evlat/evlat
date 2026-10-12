@@ -307,6 +307,8 @@
 "setup.consent.what.usage" = "строка использования";
 "setup.consent.what.hooks.remove" = "хуки удаляются";
 "setup.consent.what.usage.remove" = "строка использования удаляется, ваша прежняя statusLine возвращается";
+"setup.consent.what.ownedFile" = "собственный файл Evlat, записывается целиком; без резервной копии";
+"setup.consent.what.ownedFile.remove" = "собственный файл Evlat удаляется";
 "setup.consent.command" = "{file} · ссылка на эту копию Evlat";
 "setup.consent.command.replace" = "{file} · ссылка на другую копию ({target}) перенаправляется на эту";
 "setup.consent.command.broken" = "{file} · битая ссылка (на {target}) заменяется ссылкой на эту копию";
@@ -364,8 +366,10 @@
 "setup.agent.part.hooks" = "Хуки";
 "setup.agent.part.hooksApprovals" = "Хуки и хук подтверждений";
 "setup.agent.part.usage" = "Строка использования";
+"setup.agent.part.ownedFile" = "Файл Evlat";
 "setup.agent.removeUsage" = "Удалить строку использования";
 "setup.agent.usageModified" = "Ваша строка использования изменена вручную; Evlat оставляет её как есть.";
+"setup.agent.ownedForeign" = "Там уже лежит ваш файл; Evlat оставляет его как есть.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Выключен: его сессии, использование и подтверждения не показываются.";
 "setup.agent.turnOff.title" = "Выключить {agent}?";
@@ -384,6 +388,8 @@
 "setup.manual.remove.hooks" = "Чтобы убрать, удалите записи, содержащие {marker}.";
 "setup.manual.remove.usage" = "Чтобы убрать, верните прежнюю statusLine.";
 "setup.manual.remove.command" = "Чтобы убрать: {line}";
+"setup.manual.ownedLead" = "Сохраните это как {file}:";
+"setup.manual.remove.file" = "Чтобы убрать, удалите этот файл.";
 "setup.attention.hooksOutdated" = "Хуки {source} устарели: пока вы их не обновите, Evlat не слышит его сессии";
 "setup.attention.hooksStale" = "Хуки {source} устарели";
 "setup.attention.refused" = "{item}: последнее изменение отклонено";

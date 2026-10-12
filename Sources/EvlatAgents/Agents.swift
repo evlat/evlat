@@ -9,6 +9,12 @@ public enum Agents {
     /// a stored switch is written in (`EnabledAgents`).
     public static let all: [any Agent] = [Claude(), Codex(), Antigravity()]
 
+    /// The agents a server's unit covers, in the catalogue's order
+    /// (`RemoteSettings.serves`): the ones whose hooks are a settings file.
+    /// Everything that reads or writes a machine goes through this list; the
+    /// agents on this Mac go through `all`.
+    public static let served: [any Agent] = all.filter { RemoteSettings.serves($0) }
+
     /// The listener's routes, made from `all`.
     public static let routes = RouteTable(all)
 

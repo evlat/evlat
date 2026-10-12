@@ -87,7 +87,7 @@ final class UpdatesTests: XCTestCase {
     /// first (`hooks`, the unit's own unless named).
     nonisolated static func card(_ source: AgentID, _ status: SetupStatus, hooks: SetupStatus? = nil,
                                  enabled: Bool = true, failure: String? = nil) -> SetupRow {
-        let file = "~/" + source.agent.integration.hooksFile
+        let file = "~/" + source.agent.integration.file
         var row = SetupRow(item: .agent(source), status: status, name: L10n.t(source.agent.display.nameKey, in: "en"),
                            detail: file, note: nil, failure: failure)
         row.parts = [SetupPart(name: "Hooks", file: file, status: hooks ?? status)]

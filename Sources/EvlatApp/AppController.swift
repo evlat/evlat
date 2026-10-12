@@ -854,7 +854,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func shouldOpenSetup(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         let states = home.map { home in
             Agents.all.filter { enabledAgents.contains($0.id) }.map { agent in
-                (try? LocalHooks.state(at: agent.hooksFile(home: home), for: agent)) ?? .missing
+                (try? AgentIntegration.hooksState(home: home, for: agent)) ?? .missing
             }
         } ?? []
         return SetupTrigger.shouldOpen(hasStorage: defaults != nil && home != nil,
@@ -873,7 +873,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 // As the window's rows: an agent not on this Mac has no
                 // row there, whatever its folder still holds.
                 enabledAgents.contains(agent.id) && agent.isPresent(home: home)
-                    && (try? LocalHooks.state(at: agent.hooksFile(home: home), for: agent)) == .outdated
+                    && (try? AgentIntegration.hooksState(home: home, for: agent)) == .outdated
             }
         } ?? false
         return SetupTrigger.updatesAtLaunch(hasStorage: defaults != nil && home != nil, automatic: updatesAutomatic,

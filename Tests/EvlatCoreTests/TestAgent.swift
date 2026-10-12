@@ -33,6 +33,21 @@ struct TestAgent: Agent {
     func providers(_ context: ProviderContext) -> [Provider] { [] }
 }
 
+extension TestAgent {
+    /// A stand-in whose unit is a file of Evlat's own, in a folder of its
+    /// own under the agent's (`presence`), instead of hooks in a settings
+    /// file.
+    static func ownedFile(_ name: String = "test", version: Int = 1, opensDirectory: Bool = true,
+                          body: String = "export default {}\n") -> TestAgent {
+        var agent = TestAgent(name)
+        agent.integration = .ownedFile(.init(
+            file: OwnedFile(path: ".\(name)/plugins/evlat.js", comment: "//", marker: "evlat-test-file",
+                            version: version, body: body),
+            opensDirectory: opensDirectory))
+        return agent
+    }
+}
+
 /// A stand-in approval channel: a request is any body with a session.
 struct TestApprovals: ApprovalChannel {
     var path: String

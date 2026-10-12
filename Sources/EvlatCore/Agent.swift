@@ -72,24 +72,32 @@ extension Agent {
     /// The path its installed command posts to (`HookChannel.paths`).
     public var hookPath: String { hooks.paths[0] }
 
-    /// The file the agent reads its hooks from. `home` has no default: a
-    /// caller that forgets to pass one must not land on the user's real
-    /// settings.
-    public func hooksFile(home: URL) -> URL {
-        home.appendingPathComponent(integration.hooksFile)
+    /// The settings file the agent reads its hooks from; `nil` for an agent
+    /// whose unit is a file of Evlat's own (`Parts.ownedFile`), which has no
+    /// settings to merge into: what a caller does with this URL is read and
+    /// write JSON. `home` has no default: a caller that forgets to pass one
+    /// must not land on the user's real settings.
+    public func hooksFile(home: URL) -> URL? {
+        integration.settings.map { home.appendingPathComponent($0.hooksFile) }
+    }
+
+    /// The file the unit's main part lives in, whichever form the agent
+    /// installs in: its settings file, or Evlat's own.
+    public func unitFile(home: URL) -> URL {
+        home.appendingPathComponent(integration.file)
     }
 
     /// The file the agent reads its `statusLine` from, where Evlat's usage
     /// relay goes (`StatusLineRelay`); `nil` without one.
     public func statusLineFile(home: URL) -> URL? {
-        integration.relay.map { home.appendingPathComponent($0.file) }
+        integration.settings?.relay.map { home.appendingPathComponent($0.file) }
     }
 
     /// Whether the agent's status line can be relayed on this Mac: it has
     /// one, and the program that reads it is here when that is not the
     /// agent's every form (`Relay.requires`).
     public func hasStatusLine(home: URL) -> Bool {
-        guard let relay = integration.relay else { return false }
+        guard let relay = integration.settings?.relay else { return false }
         return relay.requires.map { AgentIntegration.isDirectory(home.appendingPathComponent($0)) } ?? true
     }
 }

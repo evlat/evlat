@@ -785,7 +785,7 @@ final class SetupFlowTests: XCTestCase {
     private let tcpCommand = "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H \"X-Evlat-Task: ${EVLAT_TASK:-}\" -H \"X-Evlat-Pid: $PPID\" --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true"
 
     private func writeClaude(_ settings: [String: Any]) throws {
-        try JSONSerialization.data(withJSONObject: settings).write(to: Claude().hooksFile(home: home))
+        try JSONSerialization.data(withJSONObject: settings).write(to: Claude().hooksFile(home: home)!)
     }
 
     /// An agent still on the bytes from before the socket is silent: the
@@ -858,7 +858,7 @@ final class SetupFlowTests: XCTestCase {
     func testTheUpdateWindowStaysShutForTodaysBytesAnIsolatedLaunchOrTheSetup() throws {
         let plain = ["HOME": home.path]
         defaults.set("right", forKey: AppController.edgeKey)
-        try LocalHooks.install(at: Claude().hooksFile(home: home), for: .claude)
+        try LocalHooks.install(at: Claude().hooksFile(home: home)!, for: .claude)
         let current = try controller(home: home)
         current.updatesActivation = { }
         defer { current.updatesWindow?.close(); current.panel?.close() }

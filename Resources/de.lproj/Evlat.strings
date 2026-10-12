@@ -306,6 +306,8 @@
 "setup.consent.what.usage" = "die Nutzungszeile";
 "setup.consent.what.hooks.remove" = "Hooks entfernt";
 "setup.consent.what.usage.remove" = "Nutzungszeile entfernt, deine vorige statusLine wieder da";
+"setup.consent.what.ownedFile" = "Evlats eigene Datei, vollständig geschrieben; ohne Sicherung";
+"setup.consent.what.ownedFile.remove" = "Evlats eigene Datei entfernt";
 "setup.consent.command" = "{file} · ein Link auf diese Kopie von Evlat";
 "setup.consent.command.replace" = "{file} · der Link auf eine andere Kopie ({target}) zeigt dann auf diese";
 "setup.consent.command.broken" = "{file} · der kaputte Link (auf {target}) wird durch einen auf diese Kopie ersetzt";
@@ -363,8 +365,10 @@
 "setup.agent.part.hooks" = "Hooks";
 "setup.agent.part.hooksApprovals" = "Hooks und der Freigabe-Hook";
 "setup.agent.part.usage" = "Nutzungszeile";
+"setup.agent.part.ownedFile" = "Evlats Datei";
 "setup.agent.removeUsage" = "Nutzungszeile entfernen";
 "setup.agent.usageModified" = "Deine Nutzungszeile wurde von Hand bearbeitet; Evlat lässt sie, wie sie ist.";
+"setup.agent.ownedForeign" = "Dort liegt schon eine Datei von dir; Evlat lässt sie, wie sie ist.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Aus: Seine Sitzungen, Nutzung und Freigaben werden nicht angezeigt.";
 "setup.agent.turnOff.title" = "{agent} ausschalten?";
@@ -383,6 +387,8 @@
 "setup.manual.remove.hooks" = "Zum Entfernen lösche die Einträge, die {marker} enthalten.";
 "setup.manual.remove.usage" = "Zum Entfernen stelle deine vorige statusLine wieder her.";
 "setup.manual.remove.command" = "Zum Entfernen: {line}";
+"setup.manual.ownedLead" = "Speichere dies als {file}:";
+"setup.manual.remove.file" = "Zum Entfernen: diese Datei löschen.";
 "setup.attention.hooksOutdated" = "{source}-Hooks sind veraltet: Bis du sie aktualisierst, hört Evlat die Sitzungen nicht";
 "setup.attention.hooksStale" = "{source}-Hooks sind veraltet";
 "setup.attention.refused" = "{item}: Die letzte Änderung wurde abgelehnt";

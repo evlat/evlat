@@ -307,6 +307,8 @@
 "setup.consent.what.usage" = "la ligne de consommation";
 "setup.consent.what.hooks.remove" = "hooks retirés";
 "setup.consent.what.usage.remove" = "ligne de consommation retirée, votre statusLine précédente rétablie";
+"setup.consent.what.ownedFile" = "fichier propre à Evlat, écrit en entier ; sans sauvegarde";
+"setup.consent.what.ownedFile.remove" = "fichier propre à Evlat supprimé";
 "setup.consent.command" = "{file} · un lien vers cette copie d’Evlat";
 "setup.consent.command.replace" = "{file} · le lien vers une autre copie ({target}) pointe désormais vers celle-ci";
 "setup.consent.command.broken" = "{file} · le lien cassé (vers {target}) est remplacé par un lien vers cette copie";
@@ -364,8 +366,10 @@
 "setup.agent.part.hooks" = "Hooks";
 "setup.agent.part.hooksApprovals" = "Hooks et hook d’approbation";
 "setup.agent.part.usage" = "Ligne de consommation";
+"setup.agent.part.ownedFile" = "Fichier d'Evlat";
 "setup.agent.removeUsage" = "Retirer la ligne de consommation";
 "setup.agent.usageModified" = "Votre ligne de consommation a été modifiée à la main ; Evlat la laisse telle quelle.";
+"setup.agent.ownedForeign" = "Un fichier à vous s'y trouve déjà ; Evlat le laisse tel quel.";
 "setup.agent.failure" = "{part} : {reason}";
 "setup.agent.off" = "Désactivé : ses sessions, sa consommation et ses demandes d’approbation ne s’affichent pas.";
 "setup.agent.turnOff.title" = "Désactiver {agent} ?";
@@ -384,6 +388,8 @@
 "setup.manual.remove.hooks" = "Pour retirer, supprimez les entrées qui contiennent {marker}.";
 "setup.manual.remove.usage" = "Pour retirer, remettez votre statusLine précédente.";
 "setup.manual.remove.command" = "Pour retirer : {line}";
+"setup.manual.ownedLead" = "Enregistrez ceci sous {file} :";
+"setup.manual.remove.file" = "Pour le retirer, supprimez ce fichier.";
 "setup.attention.hooksOutdated" = "Les hooks {source} sont anciens : Evlat ne peut pas entendre ses sessions tant que vous ne les mettez pas à jour";
 "setup.attention.hooksStale" = "Les hooks {source} sont anciens";
 "setup.attention.refused" = "{item} : la dernière modification a été refusée";

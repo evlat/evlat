@@ -11,7 +11,7 @@ final class ApprovalHookTests: XCTestCase {
     override func setUpWithError() throws {
         home = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("evlat-approval-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: Claude().hooksFile(home: home).deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: Claude().hooksFile(home: home)!.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
     }
 
@@ -19,7 +19,7 @@ final class ApprovalHookTests: XCTestCase {
         try? FileManager.default.removeItem(at: home)
     }
 
-    private var file: URL { Claude().hooksFile(home: home) }
+    private var file: URL { Claude().hooksFile(home: home)! }
 
     private func json(_ url: URL) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])

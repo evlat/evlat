@@ -197,12 +197,12 @@ final class MenuTests: XCTestCase {
     // MARK: - Attention lines
 
     private func agentDirectory(_ source: some Agent) throws {
-        try FileManager.default.createDirectory(at: source.hooksFile(home: home).deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: source.hooksFile(home: home)!.deletingLastPathComponent(),
                                                 withIntermediateDirectories: false)
     }
 
     private func settings(_ source: some Agent) throws -> [String: Any] {
-        let data = try Data(contentsOf: source.hooksFile(home: home))
+        let data = try Data(contentsOf: source.hooksFile(home: home)!)
         return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
@@ -218,7 +218,7 @@ final class MenuTests: XCTestCase {
         let current = HookSettings.installing(into: [:], for: .claude)
         let old = String(decoding: try JSONSerialization.data(withJSONObject: current), as: UTF8.self)
             .replacingOccurrences(of: "-m 2", with: "-m 1")
-        try Data(old.utf8).write(to: Claude().hooksFile(home: home))
+        try Data(old.utf8).write(to: Claude().hooksFile(home: home)!)
     }
 
     /// Setting up is the settings window's: with both agents there and
@@ -232,7 +232,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(titles(controller.makeMenu(diagnostics: true, in: "en")),
                        ["Edge", "Shortcut: ⇧⌘Space", "Force state", "—", "Settings…", "Setup…", "Quit Evlat"],
                        "missing hooks want no attention: no line")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home).path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home)!.path),
                        "opening the menu writes nothing")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: home.path).sorted(),
                        [".claude", ".codex"], "and creates nothing")
@@ -243,7 +243,7 @@ final class MenuTests: XCTestCase {
     func testAnOutdatedHookIsADimLineThatOpensItsSection() throws {
         try agentDirectory(.claude)
         try writeOutdatedHooks()
-        let before = try Data(contentsOf: Claude().hooksFile(home: home))
+        let before = try Data(contentsOf: Claude().hooksFile(home: home)!)
         let controller = controller(home: home)
         controller.settingsActivation = { }
         defer {
@@ -265,7 +265,7 @@ final class MenuTests: XCTestCase {
         menu.performActionForItem(at: menu.index(of: line))
         XCTAssertEqual(controller.settingsWindow?.isVisible, true)
         XCTAssertEqual(controller.settings?.section, .agents)
-        XCTAssertEqual(try Data(contentsOf: Claude().hooksFile(home: home)), before,
+        XCTAssertEqual(try Data(contentsOf: Claude().hooksFile(home: home)!), before,
                        "the click only opens: nothing is written")
     }
 
@@ -274,7 +274,7 @@ final class MenuTests: XCTestCase {
     func testReviewUpdatesOpensTheUpdateWindow() throws {
         try agentDirectory(.claude)
         try writeOutdatedHooks()
-        let before = try Data(contentsOf: Claude().hooksFile(home: home))
+        let before = try Data(contentsOf: Claude().hooksFile(home: home)!)
         let controller = controller(home: home)
         controller.updatesActivation = { }
         defer {
@@ -292,7 +292,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(controller.updatesWindow?.isVisible, true)
         XCTAssertEqual(controller.updates?.agents.map(\.state), [.needsUpdate], "an old hook, not one from before the socket")
         XCTAssertNil(controller.settingsWindow)
-        XCTAssertEqual(try Data(contentsOf: Claude().hooksFile(home: home)), before, "opening writes nothing")
+        XCTAssertEqual(try Data(contentsOf: Claude().hooksFile(home: home)!), before, "opening writes nothing")
     }
 
     /// No attention line about hooks or servers, no "Review updates…".
@@ -309,7 +309,7 @@ final class MenuTests: XCTestCase {
         try agentDirectory(.claude)
         let tcp = "curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:48151/hook >/dev/null 2>&1 || true"
         try JSONSerialization.data(withJSONObject: ["hooks": ["Stop": [["hooks": [["type": "command", "command": tcp]]]]]])
-            .write(to: Claude().hooksFile(home: home))
+            .write(to: Claude().hooksFile(home: home)!)
         let controller = controller(home: home)
         defer { controller.panel?.close() }
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en")).map(\.title),
@@ -321,7 +321,7 @@ final class MenuTests: XCTestCase {
     /// A refused write is a line until a write succeeds.
     func testARefusedWriteLeavesOneLineUntilItSucceeds() throws {
         try agentDirectory(.claude)
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         let broken = Data("{ not json".utf8)
         try broken.write(to: file)
         let controller = controller(home: home)
@@ -350,7 +350,7 @@ final class MenuTests: XCTestCase {
 
     func testAHandEditedWrapperIsALine() throws {
         try agentDirectory(.claude)
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         let edited = StatusLineRelay.command(wrapping: "cat", source: .claude).replacingOccurrences(of: "-m 2", with: "-m 9")
         let bytes = try JSONSerialization.data(withJSONObject: ["statusLine": ["command": edited]])
         try bytes.write(to: file)
@@ -366,7 +366,7 @@ final class MenuTests: XCTestCase {
 
     func testTheHookWriterInstallsThenRemoves() throws {
         try agentDirectory(.claude)
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         try Data(#"{"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}"#.utf8)
             .write(to: file)
         let controller = controller(home: home)
@@ -409,7 +409,7 @@ final class MenuTests: XCTestCase {
         controller.hover.openNow()
 
         controller.setAgent(.claude, installed: true)
-        XCTAssertEqual(try HookSettings.state(at: Claude().hooksFile(home: home), for: .claude),
+        XCTAssertEqual(try HookSettings.state(at: Claude().hooksFile(home: home)!, for: .claude),
                        .current)
         XCTAssertFalse(controller.barState.isOpen, "the open list closes")
         XCTAssertFalse(controller.hover.isOpen)
@@ -421,7 +421,7 @@ final class MenuTests: XCTestCase {
     /// user's status line back as it was.
     func testTheUsageLineComesWithTheHooksAndGoesAlone() throws {
         try agentDirectory(.claude)
-        let file = Claude().hooksFile(home: home)
+        let file = Claude().hooksFile(home: home)!
         let original = #"{"model": "opus", "statusLine": {"type": "command", "command": "bash ~/s.sh", "padding": 0}}"#
         try Data(original.utf8).write(to: file)
         let controller = controller(home: home)
@@ -447,12 +447,12 @@ final class MenuTests: XCTestCase {
     /// part, so no refusal — the hooks go in and the line says it is left.
     func testAStatusLineNotOursIsALineNotARefusal() throws {
         try agentDirectory(.claude)
-        try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: Claude().hooksFile(home: home))
+        try Data(#"{"statusLine": "bash s.sh"}"#.utf8).write(to: Claude().hooksFile(home: home)!)
         let controller = controller(home: home)
         defer { controller.panel?.close() }
         controller.setAgent(.claude, installed: true)
         XCTAssertNil(controller.agentFailure(.claude))
-        XCTAssertEqual(try LocalHooks.state(at: Claude().hooksFile(home: home), for: .claude), .current,
+        XCTAssertEqual(try LocalHooks.state(at: Claude().hooksFile(home: home)!, for: .claude), .current,
                        "the hooks went in")
         XCTAssertEqual(attentionLines(controller.makeMenu(diagnostics: false, in: "en"))
                         .map { $0.representedObject as? SetupAttention }, [.usageModified(.claude)])
