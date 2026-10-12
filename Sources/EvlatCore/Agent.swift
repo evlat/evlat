@@ -142,9 +142,10 @@ public struct HookChannel {
     public let eventInHeader: Bool
     /// Translates a body into the canonical vocabulary. An event the
     /// translation does not know passes **unchanged** rather than dropped:
-    /// an unrecognised name stays visible downstream. `HookEvent.taskKey`
-    /// and `HookEvent.pidKey` are already in the body when this runs — the
-    /// server writes them first — so it must carry them through.
+    /// an unrecognised name stays visible downstream. `HookEvent.taskKey`,
+    /// `HookEvent.pidKey` and `HookEvent.servicePidKey` are already in the
+    /// body when this runs — the server writes them first — so it must carry
+    /// the ones its agent sends through.
     public let canonical: ([String: Any]) -> [String: Any]
     /// For an agent whose finish carries no reply: the reply read in its
     /// place, from this Mac's files under `roots` (the listener's). Asked

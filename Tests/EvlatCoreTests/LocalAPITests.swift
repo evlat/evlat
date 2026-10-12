@@ -25,9 +25,10 @@ final class LocalAPITests: XCTestCase {
     }
 
     private func post(_ target: String, body: String,
-                      taskID: String? = nil, pid: String? = nil) -> LocalAPI.Outcome {
+                      taskID: String? = nil, pid: String? = nil, servicePid: String? = nil) -> LocalAPI.Outcome {
         handle(HTTPRequest(method: "POST", target: target, body: Data(body.utf8),
-                                    taskID: taskID, pid: pid, origin: nil, host: "127.0.0.1:48151"))
+                                    taskID: taskID, pid: pid, servicePid: servicePid,
+                                    origin: nil, host: "127.0.0.1:48151"))
     }
 
     // MARK: - The table
@@ -182,6 +183,17 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(withHeaders.event?.taskID, "real-task")
     }
 
+    /// The service's pid is the server's word by the same rule: it decides
+    /// whether a row is alive, so a body's own claim is deleted.
+    func testOnlyTheServerWritesTheServicePid() {
+        let forged = #"{"hook_event_name":"Stop","session_id":"s-1","evlat_service_pid":"1234"}"#
+
+        XCTAssertNil(post("/hook", body: forged).event?.servicePid, "the body's claim is deleted, not trusted")
+        let withHeader = post("/hook", body: forged, servicePid: "900")
+        XCTAssertEqual(withHeader.event?.servicePid, 900, "the header wins over the body")
+        XCTAssertNil(withHeader.event?.pid, "and it is not the session's own pid")
+    }
+
     /// A request that came through a machine's tunnel speaks for another
     /// computer: its `$PPID` is a remote process number, and asking this Mac
     /// about it would compare against whatever local process holds that
@@ -190,17 +202,20 @@ final class LocalAPITests: XCTestCase {
     func testATunneledRequestCarriesNoIdentity() {
         let forged = #"{"hook_event_name":"Stop","session_id":"s-1","evlat_pid":"1234","evlat_task":"stolen"}"#
         let request = HTTPRequest(method: "POST", target: "/hook", body: Data(forged.utf8),
-                                  taskID: "real-task", pid: "7747", origin: nil, host: "127.0.0.1:48151")
+                                  taskID: "real-task", pid: "7747", servicePid: "900",
+                                  origin: nil, host: "127.0.0.1:48151")
 
         let tunneled = handle(request, listener: LocalAPI.Listener(origin: .machine, routes: Self.routes))
         XCTAssertEqual(tunneled.response, LocalAPI.Response(status: .ok, body: "{}"))
         XCTAssertNotNil(tunneled.event, "the event itself still arrives")
         XCTAssertNil(tunneled.event?.pid, "neither the header's pid nor the body's")
+        XCTAssertNil(tunneled.event?.servicePid, "nor the service's: it is a remote process too")
         XCTAssertNil(tunneled.event?.taskID)
         XCTAssertEqual(tunneled.event?.sessionID, "s-1")
 
         let local = handle(request, listener: LocalAPI.Listener(origin: .local, routes: Self.routes))
         XCTAssertEqual(local.event?.pid, 7747, "a local request is read as before")
+        XCTAssertEqual(local.event?.servicePid, 900)
         XCTAssertEqual(handle(request).event?.pid, 7747, "and local is the default")
     }
 
@@ -211,7 +226,7 @@ final class LocalAPITests: XCTestCase {
     private func sandboxHook(_ body: String, name: String? = "claude-evlat",
                              listener: LocalAPI.Listener = sandbox) -> LocalAPI.Outcome {
         handle(HTTPRequest(method: "POST", target: "/hook", body: Data(body.utf8), taskID: "t", pid: "446",
-                           host: "127.0.0.1:48152", sandboxName: name),
+                           servicePid: "447", host: "127.0.0.1:48152", sandboxName: name),
                listener: listener)
     }
 
@@ -225,6 +240,7 @@ final class LocalAPITests: XCTestCase {
         XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"))
         XCTAssertEqual(outcome.event?.sandboxName, "claude-evlat", "the header wins over the body")
         XCTAssertNil(outcome.event?.pid, "the VM's pid is no process on this Mac")
+        XCTAssertNil(outcome.event?.servicePid, "nor is its service's")
         XCTAssertNil(outcome.event?.taskID)
 
         let bare = sandboxHook(forged, name: nil)

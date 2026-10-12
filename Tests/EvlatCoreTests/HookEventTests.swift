@@ -62,6 +62,19 @@ final class HookEventTests: XCTestCase {
         XCTAssertNil(HookEvent(json: [HookEvent.pidKey: 7747]).pid, "the server writes it as text")
     }
 
+    /// The service's pid is read by the same rule, and is its own field.
+    func testTheServicePidHasToBeAPlausibleProcessToo() {
+        for text in ["", " ", "abc", "0", "1", "-900", "900.0"] {
+            XCTAssertNil(HookEvent(json: [HookEvent.servicePidKey: text]).servicePid, text)
+        }
+        XCTAssertEqual(HookEvent(json: [HookEvent.servicePidKey: "900"]).servicePid, 900)
+        XCTAssertNil(HookEvent(json: [HookEvent.servicePidKey: 900]).servicePid, "the server writes it as text")
+        let both = HookEvent(json: [HookEvent.pidKey: "7747", HookEvent.servicePidKey: "900"])
+        XCTAssertEqual(both.pid, 7747)
+        XCTAssertEqual(both.servicePid, 900)
+        XCTAssertNil(HookEvent(json: [HookEvent.pidKey: "7747"]).servicePid)
+    }
+
     // MARK: - The card's fields
 
     /// `Bash` as measured (Claude Code 2.1.280): the command is the subject and

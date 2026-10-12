@@ -298,6 +298,7 @@ public final class HooksProvider: Provider {
         // it from a tunneled request; this is the second lock, so no remote
         // row can ever ask `processStartedAt` about a local stranger.
         let pid = machine == nil ? event.pid : nil
+        let servicePid = machine == nil ? event.servicePid : nil
         let effect = Self.effect(of: event)
         if effect == .end {
             sessions.removeValue(forKey: entity)
@@ -313,6 +314,8 @@ public final class HooksProvider: Provider {
                                   cwd: event.cwd,
                                   pid: pid,
                                   startedAt: pid.flatMap(platform.processStartedAt),
+                                  servicePid: servicePid,
+                                  serviceStartedAt: servicePid.flatMap(platform.processStartedAt),
                                   // The owner is recorded where the row is
                                   // opened too: a subagent's prompt is often
                                   // the first event of a session.
@@ -344,6 +347,12 @@ public final class HooksProvider: Provider {
         if let pid, pid != session.pid {
             session.pid = pid
             session.startedAt = platform.processStartedAt(pid)
+        }
+        // The service's too, on every event: a restarted service resumes the
+        // session under a new process, and the row follows it the same way.
+        if let servicePid, servicePid != session.servicePid {
+            session.servicePid = servicePid
+            session.serviceStartedAt = platform.processStartedAt(servicePid)
         }
         Self.record(event, in: &session, at: platform.now())
         // The phase is what the guard refuses, not the event: the whereabouts
@@ -437,11 +446,19 @@ public final class HooksProvider: Provider {
     /// is worse than the ghost it prevents — and dropped after
     /// `pidlessLifetime` of silence, so the ghost is bounded. Such an event is
     /// visible as `pid=-` under `--capture`.
+    ///
+    /// A session in a service many terminals share has no pid of its own
+    /// but has the service's (`HookEvent.servicePid`), and lives and dies
+    /// with it: the same comparison, against the service's start. Its own
+    /// pid wins when it has one.
     private func isAlive(_ session: Session, now: Date) -> Bool {
-        guard let pid = session.pid else {
-            return now.timeIntervalSince(session.mark.lastSeen) < Self.pidlessLifetime
+        if let pid = session.pid {
+            return platform.sameProcess(pid: pid, startedAt: session.startedAt)
         }
-        return platform.sameProcess(pid: pid, startedAt: session.startedAt)
+        if let service = session.servicePid {
+            return platform.sameProcess(pid: service, startedAt: session.serviceStartedAt)
+        }
+        return now.timeIntervalSince(session.mark.lastSeen) < Self.pidlessLifetime
     }
 
     /// Can a remote row be taken as current? Derived at read time, three
@@ -483,6 +500,11 @@ public final class HooksProvider: Provider {
         var pid: Int32?
         /// The process start time as read at first sight of this pid.
         var startedAt: Date?
+        /// The service the agent runs in, shared by many terminals, and its
+        /// start as read at first sight (`HookEvent.servicePid`): what the
+        /// row lives by when it has no pid of its own.
+        var servicePid: Int32?
+        var serviceStartedAt: Date?
         /// Who put up a blocking phase: the `agent_id` of the subagent whose
         /// event set it, or `nil` for the main thread — whose identity **is**
         /// the absence of one. Only read while `phase` blocks, so there is no
@@ -502,7 +524,8 @@ public final class HooksProvider: Provider {
         var sessionStartedAt: Date?
 
         init(phase: Phase, since: Date, word: String, source: AgentID, cwd: String?,
-             pid: Int32?, startedAt: Date?, blockedBy: String?,
+             pid: Int32?, startedAt: Date?, servicePid: Int32? = nil, serviceStartedAt: Date? = nil,
+             blockedBy: String?,
              blockingTool: Signal.Activity.Tool?, waitKind: Signal.Activity.WaitKind?,
              countIsPartial: Bool) {
             self.phase = phase
@@ -513,6 +536,8 @@ public final class HooksProvider: Provider {
             self.cwd = cwd
             self.pid = pid
             self.startedAt = startedAt
+            self.servicePid = servicePid
+            self.serviceStartedAt = serviceStartedAt
             self.blockedBy = blockedBy
             self.blockingTool = blockingTool
             self.waitKind = waitKind
@@ -520,7 +545,7 @@ public final class HooksProvider: Provider {
         }
 
         var activity: Signal.Activity {
-            Signal.Activity(pid: pid, lastTool: lastTool, blockingTool: blockingTool,
+            Signal.Activity(pid: pid, servicePid: servicePid, lastTool: lastTool, blockingTool: blockingTool,
                             waitKind: waitKind, lastReply: lastReply,
                             toolCount: toolCount, countIsPartial: countIsPartial,
                             sandboxName: sandboxName, sessionStartedAt: sessionStartedAt)

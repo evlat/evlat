@@ -194,6 +194,10 @@ public final class DetailModel: ObservableObject {
     /// walks this machine's processes nor brings an app forward.
     var resolveHost: (Int32?) -> SessionHost = { SessionHost.resolve(pid: $0) }
     var activate: (SessionHost.App) -> Bool = { SessionHost.activate($0) }
+    /// A session in a service many terminals share has no pid of its own:
+    /// its terminal is the service's client in its folder (`ServiceClients`).
+    /// Injected like the host.
+    var resolveService: (Int32, String?) -> SessionHost = { ServiceClients.resolve(service: $0, folder: $1) }
     /// The branch of a folder (`GitHead.branch`); injected like the host, so
     /// a test reads no repository. The default reads nothing.
     var resolveBranch: (String) -> String? = { _ in nil }
@@ -239,7 +243,7 @@ public final class DetailModel: ObservableObject {
     /// Which session and pid `detail.host` was resolved for. The snapshot
     /// arrives every poll and on every event; the process walk runs only when
     /// the card comes up for a session (or its pid moves), not at that rate.
-    private var hostKey: (entity: String, pid: Int32?)?
+    private var hostKey: (entity: String, pid: Int32?, servicePid: Int32?, folder: String?)?
     /// The same for a sandbox's session: its name, its start and the
     /// earlier sessions' starts. Its start arrives on a later event than its
     /// name, and a row heard before it is looked up again then; so is one
@@ -268,6 +272,10 @@ public final class DetailModel: ObservableObject {
     func update(row: SessionRow, signal: Signal?, approval: SessionDetail.ApprovalCard? = nil,
                 signals: [Signal] = [], chatEnabled: Bool = true) {
         let pid = signal?.activity?.pid
+        let servicePid = pid == nil ? signal?.activity?.servicePid : nil
+        // The session's folder, which a service's client is found by. A
+        // session's card draws none (`RowTraits`), so it is not `words.folder`.
+        let sessionFolder = signal?.detail
         let words: (folder: String?, note: String?)
         switch row.traits.detail {
         case .folder: words = (signal?.detail, nil)
@@ -321,14 +329,15 @@ public final class DetailModel: ObservableObject {
             // (`DetailCard.showsButton`). A remote session whose agent keeps
             // no records cannot be asked about.
             hostKey = nil
-        } else if let key = hostKey, key.entity == row.entity, key.pid == pid, let current = detail {
+        } else if let key = hostKey, key.entity == row.entity, key.pid == pid, key.servicePid == servicePid,
+                  key.folder == sessionFolder, let current = detail {
             next.host = current.host
             next.branch = current.branch
         } else {
-            next.host = resolveHost(pid)
+            next.host = localHost(pid: pid, servicePid: servicePid, folder: sessionFolder)
             // The row's, when it already read one: the two never disagree.
             next.branch = row.branch ?? signal?.detail.flatMap(resolveBranch)
-            hostKey = (row.entity, pid)
+            hostKey = (row.entity, pid, servicePid, sessionFolder)
         }
         var stepped = false
         if let before = detail?.approval, let now = next.approval, before.id == now.id,
@@ -385,6 +394,13 @@ public final class DetailModel: ObservableObject {
         if detail != current { detail = current }
     }
 
+    /// A session on this Mac: the agent's own pid walks up to its terminal;
+    /// with none but its service's, the service's client in its folder.
+    private func localHost(pid: Int32?, servicePid: Int32?, folder: String?) -> SessionHost {
+        if pid == nil, let servicePid { return resolveService(servicePid, folder) }
+        return resolveHost(pid)
+    }
+
     private static func apply(_ found: Sandbox.Found, to detail: inout SessionDetail) {
         switch found {
         case .host(let host):
@@ -417,7 +433,10 @@ public final class DetailModel: ObservableObject {
         guard var current = detail else { return false }
         let host: SessionHost
         if current.hasLocalHost {
-            host = resolveHost(current.activity?.pid)
+            let pid = current.activity?.pid
+            // The folder the card was resolved for: the detail keeps none of a session's.
+            let folder = hostKey.flatMap { $0.entity == current.entity ? $0.folder : nil }
+            host = localHost(pid: pid, servicePid: pid == nil ? current.activity?.servicePid : nil, folder: folder)
         } else if current.hasSandboxHost {
             var found = current
             Self.apply(resolveSandbox(current.activity?.sandboxName, current.activity?.sessionStartedAt,

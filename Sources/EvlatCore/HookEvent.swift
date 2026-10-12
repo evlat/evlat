@@ -43,6 +43,12 @@ public struct HookEvent: Equatable {
     /// The agent process that sent the event, from `X-Evlat-Pid`. A source that
     /// keeps no file record has nothing else to prove it is still alive.
     public let pid: Int32?
+    /// The process of the service the agent runs in when many terminals share
+    /// it, from `X-Evlat-Service-Pid`. It is not the session's own process: it
+    /// says only whether the service is still there, so a row outlives no
+    /// service, and which of its clients is the session's tab is a separate
+    /// question (`ServiceClients`).
+    public let servicePid: Int32?
     /// Where the event came from; a session takes it from its first event.
     public let source: AgentID
     /// `tool_name`, canonical spelling (the agent's `HookChannel.canonical`
@@ -89,6 +95,10 @@ public struct HookEvent: Equatable {
     /// The key under which the server writes the `X-Evlat-Pid` header.
     public static let pidKey = "evlat_pid"
 
+    /// The key under which the server writes the `X-Evlat-Service-Pid` header,
+    /// by the rule of `pidKey`.
+    public static let servicePidKey = "evlat_service_pid"
+
     /// The key under which a sandbox's listener writes `X-Evlat-Sandbox`
     /// (`LocalAPI.Origin.sandbox`).
     public static let sandboxKey = "evlat_sandbox"
@@ -133,11 +143,18 @@ public struct HookEvent: Equatable {
         // Anything that is not a plausible process is ignored: a session's
         // whereabouts are resolved by walking up from this pid, and `1`
         // (launchd) or `0` would send that walk somewhere no agent ever ran.
-        if let text = Self.text(json[Self.pidKey]), let value = Int32(text), value > 1 {
-            pid = value
-        } else {
-            pid = nil
-        }
+        pid = Self.process(json[Self.pidKey])
+        servicePid = Self.process(json[Self.servicePidKey])
+    }
+
+    /// A pid as the header's text carried it, when it can be a process: it
+    /// arrives as text, because the header it comes from is text. Anything
+    /// else is ignored: a session's whereabouts are resolved by walking up
+    /// from its pid, and `1` (launchd) or `0` would send that walk somewhere
+    /// no agent ever ran.
+    private static func process(_ value: Any?) -> Int32? {
+        guard let text = text(value), let number = Int32(text), number > 1 else { return nil }
+        return number
     }
 
     /// A tool input's one-line subject. Public because a chat's stream

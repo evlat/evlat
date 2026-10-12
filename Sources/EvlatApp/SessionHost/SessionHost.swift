@@ -83,9 +83,17 @@ enum SessionHost: Equatable {
         /// server is found by the server's end (`Ssh`). `nil` when they
         /// cannot be read.
         var tcpSockets: (Int32) -> [TCPSocket]? = { _ in nil }
+        /// The addresses a process listens on (TCP sockets in the listen
+        /// state): a service's clients are the processes connected to them
+        /// (`ServiceClients`). `nil` when they cannot be read.
+        var listeningSockets: (Int32) -> [Endpoint]? = { _ in nil }
         /// A process's working directory: an unnamed sandbox is named after
         /// its client's (`Sandbox`). `nil` when it cannot be read.
         var currentDirectory: (Int32) -> String? = { _ in nil }
+        /// A path with its links resolved, to compare two folders that are
+        /// the same one (`/var/…` and `/private/var/…`). `nil` when it
+        /// names nothing.
+        var realPath: (String) -> String? = { $0 }
         /// The device of a process's controlling terminal; `nil` when it has
         /// none or it cannot be read.
         var terminalDevice: (Int32) -> Int32? = { _ in nil }
@@ -319,7 +327,8 @@ enum SessionHost: Equatable {
               environment: environment, arguments: arguments, processes: allPIDs,
               unixSockets: unixSockets, hasTerminal: hasTerminal,
               startedAt: startedAt, tmux: TmuxQuery.run, herdr: HerdrSocket.session(), tcpSockets: tcpSockets,
-              currentDirectory: currentDirectory, terminalDevice: terminalDevice,
+              listeningSockets: listeningSockets,
+              currentDirectory: currentDirectory, realPath: realPath, terminalDevice: terminalDevice,
               ptyMasters: kept(ptyMasters))
     }
 

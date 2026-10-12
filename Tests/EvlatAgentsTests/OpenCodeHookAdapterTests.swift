@@ -65,13 +65,14 @@ final class OpenCodeHookAdapterTests: XCTestCase {
     func testTheEnvelopeBecomesTheCanonicalFields() {
         let out = canonical(["event": "session.created", "session": "ses_1", "child": "ses_2", "directory": "/Users/demo/app",
                              "opencode_version": "1.19.0", HookEvent.pidKey: "4242", HookEvent.taskKey: "task-1",
-                             "plugin_version": 1, "line": 1])
+                             HookEvent.servicePidKey: "900", "plugin_version": 1, "line": 1])
         XCTAssertEqual(out["session_id"] as? String, "ses_1")
         XCTAssertEqual(out["agent_id"] as? String, "ses_2", "a child session is a subagent's step on the root's row")
         XCTAssertEqual(out["cwd"] as? String, "/Users/demo/app")
         XCTAssertEqual(out["agent_version"] as? String, "1.19.0")
         XCTAssertEqual(out["source"] as? String, "startup")
         XCTAssertEqual(out[HookEvent.pidKey] as? String, "4242", "the server's keys pass through")
+        XCTAssertEqual(out[HookEvent.servicePidKey] as? String, "900")
         XCTAssertEqual(out[HookEvent.taskKey] as? String, "task-1")
         let event = HookEvent(json: out, source: .opencode)
         XCTAssertEqual(event.name, "SessionStart")
@@ -80,6 +81,7 @@ final class OpenCodeHookAdapterTests: XCTestCase {
         XCTAssertEqual(event.agentVersion, "1.19.0")
         XCTAssertEqual(event.startSource, "startup")
         XCTAssertEqual(event.pid, 4242)
+        XCTAssertEqual(event.servicePid, 900)
     }
 
     func testToolsAndTheirInputAreInClaudesSpelling() {
@@ -159,8 +161,8 @@ final class OpenCodeHookAdapterTests: XCTestCase {
                                      isQuestion: Agents.isQuestion)
         return recording.bodies.map { body in
             var json = body.mapValues(\.any)
-            // The pid is sent on 1.x; the shared service on 2.x has none to send.
-            if (json["line"] as? Int) == 1 { json[HookEvent.pidKey] = "4242" }
+            // The pid is sent on 1.x; the shared service on 2.x sends its own.
+            if (json["line"] as? Int) == 1 { json[HookEvent.pidKey] = "4242" } else { json[HookEvent.servicePidKey] = "900" }
             provider.handle(HookEvent(json: canonical(json), source: .opencode))
             return provider.currentSignals().first.map { $0.phase.rawValue } ?? "none"
         }

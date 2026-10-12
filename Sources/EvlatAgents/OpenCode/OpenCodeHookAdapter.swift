@@ -35,7 +35,7 @@ enum OpenCodeHookAdapter {
     static func canonical(_ json: [String: Any]) -> [String: Any] {
         var out: [String: Any] = [:]
         // The server's own keys pass through (`HookChannel.canonical`).
-        for key in [HookEvent.pidKey, HookEvent.taskKey] { out[key] = json[key] }
+        for key in [HookEvent.pidKey, HookEvent.servicePidKey, HookEvent.taskKey] { out[key] = json[key] }
         out["session_id"] = json["session"]
         out["cwd"] = json["directory"]
         out["agent_id"] = json["child"]

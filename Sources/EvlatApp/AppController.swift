@@ -1139,7 +1139,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Resolved here too, so the lookup can be checked against the live
         // sessions on this machine without opening a card.
         for signal in snapshot.ordered {
-            print(listLine(signal, host: SessionHost.resolve(pid: signal.activity?.pid)))
+            // A session with only its service's pid is looked for among the
+            // service's clients, as its card does (`ServiceClients`).
+            let activity = signal.activity
+            let service = activity?.pid == nil
+                ? activity?.servicePid.map { ServiceClients.resolve(service: $0, folder: signal.detail) } : nil
+            print(listLine(signal, host: service ?? SessionHost.resolve(pid: activity?.pid)))
         }
         // Apart from the sessions and outside their count: a usage window is
         // not a session (`Registry.Snapshot`).
@@ -4678,7 +4683,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// a session in a pane is not asked about, since the client's tab may
     /// show another pane. With no such terminal running (`TabFocus.anyRunning`)
     /// nothing is walked and no server asked.
-    /// - On this Mac, from the agent's pid. Under XCTest nothing is walked.
+    /// - On this Mac, from the agent's pid. Under XCTest nothing is walked. A
+    ///   session in a shared service has none (`Signal.Activity.servicePid`):
+    ///   its tab is inferred from the service's clients, which a click can
+    ///   take and the news must not — a client holds many sessions' tabs.
     /// - On a connected machine, a session whose agent keeps records (the
     ///   card's rule, `DetailModel.RemoteQuery`): its server is asked first
     ///   (`findRemoteForNews`), and its answer is walked here

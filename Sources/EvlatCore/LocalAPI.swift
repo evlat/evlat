@@ -367,6 +367,10 @@ public enum LocalAPI {
             else { json.removeValue(forKey: HookEvent.taskKey) }
             if trusted, let pid = request.pid { json[HookEvent.pidKey] = pid }
             else { json.removeValue(forKey: HookEvent.pidKey) }
+            // The service's pid by the same rule: a machine's or a sandbox's
+            // number means nothing on this Mac.
+            if trusted, let pid = request.servicePid { json[HookEvent.servicePidKey] = pid }
+            else { json.removeValue(forKey: HookEvent.servicePidKey) }
             // The sandbox's header, by the same rule: written from the
             // headers by a sandbox's listener only, deleted from every body.
             // Elsewhere any local process could put a sandbox's name on a row

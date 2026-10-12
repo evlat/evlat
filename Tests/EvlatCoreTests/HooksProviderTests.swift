@@ -35,7 +35,7 @@ final class HooksProviderTests: XCTestCase {
     /// arrives as text, because the header it is written from is text.
     private func event(_ name: String, session: String? = "s-1", cwd: String? = "/tmp/project",
                        agent: String? = nil, notification: String? = nil,
-                       stopHookActive: Bool = false, pid: Int32? = 4242,
+                       stopHookActive: Bool = false, pid: Int32? = 4242, servicePid: Int32? = nil,
                        source: AgentID = .test, tool: String? = nil,
                        command: String? = nil, reply: String? = nil) -> HookEvent {
         var json: [String: Any] = ["hook_event_name": name]
@@ -48,6 +48,7 @@ final class HooksProviderTests: XCTestCase {
         if let notification { json["notification_type"] = notification }
         if stopHookActive { json["stop_hook_active"] = true }
         if let pid { json[HookEvent.pidKey] = String(pid) }
+        if let servicePid { json[HookEvent.servicePidKey] = String(servicePid) }
         return HookEvent(json: json, source: source)
     }
 
@@ -424,6 +425,54 @@ final class HooksProviderTests: XCTestCase {
                        "and its stamp is still the phase's")
     }
 
+    // MARK: - A shared service's rows
+
+    /// A session in a service many terminals share has the service's pid and
+    /// none of its own: it lives as long as the service does, not for
+    /// twelve hours of silence and not for ever.
+    func testAServiceRowLivesAndDiesWithItsService() {
+        var running: Set<Int32> = [900]
+        let hooks = provider(alive: { running.contains($0) })
+        hooks.handle(event("UserPromptSubmit", pid: nil, servicePid: 900))
+        let row = hooks.currentSignals().first
+        XCTAssertNil(row?.activity?.pid)
+        XCTAssertEqual(row?.activity?.servicePid, 900)
+        clock.now += HooksProvider.pidlessLifetime * 2
+        XCTAssertEqual(hooks.currentSignals().count, 1, "silence does not end it while the service is there")
+        running = []
+        XCTAssertTrue(hooks.currentSignals().isEmpty, "the service went, and so did every session in it")
+    }
+
+    /// A restarted service resumes the session under a new process: the next
+    /// event brings the row along, and the old one is not looked at again.
+    func testAServiceRowFollowsTheServiceToANewProcess() {
+        var running: Set<Int32> = [900]
+        let hooks = provider(alive: { running.contains($0) })
+        hooks.handle(event("PermissionRequest", pid: nil, servicePid: 900))
+        running = [901]
+        hooks.handle(event("PostToolUse", pid: nil, servicePid: 901))
+        XCTAssertEqual(hooks.currentSignals().first?.activity?.servicePid, 901)
+    }
+
+    /// Pids are recycled: the service's start, read at first sight, is what
+    /// tells it from another process that took its number.
+    func testARecycledServicePidDropsTheRow() {
+        var start = Date(timeIntervalSince1970: 1_790_000_000)
+        let hooks = provider(startedAt: { _ in start })
+        hooks.handle(event("UserPromptSubmit", pid: nil, servicePid: 900))
+        XCTAssertEqual(hooks.currentSignals().count, 1)
+        start = start.addingTimeInterval(86_400)
+        XCTAssertTrue(hooks.currentSignals().isEmpty)
+    }
+
+    /// A row with a pid of its own is judged by it: the service's is only
+    /// what a row has when it has nothing else.
+    func testAnOwnPidWinsOverTheServices() {
+        let hooks = provider(alive: { $0 == 4242 })
+        hooks.handle(event("UserPromptSubmit", pid: 4242, servicePid: 900))
+        XCTAssertEqual(hooks.currentSignals().count, 1)
+    }
+
     // MARK: - A remote machine's rows
 
     private let devbox = Signal.Machine.Identity(id: "m-1", name: "devbox")
@@ -449,6 +498,15 @@ final class HooksProviderTests: XCTestCase {
         XCTAssertEqual(row?.machine?.name, "devbox")
         XCTAssertNil(row?.activity?.pid, "a remote number is not a local process")
         XCTAssertEqual(row?.isLive, true)
+    }
+
+    /// The service's pid is a remote number too: the second lock holds for
+    /// it as for the session's own.
+    func testAMachinesRowNeverCarriesAServicePid() {
+        let hooks = remote()
+        hooks.setLink(connected: true)
+        hooks.handle(event("UserPromptSubmit", pid: nil, servicePid: 900))
+        XCTAssertNil(hooks.currentSignals().first?.activity?.servicePid)
     }
 
     /// Without a `cwd` the label falls back to the session id — the bare

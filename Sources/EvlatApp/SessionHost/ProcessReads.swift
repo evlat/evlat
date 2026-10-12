@@ -103,22 +103,32 @@ extension SessionHost {
     /// `pri_tcp`), as readable as its unix sockets. A socket closing or
     /// half-closed is left out: a tab that has gone may leave one behind.
     static func tcpSockets(_ pid: Int32) -> [TCPSocket]? {
+        tcpEnds(pid, in: TSI_S_ESTABLISHED)?.map { TCPSocket(local: $0.local, remote: $0.remote) }
+    }
+
+    /// The addresses the process listens on: its TCP sockets in the listen
+    /// state, read as `tcpSockets` reads the connected ones.
+    static func listeningSockets(_ pid: Int32) -> [Endpoint]? {
+        tcpEnds(pid, in: TSI_S_LISTEN)?.map(\.local)
+    }
+
+    private static func tcpEnds(_ pid: Int32, in state: Int32) -> [(local: Endpoint, remote: Endpoint)]? {
         guard let fds = descriptors(pid) else { return nil }
-        return fds.compactMap { fd -> TCPSocket? in
+        return fds.compactMap { fd -> (local: Endpoint, remote: Endpoint)? in
             guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { return nil }
             var info = socket_fdinfo()
             let size = Int32(MemoryLayout<socket_fdinfo>.size)
             guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size,
                   info.psi.soi_kind == Int32(SOCKINFO_TCP) else { return nil }
             let tcp = info.psi.soi_proto.pri_tcp
-            guard tcp.tcpsi_state == TSI_S_ESTABLISHED else { return nil }
+            guard tcp.tcpsi_state == state else { return nil }
             let ini = tcp.tcpsi_ini
             let v6 = ini.insi_vflag & UInt8(INI_IPV6) != 0
             guard let local = endpoint(v4: ini.insi_laddr.ina_46.i46a_addr4, v6: ini.insi_laddr.ina_6,
                                        port: ini.insi_lport, isV6: v6),
                   let remote = endpoint(v4: ini.insi_faddr.ina_46.i46a_addr4, v6: ini.insi_faddr.ina_6,
                                         port: ini.insi_fport, isV6: v6) else { return nil }
-            return TCPSocket(local: local, remote: remote)
+            return (local, remote)
         }
     }
 
@@ -158,6 +168,14 @@ extension SessionHost {
             String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
         }
         return path.hasPrefix("/") ? path : nil
+    }
+
+    /// The path with every link resolved (`realpath`); `nil` when it names
+    /// nothing. A folder is the same one whichever way it was reached.
+    static func realPath(_ path: String) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard Darwin.realpath(path, &buffer) != nil else { return nil }
+        return String(cString: buffer)
     }
 
     /// Whether the process has a controlling terminal (`e_tdev` is not

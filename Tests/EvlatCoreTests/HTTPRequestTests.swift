@@ -66,12 +66,14 @@ final class HTTPRequestTests: XCTestCase {
             HOST: 127.0.0.1:48151\r
             oRiGiN: https://example.com\r
             x-evlat-pid: 7747\r
+            X-EVLAT-SERVICE-PID: 900\r
             \r
 
             """)))
         XCTAssertEqual(request.host, "127.0.0.1:48151")
         XCTAssertEqual(request.origin, "https://example.com")
         XCTAssertEqual(request.pid, "7747")
+        XCTAssertEqual(request.servicePid, "900")
     }
 
     /// An empty `X-Evlat-*` value counts as absent. The installed command sends
@@ -79,9 +81,11 @@ final class HTTPRequestTests: XCTestCase {
     /// sessions — the server has to read that as "no task", not as a task named
     /// "".
     func testEmptyEvlatHeadersCountAsAbsent() throws {
-        let request = try XCTUnwrap(HTTPRequest.parse(raw("POST /hook HTTP/1.1\r\nX-Evlat-Task:\r\nX-Evlat-Pid: \r\n\r\n")))
+        let request = try XCTUnwrap(HTTPRequest.parse(raw(
+            "POST /hook HTTP/1.1\r\nX-Evlat-Task:\r\nX-Evlat-Pid: \r\nX-Evlat-Service-Pid:\r\n\r\n")))
         XCTAssertNil(request.taskID)
         XCTAssertNil(request.pid)
+        XCTAssertNil(request.servicePid)
     }
 
     /// Nothing can be decided before the blank line arrives.

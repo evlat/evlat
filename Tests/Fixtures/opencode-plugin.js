@@ -447,7 +447,10 @@ const shared = (globalThis[Symbol.for("evlat.opencode.plugin")] ??= {
   inflight: new Map(), repliers: [],
 });
 
-// Resolves { status, text } when Evlat answered, else null; never rejects.
+// Resolves { status, text } when Evlat answered, else null; never rejects. The
+// process's pid goes with an event: the agent's own where this process is its
+// (`options.pid` true), the service's where it is shared by many terminals
+// (`false`); a post that says nothing of it (the bridge) sends none.
 function post(route, body, options) {
   return new Promise((resolve) => {
     let done = false;
@@ -457,6 +460,7 @@ function post(route, body, options) {
       const data = Buffer.from(JSON.stringify(body));
       const headers = { Host: HOST, "Content-Type": "application/json", "Content-Length": data.length };
       if (options.pid) headers["X-Evlat-Pid"] = String(process.pid);
+      else if (options.pid === false) headers["X-Evlat-Service-Pid"] = String(process.pid);
       const req = request({ socketPath: (process.env.HOME || homedir()) + "/" + SOCKET, path: route, method: "POST", headers }, (res) => {
         responded = true;
         const chunks = [];
@@ -564,7 +568,8 @@ async function server(input) {
 }
 
 // 2.x: the pid is the agent's only when it runs for one TUI (`--standalone`
-// starts `serve --stdio`); the shared service belongs to no terminal.
+// starts `serve --stdio`); the shared service belongs to no terminal, and its
+// pid goes as the service's.
 async function setup(ctx) {
   try {
     if (shared.server || !ctx || !ctx.event || typeof ctx.event.subscribe !== "function") return;

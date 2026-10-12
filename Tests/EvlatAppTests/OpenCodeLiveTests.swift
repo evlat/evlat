@@ -535,14 +535,19 @@ private final class World {
     }
 
     /// 1.x and the desktop send the pid of the process the plugin runs in,
-    /// which is the server; 2.x's shared service sends none, and its row has
-    /// no terminal to open (`Signal.Activity.pid`).
+    /// which is the server; 2.x's shared service sends none of the agent's
+    /// own, since it belongs to no terminal, and says its own as the
+    /// service's (`Signal.Activity.pid`, `servicePid`).
     func checkProcessAndVersion() {
         let pidSaid = row?.activity?.pid
+        let serviceSaid = row?.activity?.servicePid
         if driver.isSharedService {
             XCTAssertNil(pidSaid, "[\(target.name)] the shared service belongs to no terminal")
+            XCTAssertNotNil(serviceSaid, "[\(target.name)] and says which process it is")
+            XCTAssertEqual(serviceSaid, pid, "[\(target.name)] the service's pid is the process the plugin runs in")
         } else {
             XCTAssertEqual(pidSaid, pid, "[\(target.name)] the pid is the process the plugin runs in")
+            XCTAssertNil(serviceSaid, "[\(target.name)] no service is shared here")
         }
         XCTAssertNotNil(versionHeard, "[\(target.name)] a version was said")
         XCTAssertTrue(OpenCode().hasMeasured(version: versionHeard), "[\(target.name)] \(versionHeard ?? "nil")")
@@ -715,7 +720,14 @@ private final class ServiceDriver: Driver {
     private unowned let world: World
     private let binary: String
 
-    var serverPID: Int32 { 0 }
+    /// The service's own record in the test's home: the process the plugin
+    /// runs in, and what the row's liveness hangs on.
+    var serverPID: Int32 {
+        let record = world.home.appendingPathComponent(".local/state/opencode/service.json")
+        guard let data = try? Data(contentsOf: record),
+              let pid = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["pid"] as? Int else { return 0 }
+        return Int32(pid)
+    }
     let isSharedService = true
 
     init(world: World, binary: String) throws {
@@ -734,11 +746,7 @@ private final class ServiceDriver: Driver {
     func stopServer() {
         _ = world.run(binary, ["service", "stop"], timeout: 20)
         // Whatever is left of it, by the pid it wrote in the test's own home.
-        let record = world.home.appendingPathComponent(".local/state/opencode/service.json")
-        if let data = try? Data(contentsOf: record),
-           let pid = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["pid"] as? Int, pid > 1 {
-            kill(Int32(pid), SIGTERM)
-        }
+        if serverPID > 1 { kill(serverPID, SIGTERM) }
     }
 
     func createSession(in directory: URL) -> String? {

@@ -95,11 +95,19 @@ final class OpenCodePluginTests: XCTestCase {
 
     /// The pid header is the agent's own only where the plugin runs in the
     /// agent's process for one terminal: 1.x's `server`, and 2.x `--stdio`.
+    /// Anywhere else — the shared service, a mode not measured — the process
+    /// is the service's, and says so under a header of its own; a post that
+    /// says nothing of it (the held permission) sends neither.
     func testItSendsThePidOnlyWhereTheProcessIsTheAgents() {
         let text = OpenCodePlugin.file.contents
         XCTAssertTrue(text.contains("line: 1, pid: true"))
         XCTAssertTrue(text.contains("process.argv.includes(\"--stdio\")"))
         XCTAssertTrue(text.contains("if (shared.server || !ctx || !ctx.event"), "1.x calls setup too, with no events")
+        XCTAssertTrue(text.contains("if (options.pid) headers[\"X-Evlat-Pid\"] = String(process.pid);"))
+        XCTAssertTrue(text.contains("else if (options.pid === false) headers[\"X-Evlat-Service-Pid\"] = String(process.pid);"))
+        XCTAssertEqual(text.components(separatedBy: "String(process.pid)").count - 1, 2, "no other place sends it")
+        XCTAssertTrue(text.contains("post(APPROVAL_ROUTE, bridge.body, { timeout: BRIDGE_TIMEOUT_MS, held })"),
+                      "the held permission names no process")
     }
 
     // MARK: - Which events are dropped

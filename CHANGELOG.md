@@ -19,7 +19,10 @@ renames that heading to its version.
   `opencode run`, the desktop app, the 2.0 background service — shows as a
   row that works, waits, finishes or fails, with a subagent's wait on its
   parent's row. Evlat says on the card when your OpenCode is a version it
-  was not tested with (1.18, 1.19 and 2.0 were). A file of yours at that
+  was not tested with (1.18, 1.19 and 2.0 were). In 2.0's background service
+  a row lasts as long as the service does, and **Go to session** finds the
+  tab by the folder the session runs in: with two tabs in one folder it
+  brings the terminal forward and you pick the tab. A file of yours at that
   path is left alone. If you stored a list of agents before, OpenCode starts
   switched off: turn it on in Settings → This Mac.
 - **OpenCode asks on the bar.** When an OpenCode session waits for a

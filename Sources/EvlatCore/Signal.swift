@@ -248,6 +248,12 @@ public struct Signal: Equatable {
         /// The agent's process, for finding its terminal. A file record knows
         /// it even when no hook has spoken yet.
         public var pid: Int32?
+        /// The service the session runs in when many terminals share it
+        /// (`HookEvent.servicePid`): with no pid of its own, its liveness
+        /// and — through the clients connected to it — its tab are read from
+        /// here. Never walked up from, as `sandboxName` is not: the service
+        /// belongs to no terminal. `nil` for every other row.
+        public var servicePid: Int32?
         /// The most recent tool the turn started, whoever in it started it.
         public var lastTool: Tool?
         /// The tool the user is being asked about. Taken from the event that
@@ -273,11 +279,12 @@ public struct Signal: Equatable {
         /// session's is told by start; `nil` when Evlat did not hear it.
         public var sessionStartedAt: Date?
 
-        public init(pid: Int32? = nil, lastTool: Tool? = nil, blockingTool: Tool? = nil,
+        public init(pid: Int32? = nil, servicePid: Int32? = nil, lastTool: Tool? = nil, blockingTool: Tool? = nil,
                     waitKind: WaitKind? = nil, lastReply: String? = nil,
                     toolCount: Int? = nil, countIsPartial: Bool = false,
                     sandboxName: String? = nil, sessionStartedAt: Date? = nil) {
             self.pid = pid
+            self.servicePid = servicePid
             self.sandboxName = sandboxName
             self.sessionStartedAt = sessionStartedAt
             self.lastTool = lastTool

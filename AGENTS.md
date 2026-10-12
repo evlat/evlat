@@ -191,6 +191,16 @@ which agent it is:
 | `evlat` | chat jobs | the chat bubble's turns, on any chat backend (`ChatsProvider`); a backend that answered with another version than the one measured is in its `diagnostics` and in Settings → Chat | official |
 | `signal` | external jobs | `POST /signal` on a socket, no key; sent by `Evlat watch` / `Evlat signal` | manual |
 
+A session in a service many terminals share (OpenCode 2.0's background
+service) has no pid of its own: its plugin sends the service's, as
+`X-Evlat-Service-Pid`, under `X-Evlat-Pid`'s rule — stamped by this Mac's
+listener only, deleted from every other and from a body
+(`HookEvent.servicePidKey`). The row lives and dies with that process
+(`HooksProvider`: the session's pid, else the service's) and follows a
+restarted service to its new one; `Signal.Activity.servicePid` is never
+walked up from, since the service belongs to no terminal. Its
+[Go to session] is inferred from the service's clients (`ServiceClients`).
+
 An agent can be switched off (Settings → This Mac, its card's switch; the
 setup's first step, whose Connect switches off the tiles left unchecked).
 The set is `agents.enabled` (`EnabledAgents`): nothing stored is the agents
@@ -386,10 +396,10 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   terminal gives its shells a tab link, opens the tab itself — which
   terminals, how a session is found locally, on a server and in a Docker
   sandbox, and why, is the doc of `SessionHost`, `TabLink`, `Ssh`,
-  `RemoteHost` and `Sandbox`. Nothing on the way asks for a permission. The
-  processes Evlat runs for it, and no others: the tmux server's own `tmux`
-  to find a local pane (fixed arguments, checked values, no shell, a
-  command that only reads); the running Bateri's `bateri focus` for the
+  `RemoteHost`, `Sandbox` and `ServiceClients`. Nothing on the way asks for
+  a permission. The processes Evlat runs for it, and no others: the tmux
+  server's own `tmux` to find a local pane (fixed arguments, checked
+  values, no shell, a command that only reads); the running Bateri's `bateri focus` for the
   news (`TabFocus`; it only reads); a read-only `sh` script over a
   machine's live tunnel master only (`RemoteHost`; its one change is
   herdr's `agent focus` at the click). Setting sandboxes up is the one place
@@ -620,7 +630,9 @@ fixture `Tests/Fixtures/opencode-plugin.js`, refreshed with
 and 2.x skips CommonJS silently), only **listen** (a hook that fires before a
 tool and throws refuses the tool; no `console`, no `$`) — besides carrying a
 permission to the card and its answer back (above) — give every request its
-own timeout and catch every failure. What it posts to `/hook/opencode` —
+own timeout and catch every failure. It sends `X-Evlat-Pid` only where it
+runs in the agent's own process for one terminal (1.x, 2.x `--stdio`) and
+`X-Evlat-Service-Pid` anywhere else. What it posts to `/hook/opencode` —
 OpenCode's own event names with the fields the plugin pulled out — keeps
 reading under a plugin of an older version still loaded (a 2.x service keeps
 the module it started with until it restarts), and `OpenCodeHookAdapter` is
@@ -837,6 +849,17 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   (`BATERI_TAB_URL`, or any other variable, measured). Inside, nothing
   says which client a session belongs to; the `sbx` client on this Mac,
   not Apple-signed, has its tab in its environment.
+- **OpenCode 2.0's shared service names no client.** Its plugin runs in a
+  service every TUI connects to, so there is no terminal to walk up from:
+  `GET /api/session/active` is empty for an idle session, `tabs.json` holds
+  no pid, and a local file plugin gets no TUI part. What is readable is the
+  TUI processes (the service's program, with a terminal), each holding one
+  (2.0.22) or three (2.0.27) connections to the port the service listens
+  on, each with the folder it was started in as its working directory — a
+  subfolder included; the service's own connections out are not that port.
+  Three TUIs in two folders and a subfolder were each found that way
+  (2.0.27, isolated service); two in one folder cannot be told apart, so
+  `ServiceClients` gives the app alone for them, and the news never asks.
 - **A sandbox's hook to a closed Evlat fails at once.** Through the
   sandbox's proxy: a port in the sandbox's rule with nothing listening is
   `500` in ~10 ms, one outside the rule `403` in ~8 ms; no 2 s wait per

@@ -7,7 +7,8 @@ import Foundation
 /// lives in `EvlatApp`.
 ///
 /// Only these headers are read, and each has a job: `X-Evlat-Task` and
-/// `X-Evlat-Pid` are what the installed hook command sends, `Origin` and `Host`
+/// `X-Evlat-Pid` are what the installed hook command sends, `X-Evlat-Service-Pid`
+/// what an agent's plugin sends from a service of its own, `Origin` and `Host`
 /// are what tell a browser apart from a `curl` (`LocalAPI.dispatch`),
 /// `X-Evlat-Permission` is the token a chat's own permission hook carries
 /// (`ChatRequest.tokenHeader`), `X-Evlat-Askpass` the token an `ssh` askpass helper
@@ -23,6 +24,11 @@ public struct HTTPRequest: Equatable {
     /// `X-Evlat-Pid`: the agent process that sent it. Validated in `HookEvent`,
     /// where it is read; here it is only text off the wire.
     public let pid: String?
+    /// `X-Evlat-Service-Pid`: the process of a service many terminals share,
+    /// for an agent whose plugin runs there and so has no pid of its own to
+    /// send. Text off the wire, validated in `HookEvent`, and believed by the
+    /// same listeners as `X-Evlat-Pid` (`LocalAPI.Origin.trustsProcess`).
+    public let servicePid: String?
     /// `Origin`: only a browser sends it. An **empty value still counts** —
     /// the line being there is the mark.
     public let origin: String?
@@ -46,7 +52,7 @@ public struct HTTPRequest: Equatable {
     public let sandboxName: String?
 
     public init(method: String, target: String, body: Data = Data(),
-                taskID: String? = nil, pid: String? = nil,
+                taskID: String? = nil, pid: String? = nil, servicePid: String? = nil,
                 origin: String? = nil, host: String? = nil, permissionToken: String? = nil,
                 event: String? = nil, askpassToken: String? = nil,
                 sandboxName: String? = nil) {
@@ -55,6 +61,7 @@ public struct HTTPRequest: Equatable {
         self.body = body
         self.taskID = taskID
         self.pid = pid
+        self.servicePid = servicePid
         self.origin = origin
         self.host = host
         self.permissionToken = permissionToken
@@ -90,6 +97,7 @@ public struct HTTPRequest: Equatable {
         var contentLength = 0
         var taskID: String?
         var pid: String?
+        var servicePid: String?
         var origin: String?
         var host: String?
         var permissionToken: String?
@@ -111,6 +119,7 @@ public struct HTTPRequest: Equatable {
             case "content-length": contentLength = max(0, Int(value) ?? 0)
             case "x-evlat-task": taskID = value.isEmpty ? nil : value
             case "x-evlat-pid": pid = value.isEmpty ? nil : value
+            case "x-evlat-service-pid": servicePid = value.isEmpty ? nil : value
             case "origin": origin = value
             case "host": host = value
             case "x-evlat-permission": permissionToken = value.isEmpty ? nil : value
@@ -127,7 +136,7 @@ public struct HTTPRequest: Equatable {
                            // Exactly the announced length: whatever follows
                            // belongs to the next request on the connection.
                            body: data.subdata(in: bodyStart..<(bodyStart + contentLength)),
-                           taskID: taskID, pid: pid, origin: origin, host: host,
+                           taskID: taskID, pid: pid, servicePid: servicePid, origin: origin, host: host,
                            permissionToken: permissionToken, event: event,
                            askpassToken: askpassToken, sandboxName: sandboxName)
     }
