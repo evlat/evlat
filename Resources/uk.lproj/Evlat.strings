@@ -24,6 +24,7 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
+"source.opencode" = "OpenCode";
 "setup.manual.remove.antigravity" = "Щоб видалити, приберіть запис «evlat».";
 "card.tools.one" = "1 інструмент";
 "card.tools" = "Інструментів: {count}";
@@ -369,6 +370,7 @@
 "setup.agent.removeUsage" = "Видалити рядок використання";
 "setup.agent.usageModified" = "Ваш рядок використання змінено вручну; Evlat залишає його як є.";
 "setup.agent.ownedForeign" = "Там уже лежить ваш файл; Evlat залишає його як є.";
+"setup.agent.version" = "Версія {name} — {version}; Evlat перевіряли з {measured}.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Вимкнено: його сесії, використання й схвалення не показуються.";
 "setup.agent.turnOff.title" = "Вимкнути {agent}?";

@@ -34,7 +34,8 @@ Tests/EvlatCoreTests/
 Tests/EvlatAgentsTests/ the agents' tests, the installed contracts' golden strings among them
 Tests/EvlatAppTests/
 Tests/Fixtures/      fake `claude`, fake `codex app-server`, fake `ssh`, fake `sbx`,
-                     fake `bateri`
+                     fake `bateri`, fake OpenCode model, the OpenCode plugin's
+                     golden bytes and the wire it was recorded sending
 Resources/<lang>.lproj/Evlat.strings
 docs/media/          README's banner and screenshots; not bundled into the app
 scripts/bundle-app.sh   builds build/Evlat.app; the only source of Info.plist and
@@ -74,7 +75,8 @@ Two layers, one hard seam, and the agents beside the core. In one sentence:
            │                │  EvlatAgents             │
            │                │  (Foundation + core)     │
            │                │  Claude/ Codex/          │
-           │                │  Antigravity/ · catalog  │
+           │                │  Antigravity/ OpenCode/  │
+           │                │  · catalog               │
            │                └──────────┬───────────────┘
 ┌──────────┴───────────────────────────┴───────────────┐
 │  EvlatCore  (Foundation + Dispatch only)             │
@@ -181,7 +183,7 @@ which agent it is:
 
 | provider | role | source | fidelity |
 |---|---|---|---|
-| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) flow into the **same** provider (each agent's `HookChannel`: `Codex/CodexHookAdapter`, `Antigravity/AntigravityHooks`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
+| `hooks` | backbone | the HTTP hook server; Claude Code, Codex and Antigravity (app, IDE, `agy`) and OpenCode (a plugin file of Evlat's own, `OpenCodePlugin`) flow into the **same** provider (each agent's `HookChannel`: `Codex/CodexHookAdapter`, `Antigravity/AntigravityHooks`, `OpenCode/OpenCodeHookAdapter`). Antigravity has no permission or notification event, so its rows never go `waiting` | official |
 | `claude-sessions` | supplement | `~/.claude/sessions/*.json` + pid liveness: discovery, name, pid (`Claude/SessionsProvider`, the agent's `providers`) | derived |
 | `claude-usage` | usage | `POST /usage/claude`, relayed from Claude Code's status line; only `rate_limits` is kept (`StatusLineUsageProvider`; id, group, fidelity and the windows read are the agent's `StatusLineUsage`) | official |
 | `antigravity-usage` | usage | `POST /usage/antigravity`, relayed from the Antigravity CLI's status line (`~/.gemini/antigravity-cli/settings.json`); only `quota`'s `gemini-5h`/`gemini-weekly` are drawn, as the "Gemini" group. Same provider type as Claude's (`StatusLineUsageProvider(source:)`); the format is undocumented | derived |
@@ -593,6 +595,26 @@ was given, so they are pinned (`SandboxInstallTests`, the argv in
 `SandboxInstallPlanTests`). The port is fixed (`LocalAPI.defaultPort + 1`):
 it is written into every sandbox.
 
+What Evlat writes into OpenCode's plugin folder (`OpenCodePlugin`, the
+catalog's `OpenCode.integration`) is the fifth installed contract: one file
+of Evlat's own at `~/.config/opencode/plugins/evlat.js`, written whole with no
+backup (`OwnedFile`: marker and version on its first two lines; a file at the
+path without the marker is the user's, never written or deleted), generated
+from Swift constants and pinned byte for byte (`OpenCodePluginTests`; its
+fixture `Tests/Fixtures/opencode-plugin.js`, refreshed with
+`EVLAT_UPDATE_GOLDEN=1`). It must stay an ESM `.js` (an `.mjs` is not loaded
+and 2.x skips CommonJS silently), only **listen** (a hook that fires before a
+tool and throws refuses the tool; no `console`, no `$`), give every request
+its own timeout and catch every failure. What it posts to `/hook/opencode` —
+OpenCode's own event names with the fields the plugin pulled out — keeps
+reading under a plugin of an older version still loaded (a 2.x service keeps
+the module it started with until it restarts), and `OpenCodeHookAdapter` is
+the one place that says what the words mean. It was measured on 1.18.34,
+1.19.0, 2.0.22, 2.0.27 and the desktop app's server module
+(`make test-opencode`); a version outside `Agent.measuredVersions` is said on
+the card. An `XDG_CONFIG_HOME` set in a shell moves the folder OpenCode scans,
+and Evlat cannot know it.
+
 The website documents these contracts for users: `../evlat-landing/docs-src`
 (the `evlat` command, `/signal`, remote servers, your own mascot and
 `evlat mascot`) and
@@ -622,6 +644,10 @@ rule, and only while "Watch sandboxes" is on (above); no file of the user's
 on this Mac. The rule is kept on this Mac by the `sbx` daemon, not by Evlat:
 `sbx policy rm` takes it out when the switch goes off for a running
 sandbox, and it goes with the sandbox when the sandbox is deleted.
+OpenCode's plugin folder holds one file of Evlat's, marked, and the rest is
+OpenCode's: 1.x writes its own `package.json`, `package-lock.json`,
+`node_modules` and `.gitignore` into `~/.config/opencode` on its first start
+and 2.x keeps its `service.json` there; Evlat reads and writes none of them.
 The masters' sockets (`$TMPDIR/evlat`, `0700`) are Evlat's own; a stale one
 is cleared, a live one — another process's master — is left alone.
 
@@ -635,6 +661,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
+| the OpenCode plugin against real OpenCodes | `make test-opencode OPENCODE="<binary> …" [OPENCODE_DESKTOP=/Applications/OpenCode.app]` — homes of its own behind a fake model, nothing of the user's OpenCode touched; needs the network once and `python3` |
 | a full bar to look at | `scripts/demo.sh [left\|right]` — an isolated Evlat filled with every kind of row (its header says which); `scripts/demo.sh stop` ends it all |
 | window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
@@ -700,6 +727,8 @@ own.
 | `EVLAT_MASCOT_PACING` | `continuous` takes the clips' waits out, for the in-clip leg of a measurement (`MascotPacing`) |
 | `EVLAT_FEED` | the appcast to check; the only way an isolated launch gets an updater (a release bundle otherwise checks its `SUFeedURL`, a development bundle nothing) |
 | `EVLAT_TEST_DESKTOP=1` | tests only: windows go on the real desktop instead of offstage (`WindowStage`); `make test-desktop` |
+| `OPENCODE`, `OPENCODE_DESKTOP` | tests only: the OpenCode binaries (space-separated) and the desktop app `make test-opencode` runs; unset, `OpenCodeLiveTests` is skipped |
+| `EVLAT_UPDATE_GOLDEN=1` | tests only: rewrites the OpenCode plugin's golden fixture from the generator |
 
 Run the binary directly for these — `open` does not carry the environment.
 
@@ -818,6 +847,19 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   `modified` and `codex exec` ran no hook and said nothing (codex-cli
   0.160.0, a temporary `CODEX_HOME`, measured). The TUI's `/hooks` trusts
   it again; what the TUI shows on its own was not measured.
+- **OpenCode's plugin runs in the agent's process, and what it says is read
+  as Claude's vocabulary would be.** Evlat reads any step of the main actor
+  as the answer to a wait (`HooksProvider.mayApply`), so the plugin holds its
+  steps back while a dialog of the session is up — 1.x says a question
+  before its tool is running, and a reply with two tool calls asks twice — and
+  lifts the wait on the last answer; a step told after the turn ended would
+  put a finished row back to `working`, so the plugin tracks the turn.
+  2.x boots one plugin instance per folder, every one receiving every event
+  (the same `id`), and misses the first `session.created` of a new folder;
+  the shared 2.x service belongs to no terminal, so its pid is never sent
+  (1.x's `server` and a `--standalone` child, whose argv has `--stdio`, send
+  it). The desktop app's server module answers `/global/health` before its
+  authenticated routes do: a harness waits on one of those.
 
 - **A `URL` keeps the resource values it read once.** A picture rewritten
   in place read its old size and date through `resourceValues` on the same

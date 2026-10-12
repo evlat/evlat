@@ -13,7 +13,7 @@ import XCTest
 /// count is exact both ways: a new mention fails, and so does a removed one,
 /// so the list never outlives what it excuses.
 final class BoundaryTests: XCTestCase {
-    private static let agentNames = ["claude", "codex", "antigravity", "gemini"]
+    private static let agentNames = ["claude", "codex", "antigravity", "gemini", "opencode"]
 
     /// The shared sources, relative to `Sources`.
     private static let shared = ["EvlatCore", "EvlatApp"]

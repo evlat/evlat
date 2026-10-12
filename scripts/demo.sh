@@ -1,7 +1,7 @@
 #!/bin/sh
 # A full bar to look at: an isolated Evlat (its own socket, home, sessions and
 # chats; the user's Evlat and files untouched) filled with every kind of row —
-# local sessions in each phase, worktrees of one repository, Codex, three
+# local sessions in each phase, worktrees of one repository, Codex, OpenCode, three
 # remote machines through the fake ssh, Docker sandboxes, outside jobs and
 # usage windows. Approvals and questions, local and on a server, are held, so
 # their cards draw their buttons (a press answers only the demo's own request);
@@ -52,11 +52,12 @@ fi
 stop
 [ "$BUILD" = 1 ] && (cd "$ROOT" && swift build >/dev/null)
 mkdir -p "$DIR/home/.claude" "$DIR/home/.codex/sessions" "$DIR/home/.gemini/antigravity-cli" \
+         "$DIR/home/.config/opencode" \
          "$DIR/sessions" "$DIR/chats"
 
 # Stand-ins for the agents' processes: a session record lives as long as its
 # pid does and the process started when the record says.
-for _ in 1 2 3 4 5 6 7 8 9; do
+for _ in 1 2 3 4 5 6 7 8 9 10; do
     sleep 86400 </dev/null >/dev/null 2>&1 &
     echo $! >> "$DIR/agents.pid"
 done

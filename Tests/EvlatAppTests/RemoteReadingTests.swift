@@ -339,7 +339,7 @@ final class RemoteReadingTests: XCTestCase {
         try seed(.claude, existing, in: first)
         try seed(.codex, "{}", in: first)
         installAutomatically(first)
-        let script = RemoteSettings.readingScript(nonce: "N0NCE", agents: Agents.all)
+        let script = RemoteSettings.readingScript(nonce: "N0NCE", agents: Agents.served)
         for shell in shells {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: shell)
@@ -359,7 +359,7 @@ final class RemoteReadingTests: XCTestCase {
             XCTAssertEqual(process.terminationStatus, 0, shell)
         }
         XCTAssertEqual(Set(outputs.values).count, 1, "the same bytes under \(shells)")
-        let reading = try RemoteSettings.reading(exitCode: 0, output: try XCTUnwrap(outputs["/bin/dash"]), nonce: "N0NCE", agents: Agents.all.ids)
+        let reading = try RemoteSettings.reading(exitCode: 0, output: try XCTUnwrap(outputs["/bin/dash"]), nonce: "N0NCE", agents: Agents.served.ids)
         XCTAssertEqual(reading.hooks(.claude), .state(.current))
     }
 

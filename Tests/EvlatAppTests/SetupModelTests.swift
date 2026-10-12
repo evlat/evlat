@@ -64,9 +64,9 @@ final class SetupModelTests: XCTestCase {
         let controller = try controller(home: home)
         defer { controller.panel?.close() }
         let model = model(controller)
-        XCTAssertEqual(model.rows.map(\.item), [.agent(.claude), .agent(.codex), .agent(.antigravity),
+        XCTAssertEqual(model.rows.map(\.item), [.agent(.claude), .agent(.codex), .agent(.antigravity), .agent(.opencode),
                                                 .commandLink, .loginItem], "every agent in the catalogue has a card")
-        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .notFound, .missing, .missing])
+        XCTAssertEqual(model.rows.map(\.status), [.missing, .missing, .notFound, .notFound, .missing, .missing])
         XCTAssertEqual(model.row(.loginItem)?.note, "Opens \(root.path)/this/Evlat.app")
         try AgentIntegration.install(home: home, for: .claude)
         XCTAssertEqual(model.row(.agent(.claude))?.status, .missing, "nothing cached, nothing read unasked")
@@ -267,6 +267,102 @@ final class SetupModelTests: XCTestCase {
         controller.setAgent(.claude, installed: true)
         controller.setCommandLink(installed: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".claude/settings.json").path))
+    }
+
+
+    // MARK: - OpenCode: a unit that is a file of Evlat's own
+
+    private var pluginFile: URL { home.appendingPathComponent(OpenCodePlugin.path) }
+
+    private func makeOpenCodeHome() throws {
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".config/opencode"),
+                                                withIntermediateDirectories: true)
+    }
+
+    func testOpenCodesCardIsOneFileOfEvlatsOwn() throws {
+        let app = try controller(home: home)
+        defer { app.panel?.close() }
+        let setup = model(app)
+        XCTAssertEqual(setup.row(.agent(.opencode))?.status, .notFound, "not on this Mac: dim, nothing to press")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".config").path),
+                       "an agent that is not here gets no folder")
+
+        try makeOpenCodeHome()
+        setup.check()
+        let row = try XCTUnwrap(setup.row(.agent(.opencode)))
+        XCTAssertEqual(row.status, .missing)
+        XCTAssertEqual(row.detail, "~/.config/opencode/plugins/evlat.js")
+        XCTAssertEqual(row.parts.map(\.name), ["Evlat's file"])
+        XCTAssertEqual(row.parts.map(\.file), ["~/.config/opencode/plugins/evlat.js"])
+        XCTAssertEqual(setup.consent(.agent(.opencode), .install),
+                       ["~/.config/opencode/plugins/evlat.js · Evlat's own file, written whole; no backup"])
+
+        setup.perform(.agent(.opencode))
+        XCTAssertEqual(try String(contentsOf: pluginFile, encoding: .utf8), OpenCodePlugin.file.contents)
+        XCTAssertEqual(setup.row(.agent(.opencode))?.status, .installed)
+        XCTAssertEqual(setup.consent(.agent(.opencode), .remove), ["~/.config/opencode/plugins/evlat.js · Evlat's own file removed"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: Claude().hooksFile(home: home)!.path), "no other agent's file moves")
+
+        // Out of date: the press and the opening check bring it up.
+        let old = OpenCodePlugin.file.contents.replacingOccurrences(of: "// version \(OpenCodePlugin.version)\n", with: "// version 0\n")
+        try old.write(to: pluginFile, atomically: true, encoding: .utf8)
+        setup.check()
+        XCTAssertEqual(setup.row(.agent(.opencode))?.status, .outdated)
+        setup.perform(.agent(.opencode))
+        XCTAssertEqual(try String(contentsOf: pluginFile, encoding: .utf8), OpenCodePlugin.file.contents)
+
+        // Removed: the one marked file, and the folder and its neighbours stay.
+        let neighbour = pluginFile.deletingLastPathComponent().appendingPathComponent("mine.js")
+        try "x".write(to: neighbour, atomically: true, encoding: .utf8)
+        setup.perform(.agent(.opencode))
+        XCTAssertEqual(setup.row(.agent(.opencode))?.status, .missing)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: neighbour.path))
+    }
+
+    /// A file of the user's at the path is theirs, whatever it holds.
+    func testAFileOfTheUsersAtThePluginsPathIsLeftAlone() throws {
+        try makeOpenCodeHome()
+        try FileManager.default.createDirectory(at: pluginFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let theirs = "export default { id: \"mine\" }\n"
+        try theirs.write(to: pluginFile, atomically: true, encoding: .utf8)
+        let app = try controller(home: home)
+        defer { app.panel?.close() }
+        let setup = model(app)
+        let row = try XCTUnwrap(setup.row(.agent(.opencode)))
+        XCTAssertEqual(row.status, .foreign)
+        XCTAssertNil(row.action, "nothing to press")
+        XCTAssertEqual(row.note, "A file of yours is already there; Evlat leaves it as it is.")
+        setup.perform(.agent(.opencode))
+        XCTAssertEqual(try String(contentsOf: pluginFile, encoding: .utf8), theirs)
+    }
+
+    func testTheManualBlockIsThePluginsBytesAndWhereToSaveThem() throws {
+        try makeOpenCodeHome()
+        let app = try controller(home: home)
+        defer { app.panel?.close() }
+        let manual = try XCTUnwrap(model(app).manual(.agent(.opencode)))
+        XCTAssertEqual(manual.text, OpenCodePlugin.file.contents)
+        XCTAssertEqual(manual.lead, "Save this as ~/.config/opencode/plugins/evlat.js:")
+        XCTAssertEqual(manual.removal, "To remove, delete that file.")
+        XCTAssertNil(manual.statusLine)
+    }
+
+    /// A version outside the lines it was measured on is a line of its own
+    /// under the card; one inside, and one never said, are none.
+    func testAnAgentSaysWhenItsVersionIsNotOneEvlatWasTestedWith() throws {
+        try makeOpenCodeHome()
+        let app = try controller(home: home)
+        defer { app.panel?.close() }
+        func note(_ version: String?) -> String? {
+            model(app) { $0.agentVersion = { $0 == .opencode ? version : nil } }.row(.agent(.opencode))?.note
+        }
+        XCTAssertNil(note(nil))
+        XCTAssertNil(note("1.19.0"))
+        XCTAssertNil(note("2.0.27"))
+        XCTAssertEqual(note("1.20.1"), "OpenCode is 1.20.1; Evlat was tested with 1.18, 1.19, 2.0.")
+        XCTAssertNil(model(app) { $0.agentVersion = { _ in "9.9.9" } }.row(.agent(.claude))?.note,
+                     "an agent measured on no lines has none")
     }
 
     /// The block to paste is what the writers write into an empty file:

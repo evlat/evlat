@@ -56,7 +56,7 @@ final class SetupViewTests: XCTestCase {
     private func flow(_ place: Place, step: SetupFlowModel.Step, covered: Bool = true, language: String = "en") throws
         -> SetupFlowModel {
         let fresh = root.appendingPathComponent("\(UUID().uuidString)", isDirectory: true)
-        let dirs: [String] = place == .empty ? [] : [".claude", ".codex", ".gemini/antigravity-cli"]
+        let dirs: [String] = place == .empty ? [] : [".claude", ".codex", ".gemini/antigravity-cli", ".config/opencode"]
         for directory in dirs {
             try FileManager.default.createDirectory(at: fresh.appendingPathComponent(directory),
                                                     withIntermediateDirectories: true)

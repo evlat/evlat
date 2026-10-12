@@ -245,14 +245,17 @@ private struct AgentsStep: View {
             } else {
                 StepTitle(text: model.t(model.reopened ? "setup.flow.agents.title.again" : "setup.flow.agents.title"))
                 StepText(text: introduction)
-                // Three to a row; a fourth agent starts the next one.
+                // Three to a row, and four still in one: the frame is fixed,
+                // and a second row of tiles would not fit it. A fifth would
+                // start the next row.
+                let perRow = tiles.count == 4 ? 4 : 3
                 VStack(spacing: 12) {
-                    ForEach(Array(stride(from: 0, to: tiles.count, by: 3)), id: \.self) { start in
-                        HStack(spacing: 12) {
-                            ForEach(0..<3, id: \.self) { column in
+                    ForEach(Array(stride(from: 0, to: tiles.count, by: perRow)), id: \.self) { start in
+                        HStack(spacing: perRow == 4 ? 8 : 12) {
+                            ForEach(0..<perRow, id: \.self) { column in
                                 if start + column < tiles.count {
                                     let tile = tiles[start + column]
-                                    AgentTile(tile: tile) { model.setQueued(tile.item, !tile.selected) }
+                                    AgentTile(tile: tile, narrow: perRow == 4) { model.setQueued(tile.item, !tile.selected) }
                                 } else {
                                     Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
                                 }
@@ -300,6 +303,8 @@ private struct AgentsStep: View {
 /// done and takes no press.
 private struct AgentTile: View {
     let tile: SetupFlowModel.Tile
+    /// Four to a row: the name keeps the room a wider tile's padding takes.
+    var narrow = false
     let action: () -> Void
 
     var body: some View {
@@ -327,7 +332,7 @@ private struct AgentTile: View {
                 .minimumScaleFactor(0.8)
                 .padding(.top, -5)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, narrow ? 2 : 6)
         .frame(maxWidth: .infinity)
         .frame(height: 120)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -377,7 +382,9 @@ private struct ConnectedStep: View {
         VStack(alignment: .leading, spacing: 0) {
             StepTitle(text: model.t(allHeard ? "setup.flow.connected.title.heard" : "setup.flow.connected.title"))
             StepText(text: model.t(allHeard ? "setup.flow.connected.text.heard" : "setup.flow.connected.text"))
-            VStack(alignment: .leading, spacing: 18) {
+            // A fourth agent's line takes the room the others' gaps had.
+            let crowded = model.listening.count > 3
+            VStack(alignment: .leading, spacing: crowded ? 8 : 18) {
                 ForEach(model.listening) { row in
                     HStack(spacing: 14) {
                         SetupRing(source: row.source, look: row.heard ? .heard : .turning, size: 34, still: still)
@@ -395,7 +402,7 @@ private struct ConnectedStep: View {
                     .accessibilityElement(children: .combine)
                 }
             }
-            .padding(.top, 26)
+            .padding(.top, crowded ? 18 : 26)
             Spacer(minLength: 0)
         }
     }

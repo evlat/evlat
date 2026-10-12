@@ -1,4 +1,4 @@
-.PHONY: build test test-desktop all bundle run install release publish ship clean
+.PHONY: build test test-desktop test-opencode all bundle run install release publish ship clean
 
 build:
 	swift build
@@ -15,6 +15,17 @@ test:
 # and not while typing elsewhere.
 test-desktop:
 	EVLAT_TEST_DESKTOP=1 swift test --filter EvlatAppTests
+
+# The OpenCode plugin against real OpenCodes, behind a fake model, in homes of
+# their own (`OpenCodeLiveTests`): one binary per version, 2.x or 1.x, and the
+# desktop app's server module if its path is given. Needs the network once
+# (a model adapter OpenCode installs into a cache of its own) and python3.
+#
+#   make test-opencode OPENCODE="/path/opencode-1.19.0 /path/opencode-2.0.27" \
+#                      OPENCODE_DESKTOP=/Applications/OpenCode.app
+test-opencode:
+	@[ -n "$(OPENCODE)$(OPENCODE_DESKTOP)" ] || { echo "OPENCODE (binaries) or OPENCODE_DESKTOP (the app) names what to run"; exit 2; }
+	OPENCODE="$(OPENCODE)" OPENCODE_DESKTOP="$(OPENCODE_DESKTOP)" swift test --filter EvlatAppTests.OpenCodeLiveTests
 
 all: build test
 

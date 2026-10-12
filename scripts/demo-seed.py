@@ -215,6 +215,13 @@ hook(SOCKET, "codex", pids[4], {"hook_event_name": "UserPromptSubmit", **codex})
 hook(SOCKET, "codex", pids[4], {"hook_event_name": "PreToolUse", "tool_name": "Bash",
                               "tool_input": {"command": "cargo build --release --target aarch64-apple-darwin"}, **codex})
 
+# An OpenCode session, in the words its plugin posts (`OpenCodePlugin`).
+opencode = {"session": "ses_demo0opencode000000000", "directory": "/Users/demo/Projects/api-gateway",
+            "opencode_version": "1.19.0", "line": 1, "plugin_version": 1}
+hook(SOCKET, "opencode", pids[9], {"event": "session.status", "status": "busy", **opencode})
+hook(SOCKET, "opencode", pids[9], {"event": "message.part.updated", "status": "running", "tool": "bash",
+                                   "call": "call_demo", "input": {"command": "go test ./... -run Gateway"}, **opencode})
+
 # Remote machines, each on its own listener — its channel's end, a socket —
 # as their channels would bring them.
 log = open(os.path.join(D, "evlat.log")).read()

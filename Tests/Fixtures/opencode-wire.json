@@ -1,0 +1,1259 @@
+[
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122a1e7001v4yHdhJ1WnNxGJ",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_13122a31c001FygN8N7imCiCGG",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV",
+    "status": "busy"
+   },
+   {
+    "call": "call_478b7181",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122a8d10015wJumPF8jsWFEe",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-probe",
+     "id": "per_13122a901001xfwi7acvaya3Sl",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122a901002DsBEykhb3LoJpW",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122ae80001rpCIW3EhEzhFIe",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV"
+   },
+   {
+    "call": "call_478b7181",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122ae9a001ID6haTDpDiyF3U",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV",
+    "status": "completed",
+    "tool": "bash"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.idle",
+    "id": "evt_13122b064001mBuj2RvYa1RuvD",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd5e19ffeUqsCXr1O2WOgeV"
+   }
+  ],
+  "name": "1.19.0 bash, allowed"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122c2d9001TlHjmKUYe1XfZO",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_13122c407001Jo5CqtVgoZCn9m",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ",
+    "status": "busy"
+   },
+   {
+    "call": "call_cf444005",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122c98a001Gphmx4wKDf1iEj",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-probe",
+     "id": "per_13122c99f001EMNLtdO0d778FW",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122c99f002GVdNWLNJugpX7j",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122cf58001vTiL3gxAOAAMYO",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "reply": "reject",
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ"
+   },
+   {
+    "call": "call_cf444005",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122cf5b0011834XEpyJTKLi0",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ",
+    "status": "error",
+    "tool": "bash"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.idle",
+    "id": "evt_13122cfeb001Rnbev0c8mhNcV7",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd3d27ffeiDH6QXFNE5YXyZ"
+   }
+  ],
+  "name": "1.19.0 bash, rejected"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122e3d7002EjYRsjy7qoSIb3",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_13122e51f001vADaizYV4TTfuK",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN",
+    "status": "busy"
+   },
+   {
+    "call": "call_a4e0de1",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122ea61001wvSYSLXlXJq7Un",
+    "input": {
+     "command": "echo evlat-one",
+     "description": "First"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "call": "call_be396b9",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122ea67001r2rJh2PrXOvI5f",
+    "input": {
+     "command": "echo evlat-two",
+     "description": "Second"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-one",
+     "id": "per_13122ea7b001kBL7SEWdCVpDZ5",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-one"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122ea7b002R2aze0fP4vZnxn",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-two",
+     "id": "per_13122ea7c001B8VI3S2Ek1VD1O",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-two"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122ea7c0028z6UOKhJJ9N6Qm",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122f0a9001QvP6b5DchdOr34",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN"
+   },
+   {
+    "call": "call_be396b9",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_13122f0b8001XNeAxxcjhkPAs2",
+    "input": {
+     "command": "echo evlat-two",
+     "description": "Second"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN",
+    "status": "completed",
+    "tool": "bash"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.idle",
+    "id": "evt_13122f2760010Q1ADSwL2q3O9a",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedd1c28ffeVVcNQi27SZxikN"
+   }
+  ],
+  "name": "1.19.0 two permissions at once"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_131230523002i1rfb9TtCp8JFJ",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcfadcffeFF9YVOYFHLQiCN"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_13123067d001fNhVq8X4BCfxzs",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcfadcffeFF9YVOYFHLQiCN",
+    "status": "busy"
+   },
+   {
+    "call": "call_0fb7f728",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_131230bd8001Jg6j5iX6AJmWoU",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcfadcffeFF9YVOYFHLQiCN",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-probe",
+     "id": "per_131230bef0015ZUU0Hh3HOF0Gi",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_131230bf0001gagoPuWSRJJGUh",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcfadcffeFF9YVOYFHLQiCN"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "error": "MessageAbortedError",
+    "event": "session.error",
+    "id": "evt_1312311b6001rZzMPIrGSdUiMO",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcfadcffeFF9YVOYFHLQiCN"
+   }
+  ],
+  "name": "1.19.0 abort with a permission open"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_131232808002HToE0pR3MZkN5T",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_131232a16001nkvj94m6lpknaP",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx",
+    "status": "busy"
+   },
+   {
+    "call": "call_540a19f1",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_1312330d90012MIZnHeqTeZblf",
+    "input": {
+     "description": "Probe subagent"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx",
+    "status": "running",
+    "tool": "task"
+   },
+   {
+    "call": "call_907d9775",
+    "child": "ses_ecedccf2affeYIdPUlLPhXyTut",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_131233145001DuEDP0ym4MpkwH",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-probe",
+     "id": "per_13123315e001aNNQsn0IcLb8xK",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "child": "ses_ecedccf2affeYIdPUlLPhXyTut",
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13123315f001V41YO6t5Jn9BwX",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx"
+   },
+   {
+    "child": "ses_ecedccf2affeYIdPUlLPhXyTut",
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_131233700001ICio3QzsduftLl",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx"
+   },
+   {
+    "call": "call_907d9775",
+    "child": "ses_ecedccf2affeYIdPUlLPhXyTut",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_131233710001mBuKYxgRaVJlSm",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx",
+    "status": "completed",
+    "tool": "bash"
+   },
+   {
+    "call": "call_540a19f1",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_1312339160019ivBoV7QFk4MtT",
+    "input": {
+     "description": "Probe subagent"
+    },
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx",
+    "status": "completed",
+    "tool": "task"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.idle",
+    "id": "evt_131233afa0013Ng1nCixPdH5wb",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcd7f7ffexrEGWCr51TDLVx"
+   }
+  ],
+  "name": "1.19.0 subagent asks"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_131234b9b001S0V2n4ZFARzw09",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcb465ffehx5ipvu4K5p5tQ"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_131234d870014Z35fkofhfmsvr",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcb465ffehx5ipvu4K5p5tQ",
+    "status": "busy"
+   },
+   {
+    "ask": {
+     "id": "que_131235508001cTMUXz7soMlA4N",
+     "kind": "question",
+     "patterns": [],
+     "questions": [
+      {
+       "header": "Colour",
+       "options": [
+        {
+         "description": "warm",
+         "label": "Red"
+        },
+        {
+         "description": "cool",
+         "label": "Blue"
+        }
+       ],
+       "question": "Which colour?"
+      }
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "question.asked",
+    "id": "evt_131235508002PNLXnEm51Il7B6",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedcb465ffehx5ipvu4K5p5tQ"
+   }
+  ],
+  "name": "1.19.0 question"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13123f313001Zg9hqleSD34gv9",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedc0cedffeZK6Y3xTCf0Xg4c"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_13123f441001lPnDyxRaxDP55U",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedc0cedffeZK6Y3xTCf0Xg4c",
+    "status": "busy"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "error": "APIError",
+    "event": "session.error",
+    "id": "evt_13123faca001XwJM3E7KUF5gDf",
+    "line": 1,
+    "opencode_version": "1.19.0",
+    "plugin_version": 1,
+    "session": "ses_ecedc0cedffeZK6Y3xTCf0Xg4c"
+   }
+  ],
+  "name": "1.19.0 provider error"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_1312408d0001O13L5uU38i41Ab",
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.status",
+    "id": "evt_131240a81001KnaK26xs8NC6tQ",
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB",
+    "status": "busy"
+   },
+   {
+    "call": "call_177334ed",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_131241045001uYDRh6Txsp0WTd",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB",
+    "status": "running",
+    "tool": "bash"
+   },
+   {
+    "ask": {
+     "command": "echo evlat-probe",
+     "id": "per_131241073001q5SjMbUB0942s7",
+     "kind": "bash",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_131241073002WdrlbeoKE3HiOw",
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_1312416a3001sOdFycBJQpwL6j",
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB"
+   },
+   {
+    "call": "call_177334ed",
+    "directory": "/Users/demo/Projects/app",
+    "event": "message.part.updated",
+    "id": "evt_1312416b4001VOZf2yg1DzMQQy",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB",
+    "status": "completed",
+    "tool": "bash"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.idle",
+    "id": "evt_131241884001HJJq4xzqCt1Y1o",
+    "line": 1,
+    "opencode_version": "1.18.34",
+    "plugin_version": 1,
+    "session": "ses_ecedbf730ffeslg7O2yts3jfhB"
+   }
+  ],
+  "name": "1.18.34 bash, allowed"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122a6d0001mKNtEaWVf4mMS1",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_13122a72c001ykU7HzOPcZJ91P",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L"
+   },
+   {
+    "call": "call_79bca7d3",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122a741001teuHuvoqWr1M0a",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L",
+    "tool": "shell"
+   },
+   {
+    "ask": {
+     "id": "per_13122a750001LU7vyon7LCNyL1",
+     "kind": "shell",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122a750002gZJov78kFnECSo",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122ae9a001LUqqY3XgiEmlSC",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L"
+   },
+   {
+    "call": "call_79bca7d3",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.success",
+    "id": "evt_13122aea6001Kj2wiyiTO4cHBA",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L",
+    "tool": "shell"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.succeeded",
+    "id": "evt_13122aec1002ja6kQ4eB32B2SN",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd5967ffe30mEaDnKpXDX0L"
+   }
+  ],
+  "name": "2.0.27 bash, allowed"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122b742001lQimNEa0pMoji8",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_13122b7ab001ZfqJzjm0f2Drb7",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg"
+   },
+   {
+    "call": "call_bed98577",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122b7bf001QSf2W93OIfMLYM",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg",
+    "tool": "shell"
+   },
+   {
+    "ask": {
+     "id": "per_13122b7c3001Xw9exAIBB8lA4E",
+     "kind": "shell",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122b7c3002bc5EDgGF5Xezyn",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122bf38001tZ4sLjQU1ujGuH",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "reply": "reject",
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg"
+   },
+   {
+    "call": "call_bed98577",
+    "directory": "/Users/demo/Projects/app",
+    "error": "aborted",
+    "event": "session.tool.failed",
+    "id": "evt_13122bf39001sHHg75f8HpycsJ",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg",
+    "tool": "shell"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.interrupted",
+    "id": "evt_13122bf3c002jeAzDmU7Qc1Xjx",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd48f2ffek6ZP1NQnfTMybg"
+   }
+  ],
+  "name": "2.0.27 bash, rejected"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122c5bd001bmqPn0Z5vTXCl0",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_13122c613001gWfDqgcQYzykJP",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY"
+   },
+   {
+    "call": "call_a355c07",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122c62c001ofZ9wvgNxkgwFs",
+    "input": {
+     "command": "echo evlat-one",
+     "description": "First"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY",
+    "tool": "shell"
+   },
+   {
+    "call": "call_be1dae2",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122c62e001Ao1bt7ZN1qzVyV",
+    "input": {
+     "command": "echo evlat-two",
+     "description": "Second"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY",
+    "tool": "shell"
+   },
+   {
+    "ask": {
+     "id": "per_13122c632001rOA29hVtcfxIRj",
+     "kind": "shell",
+     "patterns": [
+      "echo evlat-one"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122c632002zM5ajJwXglwcUz",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY"
+   },
+   {
+    "ask": {
+     "id": "per_13122c633001KfMrKXRCAvTVOU",
+     "kind": "shell",
+     "patterns": [
+      "echo evlat-two"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122c633002XI9orunI91gj19",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122cde60017qQHfOEwF7bFGe",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY"
+   },
+   {
+    "call": "call_be1dae2",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.success",
+    "id": "evt_13122cded001obx5K3i22u55HK",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY",
+    "tool": "shell"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.succeeded",
+    "id": "evt_13122ce00002aigUnw5BowP5Dk",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd3a7fffeRX2dhc3mo8ROLY"
+   }
+  ],
+  "name": "2.0.27 two permissions at once"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122d687001H0iobkm4FCjKaX",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd29afffefISFjT7tsqvacY"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_13122d6f10010135H5Bop6MJTy",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd29afffefISFjT7tsqvacY"
+   },
+   {
+    "call": "call_509d280e",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122d703002o9SqzxtjwU4tQy",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd29afffefISFjT7tsqvacY",
+    "tool": "shell"
+   },
+   {
+    "ask": {
+     "id": "per_13122d707001CzbeBPETF2vDYR",
+     "kind": "shell",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122d707002qD4fpfm61KhZ3R",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd29afffefISFjT7tsqvacY"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.interrupted",
+    "id": "evt_13122dea0001YFRaNeKeKS7Azp",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd29afffefISFjT7tsqvacY"
+   }
+  ],
+  "name": "2.0.27 interrupt with a permission open"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122e545001sxavLQgEE0UGvA",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_13122e59c001YbFxHHYldqK4ge",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl"
+   },
+   {
+    "call": "call_62cecdaf",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122e5b1002Q144x6trMOJxz6",
+    "input": {
+     "description": "Probe subagent"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl",
+    "tool": "subagent"
+   },
+   {
+    "call": "call_3530547d",
+    "child": "ses_ecedd1a49ffeY1yVOsME2ctHMv",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122e5ff0011tqCWEnppUSe37",
+    "input": {
+     "command": "echo evlat-probe",
+     "description": "Echo a probe line"
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl",
+    "tool": "shell"
+   },
+   {
+    "ask": {
+     "id": "per_13122e60100128ENSpfdub3ENA",
+     "kind": "shell",
+     "patterns": [
+      "echo evlat-probe"
+     ]
+    },
+    "child": "ses_ecedd1a49ffeY1yVOsME2ctHMv",
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.asked",
+    "id": "evt_13122e601002julwpqCifHbK0h",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl"
+   },
+   {
+    "child": "ses_ecedd1a49ffeY1yVOsME2ctHMv",
+    "directory": "/Users/demo/Projects/app",
+    "event": "permission.replied",
+    "id": "evt_13122ecf4001Gc1yIfGm8VM5Ki",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "reply": "once",
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl"
+   },
+   {
+    "call": "call_3530547d",
+    "child": "ses_ecedd1a49ffeY1yVOsME2ctHMv",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.success",
+    "id": "evt_13122ed00002c73KWpzZFn9usT",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl",
+    "tool": "shell"
+   },
+   {
+    "call": "call_62cecdaf",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.success",
+    "id": "evt_13122ed12001hwVbzrFwJRd7qp",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl",
+    "tool": "subagent"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.succeeded",
+    "id": "evt_13122ed22001bZNbCpRS9l1Vmv",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd1b02ffe1r11JthB2sY7nl"
+   }
+  ],
+  "name": "2.0.27 subagent asks"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13122f5a9001uipyHxeE3Sdc5H",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd0a97ffeAFzupGQsifJBKH"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_13122f602001bIOBw8JpuD87cx",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd0a97ffeAFzupGQsifJBKH"
+   },
+   {
+    "call": "call_6d36fa1d",
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.tool.called",
+    "id": "evt_13122f615002a6KbNVSAHBz3RG",
+    "input": {
+     "questions": [
+      {
+       "header": "Colour",
+       "options": [
+        {
+         "description": "warm",
+         "label": "Red"
+        },
+        {
+         "description": "cool",
+         "label": "Blue"
+        }
+       ],
+       "question": "Which colour?"
+      }
+     ]
+    },
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd0a97ffeAFzupGQsifJBKH",
+    "tool": "question"
+   },
+   {
+    "ask": {
+     "id": "frm_13122f61a001FQIUq57HLANtFI",
+     "kind": "question",
+     "patterns": [],
+     "questions": [
+      {
+       "header": "Colour",
+       "options": [
+        {
+         "description": "warm",
+         "label": "Red"
+        },
+        {
+         "description": "cool",
+         "label": "Blue"
+        }
+       ],
+       "question": "Which colour?"
+      }
+     ]
+    },
+    "directory": "/Users/demo/Projects/app",
+    "event": "form.created",
+    "id": "evt_13122f61a002DoKjv1UvTcoxZ5",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedd0a97ffeAFzupGQsifJBKH"
+   }
+  ],
+  "name": "2.0.27 question"
+ },
+ {
+  "bodies": [
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.created",
+    "id": "evt_13123387e001uE740vR8vq3qEa",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedcc7baffeRy9hevKVRUrOI4"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "event": "session.execution.started",
+    "id": "evt_1312338dd001ftjUvqMiSXiTT8",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedcc7baffeRy9hevKVRUrOI4"
+   },
+   {
+    "directory": "/Users/demo/Projects/app",
+    "error": "provider.invalid-request",
+    "event": "session.execution.failed",
+    "id": "evt_1312338f6001IFcYyb3bH1CMmC",
+    "line": 2,
+    "opencode_version": "2.0.27",
+    "plugin_version": 1,
+    "session": "ses_ecedcc7baffeRy9hevKVRUrOI4"
+   }
+  ],
+  "name": "2.0.27 provider error"
+ }
+]

@@ -7,7 +7,7 @@ import EvlatCore
 public enum Agents {
     /// In the catalogue's order: the order settings list them and the order
     /// a stored switch is written in (`EnabledAgents`).
-    public static let all: [any Agent] = [Claude(), Codex(), Antigravity()]
+    public static let all: [any Agent] = [Claude(), Codex(), Antigravity(), OpenCode()]
 
     /// The agents a server's unit covers, in the catalogue's order
     /// (`RemoteSettings.serves`): the ones whose hooks are a settings file.

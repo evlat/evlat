@@ -81,9 +81,10 @@ final class AgentCatalogTests: XCTestCase {
                        "/h/" + records.directory)
         XCTAssertNil(Agents.all[id: AgentID("codex")]?.sessionRecords)
         XCTAssertNil(Agents.all[id: AgentID("antigravity")]?.sessionRecords)
+        XCTAssertNil(Agents.all[id: AgentID("opencode")]?.sessionRecords)
     }
 
     func testTheIdsAreTheStoredWords() {
-        XCTAssertEqual(Agents.all.ids.map(\.rawValue), ["claude", "codex", "antigravity"])
+        XCTAssertEqual(Agents.all.ids.map(\.rawValue), ["claude", "codex", "antigravity", "opencode"])
     }
 }

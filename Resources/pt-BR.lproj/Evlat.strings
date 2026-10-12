@@ -25,6 +25,7 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
+"source.opencode" = "OpenCode";
 "setup.manual.remove.antigravity" = "Para remover, apague a entrada \"evlat\".";
 "card.tools.one" = "1 ferramenta";
 "card.tools" = "{count} ferramentas";
@@ -370,6 +371,7 @@
 "setup.agent.removeUsage" = "Remover a linha de uso";
 "setup.agent.usageModified" = "Sua linha de uso foi editada à mão; o Evlat a deixa como está.";
 "setup.agent.ownedForeign" = "Já existe um arquivo seu ali; o Evlat o deixa como está.";
+"setup.agent.version" = "{name} é {version}; o Evlat foi testado com {measured}.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Desativado: as sessões, o uso e as aprovações dele não aparecem.";
 "setup.agent.turnOff.title" = "Desativar {agent}?";

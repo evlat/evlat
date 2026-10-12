@@ -8,11 +8,13 @@ import EvlatCore
 extension Agent where Self == Claude { static var claude: Claude { Claude() } }
 extension Agent where Self == Codex { static var codex: Codex { Codex() } }
 extension Agent where Self == Antigravity { static var antigravity: Antigravity { Antigravity() } }
+extension Agent where Self == OpenCode { static var opencode: OpenCode { OpenCode() } }
 
 extension AgentID {
     static let claude = Claude().id
     static let codex = Codex().id
     static let antigravity = Antigravity().id
+    static let opencode = OpenCode().id
 }
 
 extension HookEvent {

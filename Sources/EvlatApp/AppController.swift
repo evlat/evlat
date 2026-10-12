@@ -3088,6 +3088,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                 }
             },
             isEnabled: { [weak self] in self?.enabledAgents.contains($0) ?? true },
+            agentVersion: { [weak self] in self?.hooks.agentVersion(of: $0) },
             setEnabled: { [weak self] in self?.setEnabled($0, $1) },
             setAgent: { [weak self] source, installed in self?.setAgent(source, installed: installed) },
             removeUsageRelay: { [weak self] in self?.removeUsageRelay($0) },

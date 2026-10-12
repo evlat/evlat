@@ -66,6 +66,10 @@ public struct HookEvent: Equatable {
     /// `source` on `SessionStart`: `startup`, `resume`, `clear` or `compact`.
     /// Only `startup` is a session beginning.
     public let startSource: String?
+    /// `agent_version`: the version of the agent that sent the event, when
+    /// its channel says it. Only heard (`HooksProvider.agentVersion`), never
+    /// a rule.
+    public let agentVersion: String?
 
     /// Where a tool's subject is looked for, in order. One list rather than a
     /// table per tool: the keys already say what they hold, and a tool this
@@ -88,6 +92,10 @@ public struct HookEvent: Equatable {
     /// The key under which a sandbox's listener writes `X-Evlat-Sandbox`
     /// (`LocalAPI.Origin.sandbox`).
     public static let sandboxKey = "evlat_sandbox"
+
+    /// The longest agent version kept: a version is a few words, and the
+    /// line it is drawn on is one.
+    public static let versionLimit = 32
 
     /// The longest sandbox name kept.
     public static let sandboxNameLimit = 64
@@ -120,6 +128,7 @@ public struct HookEvent: Equatable {
         lastReply = Self.replyPreview(json["last_assistant_message"] as? String)
         sandboxName = Self.text(json[Self.sandboxKey]).flatMap { Self.isSandboxName($0) ? $0 : nil }
         startSource = Self.text(json["source"])
+        agentVersion = Self.text(json["agent_version"]).flatMap { $0.utf8.count <= Self.versionLimit ? $0 : nil }
         // The pid arrives as text, because the header it comes from is text.
         // Anything that is not a plausible process is ignored: a session's
         // whereabouts are resolved by walking up from this pid, and `1`

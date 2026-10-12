@@ -11,6 +11,18 @@ Markdown; keep it to a few bullets.
 Work that lands on `main` adds its bullet under `## Unreleased`; the release
 renames that heading to its version.
 
+## Unreleased
+
+- **OpenCode sessions on the bar.** Settings → This Mac has an OpenCode
+  card: one press puts a small plugin file of Evlat's own at
+  `~/.config/opencode/plugins/evlat.js`, and every session — the terminal,
+  `opencode run`, the desktop app, the 2.0 background service — shows as a
+  row that works, waits, finishes or fails, with a subagent's wait on its
+  parent's row. Evlat says on the card when your OpenCode is a version it
+  was not tested with (1.18, 1.19 and 2.0 were). A file of yours at that
+  path is left alone. If you stored a list of agents before, OpenCode starts
+  switched off: turn it on in Settings → This Mac.
+
 ## 0.2.3
 
 - **Update your hooks once after this update.** Evlat now listens only on

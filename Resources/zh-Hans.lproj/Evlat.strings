@@ -24,6 +24,7 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
+"source.opencode" = "OpenCode";
 "setup.manual.remove.antigravity" = "如需移除，请删除“evlat”条目。";
 "card.tools.one" = "1 个工具";
 "card.tools" = "{count} 个工具";
@@ -369,6 +370,7 @@
 "setup.agent.removeUsage" = "移除用量行";
 "setup.agent.usageModified" = "你的用量行被手动编辑过；Evlat 会保持原样。";
 "setup.agent.ownedForeign" = "那里已经有你的文件；Evlat 不会改动它。";
+"setup.agent.version" = "{name} 是 {version}；Evlat 用 {measured} 测试过。";
 "setup.agent.failure" = "{part}：{reason}";
 "setup.agent.off" = "已关闭：不显示它的会话、用量和批准请求。";
 "setup.agent.turnOff.title" = "关闭 {agent}？";

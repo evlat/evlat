@@ -242,6 +242,8 @@ final class SetupModel: ObservableObject {
 
         /// An agent's switch, read and written (`AppController.setEnabled`).
         var isEnabled: (AgentID) -> Bool = { _ in true }
+        /// The version an agent last said on this Mac (`HooksProvider`).
+        var agentVersion: (AgentID) -> String? = { _ in nil }
         var setEnabled: (AgentID, Bool) -> Void = { _, _ in }
         /// An agent's parts installed (or updated) or removed, as one.
         var setAgent: (AgentID, Bool) -> Void
@@ -397,6 +399,14 @@ final class SetupModel: ObservableObject {
             note = L10n.t("setup.agent.usageModified", in: lang)
         }
         if state.foreign { note = L10n.t("setup.agent.ownedForeign", in: lang) }
+        // A version outside the lines it was measured on is a line of its
+        // own, as the sandboxes' is: what the bar shows may be off.
+        if let version = host.agentVersion(source), !source.agent.hasMeasured(version: version) {
+            let line = L10n.t("setup.agent.version",
+                              ["name": L10n.t(source.agent.display.nameKey, in: lang), "version": version,
+                               "measured": source.agent.measuredVersions.joined(separator: ", ")], in: lang)
+            note = note.map { $0 + "\n" + line } ?? line
+        }
         let status: SetupStatus
         switch state.status {
         case .current: status = .installed

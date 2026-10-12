@@ -24,6 +24,7 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
+"source.opencode" = "OpenCode";
 "setup.manual.remove.antigravity" = "Kaldırmak için \"evlat\" girdisini sil.";
 "card.tools.one" = "1 araç";
 "card.tools" = "{count} araç";
@@ -378,6 +379,7 @@
 "setup.agent.removeUsage" = "Kullanım satırını kaldır";
 "setup.agent.usageModified" = "Kullanım satırın elle değiştirilmiş; Evlat ona dokunmaz.";
 "setup.agent.ownedForeign" = "Orada sana ait bir dosya zaten var; Evlat ona dokunmaz.";
+"setup.agent.version" = "{name} {version} sürümünde; Evlat {measured} ile denendi.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Kapalı: oturumları, kullanımı ve onayları gösterilmez.";
 "setup.agent.turnOff.title" = "{agent} kapatılsın mı?";

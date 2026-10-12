@@ -40,6 +40,7 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
+"source.opencode" = "OpenCode";
 "setup.manual.remove.antigravity" = "To remove, delete the \"evlat\" entry.";
 /* The card's footer: tools started in this turn. A count that began mid-turn
    is shown with a leading "~". */
@@ -442,6 +443,9 @@
 "setup.agent.removeUsage" = "Remove the usage line";
 "setup.agent.usageModified" = "Your usage line was edited by hand; Evlat leaves it as it is.";
 "setup.agent.ownedForeign" = "A file of yours is already there; Evlat leaves it as it is.";
+/* An agent's card, when the version it said is not on a line Evlat was tested with:
+   {name} is the agent, {measured} the tested lines. */
+"setup.agent.version" = "{name} is {version}; Evlat was tested with {measured}.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "Off: its sessions, usage and approvals are not shown.";
 "setup.agent.turnOff.title" = "Turn off {agent}?";

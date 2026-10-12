@@ -24,6 +24,7 @@
 "source.claude" = "Claude Code";
 "source.codex" = "Codex";
 "source.antigravity" = "Antigravity";
+"source.opencode" = "OpenCode";
 "setup.manual.remove.antigravity" = "제거하려면 \"evlat\" 항목을 삭제하세요.";
 "card.tools.one" = "도구 1개";
 "card.tools" = "도구 {count}개";
@@ -369,6 +370,7 @@
 "setup.agent.removeUsage" = "사용량 라인 제거";
 "setup.agent.usageModified" = "사용량 라인이 직접 편집되었습니다. Evlat은 그대로 둡니다.";
 "setup.agent.ownedForeign" = "이미 내 파일이 있습니다. Evlat은 그대로 둡니다.";
+"setup.agent.version" = "{name}은(는) {version}입니다. Evlat은 {measured}에서 테스트했습니다.";
 "setup.agent.failure" = "{part}: {reason}";
 "setup.agent.off" = "끔: 세션, 사용량, 승인이 표시되지 않습니다.";
 "setup.agent.turnOff.title" = "{agent}을(를) 끌까요?";

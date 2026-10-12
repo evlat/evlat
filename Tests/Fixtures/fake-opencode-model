@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""A fake OpenAI-compatible chat model, for the live OpenCode tests (`make test-opencode`).
+It never reaches a real model; OpenCode is pointed at it by a config in the test's home.
+
+usage: fake-opencode-model [PORT]     (0 or none: any free port; the line `port N` is printed)
+
+The script is chosen by the last user prompt:
+  "bash"     a shell tool call, then text once the tool result comes back
+  "lsx"      a shell call named for 2.x (`shell`) only
+  "editx"    an edit call
+  "two"      two shell calls in one reply (two permissions a millisecond apart)
+  "question" a question tool call, then text
+  "task"     a subagent call; the subagent itself gets a shell call
+  "slow"     text streamed over ~20 s
+  "fail"     HTTP 500 (OpenCode retries)
+  "bad"      HTTP 400 (the turn fails)
+  anything else: plain text
+A request that offers no tools (a title, a summary) gets a short text.
+"""
+import json, os, sys, time, uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+
+
+def text_of(msg):
+    c = msg.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return " ".join(p.get("text", "") for p in c if isinstance(p, dict))
+    return ""
+
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def chunk(self, delta, finish=None):
+        obj = {"id": "c", "object": "chat.completion.chunk", "created": int(time.time()), "model": "m1",
+               "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+        self.wfile.write(b"data: " + json.dumps(obj).encode() + b"\n\n")
+        self.wfile.flush()
+
+    def tool(self, name, args):
+        self.chunk({"role": "assistant", "tool_calls": [{"index": 0, "id": "call_" + uuid.uuid4().hex[:8],
+                     "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]})
+        self.chunk({}, "tool_calls")
+
+    def text(self, s, delay=0.0):
+        self.chunk({"role": "assistant", "content": ""})
+        for w in s.split(" "):
+            self.chunk({"content": w + " "})
+            if delay:
+                time.sleep(delay)
+        self.chunk({}, "stop")
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"data":[{"id":"m1","object":"model"}]}')
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        msgs = body.get("messages", [])
+        tools = [t.get("function", {}).get("name") for t in body.get("tools", []) or []]
+        last = msgs[-1] if msgs else {}
+        users = [m for m in msgs if m.get("role") == "user"]
+        prompt = text_of(users[-1]).lower() if users else ""
+        if body.get("tools") and os.environ.get("FAKE_DUMP"):
+            open(os.environ["FAKE_DUMP"], "w").write(json.dumps(body["tools"]))
+        if os.environ.get("FAKE_LOG"):
+            sys.stderr.write(json.dumps({"t": time.time(), "path": self.path, "n": len(msgs), "last": last.get("role"),
+                                         "tools": tools, "prompt": prompt[:60]}) + "\n")
+            sys.stderr.flush()
+        if "bad" in prompt and tools:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b'{"error":{"message":"fake bad request","type":"invalid_request_error"}}')
+            return
+        if "fail" in prompt and tools:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b'{"error":{"message":"fake failure"}}')
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        if not tools:
+            self.text("Probe title")
+        elif last.get("role") == "tool":
+            self.text("Done. The probe finished its work.")
+        elif "question" in prompt and "question" in tools:
+            self.tool("question", {"questions": [{"question": "Which colour?", "header": "Colour",
+                                                  "options": [{"label": "Red", "description": "warm"},
+                                                              {"label": "Blue", "description": "cool"}]}]})
+        elif "task" in prompt and "subagent" in tools and len(users) <= 1 and "run bash please" not in prompt:
+            self.tool("subagent", json.loads(os.environ.get("FAKE_SUBAGENT_ARGS", '{"description": "Probe subagent", "prompt": "run bash please", "agent": "general"}')))
+        elif "task" in prompt and "task" in tools:
+            self.tool("task", {"description": "Probe subagent", "prompt": "run bash please",
+                               "subagent_type": "general"})
+        elif "lsx" in prompt and "shell" in tools:
+            self.tool("shell", {"command": "ls -la /tmp", "description": "List tmp"})
+        elif "editx" in prompt and "edit" in tools:
+            v2 = "shell" in tools
+            self.tool("edit", {("path" if v2 else "filePath"): "README.md", "oldString": "hi", "newString": "hello"})
+        elif "two" in prompt and ("bash" in tools or "shell" in tools):
+            name = "bash" if "bash" in tools else "shell"
+            self.chunk({"role": "assistant", "tool_calls": [
+                {"index": 0, "id": "call_a" + uuid.uuid4().hex[:6], "type": "function",
+                 "function": {"name": name, "arguments": json.dumps({"command": "echo evlat-one", "description": "First"})}},
+                {"index": 1, "id": "call_b" + uuid.uuid4().hex[:6], "type": "function",
+                 "function": {"name": name, "arguments": json.dumps({"command": "echo evlat-two", "description": "Second"})}}]})
+            self.chunk({}, "tool_calls")
+        elif "auto" in prompt and ("bash" in tools or "shell" in tools):
+            self.tool("bash" if "bash" in tools else "shell", {"command": "echo evlat-probe-auto-7f3a", "description": "Echo an auto line"})
+        elif "bash" in prompt and ("bash" in tools or "shell" in tools):
+            self.tool("bash" if "bash" in tools else "shell", {"command": "echo evlat-probe", "description": "Echo a probe line"})
+        elif "slow" in prompt:
+            self.text(" ".join(["word"] * 40), delay=0.5)
+        else:
+            self.text("Hello from the fake model.")
+        self.wfile.write(b"data: [DONE]\n\n")
+
+
+server = ThreadingHTTPServer(("127.0.0.1", PORT), H)
+print("port", server.server_address[1], flush=True)
+server.serve_forever()

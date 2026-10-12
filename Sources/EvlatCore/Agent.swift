@@ -52,6 +52,12 @@ public protocol Agent {
     /// pets — one folder each, a `pet.json` beside a picture sheet — which
     /// the shell offers as mascots; `nil` when it keeps none.
     var pets: String? { get }
+    /// The version lines it was measured on (`"2.0"` covers 2.0.22 and
+    /// 2.0.27): a version heard outside them is said on its card, since an
+    /// agent whose events this build reads without a published contract may
+    /// change them between versions. Empty: the agent says no version, or
+    /// its contract is documented.
+    var measuredVersions: [String] { get }
     /// The agent's own providers beside its hooks: what it reads from its
     /// own files. Registered while the agent is switched on.
     func providers(_ context: ProviderContext) -> [Provider]
@@ -63,6 +69,17 @@ extension Agent {
     public var sessionRecords: SessionRecords? { nil }
 
     public var pets: String? { nil }
+
+    public var measuredVersions: [String] { [] }
+
+    /// Whether a version the agent said is on one of the lines it was
+    /// measured on: the line itself, or a release of it (`2.0` and
+    /// `2.0.27`, not `2.01`). `nil` is no version said, which is not
+    /// outside anything.
+    public func hasMeasured(version: String?) -> Bool {
+        guard let version, !measuredVersions.isEmpty else { return true }
+        return measuredVersions.contains { version == $0 || version.hasPrefix($0 + ".") }
+    }
 
     /// Whether the agent is on this Mac: one of its `presence` directories.
     public func isPresent(home: URL) -> Bool {

@@ -67,6 +67,8 @@ public final class HooksProvider: Provider {
     /// with a machine's `SignalsProvider`). Given from outside (`setLink`)
     /// because the tunnel is the shell's; the clock is still `platform.now()`.
     private var link = LinkClock()
+    /// The version each agent last said on this Mac (`HookEvent.agentVersion`).
+    private var versions: [AgentID: String] = [:]
 
     /// `machine` makes this the provider for one remote computer: its rows
     /// are namespaced, carry no pid and are live only while the machine can
@@ -98,6 +100,10 @@ public final class HooksProvider: Provider {
         }
         link.setLink(connected: connected, at: now)
     }
+
+    /// The version `source` last said, or `nil` when none has. A machine's
+    /// agents say theirs to the machine's own instance, not to this Mac's.
+    public func agentVersion(of source: AgentID) -> String? { versions[source] }
 
     /// The sandbox `name` stopped or was deleted: its sessions go now. A
     /// sandbox's rows have no pid to outlive, and a stopped VM sends no
