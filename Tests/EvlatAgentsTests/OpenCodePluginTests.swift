@@ -63,11 +63,14 @@ final class OpenCodePluginTests: XCTestCase {
             XCTAssertFalse(text.contains(printing), printing)
         }
         XCTAssertEqual(text.components(separatedBy: "request({").count - 1, 1, "one place posts")
-        XCTAssertTrue(text.contains("req.setTimeout(TIMEOUT_MS"), "every request is bounded")
-        XCTAssertTrue(text.contains("req.on(\"error\", finish)"))
+        XCTAssertEqual(text.components(separatedBy: "req.setTimeout(options.timeout").count - 1, 1, "every request is bounded")
+        XCTAssertTrue(text.contains("req.on(\"error\", () => finish(null))"))
+        XCTAssertTrue(text.contains("{ pid, timeout: TIMEOUT_MS }"), "an event post is bounded by 2 s")
+        XCTAssertTrue(text.contains("timeout: BRIDGE_TIMEOUT_MS"), "the held request by the channel's own time")
         // Everything OpenCode calls into is wrapped: a throw there is OpenCode's problem.
         for entry in ["async function setup(ctx) {", "function feed(raw, entry) {", "function learnVersion(input) {",
-                      "function post(body, pid) {"] {
+                      "function post(route, body, options) {", "async function apply(bridge, decision, entry) {",
+                      "function abortBridge(id) {"] {
             let start = try XCTUnwrap(text.range(of: entry), entry)
             let body = text[start.upperBound...].prefix(1400)
             XCTAssertTrue(body.contains("try {") && body.contains("catch"), entry)
@@ -81,6 +84,10 @@ final class OpenCodePluginTests: XCTestCase {
         let text = OpenCodePlugin.file.contents
         XCTAssertTrue(text.contains("const SOCKET = \"\(EvlatSocket.relativePath)\";"))
         XCTAssertTrue(text.contains("const ROUTE = \"/hook/opencode\";"))
+        XCTAssertTrue(text.contains("const APPROVAL_ROUTE = \"/approval/opencode\";"))
+        XCTAssertTrue(text.contains("const BRIDGE_TIMEOUT_MS = 600000;"), "the channel's ten minutes")
+        XCTAssertEqual(OpenCodeApprovals.route, OpenCode().approvals?.path)
+        XCTAssertEqual(OpenCodeApprovals.timeoutSeconds, OpenCode().approvals?.timeout)
         XCTAssertTrue(text.contains("const HOST = \"127.0.0.1:\(LocalAPI.defaultPort)\";"))
         XCTAssertTrue(text.contains("(process.env.HOME || homedir()) + \"/\" + SOCKET"))
         XCTAssertEqual(OpenCodePlugin.route, OpenCode().hookPath)
@@ -327,8 +334,11 @@ final class OpenCodePluginTests: XCTestCase {
         XCTAssertTrue(machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": other])).isEmpty)
         let finished = other.merging(["state": ["status": "completed", "input": [:]]]) { $1 }
         XCTAssertTrue(machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": finished])).isEmpty)
-        // Answered: the wait lifts, and the steps that follow are told again.
-        XCTAssertEqual(machine.feed(Machine.v1("question.replied", ["sessionID": "s1", "requestID": "q1"])).count, 1)
+        // Answered: the wait lifts — and the tool that ended beside the dialog, which
+        // OpenCode does not say again, is told after it — and the steps that follow
+        // are told again.
+        XCTAssertEqual(machine.feed(Machine.v1("question.replied", ["sessionID": "s1", "requestID": "q1"])).map(\.event),
+                       ["question.replied", "message.part.updated"])
         XCTAssertEqual(machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": Machine.tool("running")])).count, 1,
                        "a step held back while the dialog was up is told when it comes again")
 
@@ -340,7 +350,8 @@ final class OpenCodePluginTests: XCTestCase {
         _ = two.fire("p1")
         XCTAssertTrue(two.feed(Machine.v2("session.tool.success", ["sessionID": "s1", "id": "c2"])).isEmpty,
                       "another call finishing beside the dialog")
-        XCTAssertEqual(two.feed(Machine.v2("permission.replied", ["sessionID": "s1", "requestID": "p1", "reply": "once"])).count, 1)
+        XCTAssertEqual(two.feed(Machine.v2("permission.replied", ["sessionID": "s1", "requestID": "p1", "reply": "once"])).map(\.event),
+                       ["permission.replied", "session.tool.success"], "the other call's end follows the answer")
         XCTAssertEqual(two.feed(Machine.v2("session.tool.success", ["sessionID": "s1", "id": "c1"])).count, 1)
     }
 
@@ -441,6 +452,233 @@ final class OpenCodePluginTests: XCTestCase {
         XCTAssertTrue(Machine().feed(Machine.v2("session.retry.scheduled", ["sessionID": "s1", "error": ["type": "provider.internal"], "attempt": 2])).isEmpty)
     }
 
+    // MARK: - The card (the bridge)
+
+    private func asked1(_ machine: Machine, _ id: String, session: String = "s1") {
+        var properties = Machine.permission1(id: id)
+        properties["sessionID"] = session
+        _ = machine.feed(Machine.v1("permission.asked", properties))
+    }
+
+    private func replied1(_ machine: Machine, _ id: String, reply: String = "once", session: String = "s1") -> [Machine.Item] {
+        machine.feed(Machine.v1("permission.replied", ["sessionID": session, "requestID": id, "reply": reply]))
+    }
+
+    /// The card is asked for a permission that stayed: `--auto` answers inside
+    /// the hold, and a card for it would flicker. The body is the one the hook
+    /// told, so Evlat reads both the same way.
+    func testAPermissionGoesToTheCardWhenItsHoldRunsOut() throws {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        XCTAssertTrue(machine.bridged.isEmpty, "nothing is asked of the card yet")
+        let told = machine.fire("per_1")
+        XCTAssertEqual(told.count, 1)
+        XCTAssertEqual(machine.bridgedIDs, ["per_1"])
+        let bridge = machine.bridged[0]
+        XCTAssertEqual(bridge["session"] as? String, "s1", "the session the answer goes to")
+        let body = try XCTUnwrap(bridge["body"] as? [String: Any])
+        XCTAssertEqual(body["event"] as? String, "permission.asked")
+        XCTAssertEqual(body["session"] as? String, "s1")
+        XCTAssertEqual((body["ask"] as? [String: Any])?["id"] as? String, "per_1")
+        XCTAssertEqual(NSDictionary(dictionary: body), NSDictionary(dictionary: told[0].send), "the hook's own body")
+    }
+
+    func testAnAnswerInsideTheHoldOpensNoCard() {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        _ = replied1(machine, "per_1")
+        XCTAssertTrue(machine.fire("per_1").isEmpty)
+        XCTAssertTrue(machine.bridged.isEmpty)
+        XCTAssertTrue(machine.aborted.isEmpty)
+    }
+
+    /// A subagent's permission is on its root's card, and is answered to the
+    /// session that asked.
+    func testASubagentsPermissionIsOnItsRootsCard() throws {
+        let machine = Machine()
+        machine.begin1("s1")
+        _ = machine.feed(Machine.v1("session.created", ["sessionID": "c1", "info": ["id": "c1", "parentID": "s1"]]))
+        asked1(machine, "per_c", session: "c1")
+        _ = machine.fire("per_c")
+        XCTAssertEqual(machine.bridged.first?["session"] as? String, "c1", "answered to the child's own session")
+        let body = try XCTUnwrap(machine.bridged.first?["body"] as? [String: Any])
+        XCTAssertEqual(body["session"] as? String, "s1", "Evlat's row is the root's")
+        XCTAssertEqual(body["child"] as? String, "c1")
+    }
+
+    /// One reply with two tool calls asks twice at once. Evlat lets an older
+    /// request of a session go when a newer arrives, so the second is not posted
+    /// until the first is over — by OpenCode's `replied`, here or in its own
+    /// dialog — and the first is closed then.
+    func testASecondPermissionOfTheSessionWaitsItsTurn() {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        asked1(machine, "per_2")
+        _ = machine.fire("per_1")
+        XCTAssertEqual(machine.bridgedIDs, ["per_1"])
+        _ = machine.fire("per_2")
+        XCTAssertTrue(machine.bridged.isEmpty, "behind the first")
+
+        XCTAssertTrue(replied1(machine, "per_1").isEmpty, "the row still waits on the second")
+        XCTAssertEqual(machine.aborted, ["per_1"], "the answered one's card goes")
+        XCTAssertEqual(machine.bridgedIDs, ["per_2"], "and the next opens")
+
+        XCTAssertEqual(replied1(machine, "per_2").count, 1)
+        XCTAssertEqual(machine.aborted, ["per_2"])
+        XCTAssertTrue(machine.bridged.isEmpty)
+    }
+
+    func testAnAppliedAnswerOpensTheNextOnce() {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        asked1(machine, "per_2")
+        _ = machine.fire("per_1")
+        _ = machine.fire("per_2")
+        machine.settle("per_1")
+        XCTAssertEqual(machine.bridgedIDs, ["per_2"])
+        XCTAssertTrue(machine.aborted.isEmpty, "the answered request is over; nothing is held to close")
+        machine.settle("per_1")
+        XCTAssertTrue(machine.bridged.isEmpty, "applied once")
+        // OpenCode then says it answered: nothing of the first is left to let go.
+        _ = replied1(machine, "per_1")
+        XCTAssertTrue(machine.aborted.isEmpty)
+        XCTAssertTrue(machine.bridged.isEmpty)
+    }
+
+    func testAnAnswerInOpenCodeBeforeItsTurnDropsTheWaitingCard() {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        asked1(machine, "per_2")
+        _ = machine.fire("per_1")
+        _ = machine.fire("per_2")
+        _ = replied1(machine, "per_2")
+        XCTAssertTrue(machine.aborted.isEmpty && machine.bridged.isEmpty, "the first is still on the card")
+        _ = replied1(machine, "per_1")
+        XCTAssertEqual(machine.aborted, ["per_1"])
+        XCTAssertTrue(machine.bridged.isEmpty, "the second never needed one")
+    }
+
+    /// A restart with a permission pending says `replied` with a refusal: the
+    /// card goes with it, whatever the word.
+    func testARefusalFromOpenCodeLetsTheCardGoToo() {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        _ = machine.fire("per_1")
+        _ = replied1(machine, "per_1", reply: "reject")
+        XCTAssertEqual(machine.aborted, ["per_1"])
+    }
+
+    func testEachSessionHasItsOwnCard() {
+        let machine = Machine()
+        machine.begin1("s1")
+        machine.begin1("s2")
+        asked1(machine, "per_a")
+        asked1(machine, "per_b", session: "s2")
+        _ = machine.fire("per_a")
+        XCTAssertEqual(machine.bridgedIDs, ["per_a"])
+        _ = machine.fire("per_b")
+        XCTAssertEqual(machine.bridgedIDs, ["per_b"], "another session is not behind the first")
+    }
+
+    /// An interrupt says no `replied`: Evlat lets that card go when it hears the
+    /// turn end. What waited behind it is not opened for a turn that is over, and
+    /// the next turn's first card is not stuck behind a card that never ended.
+    func testAFinishedTurnOpensNoCardAndLeavesNoQueue() {
+        let machine = Machine()
+        machine.begin1("s1")
+        asked1(machine, "per_1")
+        asked1(machine, "per_2")
+        _ = machine.fire("per_1")
+        _ = machine.fire("per_2")
+        _ = machine.feed(Machine.v1("session.error", ["sessionID": "s1", "error": ["name": "MessageAbortedError"]]))
+        XCTAssertTrue(machine.bridged.isEmpty)
+        _ = replied1(machine, "per_1")
+        XCTAssertTrue(machine.bridged.isEmpty, "the queue went with the turn")
+        XCTAssertTrue(machine.aborted.isEmpty)
+
+        machine.begin1("s1")
+        asked1(machine, "per_3")
+        _ = machine.fire("per_3")
+        XCTAssertEqual(machine.bridgedIDs, ["per_3"], "a new turn starts with a free card")
+    }
+
+    /// Only 200 and exactly one of the two words is an answer.
+    func testTheCardTakesOnlyAKnownAnswer() {
+        let machine = Machine()
+        XCTAssertEqual(machine.decision(200, #"{"decision":"once"}"#), "once")
+        XCTAssertEqual(machine.decision(200, #"{"decision":"reject"}"#), "reject")
+        XCTAssertEqual(machine.decision(200, #"{"decision":"once","extra":1}"#), "once")
+        for (status, text) in [(200, "{}"), (200, ""), (200, "not json"), (200, #"{"decision":"always"}"#),
+                               (200, #"{"decision":"allow"}"#), (200, #"{"decision":"deny"}"#),
+                               (200, #"{"decision":true}"#), (200, #"["once"]"#), (200, "null"),
+                               (200, #"{"decision":"once"#), (201, #"{"decision":"once"}"#),
+                               (403, #"{"decision":"once"}"#), (404, #"{"decision":"once"}"#),
+                               (0, #"{"decision":"once"}"#)] {
+            XCTAssertNil(machine.decision(status, text), "\(status) \(text)")
+        }
+        // What Evlat answers is what the plugin reads.
+        let channel = OpenCodeApprovals()
+        XCTAssertEqual(machine.decision(200, channel.body(.allow(rules: [], directories: []))), "once")
+        XCTAssertEqual(machine.decision(200, channel.body(.deny(interrupt: false))), "reject")
+        XCTAssertNil(machine.decision(200, channel.body(.answer(input: Data(), answers: [:]))))
+    }
+
+    /// A tool that ended while a dialog of its turn was up says nothing again:
+    /// it is told once the wait lifts, not lost (it made the tool count one short).
+    func testAToolThatEndedBesideADialogIsToldWhenTheWaitLifts() throws {
+        let machine = Machine()
+        machine.begin1("s1")
+        let first = Machine.tool("running").merging(["callID": "call_first"]) { $1 }
+        XCTAssertEqual(machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": first])).count, 1)
+        asked1(machine, "per_2")
+        _ = machine.fire("per_2")
+        let done = first.merging(["state": ["status": "completed", "input": [:]]]) { $1 }
+        XCTAssertTrue(machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": done])).isEmpty, "held back")
+        XCTAssertTrue(machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": done])).isEmpty,
+                      "and held back once")
+        let lifted = replied1(machine, "per_2")
+        XCTAssertEqual(lifted.map(\.event), ["permission.replied", "message.part.updated"])
+        XCTAssertEqual(lifted[1].send["status"] as? String, "completed")
+        XCTAssertEqual(lifted[1].send["call"] as? String, "call_first")
+        XCTAssertEqual(lifted[1].send["tool"] as? String, "bash")
+        XCTAssertEqual(replied1(machine, "per_2").map(\.event), ["permission.replied"], "told once")
+
+        // The second line: the tool's name was learnt when it started.
+        let two = Machine()
+        _ = two.feed(Machine.v2("session.execution.started", ["sessionID": "s1"]))
+        _ = two.feed(Machine.v2("session.tool.input.started", ["sessionID": "s1", "id": "c1", "name": "shell"]))
+        _ = two.feed(Machine.v2("session.tool.called", ["sessionID": "s1", "id": "c1", "input": ["command": "ls"]]))
+        _ = two.feed(Machine.v2("permission.asked", ["id": "p2", "sessionID": "s1", "action": "shell", "resources": ["pwd"]]))
+        _ = two.fire("p2")
+        XCTAssertTrue(two.feed(Machine.v2("session.tool.success", ["sessionID": "s1", "id": "c1"])).isEmpty)
+        let after = two.feed(Machine.v2("permission.replied", ["sessionID": "s1", "requestID": "p2", "reply": "once"]))
+        XCTAssertEqual(after.map(\.event), ["permission.replied", "session.tool.success"])
+        XCTAssertEqual(after[1].send["tool"] as? String, "shell")
+    }
+
+    /// What was held back for a turn that has ended is not told in the next.
+    func testWhatWasHeldBackDoesNotOutliveItsTurn() {
+        let machine = Machine()
+        machine.begin1("s1")
+        let first = Machine.tool("running").merging(["callID": "call_first"]) { $1 }
+        _ = machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": first]))
+        asked1(machine, "per_2")
+        _ = machine.fire("per_2")
+        let done = first.merging(["state": ["status": "completed", "input": [:]]]) { $1 }
+        _ = machine.feed(Machine.v1("message.part.updated", ["sessionID": "s1", "part": done]))
+        _ = machine.feed(Machine.v1("session.error", ["sessionID": "s1", "error": ["name": "MessageAbortedError"]]))
+        machine.begin1("s1")
+        asked1(machine, "per_3")
+        _ = machine.fire("per_3")
+        XCTAssertEqual(replied1(machine, "per_3").map(\.event), ["permission.replied"])
+    }
+
     func testAToolInputKeepsOnlyItsSubject() {
         let machine = Machine()
         machine.begin1("s1")
@@ -468,6 +706,12 @@ private final class Machine {
     private let context = JSContext()!
     private var counter = 0
 
+    /// What the last call opened on the card and let go of (the bridge),
+    /// which is not something the plugin posts as an event.
+    private(set) var bridged: [[String: Any]] = []
+    private(set) var aborted: [String] = []
+    var bridgedIDs: [String] { bridged.compactMap { $0["id"] as? String } }
+
     init() {
         context.exceptionHandler = { _, exception in XCTFail("JavaScript: \(exception?.toString() ?? "?")") }
         context.evaluateScript(OpenCodePlugin.pure)
@@ -476,6 +720,8 @@ private final class Machine {
             function step(json) { return JSON.stringify(reduce(state, JSON.parse(json))); }
             function fire(token) { return JSON.stringify(release(state, token)); }
             function noise(type) { return isNoise(type); }
+            function settle(token) { return JSON.stringify(applied(state, token)); }
+            function decide(status, text) { return decisionOf(status, text); }
             """)
     }
 
@@ -498,6 +744,17 @@ private final class Machine {
         items(context.objectForKeyedSubscript("fire")!.call(withArguments: [token])!.toString())
     }
 
+    /// The card's answer was applied.
+    @discardableResult
+    func settle(_ token: String) -> [Item] {
+        items(context.objectForKeyedSubscript("settle")!.call(withArguments: [token])!.toString())
+    }
+
+    func decision(_ status: Int, _ text: String) -> String? {
+        let value = context.objectForKeyedSubscript("decide")!.call(withArguments: [status, text])!
+        return value.isNull ? nil : value.toString()
+    }
+
     /// A turn already begun on 1.x.
     func begin1(_ session: String) {
         _ = feed(Machine.v1("session.status", ["sessionID": session, "status": ["type": "busy"]]))
@@ -506,7 +763,9 @@ private final class Machine {
     private func items(_ text: String?) -> [Item] {
         guard let data = text?.data(using: .utf8),
               let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
-        return list.map { item in
+        bridged = list.compactMap { $0["bridge"] as? [String: Any] }
+        aborted = list.compactMap { $0["abort"] as? String }
+        return list.filter { $0["bridge"] == nil && $0["abort"] == nil }.map { item in
             let hold = (item["hold"] as? [String: Any]).flatMap { hold -> (String, Int)? in
                 guard let token = hold["token"] as? String, let ms = hold["ms"] as? Int else { return nil }
                 return (token, ms)

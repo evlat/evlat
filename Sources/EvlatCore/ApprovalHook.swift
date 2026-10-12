@@ -13,7 +13,9 @@ import Foundation
 /// events that follow. Requests are serialized per session, and the body has
 /// no `tool_use_id`, so a request is matched to its outcome by session,
 /// actor, tool and subject — and by machine: a request is the listener's
-/// that heard it, and only that listener's events speak about it.
+/// that heard it, and only that listener's events speak about it. By agent
+/// too: it is the route's agent that asked, and only that agent's events
+/// say it was answered (two agents' session ids are unrelated strings).
 public enum ApprovalHook {
     /// Every approval path starts with this.
     public static let path = "/approval"
@@ -150,9 +152,10 @@ public enum ApprovalHook {
     /// Has `event`, heard on `machine`'s listener (`nil`: this Mac's), shown
     /// that `request` was answered somewhere else? A session id is the
     /// agent's and could come from any computer: only the request's own
-    /// machine speaks about it.
+    /// machine speaks about it, and only its own agent.
     public static func resolves(_ request: HeldRequest, by event: HookEvent, machine: String? = nil) -> Bool {
-        guard request.machine == machine, let session = request.sessionID, event.sessionID == session else {
+        guard request.machine == machine, request.source == event.source,
+              let session = request.sessionID, event.sessionID == session else {
             return false
         }
         if turnEnders.contains(event.name) { return true }
@@ -161,10 +164,13 @@ public enum ApprovalHook {
             && event.toolSubject == request.subject
     }
 
-    /// A newer request from the same actor, on the same machine, replaces an
-    /// older one: requests are serialized, so the older was answered.
+    /// A newer request from the same actor of the same agent, on the same
+    /// machine, replaces an older one: requests are serialized, so the older
+    /// was answered. An agent that asks twice at once has to post the second
+    /// only when the first is over, or the second would let the first go.
     public static func supersedes(_ newer: HeldRequest, _ older: HeldRequest) -> Bool {
         newer.id != older.id && newer.sessionID != nil && newer.sessionID == older.sessionID
             && newer.subagent == older.subagent && newer.machine == older.machine
+            && newer.source == older.source
     }
 }

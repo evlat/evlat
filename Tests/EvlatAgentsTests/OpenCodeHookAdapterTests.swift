@@ -241,6 +241,75 @@ final class OpenCodeHookAdapterTests: XCTestCase {
         }
     }
 
+    // MARK: - The card
+
+    private func permissionBodies(_ name: String) throws -> [[String: Any]] {
+        try recording(name).bodies.map { $0.mapValues(\.any) }.filter { ($0["event"] as? String) == "permission.asked" }
+    }
+
+    /// The bodies the plugin really posted to the card, both lines: the
+    /// command (1.x says `bash` and the command in its metadata, 2.x `shell`
+    /// and the command as the resource), the root's session as the row, the
+    /// asking subagent as the actor.
+    func testRecordedPermissionsAreCardsOfTheirRootsRow() throws {
+        let channel = OpenCodeApprovals()
+        for name in ["1.18.34 bash, allowed", "1.19.0 bash, allowed", "2.0.27 bash, allowed"] {
+            let body = try XCTUnwrap(permissionBodies(name).first, name)
+            let request = try XCTUnwrap(channel.request(json: body), name)
+            XCTAssertEqual(request.tool, "Bash", name)
+            XCTAssertEqual(request.command, "echo evlat-probe", name)
+            XCTAssertEqual(request.subject, "echo evlat-probe", name)
+            XCTAssertEqual(request.sessionID, body["session"] as? String, name)
+            XCTAssertEqual(request.cwd, body["directory"] as? String, name)
+            XCTAssertNil(request.subagent, name)
+            XCTAssertNil(request.questions, name)
+            XCTAssertTrue(request.rules.isEmpty && request.directories.isEmpty, name)
+        }
+        for name in ["1.19.0 subagent asks", "2.0.27 subagent asks"] {
+            let body = try XCTUnwrap(permissionBodies(name).first, name)
+            let request = try XCTUnwrap(channel.request(json: body), name)
+            XCTAssertEqual(request.sessionID, body["session"] as? String, "\(name): the root's row")
+            XCTAssertEqual(request.subagent, body["child"] as? String, "\(name): the subagent is the actor")
+            XCTAssertNotEqual(request.sessionID, request.subagent, name)
+        }
+        for name in ["1.19.0 two permissions at once", "2.0.27 two permissions at once"] {
+            let commands = try permissionBodies(name).compactMap { channel.request(json: $0)?.command }
+            XCTAssertEqual(commands, ["echo evlat-one", "echo evlat-two"], name)
+        }
+    }
+
+    /// An edit says its file, in the shapes the plugin pulls out of each line
+    /// (1.x `metadata.filepath`, 2.x `files[0].file`); a permission with no
+    /// tool of ours is still a card, about its pattern.
+    func testAnEditAndAnUnknownPermissionAreCardsToo() throws {
+        let channel = OpenCodeApprovals()
+        func body(_ ask: [String: Any]) -> [String: Any] {
+            ["event": "permission.asked", "session": "s1", "directory": "/r", "ask": ask]
+        }
+        let edit = try XCTUnwrap(channel.request(json: body(["id": "p", "kind": "edit", "patterns": ["a.txt"], "file": "/r/a.txt"])))
+        XCTAssertEqual(edit.tool, "Edit")
+        XCTAssertEqual(edit.subject, "/r/a.txt")
+        let outside = try XCTUnwrap(channel.request(json: body(["id": "p", "kind": "external_directory", "patterns": ["/etc/*"]])))
+        XCTAssertEqual(outside.tool, "external_directory")
+        XCTAssertEqual(outside.subject, "/etc/*")
+    }
+
+    /// A question is answered in OpenCode, and so is no card (the plugin does not
+    /// even ask); neither is an event that is no permission.
+    func testOnlyAPermissionIsACard() throws {
+        let channel = OpenCodeApprovals()
+        let asking: [String: Any] = ["event": "question.asked", "session": "s1",
+                                     "ask": ["id": "q", "kind": "question",
+                                             "questions": [["question": "Which?", "options": [["label": "A"]]]]]]
+        XCTAssertNil(channel.request(json: asking))
+        let form: [String: Any] = ["event": "form.created", "session": "s1",
+                                   "ask": ["id": "f", "kind": "question", "questions": [["question": "Which?"]]]]
+        XCTAssertNil(channel.request(json: form))
+        XCTAssertNil(channel.request(json: ["event": "session.idle", "session": "s1"]))
+        XCTAssertNil(channel.request(json: ["event": "permission.replied", "session": "s1", "reply": "once"]))
+        XCTAssertNil(channel.request(json: [:]))
+    }
+
     // MARK: - Versions
 
     func testTheMeasuredLines() {

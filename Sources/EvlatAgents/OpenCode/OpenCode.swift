@@ -31,7 +31,9 @@ struct OpenCode: Agent {
     /// OpenCode reports no quota.
     let statusLineUsage: StatusLineUsage? = nil
 
-    let approvals: (any ApprovalChannel)? = nil
+    /// A permission is asked of the card by the plugin, and answered through
+    /// OpenCode's own API from inside the process.
+    let approvals: (any ApprovalChannel)? = OpenCodeApprovals()
 
     let display = AgentDisplay(nameKey: "source.opencode", outline: Self.outline)
 

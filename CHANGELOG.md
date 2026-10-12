@@ -22,6 +22,11 @@ renames that heading to its version.
   was not tested with (1.18, 1.19 and 2.0 were). A file of yours at that
   path is left alone. If you stored a list of agents before, OpenCode starts
   switched off: turn it on in Settings → This Mac.
+- **OpenCode asks on the bar.** When an OpenCode session waits for a
+  permission, the card on its row offers Allow once and Deny, as Claude
+  Code's does; answering in OpenCode itself still works and takes the card
+  away. With Evlat closed OpenCode asks as it always did. A question OpenCode
+  asks stays a wait you answer in OpenCode.
 
 ## 0.2.3
 

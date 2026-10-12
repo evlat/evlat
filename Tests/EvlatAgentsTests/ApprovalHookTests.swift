@@ -296,7 +296,7 @@ final class ApprovalHookTests: XCTestCase {
 
     private func request(agent: String? = nil) -> HeldRequest {
         HeldRequest(id: "r-1", token: nil, tool: "Bash", subject: "rm -r build",
-                               command: "rm -r build", sessionID: "s-1", subagent: agent)
+                    command: "rm -r build", sessionID: "s-1", subagent: agent, source: .claude)
     }
 
     private func event(_ name: String, session: String = "s-1", agent: String? = nil,
@@ -336,7 +336,7 @@ final class ApprovalHookTests: XCTestCase {
     }
 
     func testANewerRequestFromTheSameActorSupersedes() {
-        let newer = HeldRequest(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1")
+        let newer = HeldRequest(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1", source: .claude)
         XCTAssertTrue(ApprovalHook.supersedes(newer, request()))
         XCTAssertFalse(ApprovalHook.supersedes(newer, request(agent: "a-1")))
         XCTAssertFalse(ApprovalHook.supersedes(request(), request()))
@@ -351,9 +351,104 @@ final class ApprovalHookTests: XCTestCase {
         XCTAssertFalse(ApprovalHook.resolves(remote, by: event("Stop", tool: nil), machine: "m-b"))
         XCTAssertFalse(ApprovalHook.resolves(remote, by: event("Stop", tool: nil), machine: nil))
         XCTAssertFalse(ApprovalHook.resolves(request(), by: event("Stop", tool: nil), machine: "m-a"))
-        var newer = HeldRequest(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1")
+        var newer = HeldRequest(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1", source: .claude)
         XCTAssertFalse(ApprovalHook.supersedes(newer, remote), "this Mac's does not replace a machine's")
         newer.machine = "m-a"
         XCTAssertTrue(ApprovalHook.supersedes(newer, remote))
+    }
+
+    /// A request is its agent's: two agents' session ids are unrelated strings,
+    /// so one agent's events answer nothing of the other's, and one agent's
+    /// request does not replace the other's.
+    func testOnlyTheSameAgentResolvesOrSupersedes() {
+        var other = request()
+        other.source = .codex
+        XCTAssertFalse(ApprovalHook.resolves(other, by: event("Stop", tool: nil)), "a Claude event, a Codex request")
+        XCTAssertTrue(ApprovalHook.resolves(other, by: HookEvent(json: ["hook_event_name": "Stop", "session_id": "s-1"],
+                                                                 source: .codex)))
+        let newer = HeldRequest(id: "r-2", token: nil, tool: "Bash", subject: "ls", sessionID: "s-1", source: .claude)
+        XCTAssertFalse(ApprovalHook.supersedes(newer, other))
+        var same = newer
+        same.source = .codex
+        XCTAssertTrue(ApprovalHook.supersedes(same, other))
+        var unstamped = request()
+        unstamped.source = nil
+        XCTAssertFalse(ApprovalHook.resolves(unstamped, by: event("Stop", tool: nil)), "a request nobody stamped is nobody's")
+    }
+
+    // MARK: - OpenCode's
+
+    private var opencode: OpenCodeApprovals { OpenCodeApprovals() }
+
+    /// Its own path under the approvals', ten minutes like Claude's, and no
+    /// command to install: the plugin holds the request itself.
+    func testOpenCodesChannelIsItsOwnAndInstallsNothing() {
+        XCTAssertEqual(opencode.path, "/approval/opencode")
+        XCTAssertEqual(opencode.timeout, 600)
+        XCTAssertTrue(opencode.installs.isEmpty)
+        XCTAssertEqual(Agents.routes.approvals["/approval/opencode"], .opencode)
+        XCTAssertTrue(opencode.isQuestion(AskQuestion.tool))
+        XCTAssertFalse(opencode.isQuestion("Bash"))
+    }
+
+    /// The two words the plugin applies, byte for byte; a press never grants a
+    /// rule, a folder or a mode, and a question's answer is no decision.
+    func testOpenCodesAnswersAreTheTwoWords() {
+        XCTAssertEqual(opencode.body(.allow(rules: [], directories: [])), #"{"decision":"once"}"#)
+        XCTAssertEqual(opencode.body(.allow(rules: [PermissionRule(toolName: "Bash", ruleContent: "ls:*")],
+                                            directories: ["/tmp"])), #"{"decision":"once"}"#, "no rule, no folder")
+        XCTAssertEqual(opencode.body(.allowForSession), #"{"decision":"once"}"#, "never `always`")
+        XCTAssertEqual(opencode.body(.deny(interrupt: false)), #"{"decision":"reject"}"#)
+        XCTAssertEqual(opencode.body(.deny(interrupt: true)), #"{"decision":"reject"}"#)
+        XCTAssertEqual(opencode.body(.answer(input: Data("{}".utf8), answers: ["a": "b"])), "{}")
+    }
+
+    /// The plugin's body on its route is held for the card as the route's agent's;
+    /// a question, a body with no session and an event that is no permission are `{}`.
+    func testOpenCodesRequestIsHeldOnItsRoute() throws {
+        func post(_ body: [String: Any]) throws -> LocalAPI.Outcome {
+            LocalAPI.handleAsTheApp(HTTPRequest(method: "POST", target: "/approval/opencode",
+                                                body: try JSONSerialization.data(withJSONObject: body),
+                                                origin: nil, host: "127.0.0.1:48151"),
+                                    listener: LocalAPI.Listener(origin: .local))
+        }
+        let asked: [String: Any] = ["event": "permission.asked", "session": "ses_1", "child": "ses_2", "directory": "/work",
+                                    "line": 1, "plugin_version": 2,
+                                    "ask": ["id": "per_1", "kind": "bash", "patterns": ["rm -r build"], "command": "rm -r build"]]
+        let outcome = try post(asked)
+        XCTAssertNil(outcome.response, "held for the card")
+        guard case .approval(let request)? = outcome.delivery else { return XCTFail("no request") }
+        XCTAssertEqual(request.source, .opencode)
+        XCTAssertEqual(request.sessionID, "ses_1", "the root's row")
+        XCTAssertEqual(request.subagent, "ses_2")
+        XCTAssertEqual(request.tool, "Bash")
+        XCTAssertEqual(request.command, "rm -r build")
+        XCTAssertEqual(request.cwd, "/work")
+        XCTAssertNil(request.token)
+
+        var question = asked
+        question["event"] = "question.asked"
+        question["ask"] = ["id": "q", "kind": "question", "questions": [["question": "Which?", "options": [["label": "A"]]]]]
+        var none = asked
+        none["session"] = nil
+        var idle = asked
+        idle["event"] = "session.idle"
+        for (name, body) in [("a question", question), ("no session", none), ("not a permission", idle)] {
+            let outcome = try post(body)
+            XCTAssertEqual(outcome.response, LocalAPI.Response(status: .ok, body: "{}"), name)
+            XCTAssertNil(outcome.delivery, name)
+        }
+    }
+
+    /// The same request on a machine's channel is held under the machine and
+    /// the sandbox's listener has no such route.
+    func testOpenCodesRouteIsNoSandboxs() throws {
+        let body = #"{"event":"permission.asked","session":"s","ask":{"id":"p","kind":"bash","patterns":["ls"]}}"#
+        let request = HTTPRequest(method: "POST", target: "/approval/opencode", body: Data(body.utf8), origin: nil,
+                                  host: "127.0.0.1:48151")
+        XCTAssertEqual(LocalAPI.handleAsTheApp(request, listener: LocalAPI.Listener(origin: .sandbox)).response?.status, .notFound)
+        guard case .approval(let held)? = LocalAPI.handleAsTheApp(request, listener: LocalAPI.Listener(origin: .machine)).delivery
+        else { return XCTFail("a machine's channel holds it") }
+        XCTAssertEqual(held.source, .opencode)
     }
 }

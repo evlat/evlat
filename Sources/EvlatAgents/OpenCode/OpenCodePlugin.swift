@@ -20,17 +20,24 @@ import EvlatCore
 /// runtime OpenCode runs in (Bun, the desktop app's Node, Linux) — with its
 /// own timeout, and every failure is silent.
 ///
+/// The one thing it does besides listening is carry a permission to the card
+/// and back (the bridge, `OpenCodeApprovals`): a second request, held, on the
+/// approval path; the answer is applied through OpenCode's own API, from the
+/// instance that owns the session, and only when the body is exactly one of
+/// the two answers the card gives. Anything else is no answer.
+///
 /// What is kept here and not in Swift is what needs the process's memory:
 /// de-duplication (2.x boots one plugin instance per folder and every one
 /// receives every event), child session → root session, the 2.x call id →
-/// tool name, whether a turn is open, and the 300 ms an answer-less
-/// permission is held back (`--auto` answers in under 3 ms, and a flicker of
-/// "waiting" is no wait). Everything else is Swift's: the plugin posts
-/// OpenCode's own event names with the fields it pulled out, and
-/// `OpenCodeHookAdapter` says what they mean.
+/// tool name, whether a turn is open, the 300 ms an answer-less permission
+/// is held back (`--auto` answers in under 3 ms, and a flicker of "waiting"
+/// is no wait), and which permission of a session is on the card (one at a
+/// time: a second one posted beside it would let the first go). Everything
+/// else is Swift's: the plugin posts OpenCode's own event names with the
+/// fields it pulled out, and `OpenCodeHookAdapter` says what they mean.
 enum OpenCodePlugin {
     /// Raised whenever the file's bytes change after a release.
-    static let version = 1
+    static let version = 2
 
     /// The marker's text, after the comment prefix: what makes the file
     /// Evlat's own.
@@ -83,8 +90,9 @@ enum OpenCodePlugin {
     private static let header = #"""
         // Evlat's plugin for OpenCode. Evlat wrote this file and rewrites it when a newer
         // one is needed; delete it (or use Evlat's settings) to remove it.
-        // It only listens: it tells Evlat's socket what a session is doing and nothing
-        // else, and stays silent when Evlat is not running.
+        // It tells Evlat's socket what a session is doing and, when you press Allow once
+        // or Deny on Evlat's bar, gives OpenCode that answer. Nothing else, and it stays
+        // silent when Evlat is not running.
         """#
 
     /// No I/O, no timers, no `import`/`export`: a state and a function from
@@ -99,6 +107,9 @@ enum OpenCodePlugin {
         const TEXT_LIMIT = \#(textLimit);
         const HOLD_MS = \#(holdMilliseconds);
         const PLUGIN_VERSION = \#(version);
+        const DECISION_FIELD = "\#(OpenCodeApprovals.field)";
+        const DECISIONS = ["\#(OpenCodeApprovals.allow)", "\#(OpenCodeApprovals.deny)"];
+        const DEFER_LIMIT = 64;
         const LIST_LIMIT = 8;
         const SEEN_LIMIT = 4096;
         const LINK_LIMIT = 2048;
@@ -126,7 +137,8 @@ enum OpenCodePlugin {
         function createState() {
           return {
             seen: new Set(), tools: new Set(), parents: new Map(), dirs: new Map(), phase: new Map(),
-            calls: new Map(), held: new Map(), outstanding: new Map(), version: null,
+            calls: new Map(), held: new Map(), outstanding: new Map(), bridges: new Map(), deferred: new Map(),
+            version: null,
           };
         }
 
@@ -218,6 +230,10 @@ enum OpenCodePlugin {
           for (const entry of Array.from(state.held.entries())) {
             if (rootOf(state, entry[1].session) === root) state.held.delete(entry[0]);
           }
+          // The card of a finished turn is let go by Evlat (it hears the turn end); what
+          // was waiting its turn behind it is never opened.
+          state.bridges.delete(root);
+          state.deferred.delete(root);
         }
 
         // Whether a dialog of this root session or any of its children is
@@ -285,16 +301,83 @@ enum OpenCodePlugin {
           set.add(key);
         }
 
+        // The outcome of a tool that ended while a dialog of its turn was up: told once
+        // the wait lifts, or Swift would count one tool fewer than ran.
+        function defer(state, root, body) {
+          const list = state.deferred.get(root) || [];
+          list.push(body);
+          if (list.length > DEFER_LIMIT) list.shift();
+          state.deferred.set(root, list);
+        }
+
+        function flush(state, root) {
+          const list = state.deferred.get(root);
+          state.deferred.delete(root);
+          if (!list || waiting(state, root) || closed(state, root)) return [];
+          return list.map((body) => ({ send: body }));
+        }
+
+        // One permission of a root session is on the card at a time: Evlat lets an older
+        // request of the same session go when a newer one arrives, and OpenCode asks twice
+        // at once when one reply holds two tool calls. The rest wait their turn here.
+        function offerBridge(state, ask) {
+          const root = ask.body.session;
+          let slot = state.bridges.get(root);
+          if (!slot) { slot = { front: null, queue: [] }; store(state.bridges, root, slot, LINK_LIMIT); }
+          if (slot.front === null) { slot.front = ask.id; return [{ bridge: ask }]; }
+          slot.queue.push(ask);
+          return [];
+        }
+
+        function advanceBridge(state, root, slot) {
+          const next = slot.queue.shift();
+          if (!next) { state.bridges.delete(root); return []; }
+          slot.front = next.id;
+          return [{ bridge: next }];
+        }
+
+        // OpenCode said the permission is answered (here, in its own dialog, or by a
+        // restart): the card is let go, and the next one of the session opens.
+        function leaveBridge(state, key) {
+          for (const entry of Array.from(state.bridges.entries())) {
+            const slot = entry[1];
+            if (slot.front === key) return [{ abort: key }].concat(advanceBridge(state, entry[0], slot));
+            const at = slot.queue.findIndex((ask) => ask.id === key);
+            if (at >= 0) { slot.queue.splice(at, 1); return []; }
+          }
+          return [];
+        }
+
+        // The card's answer was applied: its place is the next one's.
+        function applied(state, key) {
+          for (const entry of Array.from(state.bridges.entries())) {
+            if (entry[1].front === key) return advanceBridge(state, entry[0], entry[1]);
+          }
+          return [];
+        }
+
+        // The only reply that is an answer: 200 and exactly one of the two words.
+        // `{}`, a refusal, a closed connection and the time running out are none.
+        function decisionOf(status, text) {
+          if (status !== 200 || typeof text !== "string") return null;
+          try {
+            const value = JSON.parse(text);
+            const decision = value && typeof value === "object" ? value[DECISION_FIELD] : null;
+            return DECISIONS.includes(decision) ? decision : null;
+          } catch (error) { return null; }
+        }
+
         // An answer lifts the wait when no other dialog of the session is up.
         function answered(state, input, ev, id, key, type, reply) {
           if (state.held.has(key)) { state.held.delete(key); return []; }
+          const bridge = leaveBridge(state, key);
           const set = state.outstanding.get(id);
           if (set) set.delete(key);
-          if (set && set.size > 0) return [];
-          return [{ send: make(state, input, ev, id, type, { reply }) }];
+          if (set && set.size > 0) return bridge;
+          return bridge.concat([{ send: make(state, input, ev, id, type, { reply }) }], flush(state, rootOf(state, id)));
         }
 
-        // reduce(state, input) -> [{ send: body } | { hold: { token, ms } }]
+        // reduce(state, input) -> [{ send: body } | { hold: { token, ms } } | { bridge: ask } | { abort: id }]
         // input: { raw, line (1 or 2), directory, version }
         function reduce(state, input) {
           const ev = input && input.raw;
@@ -359,13 +442,16 @@ enum OpenCodePlugin {
               if (status !== "running" && status !== "completed" && status !== "error") return [];
               const key = part.callID + ":" + status;
               if (state.tools.has(key)) return [];
-              if (waiting(state, root)) return [];
+              const fields = { status, tool: cut(part.tool, 200), call: cut(part.callID, 200), input: pick(part.state.input) };
+              if (waiting(state, root)) {
+                // A start comes again when OpenCode says it again; an outcome does not.
+                if (status !== "running") { remember(state.tools, key, SEEN_LIMIT); defer(state, root, make(state, input, ev, id, type, fields)); }
+                return [];
+              }
               remember(state.tools, key, SEEN_LIMIT);
               if (closed(state, root)) return [];
               inside(state, root);
-              return [{ send: make(state, input, ev, id, type, {
-                status, tool: cut(part.tool, 200), call: cut(part.callID, 200), input: pick(part.state.input),
-              }) }];
+              return [{ send: make(state, input, ev, id, type, fields) }];
             }
             case "session.tool.input.started": {
               if (nonEmpty(p.id) && nonEmpty(p.name)) store(state.calls, p.id, p.name, LINK_LIMIT);
@@ -379,13 +465,16 @@ enum OpenCodePlugin {
               if (state.tools.has(key)) return [];
               const tool = call ? state.calls.get(call) : undefined;
               if (type !== "session.tool.called" && call) state.calls.delete(call);
-              if (waiting(state, root)) return [];
-              remember(state.tools, key, SEEN_LIMIT);
-              if (closed(state, root)) return [];
-              inside(state, root);
               const fields = { tool: cut(tool, 200), call: cut(call, 200) };
               if (type === "session.tool.called") fields.input = pick(p.input);
               if (type === "session.tool.failed") fields.error = cut(p.error && p.error.type, 200);
+              if (waiting(state, root)) {
+                if (type !== "session.tool.called") { remember(state.tools, key, SEEN_LIMIT); defer(state, root, make(state, input, ev, id, type, fields)); }
+                return [];
+              }
+              remember(state.tools, key, SEEN_LIMIT);
+              if (closed(state, root)) return [];
+              inside(state, root);
               return [{ send: make(state, input, ev, id, type, fields) }];
             }
             case "permission.asked": {
@@ -428,13 +517,14 @@ enum OpenCodePlugin {
           return [{ send: make(state, input, ev, id, type, {}) }];
         }
 
-        // The hold ran out: the permission is still unanswered, so it is real.
+        // The hold ran out: the permission is still unanswered, so it is real. It is told,
+        // and it goes to the card (the bridge) when it is the session's turn.
         function release(state, token) {
           const held = state.held.get(token);
           if (!held) return [];
           state.held.delete(token);
           raise(state, held.session, token);
-          return [{ send: held.body }];
+          return [{ send: held.body }].concat(offerBridge(state, { id: token, session: held.session, body: held.body }));
         }
         """#
     }
@@ -445,51 +535,103 @@ enum OpenCodePlugin {
         .map { "import { \($0.0) } from \"\($0.1)\";" }.joined(separator: "\n")
 
     /// The part that talks: Evlat's socket over `node:http`, a queue that
-    /// keeps the events in order, and the two entry points.
+    /// keeps the events in order, the bridge that carries a permission to the
+    /// card and its answer back, and the two entry points.
     static var wrapper: String {
         #"""
         const SOCKET = "\#(EvlatSocket.relativePath)";
         const ROUTE = "\#(route)";
+        const APPROVAL_ROUTE = "\#(OpenCodeApprovals.route)";
         const HOST = "127.0.0.1:\#(LocalAPI.defaultPort)";
         const TIMEOUT_MS = \#(requestTimeoutMilliseconds);
+        const BRIDGE_TIMEOUT_MS = \#(OpenCodeApprovals.timeoutSeconds * 1000);
         const QUEUE_LIMIT = 200;
+        const REPLIER_LIMIT = 64;
 
         // One state for the process: 2.x boots a plugin instance per folder and every
         // instance receives every event.
         const shared = (globalThis[Symbol.for("evlat.opencode.plugin")] ??= {
           state: createState(), server: false, queue: Promise.resolve(), queued: 0, version: null,
+          inflight: new Map(), repliers: [],
         });
 
-        function post(body, pid) {
+        // Resolves { status, text } when Evlat answered, else null; never rejects.
+        function post(route, body, options) {
           return new Promise((resolve) => {
             let done = false;
-            const finish = () => { if (!done) { done = true; resolve(); } };
+            let responded = false;
+            const finish = (reply) => { if (!done) { done = true; resolve(reply || null); } };
             try {
               const data = Buffer.from(JSON.stringify(body));
               const headers = { Host: HOST, "Content-Type": "application/json", "Content-Length": data.length };
-              if (pid) headers["X-Evlat-Pid"] = String(process.pid);
-              const req = request({ socketPath: (process.env.HOME || homedir()) + "/" + SOCKET, path: ROUTE, method: "POST", headers }, (res) => {
-                res.on("error", finish);
-                res.on("end", finish);
-                res.resume();
+              if (options.pid) headers["X-Evlat-Pid"] = String(process.pid);
+              const req = request({ socketPath: (process.env.HOME || homedir()) + "/" + SOCKET, path: route, method: "POST", headers }, (res) => {
+                responded = true;
+                const chunks = [];
+                const answer = () => finish({ status: res.statusCode, text: Buffer.concat(chunks).toString("utf8") });
+                res.on("data", (chunk) => chunks.push(chunk));
+                res.on("error", () => finish(null));
+                res.on("end", answer);
+                res.on("close", answer);
               });
-              req.setTimeout(TIMEOUT_MS, () => req.destroy());
-              req.on("error", finish);
-              req.on("close", finish);
+              if (options.held) options.held.req = req;
+              req.setTimeout(options.timeout, () => req.destroy());
+              req.on("error", () => finish(null));
+              req.on("close", () => { if (!responded) finish(null); });
               req.end(data);
-            } catch (error) { finish(); }
+            } catch (error) { finish(null); }
           });
         }
 
         function enqueue(body, pid) {
           if (shared.queued >= QUEUE_LIMIT) return;
           shared.queued += 1;
-          shared.queue = shared.queue.then(() => post(body, pid)).catch(() => {}).then(() => { shared.queued -= 1; });
+          shared.queue = shared.queue.then(() => post(ROUTE, body, { pid, timeout: TIMEOUT_MS })).catch(() => {}).then(() => { shared.queued -= 1; });
+        }
+
+        // The permission on the card: a request held until the user presses a button, or
+        // until OpenCode says the permission is answered and `abortBridge` closes it.
+        function openBridge(bridge, entry) {
+          if (shared.inflight.has(bridge.id)) return;
+          const held = { req: null, aborted: false };
+          shared.inflight.set(bridge.id, held);
+          post(APPROVAL_ROUTE, bridge.body, { timeout: BRIDGE_TIMEOUT_MS, held }).then((reply) => {
+            shared.inflight.delete(bridge.id);
+            const decision = held.aborted || !reply ? null : decisionOf(reply.status, reply.text);
+            if (!decision) return null;
+            return apply(bridge, decision, entry).then((done) => { if (done) run(applied(shared.state, bridge.id), entry); });
+          }).catch(() => {});
+        }
+
+        function abortBridge(id) {
+          const held = shared.inflight.get(id);
+          if (!held) return;
+          held.aborted = true;
+          try { if (held.req) held.req.destroy(); } catch (error) {}
+        }
+
+        // The decision goes to the instance that heard the ask, then to the others: 2.x
+        // boots one per folder and only the session's own can answer ("not found" from
+        // the rest).
+        async function apply(bridge, decision, entry) {
+          for (const candidate of [entry].concat(shared.repliers.filter((other) => other !== entry))) {
+            try {
+              if (candidate && typeof candidate.reply === "function" && await candidate.reply(bridge.session, bridge.id, decision)) return true;
+            } catch (error) {}
+          }
+          return false;
+        }
+
+        function enroll(entry) {
+          shared.repliers.push(entry);
+          if (shared.repliers.length > REPLIER_LIMIT) shared.repliers.shift();
         }
 
         function run(items, entry) {
           for (const item of items) {
             if (item.send) enqueue(item.send, entry.pid);
+            else if (item.bridge) openBridge(item.bridge, entry);
+            else if (item.abort) abortBridge(item.abort);
             else if (item.hold) setTimeout(() => { try { run(release(shared.state, item.hold.token), entry); } catch (error) {} }, item.hold.ms);
           }
         }
@@ -518,7 +660,13 @@ enum OpenCodePlugin {
           const entry = {
             line: 1, pid: true, directory: typeof (input && input.directory) === "string" ? input.directory : undefined,
             version: () => shared.version,
+            reply: async (session, id, decision) => {
+              const result = await input.client.postSessionIdPermissionsPermissionId({ path: { id: session, permissionID: id }, body: { response: decision } });
+              const status = result && result.response && result.response.status;
+              return !!result && !result.error && (typeof status === "number" ? status >= 200 && status < 300 : result.data !== undefined);
+            },
           };
+          enroll(entry);
           learnVersion(input);
           return { event: async ({ event }) => feed(event, entry) };
         }
@@ -531,7 +679,12 @@ enum OpenCodePlugin {
             const entry = {
               line: 2, pid: Array.isArray(process.argv) && process.argv.includes("--stdio"), directory: undefined,
               version: () => ctx.app && ctx.app.version,
+              reply: async (session, id, decision) => {
+                const result = await ctx.permission.reply({ sessionID: session, requestID: id, decision });
+                return !(result && result.error);
+              },
             };
+            enroll(entry);
             const events = ctx.event.subscribe();
             (async () => { try { for await (const event of events) feed(event, entry); } catch (error) {} })();
           } catch (error) {}

@@ -19,6 +19,11 @@ import EvlatCore
 /// server module runs under its own Electron-as-Node, as the app starts it.
 /// The user's OpenCode, its files and its service are never touched.
 ///
+/// The permission card is held to the same: the listener's approval route
+/// feeds Evlat's own `ApprovalStore`, a press on it answers the held request,
+/// and OpenCode's side — the file it edits, the dialog it still asks — says
+/// whether the answer was applied.
+///
 /// The versions this was last run on are the ones `OpenCode.measuredVersions`
 /// names; a new line is measured here before it is added there.
 final class OpenCodeLiveTests: XCTestCase {
@@ -63,6 +68,14 @@ private enum Target {
         scenarios.questionThenInterrupt()
         scenarios.failedTurn()
         scenarios.retryingTurn()
+        scenarios.cardAllowed()
+        scenarios.cardDenied()
+        scenarios.cardLetGo()
+        scenarios.cardAnsweredInOpenCode()
+        scenarios.twoCards()
+        scenarios.subagentCard()
+        scenarios.otherFolder()
+        scenarios.evlatClosed()
     }
 }
 
@@ -153,6 +166,127 @@ private final class Scenarios {
         XCTAssertTrue(world.reach(.review), say("retry: the interrupt never finished it; \(world.trace)"))
     }
 
+    // MARK: The card
+
+    /// A tool waits, the card is pressed Allow: the file is edited, OpenCode's own
+    /// dialog is closed by the answer, and the card is gone.
+    func cardAllowed() {
+        world.resetReadme()
+        world.begin("editx please")
+        guard world.reach(.waiting), let card = world.waitCard() else { return fail("no card") }
+        XCTAssertEqual(card.tool, "Edit", say("the tool"))
+        XCTAssertTrue(card.subject?.hasSuffix("README.md") == true, say("the file: \(card.subject ?? "nil")"))
+        XCTAssertEqual(card.source, .opencode, say("the route's agent"))
+        XCTAssertEqual(card.sessionID, world.session, say("the row's session"))
+        XCTAssertTrue(world.press(allow: true), say("pressed"))
+        XCTAssertTrue(world.reach(.review), say("allowed on the card: never finished; \(world.trace)"))
+        XCTAssertEqual(world.readme, "hello\n", say("allowed: the edit was made"))
+        XCTAssertEqual(world.moves, ["working", "waiting", "working", "review"], say("card allowed"))
+        XCTAssertTrue(world.cards.isEmpty, say("the card is gone"))
+        XCTAssertTrue(world.driver.pending().isEmpty, say("OpenCode asks nothing more"))
+    }
+
+    func cardDenied() {
+        world.resetReadme()
+        world.begin("editx please")
+        guard world.reach(.waiting), world.waitCard() != nil else { return fail("no card") }
+        XCTAssertTrue(world.press(allow: false), say("pressed"))
+        XCTAssertTrue(world.reach(.review), say("denied on the card: never finished; \(world.trace)"))
+        XCTAssertEqual(world.readme, "hi\n", say("denied: the file is as it was"))
+        XCTAssertTrue(world.cards.isEmpty, say("the card is gone"))
+        XCTAssertTrue(world.driver.pending().isEmpty, say("OpenCode asks nothing more"))
+    }
+
+    /// `{}` is no decision: Evlat lets the card go and OpenCode's own dialog stays,
+    /// which the user answers there.
+    func cardLetGo() {
+        world.resetReadme()
+        world.begin("editx please")
+        guard world.reach(.waiting), world.waitCard() != nil else { return fail("no card") }
+        world.letGo()
+        world.pump(1.5)
+        XCTAssertEqual(world.driver.pending().count, 1, say("OpenCode still asks"))
+        XCTAssertEqual(world.row?.phase, .waiting, say("and the row still waits"))
+        XCTAssertEqual(world.readme, "hi\n", say("nothing was allowed"))
+        world.answer(allow: true)
+        XCTAssertTrue(world.reach(.review), say("let go, then answered in OpenCode: never finished; \(world.trace)"))
+        XCTAssertEqual(world.readme, "hello\n", say("allowed in OpenCode"))
+    }
+
+    /// Answered in OpenCode's own dialog first: the plugin closes its request, which
+    /// is how the card goes (not Evlat letting it go).
+    func cardAnsweredInOpenCode() {
+        world.resetReadme()
+        world.begin("editx please")
+        guard world.reach(.waiting), let card = world.waitCard() else { return fail("no card") }
+        world.answer(allow: true)
+        XCTAssertTrue(world.pump(10) { self.world.cards.isEmpty }, say("the card is still there; \(world.trace)"))
+        XCTAssertTrue(world.abandoned.contains(card.id), say("the plugin closed the request"))
+        XCTAssertTrue(world.reach(.review), say("answered in OpenCode: never finished; \(world.trace)"))
+        XCTAssertEqual(world.readme, "hello\n", say("allowed in OpenCode"))
+    }
+
+    /// One reply, two tool calls, two permissions at once: one card at a time, the
+    /// second after the first is answered, and the row waits through both.
+    func twoCards() {
+        world.begin("two please")
+        guard world.reach(.waiting), let first = world.waitCard() else { return fail("no card") }
+        world.pump(2)
+        XCTAssertEqual(world.cards.count, 1, say("the second waits behind the first"))
+        XCTAssertTrue(world.press(allow: true), say("first pressed"))
+        let second = world.waitCard(other: first.id)
+        XCTAssertNotNil(second, say("the second card never came; \(world.trace)"))
+        XCTAssertEqual(Set([first.command, second?.command]), ["echo evlat-one", "echo evlat-two"], say("both commands"))
+        XCTAssertEqual(world.row?.phase, .waiting, say("one answered, one still asked"))
+        XCTAssertTrue(world.press(allow: true), say("second pressed"))
+        XCTAssertTrue(world.reach(.review), say("two cards: never finished; \(world.trace)"))
+        XCTAssertEqual(world.moves, ["working", "waiting", "working", "review"], say("two cards"))
+        XCTAssertTrue(world.cards.isEmpty && world.driver.pending().isEmpty, say("nothing left to answer"))
+    }
+
+    /// A subagent's permission is on the root's card, answered to the subagent's
+    /// own session.
+    func subagentCard() {
+        world.begin("task please")
+        guard world.reach(.waiting), let card = world.waitCard() else { return fail("no card") }
+        XCTAssertEqual(card.sessionID, world.session, say("the root's row"))
+        XCTAssertNotNil(card.subagent, say("the subagent is the actor"))
+        XCTAssertEqual(card.tool, "Bash", say("the subagent's tool"))
+        XCTAssertTrue(world.press(allow: true), say("pressed"))
+        XCTAssertTrue(world.reach(.review), say("subagent card: never finished; \(world.trace)"))
+        XCTAssertTrue(world.driver.pending().isEmpty, say("the subagent's dialog is closed"))
+    }
+
+    /// 2.x's service boots a plugin instance per folder and only the one that owns
+    /// a session's folder can answer it: a session in a second folder is answered
+    /// whichever instance heard the ask first. (1.x answers from the instance of
+    /// the folder it heard it in: nothing to choose, and nothing to run.)
+    func otherFolder() {
+        guard world.driver.isSharedService else { return }
+        world.resetReadme()
+        let other = world.otherFolder()
+        world.begin("editx please", in: other)
+        guard world.reach(.waiting), world.waitCard() != nil else { return fail("no card in the second folder") }
+        XCTAssertTrue(world.press(allow: true), say("pressed"))
+        XCTAssertTrue(world.reach(.review), say("second folder: never finished; \(world.trace)"))
+        XCTAssertEqual(world.readme(in: other), "hello\n", say("the instance that owns the folder answered"))
+        XCTAssertEqual(world.readme, "hi\n", say("and the first folder's file is as it was"))
+    }
+
+    /// Evlat closed: the plugin's requests fail at once, and OpenCode's own dialog
+    /// is not kept waiting for a card that cannot come. Last, because the
+    /// listener stays stopped.
+    func evlatClosed() {
+        world.resetReadme()
+        world.stopListener()
+        world.begin("editx please")
+        let began = Date()
+        XCTAssertTrue(world.pump(15) { !self.world.driver.pending().isEmpty }, say("OpenCode never asked"))
+        XCTAssertLessThan(Date().timeIntervalSince(began), 12, say("the dialog came without delay"))
+        world.answer(allow: true)
+        XCTAssertTrue(world.pump(30) { self.world.readme == "hello\n" }, say("answered in OpenCode: the edit was made"))
+    }
+
     private func fail(_ text: String) {
         XCTFail(say("\(text); trace \(world.trace)"))
     }
@@ -168,6 +302,8 @@ private final class World {
     private(set) var driver: Driver!
     private var processes: [Process] = []
     private var listener: HookListener?
+    private let approvals = MainActor.assumeIsolated { ApprovalStore(agents: Agents.all) }
+    private(set) var abandoned: [String] = []
     private var provider = World.makeProvider()
     private var pid: Int32 = 0
     private var versionHeard: String?
@@ -224,14 +360,31 @@ private final class World {
         XCTAssertEqual(try String(contentsOf: installed, encoding: .utf8), OpenCodePlugin.file.contents,
                        "the installer wrote the plugin")
 
-        let listener = HookListener(transport: .unix(socket)) { [weak self] delivery in
-            if case .hook(let event) = delivery { self?.heard(event) }
-        }
+        // The app's own wiring for a held request: the store holds it for the card, a
+        // press writes the answer to the listener, a closed connection abandons it.
+        let listener = HookListener(
+            transport: .unix(socket),
+            onAbandoned: { [weak self] id in
+                MainActor.assumeIsolated {
+                    self?.abandoned.append(id)
+                    self?.approvals.abandoned(id)
+                }
+            },
+            onDelivery: { [weak self] delivery in
+                switch delivery {
+                case .hook(let event): self?.heard(event)
+                case .approval(let request): MainActor.assumeIsolated { self?.approvals.asked(request) }
+                default: break
+                }
+            })
         listener.start()
         guard case .listeningAt = listener.awaitSettled(timeout: 5) else {
             throw XCTSkip("the listener did not come up: \(listener.status.text)")
         }
         self.listener = listener
+        MainActor.assumeIsolated {
+            approvals.respond = { [weak listener] request, response in listener?.answer(request.id, with: response) }
+        }
 
         switch target {
         case .cli(let binary):
@@ -300,17 +453,19 @@ private final class World {
     // MARK: A scenario
 
     /// A new session and its prompt, with a provider that has heard nothing.
-    func begin(_ prompt: String) {
+    func begin(_ prompt: String, in directory: URL? = nil) {
         pump(1)
+        MainActor.assumeIsolated { approvals.release(where: { _ in true }) }
         provider = Self.makeProvider()
         trace = []
         mostRows = 0
-        session = driver.createSession() ?? ""
+        session = driver.createSession(in: directory ?? work) ?? ""
         XCTAssertFalse(session.isEmpty, "[\(target.name)] a session was created")
         driver.prompt(session, prompt)
     }
 
     private func heard(_ event: HookEvent) {
+        MainActor.assumeIsolated { approvals.heard(event, machine: nil) }
         provider.handle(event)
         if let version = event.agentVersion { versionHeard = version }
         let rows = provider.currentSignals()
@@ -331,6 +486,52 @@ private final class World {
             for ask in pending { driver.reply(ask, allow: allow) }
             pump(0.5)
         }
+    }
+
+    // MARK: The card and the file it is about
+
+    var cards: [HeldRequest] { MainActor.assumeIsolated { approvals.pending } }
+
+    /// Waits for a card (another than `other`, when it is given).
+    func waitCard(other: String? = nil, timeout: TimeInterval = 20) -> HeldRequest? {
+        var found: HeldRequest?
+        pump(timeout) {
+            found = self.cards.first { $0.id != other }
+            return found != nil
+        }
+        return found
+    }
+
+    /// The press on the oldest card.
+    func press(allow: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            guard let first = approvals.pending.first else { return false }
+            return approvals.answer(first.id, allow: allow)
+        }
+    }
+
+    /// Evlat lets every held request go: `{}`.
+    func letGo() {
+        MainActor.assumeIsolated { approvals.release(where: { _ in true }) }
+    }
+
+    func stopListener() {
+        listener?.stop()
+    }
+
+    private var readmeURL: URL { work.appendingPathComponent("README.md") }
+    var readme: String { readme(in: work) }
+    func readme(in folder: URL) -> String {
+        (try? String(contentsOf: folder.appendingPathComponent("README.md"), encoding: .utf8)) ?? ""
+    }
+    func resetReadme() { try? "hi\n".write(to: readmeURL, atomically: true, encoding: .utf8) }
+
+    /// A second folder of the same home, with a file of its own to edit.
+    func otherFolder() -> URL {
+        let folder = home.appendingPathComponent("other", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? "hi\n".write(to: folder.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        return folder
     }
 
     /// 1.x and the desktop send the pid of the process the plugin runs in,
@@ -417,7 +618,7 @@ private protocol Driver: AnyObject {
     var isSharedService: Bool { get }
     func start() throws
     func stopServer()
-    func createSession() -> String?
+    func createSession(in directory: URL) -> String?
     func prompt(_ session: String, _ text: String)
     func pending() -> [Ask]
     func reply(_ ask: Ask, allow: Bool)
@@ -458,7 +659,7 @@ private final class HTTPDriver: Driver {
 
     func stopServer() { process?.terminate() }
 
-    func createSession() -> String? {
+    func createSession(in directory: URL) -> String? {
         let (_, data) = request("POST", "/session", body: Data("{}".utf8))
         return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["id"] as? String
     }
@@ -540,8 +741,8 @@ private final class ServiceDriver: Driver {
         }
     }
 
-    func createSession() -> String? {
-        let body = "{\"location\":{\"directory\":\"\(world.work.path)\"}}"
+    func createSession(in directory: URL) -> String? {
+        let body = "{\"location\":{\"directory\":\"\(directory.path)\"}}"
         return id(of: api(["session.create", "-d", body]))
     }
 

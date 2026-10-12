@@ -512,6 +512,20 @@ socket's folder is the user's alone (`0700`), here and on a server, so
 that is a process of the same user, which could write the settings file
 anyway.
 
+OpenCode has no command to install: its plugin opens the held request
+itself, on `/approval/opencode`, for a permission still unanswered after
+300 ms, and applies the answer through OpenCode's own API from inside the
+process (`OpenCodeApprovals`, the plugin's bridge). It applies a body only
+when it is `200` and exactly `{"decision":"once"}` or `{"decision":"reject"}`
+— those two words are read by every plugin already installed, so they cannot
+move; `{}`, a refusal, a closed connection and the time running out are no
+answer. An answer given anywhere else (`permission.replied`) closes its
+request; an interrupt says none, so a card outliving its turn is
+`ApprovalHook.resolves`' to drop. A session has one permission on the card at
+a time, the next opening on the last one's `replied` or applied answer
+(`ApprovalHook.supersedes` would let the first go). A request is its agent's:
+`resolves` and `supersedes` compare `HeldRequest.source` too.
+
 ### Local API
 
 No TCP port on this Mac but the Docker sandboxes' (48152, below). Every
@@ -543,7 +557,7 @@ holds (`Origin.role`, one `switch`).
 | `GET /health` | |
 | `POST /usage/claude` | status-line relay; only `rate_limits` is read |
 | `POST /permission` | inline hook of a chat turn; token-guarded, reply held until the user answers; `404` on a machine's channel and on the sandbox listener |
-| `POST /approval`, `/approval/codex` | approval hook of terminal sessions (`ApprovalHook`), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
+| `POST /approval`, `/approval/codex`, `/approval/opencode` | approval hook of terminal sessions (`ApprovalHook`; OpenCode's is its plugin's held request), one path per agent (`RouteTable.approvals`); held until Allow/Deny on the card, or let go with `{}` once answered elsewhere; from a machine's channel too, held under that machine; `404` on the sandbox listener |
 | `POST /signal` | external jobs; no key — an `X-Evlat-Key` an older sender adds is not read; `404` on the sandbox listener |
 | `POST /hook/claude` on **48152** | the sandbox listener (`SandboxListener`), bound only while "Watch sandboxes" is on, for the command Evlat writes into a Docker sandbox; `.sandbox`, so the VM's `X-Evlat-Pid` and `X-Evlat-Task` are dropped and every other route is `404`. The only listener that trusts `X-Evlat-Sandbox`, checked |
 | `POST /askpass` | the tunnels' `ssh` prompts, from the askpass helper; token-guarded (a running try's), held until answered or refused; `404` on a machine's channel and on the sandbox listener. The token is in `ssh`'s environment, which a process of the same user can read (`KERN_PROCARGS2`), so such a process could take a stored password during a try — accepted, as for `/approval` |
@@ -604,8 +618,9 @@ from Swift constants and pinned byte for byte (`OpenCodePluginTests`; its
 fixture `Tests/Fixtures/opencode-plugin.js`, refreshed with
 `EVLAT_UPDATE_GOLDEN=1`). It must stay an ESM `.js` (an `.mjs` is not loaded
 and 2.x skips CommonJS silently), only **listen** (a hook that fires before a
-tool and throws refuses the tool; no `console`, no `$`), give every request
-its own timeout and catch every failure. What it posts to `/hook/opencode` —
+tool and throws refuses the tool; no `console`, no `$`) — besides carrying a
+permission to the card and its answer back (above) — give every request its
+own timeout and catch every failure. What it posts to `/hook/opencode` —
 OpenCode's own event names with the fields the plugin pulled out — keeps
 reading under a plugin of an older version still loaded (a 2.x service keeps
 the module it started with until it restarts), and `OpenCodeHookAdapter` is
@@ -860,6 +875,19 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   (1.x's `server` and a `--standalone` child, whose argv has `--stdio`, send
   it). The desktop app's server module answers `/global/health` before its
   authenticated routes do: a harness waits on one of those.
+- **An answer applied from the wrong OpenCode instance finds no permission.**
+  2.x's `ctx.permission.reply` works only from the instance that owns the
+  session's folder ("not found" from the others), and the instance that hears
+  an event first is not always it: the plugin tries the one that heard, then
+  the rest (`OpenCodePlugin`'s `apply`; `OpenCodeLiveTests.otherFolder` fails
+  without it). A step that ends beside an open dialog is held and told when
+  the wait lifts: OpenCode does not say it again, and dropping it left the
+  tool count one short.
+- **Never run `OpenCode.app/Contents/MacOS/OpenCode --version`.** It prints
+  no version and opens the desktop app on the user's own data
+  (`Application Support/ai.opencode.desktop`) for about two minutes. The app's
+  version is `CFBundleShortVersionString` in its `Info.plist`; the tests start
+  its server module with `ELECTRON_RUN_AS_NODE=1` in a home of their own.
 
 - **A `URL` keeps the resource values it read once.** A picture rewritten
   in place read its old size and date through `resourceValues` on the same
