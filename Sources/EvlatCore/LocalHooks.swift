@@ -12,7 +12,7 @@ import Foundation
 /// They are the settings form's (`AgentIntegration.Parts.settings`): an agent
 /// whose unit is a file of Evlat's own has no settings to merge into, so for
 /// it they change nothing and read missing — a caller that reaches them with
-/// one has skipped the form check (`Agents.served`, `AgentIntegration`).
+/// one has skipped the form check (`AgentIntegration`, `RemoteSettings`).
 public enum LocalHooks {
     public typealias State = HookSettings.State
 

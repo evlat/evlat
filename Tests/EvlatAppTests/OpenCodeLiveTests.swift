@@ -34,11 +34,17 @@ final class OpenCodeLiveTests: XCTestCase {
         guard !binaries.isEmpty || desktop != nil else {
             throw XCTSkip("OPENCODE is not set; `make test-opencode` sets it")
         }
+        // One cache for the run, not a fixed folder: the first use of a model
+        // downloads its adapter, and every target after it reuses that, but
+        // nothing stays in the temporary folder once the run ends.
+        let cache = URL(fileURLWithPath: "/private/tmp/evlat-oc-cache-" + UUID().uuidString.prefix(8).lowercased(),
+                        isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: cache) }
         for binary in binaries {
-            try XCTContext.runActivity(named: binary) { _ in try Target.cli(binary).measure() }
+            try XCTContext.runActivity(named: binary) { _ in try Target.cli(binary).measure(cache: cache) }
         }
         if let desktop {
-            try XCTContext.runActivity(named: desktop) { _ in try Target.desktop(desktop).measure() }
+            try XCTContext.runActivity(named: desktop) { _ in try Target.desktop(desktop).measure(cache: cache) }
         }
     }
 }
@@ -56,8 +62,8 @@ private enum Target {
         }
     }
 
-    func measure() throws {
-        let world = try World(target: self)
+    func measure(cache: URL) throws {
+        let world = try World(target: self, cache: cache)
         defer { world.tearDown() }
         try world.start()
         let scenarios = Scenarios(world: world)
@@ -329,8 +335,9 @@ private final class World {
     }
 
     /// Short: the socket under the home must fit an address.
-    init(target: Target) throws {
+    init(target: Target, cache: URL) throws {
         self.target = target
+        self.cache = cache
         root = URL(fileURLWithPath: "/private/tmp/evlat-oc-" + UUID().uuidString.prefix(8).lowercased(), isDirectory: true)
         home = root.appendingPathComponent("h", isDirectory: true)
         work = home.appendingPathComponent("work", isDirectory: true)
@@ -341,8 +348,9 @@ private final class World {
         try "hi\n".write(to: work.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
     }
 
-    /// Shared between runs: the first use of a model downloads its adapter.
-    private var cache: URL { URL(fileURLWithPath: "/private/tmp/evlat-opencode-cache", isDirectory: true) }
+    /// Shared between the targets of one run: the first use of a model
+    /// downloads its adapter. The test that made it removes it.
+    private let cache: URL
 
     var environment: [String: String] {
         ["HOME": home.path, "XDG_CONFIG_HOME": home.appendingPathComponent(".config").path,

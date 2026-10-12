@@ -184,7 +184,8 @@ final class RemoteInstaller {
         let nonce = UUID().uuidString
         do {
             let read = try run(ssh, arguments, script: RemoteSettings.readScript(path: change.path, nonce: nonce,
-                                                                               opening: change.opening))
+                                                                               opening: change.opening,
+                                                                               owned: change.writesWhole))
             let snapshot = try RemoteSettings.snapshot(exitCode: read.status, output: read.output, nonce: nonce)
             guard let write = try RemoteSettings.plan(change, action, original: snapshot.bytes) else {
                 return .success(.unchanged)

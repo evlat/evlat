@@ -649,13 +649,18 @@ final class RemoteMachinesModel: ObservableObject {
             return SetupRow(item: .agent(source), status: status, name: L10n.t(source.agent.display.nameKey, in: lang),
                             detail: file, note: nil, failure: nil)
         }
-        let note = state.relay == .modified ? L10n.t("setup.agent.usageModified", in: lang) : nil
+        var note = state.relay == .modified ? L10n.t("setup.agent.usageModified", in: lang) : nil
+        if state.foreign { note = L10n.t("setup.agent.ownedForeign", in: lang) }
         var card = SetupRow(item: .agent(source), status: status, name: L10n.t(source.agent.display.nameKey, in: lang),
                             detail: file, note: note, failure: nil)
-        // The approval hook, where the agent's channel installs it on a
-        // server, is in the same file and part.
-        card.parts = [SetupPart(name: L10n.t(SetupModel.hooksPartKey(source, on: .server), in: lang), file: file,
-                                status: partStatus(state.hooks))]
+        // The unit's main part: the hooks in the agent's settings (with the
+        // approval hook, where the agent's channel installs it on a server,
+        // in the same file and part), or the file of Evlat's own — this
+        // Mac's card says it the same way.
+        let partKey = source.agent.integration.ownedFile != nil
+            ? "setup.agent.part.ownedFile" : SetupModel.hooksPartKey(source, on: .server)
+        card.parts = [SetupPart(name: L10n.t(partKey, in: lang), file: file,
+                                status: state.foreign ? .foreign : partStatus(state.hooks))]
         if let relay = state.relay {
             card.parts.append(SetupPart(name: L10n.t("setup.agent.part.usage", in: lang), file: file,
                                         status: SetupModel.status(relay)))
@@ -717,11 +722,16 @@ final class RemoteMachinesModel: ObservableObject {
         guard let row = rows.first(where: { $0.id == id }),
               case .state(let state)? = lastReading(id)?.unit(source.agent) else { return [] }
         var what: [String] = []
+        // A file of Evlat's own is written whole and taken out whole, with
+        // no backup: the consent says that instead of "hooks".
+        let owned = source.agent.integration.ownedFile != nil
         if action.installs {
-            if state.hooks != .current { what.append("setup.consent.what.hooks") }
+            if state.hooks != .current { what.append(owned ? "setup.consent.what.ownedFile" : "setup.consent.what.hooks") }
             if state.installsRelay { what.append("setup.consent.what.usage") }
         } else {
-            if state.hooks != .missing { what.append("setup.consent.what.hooks.remove") }
+            if state.hooks != .missing {
+                what.append(owned ? "setup.consent.what.ownedFile.remove" : "setup.consent.what.hooks.remove")
+            }
             if state.relay?.isEvlats == true { what.append("setup.consent.what.usage.remove") }
         }
         guard !what.isEmpty else { return [] }
@@ -750,6 +760,13 @@ final class RemoteMachinesModel: ObservableObject {
     /// where the server gets one.
     static func manual(_ source: AgentID, in lang: String) -> SetupManual {
         let manual = RemoteSettings.manual(agents: Agents.served)
+        if let owned = source.agent.integration.ownedFile {
+            // The file, whole: nothing to merge, nothing to wrap, and the
+            // way out is deleting it.
+            return SetupManual(text: manual.hooks(for: source.agent), wrapping: nil,
+                               removal: L10n.t("setup.manual.remove.file", in: lang),
+                               lead: L10n.t("setup.manual.ownedLead", ["file": "~/" + owned.file.path], in: lang))
+        }
         let relay = RemoteSettings.relays(source.agent)
         var removal = L10n.t("remote.manual.remove", ["marker": manual.marker], in: lang)
         if relay { removal += " " + L10n.t("setup.manual.remove.usage", in: lang) }

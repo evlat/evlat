@@ -545,7 +545,14 @@ final class RemoteMachinesTests: XCTestCase {
         for source in Agents.all {
             let card = RemoteMachinesModel.manual(source.id, in: "en")
             XCTAssertEqual(card.text, manual.hooks(for: source))
-            XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.integration.file], in: "en"))
+            // A file of Evlat's own is saved whole and deleted to remove;
+            // the rest are hooks merged into a settings file.
+            if source.integration.ownedFile != nil {
+                XCTAssertEqual(card.lead, L10n.t("setup.manual.ownedLead", ["file": "~/" + source.integration.file], in: "en"))
+                XCTAssertEqual(card.removal, L10n.t("setup.manual.remove.file", in: "en"))
+            } else {
+                XCTAssertEqual(card.lead, L10n.t("remote.manual.agent", ["file": "~/" + source.integration.file], in: "en"))
+            }
             // The usage line is a part on a server for one agent alone.
             XCTAssertEqual(card.statusLine != nil, RemoteSettings.relays(source), source.id.rawValue)
         }
@@ -733,5 +740,39 @@ final class RemoteMachinesTests: XCTestCase {
         XCTAssertEqual(sent, ["remote"])
         controller.handleDelivery(.approval(request("later", machine: "m1")))
         XCTAssertEqual(sent, ["remote", "later"], "off there: answered at once")
+    }
+
+    /// A server's OpenCode asks through the machine's channel: the request is
+    /// held under the machine, a press answers it in OpenCode's own words
+    /// (the plugin there applies them), and the machine's switch for OpenCode
+    /// — which an OpenCode on the server turns on, none stored — lets it go.
+    func testAServersOpenCodeApprovalIsHeldUnderTheMachineAndAnswered() throws {
+        let ssh = try fakeSSH(.connect)
+        let controller = controller(ssh: ssh, stored: false,
+                                    machines: [try XCTUnwrap(RemoteMachine(id: "m1", target: "devbox"))])
+        var sent: [(request: HeldRequest, body: String)] = []
+        controller.approvals.respond = { request, response in sent.append((request, response.body)) }
+        // One session asks once at a time: a newer request replaces its older.
+        func request(_ id: String) -> HeldRequest {
+            HeldRequest(id: id, token: nil, tool: "bash", subject: "ls", command: "ls", sessionID: "ses_\(id)",
+                        source: .opencode, machine: "m1")
+        }
+        controller.handleDelivery(.approval(request("allowed")))
+        controller.handleDelivery(.approval(request("denied")))
+        XCTAssertEqual(controller.approvals.pending.map(\.id), ["allowed", "denied"])
+        XCTAssertTrue(controller.approvals.answer("allowed", allow: true))
+        XCTAssertTrue(controller.approvals.answer("denied", allow: false))
+        XCTAssertEqual(sent.map(\.request.machine), ["m1", "m1"], "the answer goes back to the machine's listener")
+        XCTAssertEqual(sent.map(\.body), [OpenCodeApprovals().body(.allow(rules: [], directories: [])),
+                                          OpenCodeApprovals().body(.deny(interrupt: false))])
+        XCTAssertNotEqual(sent[0].body, sent[1].body)
+
+        controller.handleDelivery(.approval(request("held")))
+        controller.setMachineAgents(id: "m1", ["claude"])
+        XCTAssertTrue(controller.approvals.pending.isEmpty)
+        XCTAssertEqual(sent.last?.request.id, "held")
+        XCTAssertEqual(sent.last?.body, "{}", "off there: no decision, the server's OpenCode asks as it always did")
+        controller.handleDelivery(.approval(request("later")))
+        XCTAssertEqual(sent.last?.request.id, "later", "answered at once")
     }
 }

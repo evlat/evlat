@@ -40,6 +40,8 @@ final class OpenCodeHookAdapterTests: XCTestCase {
             (["event": "permission.asked", "ask": ["kind": "bash"]], "PermissionRequest"),
             (["event": "question.asked", "ask": ["kind": "question"]], "PermissionRequest"),
             (["event": "form.created", "ask": ["kind": "question"]], "PermissionRequest"),
+            // A form that is no question carries no ask: a word nothing reads, not a wait.
+            (["event": "form.created"], "form.created"),
             (["event": "permission.replied", "reply": "once"], "PostToolUse"),
             (["event": "permission.replied", "reply": "always"], "PostToolUse"),
             (["event": "permission.replied", "reply": "reject"], "PermissionDenied"),
@@ -239,6 +241,8 @@ final class OpenCodeHookAdapterTests: XCTestCase {
             XCTAssertEqual(rows.count, 1, "\(recording.name): a subagent has no row of its own")
             XCTAssertEqual(rows.first?.label, "app", recording.name)
             let version = provider.agentVersion(of: .opencode)
+            let said = recording.bodies.contains { $0["opencode_version"] != nil }
+            XCTAssertEqual(version != nil, said, "\(recording.name): the version a line said is the one heard")
             XCTAssertTrue(OpenCode().hasMeasured(version: version), "\(recording.name): \(version ?? "nil")")
         }
     }

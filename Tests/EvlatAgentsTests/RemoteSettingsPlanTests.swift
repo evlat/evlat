@@ -11,6 +11,7 @@ final class RemoteSettingsPlanTests: XCTestCase {
         XCTAssertEqual(RemoteSettings.failure(exitCode: 11), .file(.unreadable))
         XCTAssertEqual(RemoteSettings.failure(exitCode: 12), .file(.changedUnderneath))
         XCTAssertEqual(RemoteSettings.failure(exitCode: 13), .file(.unwritable))
+        XCTAssertEqual(RemoteSettings.failure(exitCode: 14), .file(.malformed), "a link at a file of Evlat's own")
         for code: Int32 in [1, 2, 126, 127, 255] {
             XCTAssertEqual(RemoteSettings.failure(exitCode: code), .unreachable, "\(code)")
         }
@@ -186,5 +187,89 @@ final class RemoteSettingsPlanTests: XCTestCase {
             "-o", "ForkAfterAuthentication=no",
             "--", "devbox", "sh -s",
         ])
+    }
+
+    // MARK: - A file of Evlat's own: OpenCode's plugin
+
+    /// A server's OpenCode unit is the plugin, whole, in this Mac's bytes: the
+    /// plan reads its state from the bytes (never as JSON) and says what to
+    /// do for each of the four states, install and remove alike.
+    func testAServersOpenCodeUnitIsThePluginWhole() throws {
+        let file = OpenCodePlugin.file
+        let current = Data(file.contents.utf8)
+        XCTAssertEqual(file.contents, LocalHooks.manual(for: OpenCode()), "this Mac's bytes")
+        let older = Data(file.contents.replacingOccurrences(of: "\(file.versionPrefix)\(file.version)\n",
+                                                             with: "\(file.versionPrefix)\(file.version - 1)\n").utf8)
+        let later = Data(file.contents.replacingOccurrences(of: "\(file.versionPrefix)\(file.version)\n",
+                                                             with: "\(file.versionPrefix)\(file.version + 1)\n").utf8)
+        let theirs = Data("// mine\n".utf8)
+        let whole = RemoteSettings.Write(contents: current, backup: nil, form: .whole)
+
+        XCTAssertEqual(try RemoteSettings.plan(.agent(.opencode), .install, original: nil), whole, "missing: written")
+        XCTAssertEqual(try RemoteSettings.plan(.agent(.opencode), .install, original: older), whole, "older: moved")
+        XCTAssertNil(try RemoteSettings.plan(.agent(.opencode), .install, original: current), "current: nothing")
+        XCTAssertNil(try RemoteSettings.plan(.agent(.opencode), .install, original: later), "a later copy's is current")
+        XCTAssertThrowsError(try RemoteSettings.plan(.agent(.opencode), .install, original: theirs)) {
+            XCTAssertEqual($0 as? RemoteSettings.Failure, .file(.malformed), "unmarked: the user's, refused")
+        }
+        let removal = RemoteSettings.Write(contents: Data(), backup: nil, form: .removal)
+        XCTAssertNil(try RemoteSettings.plan(.agent(.opencode), .remove, original: nil))
+        XCTAssertNil(try RemoteSettings.plan(.agent(.opencode), .remove, original: theirs), "the user's stays")
+        for original in [current, older, later] {
+            XCTAssertEqual(try RemoteSettings.plan(.agent(.opencode), .remove, original: original), removal)
+        }
+        for change in [RemoteSettings.Change.hooks(.opencode), .statusLine(.opencode)] {
+            XCTAssertThrowsError(try RemoteSettings.plan(change, .install, original: nil), "no hooks in a plugin") {
+                XCTAssertEqual($0 as? RemoteSettings.Failure, .file(.malformed))
+            }
+        }
+        XCTAssertFalse(RemoteSettings.relays(.opencode))
+        XCTAssertTrue(RemoteSettings.serves(.opencode))
+        XCTAssertEqual(RemoteSettings.Change.agent(.opencode).path, ".config/opencode/plugins/evlat.js")
+        XCTAssertEqual(RemoteSettings.Change.agent(.opencode).opening, OpenCode().presence)
+        XCTAssertEqual(Agents.served.map(\.id), Agents.all.map(\.id), "every agent is served")
+    }
+
+    /// The scripts: a file of Evlat's own keeps no first backup, and its
+    /// removal checks the same `cksum`, never follows a link and takes
+    /// nothing but the file; a settings file's write is as it was.
+    func testTheScriptsOfAFileOfEvlatsOwn() {
+        let path = ".config/opencode/plugins/evlat.js"
+        let bytes = Data("// evlat-opencode-plugin\n".utf8)
+        let whole = RemoteSettings.writeScript(path: path, expected: "1 2",
+                                               write: .init(contents: bytes, backup: nil, form: .whole),
+                                               opening: OpenCode().presence)
+        XCTAssertFalse(whole.contains(".evlat.bak"), "no backup of Evlat's own file")
+        // A link at the path is the user's: every script of such a file ends on it, and a
+        // settings file's follows links as it always did.
+        let ends = "[ ! -h \"$f\" ] || exit 14"
+        XCTAssertTrue(whole.contains(ends))
+        XCTAssertTrue(RemoteSettings.readScript(path: path, nonce: "n", opening: OpenCode().presence, owned: true).contains(ends))
+        XCTAssertFalse(RemoteSettings.readScript(path: path, nonce: "n", opening: OpenCode().presence).contains(ends))
+        XCTAssertTrue(RemoteSettings.readingScript(nonce: "n", agents: [OpenCode()]).contains(ends))
+        XCTAssertFalse(RemoteSettings.readingScript(nonce: "n", agents: [Claude(), Codex(), Antigravity()]).contains(ends))
+        XCTAssertTrue(whole.contains("mv -f \"$tmp\" \"$t\""), "one rename")
+        XCTAssertTrue(whole.contains("mkdir -p"), "the folder is made where the agent is")
+        let merged = RemoteSettings.writeScript(path: ".claude/settings.json", expected: "1 2",
+                                                write: .init(contents: bytes, backup: nil))
+        XCTAssertTrue(merged.contains("[ ! -e \"$f.evlat.bak\" ] && [ ! -h \"$f.evlat.bak\" ]; then cp -p"),
+                      "a settings file keeps its first backup")
+
+        let removal = RemoteSettings.writeScript(path: path, expected: "1 2",
+                                                 write: .init(contents: Data(), backup: nil, form: .removal),
+                                                 opening: OpenCode().presence)
+        XCTAssertTrue(removal.contains("[ \"$s\" = \"$e\" ] || exit 12"), "the file read is the file taken out")
+        XCTAssertTrue(removal.contains("rm -f \"$t\""))
+        XCTAssertTrue(removal.contains(ends), "a removal never reaches through a link")
+        XCTAssertFalse(removal.contains("mkdir"), "a removal makes nothing")
+        XCTAssertFalse(removal.contains("rmdir"), "and takes no folder")
+        XCTAssertFalse(removal.contains("mv "), "and writes nothing")
+    }
+
+    /// The pasted block closes each part at a line that is its delimiter
+    /// alone, so no line of the plugin may be one.
+    func testNoLineOfThePluginIsTheBlocksDelimiter() {
+        let lines = OpenCodePlugin.file.contents.split(separator: "\n", omittingEmptySubsequences: false)
+        XCTAssertFalse(lines.contains { $0.trimmingCharacters(in: .whitespaces) == RemoteSettings.combinedDelimiter })
     }
 }

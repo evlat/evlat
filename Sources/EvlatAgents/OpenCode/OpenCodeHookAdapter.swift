@@ -77,7 +77,17 @@ enum OpenCodeHookAdapter {
         case "session.tool.failed":
             out["hook_event_name"] = "PostToolUseFailure"
             tool(json, into: &out)
-        case "permission.asked", "question.asked", "form.created":
+        case "permission.asked", "question.asked":
+            out["hook_event_name"] = "PermissionRequest"
+            ask(json["ask"] as? [String: Any], into: &out)
+        case "form.created":
+            // Only a form that is a question carries an ask (the plugin
+            // passes any other kind as a word): one that asks nothing is
+            // not a wait, and stays visible under its own name.
+            guard json["ask"] is [String: Any] else {
+                out["hook_event_name"] = event
+                break
+            }
             out["hook_event_name"] = "PermissionRequest"
             ask(json["ask"] as? [String: Any], into: &out)
         case "permission.replied", "question.replied", "question.rejected", "form.replied":

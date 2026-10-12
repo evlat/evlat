@@ -217,30 +217,30 @@ public enum AgentIntegration {
     /// unreadable, so the card has its Install to press; any other refusal
     /// to read is thrown.
     public static func state(home: URL, for source: some Agent) throws -> State {
-        if let owned = source.integration.ownedFile {
-            switch try owned.file.state(home: home) {
-            case .missing: return State(hooks: .missing, relay: nil)
-            case .current: return State(hooks: .current, relay: nil)
-            case .outdated: return State(hooks: .outdated, relay: nil)
-            case .foreign: return State(hooks: .missing, relay: nil, foreign: true)
-            }
-        }
+        if let owned = source.integration.ownedFile { return state(ownedFile: try owned.file.state(home: home)) }
         let hooks = try hooksState(home: home, for: source)
         let relay = try relayFile(home: home, for: source).map { relayState(of: try SettingsFile.read($0), source: source) }
         return State(hooks: hooks, relay: relay)
+    }
+
+    /// The unit's state from the state of the file of Evlat's own: the one
+    /// part is the file, and a file of the user's at its path (`foreign`)
+    /// reads that part missing. This Mac's reading and a server's
+    /// (`RemoteSettings.Reading`) share it.
+    public static func state(ownedFile state: OwnedFile.State) -> State {
+        switch state {
+        case .missing: return State(hooks: .missing, relay: nil)
+        case .current: return State(hooks: .current, relay: nil)
+        case .outdated: return State(hooks: .outdated, relay: nil)
+        case .foreign: return State(hooks: .missing, relay: nil, foreign: true)
+        }
     }
 
     /// The hooks part alone, read fresh: what a caller that does not need the
     /// usage line asks (the launch's checks). A file of the user's where
     /// Evlat's own would be reads missing.
     public static func hooksState(home: URL, for source: some Agent) throws -> LocalHooks.State {
-        if let owned = source.integration.ownedFile {
-            switch try owned.file.state(home: home) {
-            case .current: return .current
-            case .outdated: return .outdated
-            case .missing, .foreign: return .missing
-            }
-        }
+        if let owned = source.integration.ownedFile { return state(ownedFile: try owned.file.state(home: home)).hooks }
         guard let url = source.hooksFile(home: home) else { return .missing }
         do {
             return try LocalHooks.state(at: url, for: source)

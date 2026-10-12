@@ -151,21 +151,25 @@ final class OwnedIntegrationTests: XCTestCase {
         XCTAssertEqual(LocalHooks.state(of: settings, for: agent, target: .mac), .missing)
     }
 
-    func testAServerLeavesItOut() throws {
+    /// A server's unit covers it too, as one file written whole: the
+    /// reading takes its section, the manual carries its bytes, the plan
+    /// reads its state from the bytes (never as JSON), and the parts of the
+    /// settings form — the hooks alone, the status line — are refused for it.
+    func testAServerWritesItWhole() throws {
         let owned = TestAgent.ownedFile()
         let other = TestAgent("other")
-        XCTAssertFalse(RemoteSettings.serves(owned))
+        XCTAssertTrue(RemoteSettings.serves(owned))
         XCTAssertTrue(RemoteSettings.serves(other))
 
         let reading = RemoteSettings.readingScript(nonce: "n", agents: [owned, other])
-        XCTAssertFalse(reading.contains(" begin test "), "no section is read for it")
+        XCTAssertTrue(reading.contains(" begin test "), "its section is read")
         XCTAssertTrue(reading.contains(" begin other "))
 
         let manual = RemoteSettings.manual(agents: [owned, other])
-        XCTAssertEqual(manual.hooks(for: owned), "")
+        XCTAssertEqual(manual.hooks(for: owned), owned.integration.ownedFile?.file.contents)
         XCTAssertFalse(manual.hooks(for: other).isEmpty)
 
-        for change in [RemoteSettings.Change.hooks(owned), .agent(owned), .statusLine(owned)] {
+        for change in [RemoteSettings.Change.hooks(owned), .statusLine(owned)] {
             for action in [RemoteSettings.Action.install, .remove] {
                 XCTAssertThrowsError(try RemoteSettings.plan(change, action, original: nil), "\(change) \(action)") {
                     XCTAssertEqual($0 as? RemoteSettings.Failure, .file(.malformed))
@@ -173,6 +177,84 @@ final class OwnedIntegrationTests: XCTestCase {
             }
         }
         XCTAssertFalse(RemoteSettings.relays(owned))
-        XCTAssertTrue(RemoteSettings.Change.hooks(owned).opening.isEmpty)
+        XCTAssertEqual(RemoteSettings.Change.agent(owned).opening, owned.presence,
+                       "the folder is opened for an agent that is there, as on this Mac")
+        XCTAssertTrue(RemoteSettings.Change.agent(TestAgent.ownedFile(opensDirectory: false)).opening.isEmpty)
+        XCTAssertEqual(RemoteSettings.Change.agent(owned).path, ".test/plugins/evlat.js")
+    }
+
+    /// The plan, state by state: written whole and without a backup when
+    /// missing or older, nothing when current (a later copy's too), refused
+    /// when the file is not Evlat's, and a removal that takes only a marked
+    /// file.
+    func testThePlanReadsTheStateFromTheBytes() throws {
+        let owned = TestAgent.ownedFile(version: 2)
+        let file = try XCTUnwrap(owned.integration.ownedFile?.file)
+        let current = Data(file.contents.utf8)
+        let older = Data(TestAgent.ownedFile(version: 1).integration.ownedFile!.file.contents.utf8)
+        let later = Data(TestAgent.ownedFile(version: 3).integration.ownedFile!.file.contents.utf8)
+        let theirs = Data("export default { mine: true }\n".utf8)
+
+        for original in [nil, older] as [Data?] {
+            let write = try XCTUnwrap(try RemoteSettings.plan(.agent(owned), .install, original: original))
+            XCTAssertEqual(write, RemoteSettings.Write(contents: current, backup: nil, form: .whole))
+        }
+        XCTAssertNil(try RemoteSettings.plan(.agent(owned), .install, original: current), "current: nothing")
+        XCTAssertNil(try RemoteSettings.plan(.agent(owned), .install, original: later), "a later copy's is current")
+        XCTAssertThrowsError(try RemoteSettings.plan(.agent(owned), .install, original: theirs)) {
+            XCTAssertEqual($0 as? RemoteSettings.Failure, .file(.malformed), "the user's file is refused")
+        }
+
+        for original in [current, older, later] {
+            XCTAssertEqual(try RemoteSettings.plan(.agent(owned), .remove, original: original),
+                           RemoteSettings.Write(contents: Data(), backup: nil, form: .removal))
+        }
+        XCTAssertNil(try RemoteSettings.plan(.agent(owned), .remove, original: nil), "nothing to remove")
+        XCTAssertNil(try RemoteSettings.plan(.agent(owned), .remove, original: theirs), "the user's file stays")
+    }
+
+    /// The reading takes the state from the bytes by the local card's rule
+    /// (`AgentIntegration.state`), and a section the server could not give
+    /// is the same words as for a settings file.
+    func testTheReadingOfAServerIsTheLocalCardsRule() {
+        let owned = TestAgent.ownedFile()
+        let file = owned.integration.ownedFile!.file
+        func reading(_ files: [AgentID: Result<RemoteSettings.Snapshot, SettingsFile.Failure>]) -> RemoteSettings.Reading {
+            RemoteSettings.Reading(files: files, command: .missing)
+        }
+        func snapshot(_ text: String?) -> Result<RemoteSettings.Snapshot, SettingsFile.Failure> {
+            .success(RemoteSettings.Snapshot(bytes: text.map { Data($0.utf8) }, checksum: "1 2"))
+        }
+        let states: [(String?, AgentIntegration.State)] = [
+            (nil, .init(hooks: .missing, relay: nil)),
+            (file.contents, .init(hooks: .current, relay: nil)),
+            (file.contents + "// edited\n", .init(hooks: .outdated, relay: nil)),
+            ("export default {}\n", .init(hooks: .missing, relay: nil, foreign: true)),
+        ]
+        for (text, expected) in states {
+            let read = reading([owned.id: snapshot(text)])
+            XCTAssertEqual(read.unit(owned), .state(expected), text ?? "no file")
+            XCTAssertEqual(read.hooks(owned), .state(expected.hooks), text ?? "no file")
+        }
+        XCTAssertEqual(reading([owned.id: .failure(.noDirectory)]).unit(owned), .noDirectory)
+        XCTAssertEqual(reading([owned.id: .failure(.unreadable)]).unit(owned), .unreadable)
+        XCTAssertEqual(reading([:]).unit(owned), .unreadable)
+    }
+
+    /// The pasted block puts each part on a quoted heredoc, ended by a line
+    /// that is its delimiter alone: a file whose text holds such a line would
+    /// end a part early. Held here for a stand-in; the plugin's own is held in
+    /// the agents' tests.
+    func testNoLineOfAnOwnedFileEndsAPart() throws {
+        let owned = TestAgent.ownedFile()
+        let write = try XCTUnwrap(try RemoteSettings.plan(.agent(owned), .install, original: nil))
+        let block = try XCTUnwrap(RemoteSettings.combinedScript(
+            RemoteSettings.Reading(files: [owned.id: .success(RemoteSettings.Snapshot(bytes: nil, checksum: "absent"))],
+                                   command: .foreign),
+            agents: [owned]))
+        XCTAssertTrue(block.contains(String(decoding: write.contents, as: UTF8.self).split(separator: "\n").first!))
+        let lines = block.split(separator: "\n", omittingEmptySubsequences: false)
+        XCTAssertEqual(lines.filter { $0 == Substring(RemoteSettings.combinedDelimiter) }.count, 1,
+                       "the one part ends once")
     }
 }

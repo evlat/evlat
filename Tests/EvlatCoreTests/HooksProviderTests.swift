@@ -88,6 +88,23 @@ final class HooksProviderTests: XCTestCase {
     /// v1's `SessionStore.handle` core, written out cell by cell. All eleven
     /// installed Claude events appear here or in the tests below; nothing in the
     /// installed set falls through to the unknown branch.
+    /// What an agent says of itself is kept per source, the latest one,
+    /// and an event that says none keeps it: the card's "not a version it
+    /// was tested with" line reads it.
+    func testTheVersionAnAgentSaysIsHeardPerSource() {
+        let provider = provider()
+        XCTAssertNil(provider.agentVersion(of: .test))
+        var json: [String: Any] = ["hook_event_name": "SessionStart", "session_id": "s-1", "agent_version": "1.19.0"]
+        provider.handle(HookEvent(json: json, source: .test))
+        XCTAssertEqual(provider.agentVersion(of: .test), "1.19.0")
+        json["agent_version"] = "2.0.27"
+        provider.handle(HookEvent(json: json, source: .test))
+        XCTAssertEqual(provider.agentVersion(of: .test), "2.0.27")
+        provider.handle(event("UserPromptSubmit"))
+        XCTAssertEqual(provider.agentVersion(of: .test), "2.0.27", "an event that says none keeps it")
+        XCTAssertNil(provider.agentVersion(of: AgentID("other")))
+    }
+
     func testTheEventTable() {
         let table: [(String, Phase)] = [
             ("SessionStart", .idle),

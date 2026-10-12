@@ -293,6 +293,8 @@ public final class HooksProvider: Provider {
         // producer's space — a `/hook` body saying `signal:x` would replace
         // an outside program's row. Claude's and Codex's ids are UUIDs.
         guard machine != nil || !sessionID.contains(":") else { return }
+        // What the agent says of itself, kept per source (`agentVersion(of:)`).
+        if let version = event.agentVersion { versions[event.source] = version }
         let entity = Self.entity(sessionID: sessionID, machine: machine?.id)
         // A remote number means nothing on this Mac. `LocalAPI` already strips
         // it from a tunneled request; this is the second lock, so no remote

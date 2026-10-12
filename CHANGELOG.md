@@ -30,6 +30,13 @@ renames that heading to its version.
   Code's does; answering in OpenCode itself still works and takes the card
   away. With Evlat closed OpenCode asks as it always did. A question OpenCode
   asks stays a wait you answer in OpenCode.
+- **OpenCode on your servers.** Settings → Servers has the OpenCode card
+  too: one press writes the same plugin file to
+  `~/.config/opencode/plugins/evlat.js` on the server over `ssh`, only where
+  OpenCode's own folders are, and Remove takes that file and nothing else.
+  The server's sessions show as rows and their permissions are answered on the
+  bar. A file of yours at that path is left alone. A server whose agents you
+  switched before starts with OpenCode off.
 
 ## 0.2.3
 

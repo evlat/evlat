@@ -18,8 +18,8 @@ test-desktop:
 
 # The OpenCode plugin against real OpenCodes, behind a fake model, in homes of
 # their own (`OpenCodeLiveTests`): one binary per version, 2.x or 1.x, and the
-# desktop app's server module if its path is given. Needs the network once
-# (a model adapter OpenCode installs into a cache of its own) and python3.
+# desktop app's server module if its path is given. Needs the network every run
+# (the model adapter OpenCode installs goes into a cache the run removes) and python3.
 #
 #   make test-opencode OPENCODE="/path/opencode-1.19.0 /path/opencode-2.0.27" \
 #                      OPENCODE_DESKTOP=/Applications/OpenCode.app

@@ -543,7 +543,8 @@ final class RemoteReadingTests: XCTestCase {
         waitUntil("read") { model.readings["m"] != .reading }
         XCTAssertEqual(server.sshRuns, 1)
         XCTAssertEqual(model.items(for: "m"), .init(agents: [.claude: .missing, .codex: .notFound,
-                                                             .antigravity: .notFound], command: .missing))
+                                                             .antigravity: .notFound, .opencode: .notFound],
+                                                    command: .missing))
         XCTAssertTrue(model.canRun("m"))
 
         let block = try XCTUnwrap(model.combinedBlock(for: "m"))
@@ -618,8 +619,9 @@ final class RemoteReadingTests: XCTestCase {
                                         pasteboard: pasteboard, lang: "en")
         model.check("m")
         waitUntil("read") { model.readings["m"] != .reading }
-        XCTAssertEqual(model.enabledAgents(of: "m"), [.claude, .codex], "the server's agents; Antigravity is not there")
-        XCTAssertEqual(model.agentRows(for: "m").map(\.enabled), [true, true, false])
+        XCTAssertEqual(model.enabledAgents(of: "m"), [.claude, .codex],
+                       "the server's agents; Antigravity and OpenCode are not there")
+        XCTAssertEqual(model.agentRows(for: "m").map(\.enabled), [true, true, false, false])
 
         model.perform(.agent(.claude), .install, on: "m")
         waitUntil("installed") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
@@ -662,7 +664,8 @@ final class RemoteReadingTests: XCTestCase {
         model.check("m")
         waitUntil("read") { model.readings["m"] != .reading }
         XCTAssertEqual(model.items(for: "m"), .init(agents: [.claude: .outdated, .codex: .missing,
-                                                             .antigravity: .notFound], command: .outdated,
+                                                             .antigravity: .notFound, .opencode: .notFound],
+                                                    command: .outdated,
                                                     offPath: .init(onPath: false, file: ".bashrc", added: false)))
     }
 }
@@ -698,21 +701,23 @@ extension RemoteReadingTests {
         }
         func agents(_ claude: Result<RemoteSettings.Snapshot, SettingsFile.Failure>,
                     _ codex: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory),
-                    _ antigravity: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory))
+                    _ antigravity: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory),
+                    _ opencode: Result<RemoteSettings.Snapshot, SettingsFile.Failure> = .failure(.noDirectory))
             -> [AgentID: SetupStatus] {
-            RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex, .antigravity: antigravity],
-                                            command: .missing)).agents
+            RemoteMachinesModel.items(.init(files: [.claude: claude, .codex: codex, .antigravity: antigravity,
+                                                    .opencode: opencode], command: .missing)).agents
         }
         let codex = LocalHooks.installing(into: [:], for: .codex, target: .server)
         let antigravity = AntigravityHooks.installing(into: [:], hooks: Antigravity().hooks)
         XCTAssertEqual(agents(try file(unit), try file(codex), try file(antigravity)),
-                       [.claude: .installed, .codex: .installed, .antigravity: .installed],
+                       [.claude: .installed, .codex: .installed, .antigravity: .installed, .opencode: .notFound],
                        "Antigravity's card on a server is its hooks alone")
         XCTAssertEqual(agents(try file(unit), try file(HookSettings.installing(into: [:], for: .codex)))[.codex],
                        .outdated, "Codex's command alone, as every server copy before its approvals")
         XCTAssertEqual(agents(try file(hooks))[.claude], .outdated, "hooks without the usage line: one press brings it")
         XCTAssertEqual(agents(try file(nil), try file(nil))[.codex], .missing)
-        XCTAssertEqual(agents(try file(nil)), [.claude: .missing, .codex: .notFound, .antigravity: .notFound])
+        XCTAssertEqual(agents(try file(nil)),
+                       [.claude: .missing, .codex: .notFound, .antigravity: .notFound, .opencode: .notFound])
         XCTAssertEqual(agents(.success(.init(bytes: Data("{".utf8), checksum: "1 1")))[.claude], .unknown)
         let before = try XCTUnwrap(StatusLineRelay.installing(into: HookSettings.installing(into: [:], for: .claude),
                                                               source: .claude))
@@ -728,6 +733,155 @@ extension RemoteReadingTests {
         XCTAssertEqual(row.detail, "devbox:~/.claude/settings.json")
         XCTAssertEqual(row.parts.map(\.status), [.installed, .foreign])
         XCTAssertFalse(row.removesRelay)
+    }
+}
+
+// MARK: - A file of Evlat's own
+
+extension RemoteReadingTests {
+    private func opencodeIsThere(_ server: Server) throws {
+        try FileManager.default.createDirectory(at: server.file(OpenCode().presence[0]), withIntermediateDirectories: true)
+    }
+
+    private func pluginFile(_ server: Server) -> URL { OpenCode().unitFile(home: server.home) }
+
+    /// OpenCode's card is one file of Evlat's own, read from its bytes: the
+    /// four states by this Mac's card rule, one part named for the file, and
+    /// the user's own file at the path said as it is said here.
+    func testOpenCodesCardIsOneFileOfEvlatsOwn() throws {
+        let plugin = OpenCodePlugin.file
+        func file(_ text: String?) -> Result<RemoteSettings.Snapshot, SettingsFile.Failure> {
+            .success(.init(bytes: text.map { Data($0.utf8) }, checksum: text == nil ? RemoteSettings.absent : "1 1"))
+        }
+        func status(_ result: Result<RemoteSettings.Snapshot, SettingsFile.Failure>) -> SetupStatus? {
+            RemoteMachinesModel.items(.init(files: [.opencode: result], command: .missing)).agents[.opencode]
+        }
+        XCTAssertEqual(status(file(plugin.contents)), .installed)
+        XCTAssertEqual(status(file(nil)), .missing)
+        XCTAssertEqual(status(file(plugin.contents.replacingOccurrences(
+            of: "\(plugin.versionPrefix)\(plugin.version)\n", with: "\(plugin.versionPrefix)\(plugin.version - 1)\n"))), .outdated)
+        XCTAssertEqual(status(file("// mine\n")), .foreign)
+        XCTAssertEqual(status(.failure(.noDirectory)), .notFound)
+        XCTAssertEqual(status(.failure(.unreadable)), .unknown)
+
+        let row = RemoteMachinesModel.agentRow(.opencode, unit: .state(.init(hooks: .current, relay: nil)),
+                                               target: "devbox", in: "en")
+        XCTAssertEqual(row.status, .installed)
+        XCTAssertEqual(row.detail, "devbox:~/.config/opencode/plugins/evlat.js")
+        XCTAssertEqual(row.parts.map(\.name), [L10n.t("setup.agent.part.ownedFile", in: "en")])
+        XCTAssertEqual(row.parts.map(\.status), [.installed])
+        XCTAssertFalse(row.removesRelay)
+        XCTAssertNil(row.note)
+
+        let theirs = RemoteMachinesModel.agentRow(.opencode, unit: .state(.init(hooks: .missing, relay: nil, foreign: true)),
+                                                  target: "devbox", in: "en")
+        XCTAssertEqual(theirs.status, .foreign)
+        XCTAssertEqual(theirs.parts.map(\.status), [.foreign])
+        XCTAssertEqual(theirs.note, L10n.t("setup.agent.ownedForeign", in: "en"))
+    }
+
+    /// The press, the question it asks, the block to paste and the way out
+    /// all speak of the file, not of hooks in a settings file.
+    func testOpenCodesCardAsksAndSaysItsOwnFile() throws {
+        let server = try self.server("/bin/sh")
+        try opencodeIsThere(server)
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        XCTAssertEqual(model.items(for: "m").agents[.opencode], .missing)
+        XCTAssertEqual(model.enabledAgents(of: "m"), [.opencode], "the server's agents: OpenCode is there")
+
+        let file = "m:~/.config/opencode/plugins/evlat.js"
+        XCTAssertEqual(model.consent(.opencode, .install, on: "m"),
+                       [L10n.t("setup.consent.line", ["file": "fake:~/.config/opencode/plugins/evlat.js",
+                                                      "what": L10n.t("setup.consent.what.ownedFile", in: "en")], in: "en")],
+                       file)
+        let manual = RemoteMachinesModel.manual(.opencode, in: "en")
+        XCTAssertEqual(manual.text, OpenCodePlugin.file.contents, "the file as it is written")
+        XCTAssertEqual(manual.removal, L10n.t("setup.manual.remove.file", in: "en"))
+        XCTAssertEqual(manual.lead, L10n.t("setup.manual.ownedLead", ["file": "~/.config/opencode/plugins/evlat.js"], in: "en"))
+        XCTAssertNil(manual.wrapping)
+        XCTAssertNil(manual.statusLine)
+
+        model.perform(.agent(.opencode), .install, on: "m")
+        XCTAssertEqual(model.working["m"], .agent(.opencode))
+        waitUntil("installed") { model.outcomes["m"] != nil && model.readings["m"] != .reading }
+        XCTAssertEqual(model.outcomes["m"]?.line, "OpenCode: installed")
+        XCTAssertTrue(model.outcomes["m"]?.hints.isEmpty == true, "nothing measured to add")
+        XCTAssertEqual(model.items(for: "m").agents[.opencode], .installed)
+        XCTAssertEqual(bytes(pluginFile(server)), Data(OpenCodePlugin.file.contents.utf8))
+        XCTAssertEqual(model.agentRows(for: "m").first { $0.item == .agent(.opencode) }?.parts.count, 1)
+        XCTAssertEqual(model.consent(.opencode, .remove, on: "m").count, 1)
+        XCTAssertTrue(model.consent(.opencode, .install, on: "m").isEmpty, "current: nothing to write")
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(try XCTUnwrap(model.reading(of: "m")), enabled: nil))
+
+        model.perform(.agent(.opencode), .remove, on: "m")
+        waitUntil("removed") { model.outcomes["m"]?.line == "OpenCode: removed" && model.readings["m"] != .reading }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginFile(server).path))
+        XCTAssertEqual(model.items(for: "m").agents[.opencode], .missing)
+    }
+
+    /// A server's older plugin is the machine's "needs update" line, and the
+    /// update moves it — the unit's one write — like any agent's old hooks.
+    func testAnOlderPluginIsTheMachinesUpdateLine() throws {
+        let server = try self.server("/bin/sh")
+        try opencodeIsThere(server)
+        let plugin = OpenCodePlugin.file
+        try FileManager.default.createDirectory(at: pluginFile(server).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(plugin.contents.replacingOccurrences(of: "\(plugin.versionPrefix)\(plugin.version)\n",
+                                                       with: "\(plugin.versionPrefix)\(plugin.version - 1)\n").utf8)
+            .write(to: pluginFile(server))
+        let reading = try self.reading(server)
+        XCTAssertTrue(RemoteMachinesModel.needsUpdate(reading, enabled: nil))
+        XCTAssertEqual(RemoteMachinesModel.outdatedAgents(reading, enabled: nil), [.opencode])
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(reading, enabled: []), "switched off there: no line")
+
+        let machine = try XCTUnwrap(RemoteMachine(id: "m", target: "fake"))
+        let model = model(server, machine: machine)
+        model.check("m")
+        waitUntil("read") { model.readings["m"] != .reading }
+        var done = false
+        XCTAssertTrue(model.update("m") { failure, agents in
+            XCTAssertNil(failure)
+            XCTAssertEqual(agents, [.opencode])
+            done = true
+        })
+        waitUntil("updated") { done && model.readings["m"] != .reading }
+        XCTAssertEqual(bytes(pluginFile(server)), Data(plugin.contents.utf8))
+        XCTAssertFalse(RemoteMachinesModel.needsUpdate(try XCTUnwrap(model.reading(of: "m")), enabled: nil))
+    }
+
+    /// The block to paste writes the plugin as the automatic press does,
+    /// under every shell, and has nothing left to write after.
+    func testTheBlockWritesThePluginTheAutomaticInstallWrites() throws {
+        for shell in shells {
+            let automatic = try server(shell), hand = try server(shell)
+            for server in [automatic, hand] { try opencodeIsThere(server) }
+            XCTAssertEqual(RemoteInstaller.apply(.agent(.opencode), .install, target: "fake", ssh: automatic.ssh),
+                           .success(.written), shell)
+            let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(hand), agents: [OpenCode()]), shell)
+            XCTAssertEqual(try paste(shell, block, home: hand.home, loginShell: hand.shell).status, 0, shell)
+            XCTAssertEqual(bytes(pluginFile(hand)), bytes(pluginFile(automatic)), shell)
+            XCTAssertEqual(bytes(pluginFile(hand)), Data(OpenCodePlugin.file.contents.utf8), shell)
+            XCTAssertEqual(try mode(pluginFile(hand)), try mode(pluginFile(automatic)), "\(shell): the mode")
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: pluginFile(hand).deletingLastPathComponent().path),
+                           ["evlat.js"], "\(shell): no backup, no temporary file")
+            XCTAssertNil(RemoteSettings.combinedScript(try reading(hand), agents: [OpenCode()]), "\(shell): nothing left")
+        }
+    }
+
+    /// The pasted block, run: each part is closed once, by its own delimiter
+    /// (the plugin's text holding such a line is held in the agents' tests).
+    func testTheBlockClosesTheOpenCodePartOnce() throws {
+        let server = try self.server("/bin/sh")
+        try opencodeIsThere(server)
+        let block = try XCTUnwrap(RemoteSettings.combinedScript(try reading(server), agents: [OpenCode()]))
+        let lines = block.split(separator: "\n", omittingEmptySubsequences: false)
+        let opened = block.components(separatedBy: "<<'\(RemoteSettings.combinedDelimiter)'").count - 1
+        XCTAssertGreaterThanOrEqual(opened, 1, "the plugin is a part")
+        XCTAssertEqual(lines.filter { $0 == RemoteSettings.combinedDelimiter[...] }.count, opened,
+                       "each part is closed once: no line of the plugin closes one early")
     }
 }
 

@@ -408,6 +408,193 @@ final class RemoteSettingsTests: XCTestCase {
         }
     }
 
+    // MARK: - A file of Evlat's own (OpenCode's plugin)
+
+    private var plugin: OwnedFile { OpenCodePlugin.file }
+    private func opencode(_ home: URL) -> URL { OpenCode().unitFile(home: home) }
+
+    /// An OpenCode on the server (and on the local writer's home, for the
+    /// comparison): its config folder, the plugin folder not made yet.
+    private func opencodeIsThere(_ homes: [URL]) throws {
+        for home in homes {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(OpenCode().presence[0]),
+                                                    withIntermediateDirectories: true)
+        }
+    }
+
+    private func entries(_ directory: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+    }
+
+    /// The unit is one file written whole, the same bytes this Mac's writer
+    /// writes, in one read and one write, with no backup and no temporary
+    /// file left; the folder is made because the agent is there.
+    func testOpenCodesPluginIsWrittenLikeTheLocalOnes() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try opencodeIsThere([remote, local])
+            let file = opencode(remote)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .state(.init(hooks: .missing, relay: nil)), "\(shell): the agent is there, its file is not")
+
+            let before = sshRuns
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(sshRuns - before, 2, "\(shell): one read, one write")
+            try AgentIntegration.install(home: local, for: OpenCode())
+            XCTAssertEqual(bytes(file), bytes(opencode(local)), shell)
+            XCTAssertEqual(bytes(file), Data(plugin.contents.utf8), shell)
+            XCTAssertEqual(entries(file.deletingLastPathComponent()), ["evlat.js"],
+                           "\(shell): no backup, no temporary file")
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .state(.init(hooks: .current, relay: nil)), shell)
+
+            let again = sshRuns
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .success(.unchanged), shell)
+            XCTAssertEqual(sshRuns - again, 1, "\(shell): the read only, no write call")
+        }
+    }
+
+    /// An older copy of Evlat's file is moved whole, with no backup of it,
+    /// and what sits beside it is left as it is.
+    func testAnOlderPluginIsReplacedWholeWithNoBackup() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try opencodeIsThere([remote])
+            let file = opencode(remote)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let older = plugin.contents.replacingOccurrences(of: "\(plugin.versionPrefix)\(plugin.version)\n",
+                                                             with: "\(plugin.versionPrefix)\(plugin.version - 1)\n")
+            XCTAssertNotEqual(older, plugin.contents)
+            try Data(older.utf8).write(to: file)
+            let neighbour = file.deletingLastPathComponent().appendingPathComponent("mine.js")
+            try Data("export default {}\n".utf8).write(to: neighbour)
+
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .state(.init(hooks: .outdated, relay: nil)), shell)
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(bytes(file), Data(plugin.contents.utf8), shell)
+            XCTAssertEqual(entries(file.deletingLastPathComponent()), ["evlat.js", "mine.js"], shell)
+            XCTAssertEqual(bytes(neighbour), Data("export default {}\n".utf8), shell)
+        }
+    }
+
+    /// A file at the path that does not carry Evlat's marker is the user's:
+    /// read as foreign, refused on an install, and a removal leaves it.
+    func testAFileOfTheUsersAtThePluginsPathIsNeverWrittenOverOrRemoved() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try opencodeIsThere([remote])
+            let file = opencode(remote)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let theirs = Data("// mine\nexport default {}\n".utf8)
+            try theirs.write(to: file)
+
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .state(.init(hooks: .missing, relay: nil, foreign: true)), shell)
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .failure(.file(.malformed)), shell)
+            XCTAssertEqual(apply(.agent(.opencode), .remove, ssh: ssh), .success(.unchanged), shell)
+            XCTAssertEqual(bytes(file), theirs, shell)
+            XCTAssertEqual(entries(file.deletingLastPathComponent()), ["evlat.js"], "\(shell): nothing else made")
+        }
+    }
+
+    /// The removal takes the one marked file: the folder and what sits
+    /// beside it stay, and a second removal has nothing to do.
+    func testRemovingThePluginTakesOnlyTheFile() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try opencodeIsThere([remote])
+            let file = opencode(remote)
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .success(.written), shell)
+            let neighbour = file.deletingLastPathComponent().appendingPathComponent("mine.js")
+            try Data("export default {}\n".utf8).write(to: neighbour)
+
+            let before = sshRuns
+            XCTAssertEqual(apply(.agent(.opencode), .remove, ssh: ssh), .success(.written), shell)
+            XCTAssertEqual(sshRuns - before, 2, "\(shell): one read, one write")
+            XCTAssertEqual(entries(file.deletingLastPathComponent()), ["mine.js"], shell)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .state(.init(hooks: .missing, relay: nil)), shell)
+            let again = sshRuns
+            XCTAssertEqual(apply(.agent(.opencode), .remove, ssh: ssh), .success(.unchanged), shell)
+            XCTAssertEqual(sshRuns - again, 1, shell)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: remote.appendingPathComponent(OpenCode().presence[0]).path),
+                          "\(shell): the agent's own folder stays")
+        }
+    }
+
+    /// Without the agent on the server nothing is made, and a folder of the
+    /// plugins' kind that another tool left does not say the agent is there.
+    func testThePluginsFolderIsNotMadeWhereOpenCodeIsNot() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .failure(.file(.noDirectory)), shell)
+            XCTAssertEqual(apply(.agent(.opencode), .remove, ssh: ssh), .failure(.file(.noDirectory)), shell)
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .noDirectory, shell)
+            XCTAssertEqual(entries(remote), [], "\(shell): nothing is made")
+        }
+    }
+
+    /// The write is refused when the file is not the one that was read: a
+    /// file that appeared, one that changed — and a removal's too.
+    func testAPluginPathThatChangedAfterTheReadIsKept() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try opencodeIsThere([remote])
+            let file = opencode(remote)
+            let theirs = Data("// mine\n".utf8)
+            let appeared = apply(.agent(.opencode), .install, ssh: ssh) {
+                try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? theirs.write(to: file)
+            }
+            XCTAssertEqual(appeared, .failure(.file(.changedUnderneath)), shell)
+            XCTAssertEqual(bytes(file), theirs, "\(shell): theirs is kept")
+
+            try FileManager.default.removeItem(at: file)
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .success(.written), shell)
+            let edited = Data("// mine now\n".utf8)
+            let removed = apply(.agent(.opencode), .remove, ssh: ssh) { try? edited.write(to: file) }
+            XCTAssertEqual(removed, .failure(.file(.changedUnderneath)), shell)
+            XCTAssertEqual(bytes(file), edited, "\(shell): the file that changed is kept")
+            XCTAssertEqual(entries(file.deletingLastPathComponent()), ["evlat.js"], "\(shell): no temporary file stays")
+        }
+    }
+
+    /// A link at the path is the user's, as it is on this Mac: read as
+    /// foreign, never written through and never removed, whatever the file
+    /// at its end holds — even Evlat's own bytes.
+    func testALinkAtThePluginsPathIsTheUsersAndIsNeverFollowed() throws {
+        for shell in shells {
+            let ssh = try setUp(shell: shell)
+            try opencodeIsThere([remote])
+            let file = opencode(remote)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let target = remote.appendingPathComponent("dotfiles-evlat.js")
+            let older = plugin.contents.replacingOccurrences(of: "\(plugin.versionPrefix)\(plugin.version)\n",
+                                                             with: "\(plugin.versionPrefix)\(plugin.version - 1)\n")
+            try Data(older.utf8).write(to: target)
+            try FileManager.default.createSymbolicLink(atPath: file.path, withDestinationPath: "../../../dotfiles-evlat.js")
+
+            XCTAssertEqual(try RemoteInstaller.applyRead(target: "fake", ssh: ssh).get().unit(.opencode),
+                           .state(.init(hooks: .missing, relay: nil, foreign: true)), shell)
+            XCTAssertEqual(apply(.agent(.opencode), .install, ssh: ssh), .failure(.file(.malformed)), shell)
+            XCTAssertEqual(apply(.agent(.opencode), .remove, ssh: ssh), .failure(.file(.malformed)), shell)
+            XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: file.path),
+                           "../../../dotfiles-evlat.js", "\(shell): the link stays")
+            XCTAssertEqual(bytes(target), Data(older.utf8), "\(shell): its target is not written")
+            XCTAssertEqual(entries(file.deletingLastPathComponent()), ["evlat.js"], "\(shell): nothing else made")
+
+            // A link that appears after the read ends the write: it is not the file that was read.
+            try FileManager.default.removeItem(at: file)
+            let appeared = apply(.agent(.opencode), .install, ssh: ssh) {
+                try? FileManager.default.createSymbolicLink(atPath: file.path, withDestinationPath: "../../../dotfiles-evlat.js")
+            }
+            XCTAssertEqual(appeared, .failure(.file(.malformed)), shell)
+            XCTAssertEqual(bytes(target), Data(older.utf8), "\(shell): its target is not written")
+        }
+    }
+
     func testSSHsOwnFailureIsUnreachable() throws {
         let ssh = try setUp(shell: "/bin/sh", mode: .unreachable)
         let installer = RemoteInstaller(sshPath: ssh)

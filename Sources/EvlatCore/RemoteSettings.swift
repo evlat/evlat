@@ -6,6 +6,12 @@ import Foundation
 /// file is not written, the first backup is kept, a file that changed since
 /// it was read is left alone, a modified wrapper is not taken apart.
 ///
+/// An agent whose unit is a file of Evlat's own (`OwnedFile`) is the other
+/// kind of change: the file is written whole and taken out whole, from the
+/// bytes this Mac's writer would write, and read as its state from the bytes —
+/// no JSON, and no backup (nothing of the user's is in it). A file without
+/// Evlat's marker is the user's: refused, never written over or removed.
+///
 /// Pure: this type only writes shell scripts and reads what they printed.
 /// Running them (`ssh -- HOST sh -s`, the script on stdin) is the shell's
 /// (`RemoteInstaller`). One change is two calls:
@@ -53,16 +59,28 @@ public enum RemoteSettings {
 
         /// When the file's folder is missing, the directories (relative to
         /// `$HOME`) any one of which lets the scripts open it — the agent's
-        /// presence, for an agent whose hooks folder is opened
-        /// (`Settings.opensHooksDirectory`). Empty: a missing folder is
-        /// `noDirectory`, the agent is not on the server.
+        /// presence, for an agent whose folder is opened
+        /// (`Settings.opensHooksDirectory`, `OwnedFileParts.opensDirectory`).
+        /// Empty: a missing folder is `noDirectory`, the agent is not on the
+        /// server.
         public var opening: [String] {
             switch self {
             case .hooks(let source), .agent(let source):
-                return source.integration.settings?.opensHooksDirectory == true ? source.presence : []
+                switch source.integration {
+                case .settings(let parts): return parts.opensHooksDirectory ? source.presence : []
+                case .ownedFile(let parts): return parts.opensDirectory ? source.presence : []
+                }
             case .statusLine, .pathLine:
                 return []
             }
+        }
+
+        /// Whether the file is Evlat's own, written whole (`OwnedFile`), which
+        /// the scripts read and write by their own rules: a link at its path
+        /// is the user's.
+        public var writesWhole: Bool {
+            if case .agent(let source) = self { return source.integration.ownedFile != nil }
+            return false
         }
 
         private var key: String {
@@ -83,11 +101,15 @@ public enum RemoteSettings {
     /// status line lives in its settings.
     public static func relays(_ source: some Agent) -> Bool { source.integration.settings?.relay?.onServers == true }
 
-    /// Whether a server's unit covers `source`. What is written over `ssh`
-    /// is JSON merged into the agent's settings, so an agent whose unit is a
-    /// file of Evlat's own (`Parts.ownedFile`) is left out of every script
-    /// here, and a change for one is refused.
-    public static func serves(_ source: some Agent) -> Bool { source.integration.settings != nil }
+    /// Whether a server's unit covers `source`: every form of unit is
+    /// written over `ssh` — JSON merged into the agent's settings, or the
+    /// file of Evlat's own written whole. A switch, not `true`, so a form
+    /// added to `Parts` does not compile until it says whether it is.
+    public static func serves(_ source: some Agent) -> Bool {
+        switch source.integration {
+        case .settings, .ownedFile: return true
+        }
+    }
 
     public enum Action: Equatable { case install, remove }
 
@@ -127,6 +149,9 @@ public enum RemoteSettings {
         11: .unreadable,
         12: .changedUnderneath,
         13: .unwritable,
+        // A link at the path of a file of Evlat's own: the user's, as on
+        // this Mac. Only the scripts of such a file exit with it.
+        14: .malformed,
     ]
 
     static func code(_ failure: SettingsFile.Failure) -> Int32 {
@@ -153,11 +178,11 @@ public enum RemoteSettings {
     /// Prints `<nonce> <cksum>` on a line of its own, then the bytes. The
     /// nonce finds that line behind whatever a login script printed first.
     /// `opening` is the change's (`Change.opening`): a folder it may open
-    /// reads as a missing file.
-    public static func readScript(path: String, nonce: String, opening: [String] = []) -> String {
+    /// reads as a missing file. `owned`: `Change.writesWhole`.
+    public static func readScript(path: String, nonce: String, opening: [String] = [], owned: Bool = false) -> String {
         """
         n=\(quoted(nonce))
-        \(prelude(path: path, opening: opening, creating: false))
+        \(prelude(path: path, opening: opening, creating: false, owned: owned))
         s=$(sum) || exit \(code(.unreadable))
         printf '%s %s\\n' "$n" "$s"
         if [ -e "$t" ]; then cat "$t" || exit \(code(.unreadable)); fi
@@ -188,8 +213,27 @@ public enum RemoteSettings {
     /// What the write carries. `backup` is the statusLine install's own
     /// backup, written in the same call.
     public struct Write: Equatable {
+        /// How the server's file changes.
+        public enum Form: Equatable {
+            /// JSON merged into a file the agent shares with the user: the
+            /// first version is kept (`.evlat.bak`).
+            case merged
+            /// A file of Evlat's own, replaced whole. Nothing of the user's is
+            /// in it, so no backup is kept, as on this Mac (`OwnedFile`).
+            case whole
+            /// A file of Evlat's own, taken out. `contents` is empty.
+            case removal
+        }
+
         public let contents: Data
         public let backup: Data?
+        public let form: Form
+
+        public init(contents: Data, backup: Data?, form: Form = .merged) {
+            self.contents = contents
+            self.backup = backup
+            self.form = form
+        }
     }
 
     /// Parse → transform → `nil` if nothing changed → encode, exactly as
@@ -209,9 +253,14 @@ public enum RemoteSettings {
             if case .pathLine = change {
                 return try RemotePath.plan(action, original: original).map { Write(contents: $0, backup: nil) }
             }
+            if case .agent(let source) = change, let owned = source.integration.ownedFile {
+                return try plan(owned.file, action, original: original)
+            }
             switch change {
             case .hooks(let source), .statusLine(let source), .agent(let source):
-                guard serves(source) else { throw SettingsFile.Failure.malformed }
+                // Merging into a settings file is the settings form's: its
+                // parts, hooks and usage line, are not a file of Evlat's own.
+                guard source.integration.settings != nil else { throw SettingsFile.Failure.malformed }
             case .pathLine: break
             }
             let settings = try SettingsFile.parse(original)
@@ -271,6 +320,28 @@ public enum RemoteSettings {
         }
     }
 
+    /// A file of Evlat's own, from the bytes read (`OwnedFile.state(of:)`'s
+    /// rule, this Mac's): current writes nothing — a later copy's too; missing
+    /// or older is written whole; a file without Evlat's marker is refused and
+    /// stays, whether asked to write or to remove. A removal takes the one
+    /// marked file and nothing around it.
+    ///
+    /// A link at the path never gets here: the scripts of such a file end on
+    /// it (exit 14, `malformed`), where a settings file's link is followed —
+    /// this Mac calls it foreign, and so does `Reading`.
+    private static func plan(_ file: OwnedFile, _ action: Action, original: Data?) throws -> Write? {
+        switch (action, file.state(of: original)) {
+        case (.install, .current), (.remove, .missing), (.remove, .foreign):
+            return nil
+        case (.install, .foreign):
+            throw SettingsFile.Failure.malformed
+        case (.install, .missing), (.install, .outdated):
+            return Write(contents: Data(file.contents.utf8), backup: nil, form: .whole)
+        case (.remove, .current), (.remove, .outdated):
+            return Write(contents: Data(), backup: nil, form: .removal)
+        }
+    }
+
     /// The unit's install: hooks, then the usage line where it is a part
     /// and still missing, or an earlier copy's — a wrapper changed by hand
     /// is never written over. The relay's backup is carried only when this
@@ -310,20 +381,38 @@ public enum RemoteSettings {
     /// local writer does not write. `opening` is the change's
     /// (`Change.opening`): the missing folder is made, as this Mac's writer
     /// makes it.
+    ///
+    /// A file of Evlat's own (`Write.Form`) keeps no first backup, and a link
+    /// at its path ends the script (`prelude`'s `owned`). Its removal checks
+    /// the `cksum` the same way, then takes the file out: not the folder, not
+    /// what sits beside it.
     public static func writeScript(path: String, expected: String, write: Write, opening: [String] = []) -> String {
         let unwritable = code(.unwritable)
+        if write.form == .removal {
+            return """
+            e=\(quoted(expected))
+            \(prelude(path: path, opening: opening, creating: false, owned: true))
+            s=$(sum) || exit \(code(.unreadable))
+            [ "$s" = "$e" ] || exit \(code(.changedUnderneath))
+            rm -f "$t" || exit \(unwritable)
+            exit 0
+
+            """
+        }
+        let firstBackup = write.form == .merged
+            ? "  if [ ! -e \"$f.evlat.bak\" ] && [ ! -h \"$f.evlat.bak\" ]; then cp -p \"$t\" \"$f.evlat.bak\" || exit \(unwritable); fi\n"
+            : ""
         var script = """
         e=\(quoted(expected))
         c=\(quoted(String(decoding: write.contents, as: UTF8.self)))
-        \(prelude(path: path, opening: opening, creating: true))
+        \(prelude(path: path, opening: opening, creating: true, owned: write.form == .whole))
         s=$(sum) || exit \(code(.unreadable))
         [ "$s" = "$e" ] || exit \(code(.changedUnderneath))
         tmp=${t%/*}/.${t##*/}.evlat.$$.tmp
         btmp=
         trap 'rm -f "$tmp" ${btmp:+"$btmp"}' EXIT
         if [ -e "$t" ]; then
-          if [ ! -e "$f.evlat.bak" ] && [ ! -h "$f.evlat.bak" ]; then cp -p "$t" "$f.evlat.bak" || exit \(unwritable); fi
-          cp -p "$t" "$tmp" || exit \(unwritable)
+        \(firstBackup)  cp -p "$t" "$tmp" || exit \(unwritable)
         else
           : > "$tmp" || exit \(unwritable)
         fi
@@ -377,33 +466,44 @@ public enum RemoteSettings {
 
         /// The local reader's state, from the bytes read.
         public func hooks(_ source: some Agent) -> Found<HookSettings.State> {
-            found(source) { LocalHooks.state(of: $0, for: source, target: .server) }
+            found(source, settings: { LocalHooks.state(of: $0, for: source, target: .server) },
+                  ownedFile: { AgentIntegration.state(ownedFile: $0).hooks })
         }
 
         /// The agent's usage line, read from its hooks file: meaningful for
-        /// an agent a server relays (`relays`), whose line lives there.
+        /// an agent a server relays (`relays`), whose line lives there. A
+        /// file of Evlat's own has none.
         public func statusLine(_ source: some Agent) -> Found<StatusLineRelay.State> {
-            found(source) { StatusLineRelay.state(of: $0, source: source) }
+            found(source, settings: { StatusLineRelay.state(of: $0, source: source) }, ownedFile: { _ in .missing })
         }
 
         /// The agent as one unit, by the same rule as this Mac's card
         /// (`AgentIntegration.State`): its hooks, and the usage line where
-        /// the server gets one (`relays`) — read from the same file.
+        /// the server gets one (`relays`) — read from the same file. For a
+        /// file of Evlat's own, that file's state from its bytes.
         public func unit(_ source: some Agent) -> Found<AgentIntegration.State> {
-            found(source) { settings in
+            found(source, settings: { settings in
                 AgentIntegration.State(
                     hooks: LocalHooks.state(of: settings, for: source, target: .server),
                     relay: RemoteSettings.relays(source)
                         ? AgentIntegration.relayState(of: settings, source: source) : nil)
-            }
+            }, ownedFile: { AgentIntegration.state(ownedFile: $0) })
         }
 
-        private func found<State>(_ source: some Agent, _ state: ([String: Any]) -> State) -> Found<State> {
+        /// The bytes read, as the agent's form of unit reads them: parsed
+        /// as settings, or taken whole as a file of Evlat's own, which
+        /// is never parsed — it is not JSON. A link at its path is the
+        /// user's, `foreign` as on this Mac: the scripts end on it, and the
+        /// section reads `malformed`.
+        private func found<State>(_ source: some Agent, settings state: ([String: Any]) -> State,
+                                  ownedFile owned: (OwnedFile.State) -> State) -> Found<State> {
             switch files[source.id] {
             case .success(let snapshot)?:
+                if let parts = source.integration.ownedFile { return .state(owned(parts.file.state(of: snapshot.bytes))) }
                 guard let settings = try? SettingsFile.parse(snapshot.bytes) else { return .unreadable }
                 return .state(state(settings))
             case .failure(.noDirectory)?: return .noDirectory
+            case .failure(.malformed)? where source.integration.ownedFile != nil: return .state(owned(.foreign))
             default: return .unreadable
             }
         }
@@ -427,7 +527,8 @@ public enum RemoteSettings {
             script += """
             (
             n=\(quoted(nonce))
-            \(prelude(path: source.integration.file, opening: Change.hooks(source).opening, creating: false))
+            \(prelude(path: source.integration.file, opening: Change.agent(source).opening, creating: false,
+                       owned: Change.agent(source).writesWhole))
             s=$(sum) || exit \(unreadable)
             printf '%s begin \(source.id.rawValue) %s\\n' "$n" "$s"
             if [ -e "$t" ]; then cat "$t" || exit \(unreadable); fi
@@ -475,7 +576,9 @@ public enum RemoteSettings {
     // MARK: - The one block
 
     /// The heredoc delimiter of the block's parts: no line of a part is it
-    /// (the settings travel as encoded JSON, whose lines are never bare).
+    /// (the settings travel as encoded JSON, whose lines are never bare; a
+    /// file of Evlat's own is held to it by a test, since an edit of its
+    /// text could break the pasted block without a word).
     public static let combinedDelimiter = "EVLAT_SETUP"
 
     /// Everything the automatic buttons would install, as one block a user
@@ -485,7 +588,8 @@ public enum RemoteSettings {
     /// part is `RemoteCommand.manual`'s blocks; the PATH part adds
     /// `RemotePath.line` unless the pasting shell's `PATH` has the folder.
     ///
-    /// It carries each settings file whole, as read, and no secret. A part is left out
+    /// It carries each settings file whole, as read, or the file of Evlat's
+    /// own as it is written, and no secret. A part is left out
     /// when there is nothing to write, the agent's folder is missing, the
     /// file could not be read, or the command is somebody else's; a
     /// wrapper changed by hand keeps the file's hooks part and loses only
@@ -505,7 +609,7 @@ public enum RemoteSettings {
             guard let write = (try? plan(.agent(source), .install, original: snapshot.bytes)) ?? nil else { continue }
             parts.append(part(file: "~/" + source.integration.file,
                               writeScript(path: source.integration.file, expected: snapshot.checksum, write: write,
-                                          opening: Change.hooks(source).opening)))
+                                          opening: Change.agent(source).opening)))
         }
         let commandPart = reading.command != .foreign && !reading.command.isCurrent
         if commandPart {
@@ -551,8 +655,13 @@ public enum RemoteSettings {
     /// directories is `noDirectory` whatever the folder; one is, and a
     /// missing folder reads as an absent file and a write (`creating`)
     /// makes it.
-    private static func prelude(path: String, opening: [String], creating: Bool) -> String {
+    ///
+    /// `owned`: the file is Evlat's own, written whole. Settings merge into
+    /// the file a link points at, but a link here is the user's — this Mac
+    /// reads it `foreign` — so the script ends on it, `malformed`.
+    private static func prelude(path: String, opening: [String], creating: Bool, owned: Bool = false) -> String {
         let unreadable = code(.unreadable)
+        let link = owned ? "[ ! -h \"$f\" ] || exit \(code(.malformed))\n" : ""
         let folder: String
         if opening.isEmpty {
             folder = "[ -d \"${f%/*}\" ] || exit \(code(.noDirectory))"
@@ -566,7 +675,7 @@ public enum RemoteSettings {
         return """
         f="$HOME"/\(quoted(path))
         \(folder)
-        link() {
+        \(link)link() {
           readlink "$1" 2>/dev/null && return 0
           l=$(ls -ld "$1") || return 1
           printf '%s\\n' "${l#* -> }"
@@ -608,8 +717,8 @@ public enum RemoteSettings {
         /// Stands for the user's own statusLine command in `wrapping`.
         public static let placeholder = "YOUR-STATUSLINE-COMMAND"
 
-        /// Each agent's hooks file (`Settings.hooksFile`), as a whole file's
-        /// JSON.
+        /// Each agent's unit file: its hooks file (`Settings.hooksFile`) as a
+        /// whole file's JSON, or the bytes of its file of Evlat's own.
         let hooks: [AgentID: String]
         /// The `statusLine` for a file that has none.
         public let statusLine: String
@@ -619,7 +728,7 @@ public enum RemoteSettings {
         /// taking out the entries that do.
         public let marker: String
 
-        /// The agent's hooks file, as a whole file's JSON.
+        /// The agent's unit file, as a whole file's contents.
         public func hooks(for source: some Agent) -> String { hooks[source.id] ?? "" }
 
         /// An agent's `statusLine` for a file that has none, and its wrapper
@@ -644,7 +753,8 @@ public enum RemoteSettings {
         let statusLine = agents.first(where: { relays($0) }).flatMap { Manual.statusLine(for: $0) }
         return Manual(
             hooks: Dictionary(uniqueKeysWithValues: agents.map { source in
-                (source.id, Manual.text(LocalHooks.installing(into: [:], for: source, target: .server)))
+                (source.id, source.integration.ownedFile?.file.contents
+                    ?? Manual.text(LocalHooks.installing(into: [:], for: source, target: .server)))
             }),
             statusLine: statusLine?.text ?? "",
             wrapping: statusLine?.wrapping ?? "",

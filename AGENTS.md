@@ -258,6 +258,17 @@ measured and not installed. Its switches are the machine's own set,
 `remote.machines[].agents` (`decodeIfPresent`; none stored is every agent
 the server has, and it is written only on the user's change), independent
 of `agents.enabled`; an `EVLAT_MACHINES` machine keeps it for the run.
+OpenCode's unit there is its plugin: the same bytes as this Mac's, one file
+written whole and with no backup (`RemoteSettings.Write.Form`), read from its
+bytes and never as JSON, taken out whole by a removal that touches no folder;
+a file without Evlat's marker, or a link at the path (where a settings file's
+link is followed), is the user's — foreign, as on this Mac — and the scripts
+refuse it. The folder is made only where OpenCode's own folders are
+(`presence`).
+Its approvals are held under the machine like Claude's and Codex's, at
+`/approval/opencode`, with nothing to install for them. `RemoteSettings.serves`
+is a switch over the forms of unit, so today every agent is served and a form
+added to `Parts` has to say.
 A connected machine whose hooks of an agent switched on there, or whose
 `evlat` command, an older copy wrote is an attention line
 (`SetupAttention.machineNeedsUpdate`, `RemoteMachinesModel.needsUpdate`),
@@ -640,7 +651,8 @@ the one place that says what the words mean. It was measured on 1.18.34,
 1.19.0, 2.0.22, 2.0.27 and the desktop app's server module
 (`make test-opencode`); a version outside `Agent.measuredVersions` is said on
 the card. An `XDG_CONFIG_HOME` set in a shell moves the folder OpenCode scans,
-and Evlat cannot know it.
+and Evlat cannot know it — on this Mac or on a server, where the same bytes
+go to `~/.config/opencode/plugins/evlat.js` over `ssh`.
 
 The website documents these contracts for users: `../evlat-landing/docs-src`
 (the `evlat` command, `/signal`, remote servers, your own mascot and
@@ -688,7 +700,7 @@ Renaming a `UserDefaults` key silently loses the stored value; migrate it.
 | inner loop | `make build` |
 | one test | `swift test --filter EvlatCoreTests.RegistryTests` |
 | the window server's side (real key, real screen) | `make test-desktop` — shows windows and takes the keyboard; not while the user types |
-| the OpenCode plugin against real OpenCodes | `make test-opencode OPENCODE="<binary> …" [OPENCODE_DESKTOP=/Applications/OpenCode.app]` — homes of its own behind a fake model, nothing of the user's OpenCode touched; needs the network once and `python3` |
+| the OpenCode plugin against real OpenCodes | `make test-opencode OPENCODE="<binary> …" [OPENCODE_DESKTOP=/Applications/OpenCode.app]` — homes of its own behind a fake model, nothing of the user's OpenCode touched; needs the network every run (the model's adapter is fetched into a folder the run removes) and `python3` |
 | a full bar to look at | `scripts/demo.sh [left\|right]` — an isolated Evlat filled with every kind of row (its header says which); `scripts/demo.sh stop` ends it all |
 | window, bar, mascot or menu touched | `make test-desktop` (offstage, `make all`'s focus assertions hold trivially: nothing activates and the balloon's key is a flag), then `make bundle && make run` and look at it |
 | install to `/Applications` | `make install` (the user's call — it replaces the installed app) |
