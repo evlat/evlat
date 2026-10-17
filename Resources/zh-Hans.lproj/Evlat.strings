@@ -711,3 +711,5 @@
 "updates.after.claude" = "已打开的会话会在下一条消息时载入。";
 "updates.step.codex" = "还差一步：在 Codex 中打开 /hooks 并信任 Evlat 的 hook。";
 "updates.commandNotRun" = "evlat 命令未更新；请重试。";
+
+"settings.chat.mascotClick" = "点击吉祥物时打开聊天";

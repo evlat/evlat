@@ -805,6 +805,16 @@ private struct ChatSection: View {
         SettingsGroup(title: model.t("settings.chat.open")) {
             RowBox {
                 HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.chat.mascotClick"))
+                    Toggle("", isOn: Binding(get: { model.isMascotClickEnabled }, set: { model.setMascotClickEnabled($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.chat.mascotClick"))
+                }
+            }
+            RowBox {
+                HStack(spacing: 10) {
                     RowTitle(name: model.t("settings.chat.hotkey"), detail: model.t("settings.chat.hotkey.detail"))
                     KeyCap(text: recorder.isRecording ? model.t("settings.chat.hotkey.recording")
                                                       : model.hotKey.title,
@@ -826,7 +836,7 @@ private struct ChatSection: View {
                 } else if setup.attention.contains(.hotKeyUnregistered) {
                     Text(model.t("setup.attention.hotKey")).font(.system(size: 11.5))
                         .foregroundStyle(SettingsPalette.wait)
-                } else if !model.isHotKeyOn && model.isChatEnabled {
+                } else if !model.isHotKeyOn && model.isChatEnabled && model.isMascotClickEnabled {
                     // With the chat off the mascot opens nothing either.
                     Text(model.t("settings.chat.hotkey.off")).font(.system(size: 11.5))
                         .foregroundStyle(SettingsPalette.muted)

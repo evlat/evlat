@@ -712,3 +712,5 @@
 "updates.after.claude" = "Les sessions ouvertes l’appliquent à leur prochain message.";
 "updates.step.codex" = "Encore une étape : dans Codex, ouvrez /hooks et faites confiance aux hooks d’Evlat.";
 "updates.commandNotRun" = "La commande evlat n’a pas été mise à jour ; réessayez.";
+
+"settings.chat.mascotClick" = "Ouvrir le chat en cliquant sur la mascotte";

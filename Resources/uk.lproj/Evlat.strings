@@ -711,3 +711,5 @@
 "updates.after.claude" = "Відкриті сесії підхоплять це з наступним повідомленням.";
 "updates.step.codex" = "Ще один крок: у Codex відкрийте /hooks і довіртеся хукам Evlat.";
 "updates.commandNotRun" = "Команду evlat не оновлено; повторіть.";
+
+"settings.chat.mascotClick" = "Відкривати чат після натискання на талісман";
