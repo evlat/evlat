@@ -704,10 +704,14 @@ private struct AgentsSection: View {
                     RowTitle(name: model.t("settings.sessions.title"))
                     Picker("", selection: Binding(get: { model.sessionTitle }, set: { model.setSessionTitle($0) })) {
                         ForEach(SessionTitle.allCases, id: \.self) { title in
-                            Text(model.t("settings.sessions.title." + title.rawValue)).tag(title)
+                            Text(model.t("settings.sessions.title." + title.rawValue))
+                                .lineLimit(1)
+                                .tag(title)
                         }
                     }
+                    .pickerStyle(.menu)
                     .labelsHidden()
+                    .fixedSize()
                     .accessibilityLabel(model.t("settings.sessions.title"))
                 }
             }
