@@ -709,3 +709,10 @@
 "settings.sessions.title.folder" = "資料夾名稱";
 "settings.sessions.title.cli" = "CLI 標題";
 "settings.sessions.title.branch" = "Git 分支";
+
+"settings.sessions.groups" = "群組工作階段";
+"settings.sessions.groups.note" = "將相同資料夾或 origin URL 相同的本機儲存庫中的工作階段分組。點擊群組以收合或展開。";
+"sessions.group.collapsed" = "已收合";
+"sessions.group.expanded" = "已展開";
+"sessions.group.expand" = "展開工作階段";
+"sessions.group.collapse" = "收合工作階段";

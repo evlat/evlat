@@ -256,6 +256,26 @@ public struct SessionRow: Equatable, Identifiable {
     }
 }
 
+/// Headers are presentation items, never signals or selectable sessions.
+public enum SessionListItem: Equatable, Identifiable {
+    public enum ID: Hashable {
+        case session(String), group(SessionGroup.Key)
+    }
+    case session(SessionRow)
+    case group(SessionGroup, members: [SessionRow], collapsed: Bool)
+
+    public var id: ID {
+        switch self {
+        case .session(let row): return .session(row.entity)
+        case .group(let group, _, _): return .group(group.key)
+        }
+    }
+    public var row: SessionRow? {
+        if case .session(let row) = self { return row }
+        return nil
+    }
+}
+
 /// The session column's own model, apart from `MascotModel`.
 ///
 /// Apart because the two change at very different rates: the mascot's gaze is
@@ -304,23 +324,33 @@ public final class SessionRowsModel: ObservableObject {
     /// Reads a folder's branch (`GitHead.branch`); injected so the tests
     /// need no repository. The default reads nothing.
     private let readBranch: (String) -> String?
+    private let readRepository: (String) -> GitRepository.Identity?
+    private var repositories: [String: GitRepository.Identity?] = [:]
+    private var groups: [SessionGroup] = []
+    private var collapsedGroups: Set<SessionGroup.Key> = []
+    public var groupsEnabled = false
+    @Published public private(set) var openItems: [SessionListItem] = []
     /// Branches read so far, by folder, `nil` included: a folder is read once,
     /// then again only after `forgetBranches()`. Pruned with the rows.
     private var branches: [String: String?] = [:]
 
     /// `now` is injected so the tests can move time by hand.
     public init(now: @escaping () -> Date = Date.init,
-                readBranch: @escaping (String) -> String? = { _ in nil }) {
+                readBranch: @escaping (String) -> String? = { _ in nil },
+                readRepository: @escaping (String) -> GitRepository.Identity? = { _ in nil }) {
         self.now = now
         self.readBranch = readBranch
+        self.readRepository = readRepository
     }
 
-    /// Drops every branch read, so the next `update` reads them again. The
+    /// Drops cached branch and repository metadata, so the next `update`
+    /// reads it again. The
     /// shell calls it as the bar opens, before the scan that sizes the body:
     /// a `git checkout` made while the bar was closed is drawn on this
     /// opening, and the width is right from the first frame.
     public func forgetBranches() {
         branches.removeAll()
+        repositories.removeAll()
     }
 
     /// The primary name drawn for session rows. Other kinds keep their labels.
@@ -349,8 +379,9 @@ public final class SessionRowsModel: ObservableObject {
     /// what the closed bar's length is fitted to.
     public var slotsInUse: Int { closedRows.count + (overflow > 0 ? 1 : 0) }
 
-    /// The rows in the view tree: the whole list open, the prefix closed.
-    private var drawnRows: [SessionRow] { isOpen ? rows : closedRows }
+    /// Only visible session entries beat. Disclosure headers are static;
+    /// collapsed children are absent from the view tree.
+    private var drawnRows: [SessionRow] { isOpen ? openItems.compactMap(\.row) : closedRows }
 
     /// The clock follows the drawn rows, so opening can start it and closing
     /// stop it: a working row hidden in the count beats for no one.
@@ -544,7 +575,58 @@ public final class SessionRowsModel: ObservableObject {
                        machineTag: $0.machine.flatMap { machineTags[$0.name] })
         }
         if rows != next { rows = next }
+        if groupsEnabled {
+            let byEntity = Dictionary(uniqueKeysWithValues: signals.map { ($0.entity, $0) })
+            groups = SessionGroup.groups(next.compactMap { byEntity[$0.entity] }) { signal in
+                guard signal.machine == nil, let folder = signal.detail else { return nil }
+                if let known = self.repositories[folder] { return known }
+                let repo = self.readRepository(folder)
+                self.repositories[folder] = repo
+                return repo
+            }
+            repositories = repositories.filter { folders.contains($0.key) }
+            collapsedGroups.formIntersection(Set(groups.map(\.key)))
+        } else {
+            groups = []
+            repositories.removeAll()
+        }
+        rebuildOpenItems()
         setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    /// Collapse state lasts for this process. It does not acknowledge news,
+    /// mutate a session, or affect the closed strip and aggregate mascot.
+    public func toggleGroup(_ key: SessionGroup.Key) {
+        guard groups.contains(where: { $0.key == key }) else { return }
+        if !collapsedGroups.insert(key).inserted { collapsedGroups.remove(key) }
+        rebuildOpenItems()
+        setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    /// Explicit selection (including a notification click) reveals its group.
+    public func reveal(_ entity: String) {
+        guard let group = groups.first(where: { $0.entities.contains(entity) }),
+              collapsedGroups.remove(group.key) != nil else { return }
+        rebuildOpenItems()
+        setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    private func rebuildOpenItems() {
+        let membership = Dictionary(uniqueKeysWithValues: groups.flatMap { group in
+            group.entities.map { ($0, group) }
+        })
+        let byEntity = Dictionary(uniqueKeysWithValues: rows.map { ($0.entity, $0) })
+        var emitted: Set<SessionGroup.Key> = []
+        var next: [SessionListItem] = []
+        for row in rows {
+            guard let group = membership[row.entity] else { next.append(.session(row)); continue }
+            guard emitted.insert(group.key).inserted else { continue }
+            let members = group.entities.compactMap { byEntity[$0] }
+            let collapsed = collapsedGroups.contains(group.key)
+            next.append(.group(group, members: members, collapsed: collapsed))
+            if !collapsed { next += members.map(SessionListItem.session) }
+        }
+        if openItems != next { openItems = next }
     }
 
     /// The same, for a caller holding rows rather than a snapshot: the

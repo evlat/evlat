@@ -709,3 +709,10 @@
 "settings.sessions.title.folder" = "Назва папки";
 "settings.sessions.title.cli" = "Заголовок CLI";
 "settings.sessions.title.branch" = "Гілка Git";
+
+"settings.sessions.groups" = "Групувати сеанси";
+"settings.sessions.groups.note" = "Групувати сеанси в одній папці або локальних репозиторіях з однаковою URL-адресою origin. Натисніть на групу, щоб згорнути або розгорнути її.";
+"sessions.group.collapsed" = "Згорнуто";
+"sessions.group.expanded" = "Розгорнуто";
+"sessions.group.expand" = "Розгорнути сеанси";
+"sessions.group.collapse" = "Згорнути сеанси";

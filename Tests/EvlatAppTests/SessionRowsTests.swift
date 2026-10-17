@@ -72,6 +72,73 @@ final class SessionRowsTests: XCTestCase {
         XCTAssertEqual(model.rows.first?.label, "project")
     }
 
+    func testGroupingIsOptInAndDoesNotReadRepositoriesWhileDisabled() {
+        var reads = 0
+        let model = SessionRowsModel(readRepository: { _ in reads += 1; return nil })
+        let sessions = [inFolder("a", "/work/project"), inFolder("b", "/work/project")]
+        model.update(from: sessions)
+        XCTAssertEqual(model.openItems.compactMap { $0.row?.entity }.count, 2)
+        XCTAssertEqual(model.openItems.count, 2)
+        XCTAssertEqual(reads, 0)
+        model.groupsEnabled = true
+        model.update(from: sessions)
+        XCTAssertEqual(reads, 1, "same folder, including a missing origin, is read once")
+        XCTAssertEqual(model.openItems.count, 3, "header and two expanded children")
+        model.update(from: sessions)
+        XCTAssertEqual(reads, 1)
+        model.forgetBranches()
+        model.update(from: sessions)
+        XCTAssertEqual(reads, 2)
+    }
+
+    func testCollapseRetainsSessionsAndStopsOnlyHiddenBeats() throws {
+        let model = SessionRowsModel()
+        model.groupsEnabled = true
+        let sessions = [inFolder("a", "/work/project", phase: .waiting),
+                        inFolder("b", "/work/project", phase: .waiting)]
+        model.update(from: sessions)
+        model.setOpen(true)
+        let rows = model.rows
+        let closed = model.closedRows
+        guard case .group(let group, _, let collapsed) = try XCTUnwrap(model.openItems.first) else {
+            return XCTFail("Missing header")
+        }
+        XCTAssertFalse(collapsed)
+        XCTAssertTrue(model.isBeating)
+        model.toggleGroup(group.key)
+        XCTAssertEqual(model.openItems.count, 1)
+        XCTAssertEqual(model.rows, rows)
+        XCTAssertEqual(model.closedRows, closed)
+        XCTAssertFalse(model.isBeating, "collapsed children draw no beats")
+        model.update(from: sessions)
+        XCTAssertEqual(model.openItems.count, 1, "collapse survives snapshot updates")
+        model.reveal("b")
+        XCTAssertEqual(model.openItems.count, 3)
+        XCTAssertTrue(model.isBeating)
+        model.toggleGroup(group.key)
+        model.setOpen(false)
+        XCTAssertTrue(model.isBeating, "closed-strip waiting indicators still beat")
+    }
+
+    func testHeaderAndSessionIDsCannotCollideAndSelectionUsesVisibleItems() throws {
+        let model = SessionRowsModel()
+        model.groupsEnabled = true
+        model.update(from: [inFolder("a", "/work/project"), inFolder("b", "/work/project"),
+                            inFolder("other", "/another")])
+        XCTAssertEqual(model.openItems.compactMap { $0.row?.entity }, ["a", "b", "other"])
+        XCTAssertEqual(Set(model.openItems.map(\.id)).count, model.openItems.count)
+        XCTAssertNil(model.openItems.first?.row, "headers must never select a session")
+        guard case .group(let group, _, _) = try XCTUnwrap(model.openItems.first) else { return XCTFail("Missing group") }
+        model.toggleGroup(group.key)
+        XCTAssertEqual(model.openItems.compactMap { $0.row?.entity }, ["other"])
+        model.reveal("b")
+        XCTAssertEqual(model.openItems.firstIndex { $0.row?.entity == "b" }, 2)
+        model.groupsEnabled = false
+        model.update(from: [inFolder("a", "/work/project"), inFolder("b", "/work/project")])
+        XCTAssertEqual(model.openItems.count, 2)
+        XCTAssertEqual(model.rows.count, 2)
+    }
+
     // MARK: - Slots
 
     func testTheSlotRuleShowsFourOrThreeAndTheRest() {

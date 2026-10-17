@@ -64,7 +64,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// mascot in `refresh()`, observed by its own column.
     /// The column's rows; same-named sessions are told apart by the branch
     /// their folder is on, read from git's files (`GitHead`).
-    public let sessionRows = SessionRowsModel(readBranch: GitHead.branch(in:))
+    public let sessionRows = SessionRowsModel(readBranch: GitHead.branch(in:), readRepository: GitRepository.origin(in:))
     /// The card's facts for the selected session. Written only while one is
     /// selected (`syncSelection`), observed by the card alone.
     public let detail = DetailModel()
@@ -261,6 +261,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
+    var sessionGroupsEnabled = false {
+        didSet { sessionRows.groupsEnabled = sessionGroupsEnabled }
+    }
+
     /// Primary title preference; the row model also supplies card titles.
     var sessionTitle: SessionTitle = .folder {
         didSet { sessionRows.sessionTitle = sessionTitle }
@@ -1445,6 +1449,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
         useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
+        sessionGroupsEnabled = defaults?.bool(forKey: "rows.groups") ?? false
         sessionTitle = SessionTitle.stored(defaults?.string(forKey: "rows.title"))
         branchDisplay = Self.storedBranchDisplay(defaults)
         detail.resolveBranch = { [weak self] folder in
@@ -1496,7 +1501,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if let offset = Self.forcedScroll() {
             hover.openNow()
             if !barState.isOpen { openBar() }
-            listScroll.set(offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
+            listScroll.set(offset, max: Self.maxScrollOffset(rows: sessionRows.openItems.count))
         }
         switch Self.forcedSelection() {
         case .first?: sessionRows.rows.first.map { select($0.entity) }
@@ -1576,6 +1581,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                              content: BarBody(mascot: mascot, rows: sessionRows,
                                               state: barState, scroll: listScroll, detail: detail,
                                               usage: usageBlock,
+                                              onToggleGroup: { [weak self] key in self?.toggleSessionGroup(key) },
                                               onCardFrame: { [weak self] rect in
                                                   self?.cardFrameChanged(rect)
                                               },
@@ -3146,6 +3152,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
             setBodyToggles: { [weak self] in self?.setBodyToggles($0) },
+            sessionGroupsEnabled: { [weak self] in self?.sessionGroupsEnabled ?? false },
+            setSessionGroupsEnabled: { [weak self] in self?.setSessionGroupsEnabled($0) },
             sessionTitle: { [weak self] in self?.sessionTitle ?? .folder },
             setSessionTitle: { [weak self] in self?.setSessionTitle($0) },
             branchDisplay: { [weak self] in self?.branchDisplay ?? .auto },
@@ -3726,32 +3734,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.
         let before = sessionRows.rows
+        let beforeItems = sessionRows.openItems
         sessionRows.update(from: snapshot)
         // The block's own deadband: its lines move with the drawn percent and
         // the minute, not with a relay's stamp. The clock is read here, so a
         // window that resets leaves within one poll.
         let usageBefore = usageBlock.lines
         usageBlock.update(from: snapshot.usage, now: now(), hidingStale: hidesStaleUsage)
-        let rowsChanged = before != sessionRows.rows
+        let rowsChanged = before != sessionRows.rows || beforeItems != sessionRows.openItems
         if rowsChanged || usageBefore != usageBlock.lines {
             // The body follows the column and the block — drawn, not the
             // window. Both lengths are kept, the closed and the open one; the
             // block is only in the open one. The hover area is AppKit's and
             // hears nothing from SwiftUI, so it is told the one drawn.
-            let rowCount = sessionRows.rows.count
-            let length = Self.barLength(slots: sessionRows.slotsInUse)
-            let openLength = Self.openLength(rows: rowCount, usageLines: usageBlock.lines.count)
-            let usageTop = Self.usageTop(rows: rowCount)
-            if abs(barState.usageTop - usageTop) > 0.5 { barState.usageTop = usageTop }
-            if abs(barState.length - length) > 0.5 { barState.length = length }
-            if abs(barState.openLength - openLength) > 0.5 { barState.openLength = openLength }
-            // A shorter list takes the offset back to its new end, so the
-            // last row stays whole and nothing is scrolled past.
-            listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
-            // The open body is as wide as the names it holds, the summary and
-            // the block.
-            let width = Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines)
-            if abs(barState.openWidth - width) > 0.5 { barState.openWidth = width }
+            fitSessionList()
             if rowsChanged {
                 // The rows' trace on stderr, for the same reason as the line above.
                 // A row nobody can hear is marked: its phase alone reads like a live one.
@@ -3784,6 +3780,35 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if !barState.isOpen, release(from: snapshot) { scheduleRefresh() }
     }
 
+    /// The open list includes headers and excludes collapsed children. The
+    /// closed strip and overall summary continue to count actual sessions.
+    private func fitSessionList() {
+        let count = sessionRows.openItems.count
+        let length = Self.barLength(slots: sessionRows.slotsInUse)
+        let openLength = Self.openLength(rows: count, usageLines: usageBlock.lines.count)
+        let usageTop = Self.usageTop(rows: count)
+        if abs(barState.usageTop - usageTop) > 0.5 { barState.usageTop = usageTop }
+        if abs(barState.length - length) > 0.5 { barState.length = length }
+        if abs(barState.openLength - openLength) > 0.5 { barState.openLength = openLength }
+        listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: count))
+        let titles = sessionRows.openItems.compactMap { item -> String? in
+            if case .group(let group, _, _) = item { return group.title }
+            return nil
+        }
+        let width = max(Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines),
+                        SessionColumn.openWidth(namesWidth: SessionColumn.namesWidth(titles)))
+        if abs(barState.openWidth - width) > 0.5 { barState.openWidth = width }
+    }
+
+    private func toggleSessionGroup(_ key: SessionGroup.Key) {
+        rowSwitch.cancel()
+        sessionRows.toggleGroup(key)
+        fitSessionList()
+        syncSelection(lastSnapshot?.ordered ?? [])
+        applyPresence()
+        if barState.isOpen { pointerMoved(mouseLocation()) }
+    }
+
     /// The card follows the selected session through the same snapshot: its
     /// slot when the column reorders, its facts when they move. Nothing is
     /// written without a selection. A session that has no visible row any
@@ -3791,13 +3816,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// has nothing for the card to hang from, so the card closes.
     private func syncSelection(_ signals: [Signal]) {
         guard let selected = barState.selected else { return }
-        guard let slot = visibleSlot(of: selected) else {
+        guard let slot = visibleSlot(of: selected), let row = sessionRows.openItems[slot].row else {
             deselect()
             return
         }
         if barState.selectedSlot != slot { barState.selectedSlot = slot }
         let signal = signals.first { $0.entity == selected }
-        detail.update(row: sessionRows.rows[slot],
+        detail.update(row: row,
                       signal: signal,
                       approval: approvalCard(for: signal),
                       signals: signals, chatEnabled: isChatEnabled)
@@ -3805,9 +3830,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The session's row index, if its row is wholly in sight.
     private func visibleSlot(of entity: String) -> Int? {
-        let rows = sessionRows.rows
-        guard let slot = rows.firstIndex(where: { $0.entity == entity }),
-              Self.isRowVisible(slot, rows: rows.count, offset: listScroll.offset) else { return nil }
+        let items = sessionRows.openItems
+        guard let slot = items.firstIndex(where: { $0.row?.entity == entity }),
+              Self.isRowVisible(slot, rows: items.count, offset: listScroll.offset) else { return nil }
         return slot
     }
 
@@ -3818,11 +3843,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// up level with it. Activates nothing — the app stays in the background,
     /// the panel is never key.
     func select(_ entity: String) {
-        guard let index = sessionRows.rows.firstIndex(where: { $0.entity == entity }) else { return }
+        guard sessionRows.rows.contains(where: { $0.entity == entity }) else { return }
         rowSwitch.cancel()
         hover.openNow()
         if !barState.isOpen { openBar() }
-        let count = sessionRows.rows.count
+        sessionRows.reveal(entity)
+        fitSessionList()
+        applyPresence()
+        guard let index = sessionRows.openItems.firstIndex(where: { $0.row?.entity == entity }) else { return }
+        let count = sessionRows.openItems.count
         listScroll.set(Self.offset(revealing: index, rows: count, from: listScroll.offset),
                        max: Self.maxScrollOffset(rows: count))
         if barState.selected != entity { barState.selected = entity }
@@ -3891,7 +3920,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard barState.isOpen, let panel, let bounds = panel.contentView?.bounds,
               Self.isOverList(fromEdge: panel.edge.inset(of: point.x, in: bounds),
                               fromTop: point.y - bounds.minY - Self.headroom,
-                              width: barState.openWidth, rows: sessionRows.rows.count) else {
+                              width: barState.openWidth, rows: sessionRows.openItems.count) else {
             return false
         }
         scrolled(by: precise ? deltaY : deltaY * Self.lineScroll)
@@ -3908,7 +3937,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func scrolled(by deltaY: CGFloat) {
         guard barState.isOpen,
               listScroll.set(listScroll.offset - deltaY,
-                             max: Self.maxScrollOffset(rows: sessionRows.rows.count)) else { return }
+                             max: Self.maxScrollOffset(rows: sessionRows.openItems.count)) else { return }
         // Before the re-read: closing the card cancels the pending switch,
         // and the re-read then schedules the one for the row under the cursor.
         if let selected = barState.selected, visibleSlot(of: selected) == nil { deselect() }
@@ -3920,16 +3949,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let panel, barState.isOpen,
               let slot = Self.slot(fromEdge: panel.edge.inset(of: point.x, in: panel.frame),
                                    fromTop: panel.frame.maxY - point.y - Self.headroom,
-                                   width: barState.openWidth, rows: sessionRows.rows.count,
+                                   width: barState.openWidth, rows: sessionRows.openItems.count,
                                    offset: listScroll.offset),
-              sessionRows.rows.indices.contains(slot) else { return nil }
-        return sessionRows.rows[slot].entity
+              sessionRows.openItems.indices.contains(slot) else { return nil }
+        return sessionRows.openItems[slot].row?.entity
     }
 
-    /// The bar takes two clicks: `[Go to session]`'s, and the mascot's,
-    /// which opens or closes the balloon. Rows and rings take none:
-    /// the card comes by hover (the user's decision), and a click on a
-    /// row it already speaks for has nothing left to do.
+    /// Card buttons, disclosure headers, and the mascot take clicks.
+    /// Session rows still open their cards by hover, without activation.
     private func click(at point: CGPoint) -> Bool {
         if barState.selected != nil, let approval = detail.detail?.approval,
            let button = approvalButton(at: point) {
@@ -3945,6 +3972,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         if barState.selected != nil, let button = goButtonRect, button.contains(point) {
             press(.go) { [weak self] in self?.goToSession() }
+            return true
+        }
+        if barState.isOpen, let panel, let bounds = panel.contentView?.bounds,
+           let slot = Self.slot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
+                                fromTop: point.y - bounds.minY - Self.headroom,
+                                width: barState.openWidth, rows: sessionRows.openItems.count,
+                                offset: listScroll.offset),
+           sessionRows.openItems.indices.contains(slot),
+           case .group(let group, _, _) = sessionRows.openItems[slot] {
+            toggleSessionGroup(group.key)
             return true
         }
         // A mascot behind the edge takes no click: the sliver and the
@@ -4210,8 +4247,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // A dimmed finish is on the open bar too, if at the bottom: seen
             // there, it is not news when its machine is heard again. So the
             // layers, not `news`, which holds live rows only.
+            // A collapsed group's count does not show its members' finishes.
+            let expanded = Set(sessionRows.openItems.compactMap { $0.row?.entity })
             seen.formUnion(snapshot.ordered.compactMap {
-                snapshot.layers[$0.entity] == .news ? Finish($0) : nil
+                snapshot.layers[$0.entity] == .news && expanded.contains($0.entity) ? Finish($0) : nil
             })
         }
         refresh()
@@ -4414,6 +4453,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             defaults?.set(toggles.peekDone, forKey: Self.bodyPeekDoneKey)
         }
         bodyToggles = toggles
+    }
+
+    func setSessionGroupsEnabled(_ enabled: Bool) {
+        defaults?.set(enabled, forKey: "rows.groups")
+        sessionGroupsEnabled = enabled
+        sessionRows.forgetBranches()
+        refresh()
     }
 
     /// Store the primary title choice and redraw without changing signals.
@@ -5396,6 +5442,7 @@ struct BarBody: View {
     /// Handed down, not observed: only the block reads it, and only while
     /// the bar is open.
     var usage = UsageBlockModel()
+    var onToggleGroup: (SessionGroup.Key) -> Void = { _ in }
     /// The card's drawn rectangle as it lays out, `nil` when it goes: the
     /// panel's second hover area is held to it.
     var onCardFrame: (CGRect?) -> Void = { _ in }
@@ -5506,7 +5553,7 @@ struct BarBody: View {
             if isFull {
                 SessionColumn(model: rows, scroll: scroll, edge: state.edge, showsNames: state.isOpen,
                               selected: state.selected, hovered: state.hovered,
-                              openWidth: state.openWidth)
+                              openWidth: state.openWidth, onToggleGroup: onToggleGroup)
                     // Its words are read as it is drawn, from rows that do
                     // not change with the language: built again instead.
                     .id(state.language)

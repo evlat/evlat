@@ -3,15 +3,15 @@ import AppKit
 import EvlatCore
 
 /// The column under the mascot. Closed: one ring per slot, and the overflow
-/// count. Open: every session, each ring's name on its inner side (left of it
-/// on the right edge, right of it on the left), in a visible area of at most
+/// count. Open: sessions and optional disclosure headers, each name on the
+/// ring's inner side (left on the right edge, right on the left), in an area of at most
 /// seven and a half rows, and the summary line under it.
 ///
 /// It observes `SessionRowsModel` and nothing else — the mascot's gaze moves
 /// with the cursor, and a column that observed the mascot would be rebuilt at
 /// that rate for nothing. Whether names show is handed in by `BarBody`.
 ///
-/// **Opening moves no ring that was drawn.** A name is an overlay on its ring,
+/// With grouping off, opening moves no ring that was drawn. A name overlays its ring,
 /// not a sibling in a row: it takes no room, so the ring's place is the same
 /// open or closed. The name comes in from the ring's side, a few points toward
 /// it, and fades. The fourth slot is the one exception: the count gives way to
@@ -36,6 +36,7 @@ struct SessionColumn: View {
     var hovered: String? = nil
     /// The open body's width, which the ground spans.
     var openWidth: CGFloat = SessionColumn.minOpenWidth
+    var onToggleGroup: (SessionGroup.Key) -> Void = { _ in }
 
     /// The selected row's ground: inside the open body by this much.
     static let groundInset: CGFloat = 5
@@ -221,7 +222,7 @@ struct SessionColumn: View {
 
     /// The visible area's height: the open list's, or the closed slots'.
     private var clipHeight: CGFloat {
-        showsNames ? AppController.listHeight(rows: model.rows.count)
+        showsNames ? AppController.listHeight(rows: model.openItems.count)
             : CGFloat(model.slotsInUse) * AppController.rowPitch
     }
 
@@ -230,7 +231,7 @@ struct SessionColumn: View {
 
     private var fadeStrength: (top: Double, bottom: Double) {
         guard showsNames else { return (0, 0) }
-        return Self.fades(offset: offset, maxOffset: AppController.maxScrollOffset(rows: model.rows.count))
+        return Self.fades(offset: offset, maxOffset: AppController.maxScrollOffset(rows: model.openItems.count))
     }
 
     /// The column in a container as wide as the open body, cut at the visible
@@ -255,7 +256,7 @@ struct SessionColumn: View {
             .overlay(alignment: .bottom) { fade(.bottom, strength: fadeStrength.bottom) }
             .overlay(alignment: Alignment(horizontal: docked, vertical: .bottom)) { summary }
             .animation(BarMotion.body, value: showsNames)
-            .animation(BarMotion.length, value: model.rows.count)
+            .animation(BarMotion.length, value: model.openItems.count)
     }
 
     /// The body's own black, from clear toward the edge: over an opaque body
@@ -294,26 +295,31 @@ struct SessionColumn: View {
         VStack(alignment: docked, spacing: AppController.indicatorSpacing) {
             // Identity is the session, so a reorder travels on the spring
             // rather than snapping rings into each other's places.
-            ForEach(showsNames ? model.rows : model.closedRows) { row in
-                // Centred in the collapsed bar's width, the same column the
-                // mascot sits in.
-                SessionIndicator(phase: row.phase, source: row.source, mark: row.traits.mark,
-                                 progress: row.progress,
-                                 // Only a beating row sees the counter move. A
-                                 // still row's trigger never changes on the
-                                 // beat, so it plays nothing and draws nothing.
-                                 beat: row.beats ? model.beat : 0,
-                                 isLive: row.isLive, passive: row.passive,
-                                 outcome: row.outcome)
-                    .frame(width: AppController.barWidth)
-                    .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
-                        ground(selected: showsNames && row.entity == selected,
-                               hovered: showsNames && row.entity == hovered)
-                    }
-                    // The name's box starts at the ring's far side and is
-                    // pushed across it by the offset in `label`.
-                    .overlay(alignment: isLeft ? .trailing : .leading) { label(row) }
-                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: isLeft ? .leading : .trailing)))
+            ForEach(showsNames ? model.openItems : model.closedRows.map(SessionListItem.session)) { item in
+                switch item {
+                case .group(let group, let members, let collapsed):
+                    groupHeader(group, members: members, collapsed: collapsed)
+                case .session(let row):
+                    // Centred in the collapsed bar's width, the same column the
+                    // mascot sits in.
+                    SessionIndicator(phase: row.phase, source: row.source, mark: row.traits.mark,
+                                     progress: row.progress,
+                                     // Only a beating row sees the counter move. A
+                                     // still row's trigger never changes on the
+                                     // beat, so it plays nothing and draws nothing.
+                                     beat: row.beats ? model.beat : 0,
+                                     isLive: row.isLive, passive: row.passive,
+                                     outcome: row.outcome)
+                        .frame(width: AppController.barWidth)
+                        .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
+                            ground(selected: showsNames && row.entity == selected,
+                                   hovered: showsNames && row.entity == hovered)
+                        }
+                        // The name's box starts at the ring's far side and is
+                        // pushed across it by the offset in `label`.
+                        .overlay(alignment: isLeft ? .trailing : .leading) { label(row) }
+                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: isLeft ? .leading : .trailing)))
+                }
             }
             if !showsNames, model.overflow > 0 {
                 // A number, not a word, so it needs no catalogue entry. The
@@ -331,8 +337,40 @@ struct SessionColumn: View {
                     .transition(.opacity)
             }
         }
-        .animation(MascotPose.transition, value: model.rows)
+        .animation(MascotPose.transition, value: model.openItems)
         .animation(MascotPose.transition, value: model.overflow)
+    }
+
+    private func groupHeader(_ group: SessionGroup, members: [SessionRow], collapsed: Bool) -> some View {
+        let summary = SummaryLine.text(rows: members) ?? "\(members.count)"
+        return Button { onToggleGroup(group.key) } label: {
+            Image(systemName: collapsed ? (isLeft ? "chevron.right" : "chevron.left") : "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(BarPalette.textSecondary)
+                .frame(width: AppController.barWidth, height: AppController.indicatorSize)
+                .overlay(alignment: isLeft ? .trailing : .leading) {
+                    VStack(alignment: docked, spacing: 1) {
+                        Text(verbatim: group.title)
+                            .font(Font(Self.nameFont))
+                            .foregroundStyle(BarPalette.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(verbatim: summary)
+                            .font(Font(Self.statusFont))
+                            .foregroundStyle(members.contains { $0.phase == .waiting && $0.isLive }
+                                             ? SessionIndicator.amber : BarPalette.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(width: Self.nameMaxWidth, height: Self.labelHeight,
+                           alignment: Alignment(horizontal: docked, vertical: .top))
+                    .offset(x: mirror * (Self.ringLead - Self.nameGap - Self.nameMaxWidth))
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(group.title + ", " + summary)
+        .accessibilityValue(L10n.t(collapsed ? "sessions.group.collapsed" : "sessions.group.expanded"))
+        .accessibilityHint(L10n.t(collapsed ? "sessions.group.expand" : "sessions.group.collapse"))
     }
 
     /// Behind the selected row, as wide as the open body less an inset: the

@@ -797,3 +797,10 @@
 "settings.sessions.title.folder" = "Folder name";
 "settings.sessions.title.cli" = "CLI title";
 "settings.sessions.title.branch" = "Git branch";
+
+"settings.sessions.groups" = "Group sessions";
+"settings.sessions.groups.note" = "Group sessions in the same folder or local repositories with the same origin URL. Click a group to collapse or expand it.";
+"sessions.group.collapsed" = "Collapsed";
+"sessions.group.expanded" = "Expanded";
+"sessions.group.expand" = "Expand sessions";
+"sessions.group.collapse" = "Collapse sessions";

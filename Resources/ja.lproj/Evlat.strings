@@ -709,3 +709,10 @@
 "settings.sessions.title.folder" = "フォルダ名";
 "settings.sessions.title.cli" = "CLIのタイトル";
 "settings.sessions.title.branch" = "Gitブランチ";
+
+"settings.sessions.groups" = "セッションをグループ化";
+"settings.sessions.groups.note" = "同じフォルダ、またはorigin URLが同じローカルリポジトリのセッションをまとめます。グループをクリックすると折りたたみ・展開できます。";
+"sessions.group.collapsed" = "折りたたみ済み";
+"sessions.group.expanded" = "展開済み";
+"sessions.group.expand" = "セッションを展開";
+"sessions.group.collapse" = "セッションを折りたたむ";

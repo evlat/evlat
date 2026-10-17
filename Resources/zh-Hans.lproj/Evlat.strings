@@ -709,3 +709,10 @@
 "settings.sessions.title.folder" = "文件夹名称";
 "settings.sessions.title.cli" = "CLI 标题";
 "settings.sessions.title.branch" = "Git 分支";
+
+"settings.sessions.groups" = "分组会话";
+"settings.sessions.groups.note" = "将同一文件夹或 origin URL 相同的本地仓库中的会话分组。点击分组以折叠或展开。";
+"sessions.group.collapsed" = "已折叠";
+"sessions.group.expanded" = "已展开";
+"sessions.group.expand" = "展开会话";
+"sessions.group.collapse" = "折叠会话";

@@ -721,3 +721,10 @@
 "settings.sessions.title.folder" = "Klasör adı";
 "settings.sessions.title.cli" = "CLI başlığı";
 "settings.sessions.title.branch" = "Git dalı";
+
+"settings.sessions.groups" = "Oturumları grupla";
+"settings.sessions.groups.note" = "Aynı klasördeki veya origin URL’si aynı olan yerel depolardaki oturumları grupla. Daraltmak veya genişletmek için gruba tıklayın.";
+"sessions.group.collapsed" = "Daraltılmış";
+"sessions.group.expanded" = "Genişletilmiş";
+"sessions.group.expand" = "Oturumları genişlet";
+"sessions.group.collapse" = "Oturumları daralt";

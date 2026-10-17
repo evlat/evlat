@@ -709,3 +709,10 @@
 "settings.sessions.title.folder" = "폴더 이름";
 "settings.sessions.title.cli" = "CLI 제목";
 "settings.sessions.title.branch" = "Git 브랜치";
+
+"settings.sessions.groups" = "세션 그룹화";
+"settings.sessions.groups.note" = "같은 폴더 또는 origin URL이 같은 로컬 저장소의 세션을 그룹화합니다. 그룹을 클릭하여 접거나 펼칩니다.";
+"sessions.group.collapsed" = "접힘";
+"sessions.group.expanded" = "펼침";
+"sessions.group.expand" = "세션 펼치기";
+"sessions.group.collapse" = "세션 접기";

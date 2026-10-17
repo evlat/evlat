@@ -698,6 +698,18 @@ private struct AgentsSection: View {
                 }
             }
         }
+        SettingsGroup(title: model.t("settings.sessions.groups"), note: model.t("settings.sessions.groups.note")) {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.sessions.groups"))
+                    Toggle("", isOn: Binding(get: { model.sessionGroupsEnabled }, set: { model.setSessionGroupsEnabled($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.sessions.groups"))
+                }
+            }
+        }
         SettingsGroup(title: model.t("settings.sessions.title"), note: model.t("settings.sessions.title.note")) {
             RowBox {
                 HStack(spacing: 10) {

@@ -709,3 +709,10 @@
 "settings.sessions.title.folder" = "Ordnername";
 "settings.sessions.title.cli" = "CLI-Titel";
 "settings.sessions.title.branch" = "Git-Branch";
+
+"settings.sessions.groups" = "Sitzungen gruppieren";
+"settings.sessions.groups.note" = "Sitzungen im selben Ordner oder in lokalen Repositorys mit derselben origin-URL gruppieren. Zum Ein- oder Ausklappen auf eine Gruppe klicken.";
+"sessions.group.collapsed" = "Eingeklappt";
+"sessions.group.expanded" = "Ausgeklappt";
+"sessions.group.expand" = "Sitzungen ausklappen";
+"sessions.group.collapse" = "Sitzungen einklappen";

@@ -710,3 +710,10 @@
 "settings.sessions.title.folder" = "Nome da pasta";
 "settings.sessions.title.cli" = "Título da CLI";
 "settings.sessions.title.branch" = "Branch Git";
+
+"settings.sessions.groups" = "Agrupar sessões";
+"settings.sessions.groups.note" = "Agrupar sessões na mesma pasta ou em repositórios locais com a mesma URL de origin. Clique em um grupo para recolher ou expandir.";
+"sessions.group.collapsed" = "Recolhido";
+"sessions.group.expanded" = "Expandido";
+"sessions.group.expand" = "Expandir sessões";
+"sessions.group.collapse" = "Recolher sessões";
