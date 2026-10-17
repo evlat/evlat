@@ -113,6 +113,33 @@ final class AtTabNewsTests: XCTestCase {
         var news: [Finish] { controller.registry.snapshot(seen: controller.seen).news }
     }
 
+    func testCollapsedGroupFinishesAreNotSeenAndExplicitSelectionRevealsThem() throws {
+        let rig = Rig()
+        defer { rig.panel.close() }
+        rig.controller.sessionGroupsEnabled = true
+        rig.provider.signals = ["a", "b"].map {
+            Signal(provider: "stub", entity: $0, phase: .review, label: $0,
+                   detail: "/nonexistent/session-group-test", fidelity: .official,
+                   updatedAt: rig.now)
+        }
+        rig.controller.refresh()
+        rig.controller.openBar()
+        guard case .group(let group, _, _) = try XCTUnwrap(rig.controller.sessionRows.openItems.first) else {
+            return XCTFail("Missing session group")
+        }
+        rig.controller.sessionRows.toggleGroup(group.key)
+        rig.now += AppController.seenAfter + 1
+        rig.controller.closeBar()
+        XCTAssertTrue(rig.controller.seen.isEmpty, "a summary does not show individual finishes")
+        rig.controller.select("b")
+        XCTAssertEqual(rig.controller.sessionRows.openItems.compactMap { $0.row?.entity }, ["a", "b"])
+        XCTAssertEqual(rig.controller.barState.selected, "b")
+        XCTAssertEqual(rig.controller.barState.selectedSlot, 2, "the group header occupies a slot")
+        rig.now += AppController.seenAfter + 1
+        rig.controller.closeBar()
+        XCTAssertEqual(Set(rig.controller.seen.map(\.entity)), ["a", "b"])
+    }
+
     // MARK: - A finish
 
     /// At the tab: no sound, no peek; still news, still told once, and its

@@ -64,7 +64,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// mascot in `refresh()`, observed by its own column.
     /// The column's rows; same-named sessions are told apart by the branch
     /// their folder is on, read from git's files (`GitHead`).
-    public let sessionRows = SessionRowsModel(readBranch: GitHead.branch(in:))
+    public let sessionRows = SessionRowsModel(readBranch: GitHead.branch(in:), readRepository: GitRepository.origin(in:))
     /// The card's facts for the selected session. Written only while one is
     /// selected (`syncSelection`), observed by the card alone.
     public let detail = DetailModel()
@@ -261,8 +261,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
-    /// Settings → This Mac → Git branch (`BranchDisplay`). Handed to the
-    /// rows, and read by the card's reader so that `off` reads nothing.
+    var sessionGroupsEnabled = false {
+        didSet { sessionRows.groupsEnabled = sessionGroupsEnabled }
+    }
+
+    /// Primary title preference; the row model also supplies card titles.
+    var sessionTitle: SessionTitle = .folder {
+        didSet { sessionRows.sessionTitle = sessionTitle }
+    }
+
+    /// Branch badges, independent of the primary title preference.
     var branchDisplay: BranchDisplay = .auto {
         didSet { sessionRows.branchDisplay = branchDisplay }
     }
@@ -445,9 +453,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The top of a slot's ring, from the head (the window's top less
     /// `headroom`, as every measure here is). The card opens level
     /// with its row, held inside the window (`BarBody.cardTop`).
-    public static func slotTop(_ index: Int) -> CGFloat {
-        mascotTopInset + mascotSize + indicatorTopGap + CGFloat(index) * rowPitch
+    public static func slotTop(_ index: Int, groupStarts: [Int] = []) -> CGFloat {
+        mascotTopInset + mascotSize + indicatorTopGap + CGFloat(index) * rowPitch + CGFloat(groupStarts.filter { $0 <= index }.count) * groupGap
     }
+
+    /// Extra separation before each subsequent group header.
+    public static let groupGap: CGFloat = 6
 
     /// One row: its ring and one gap.
     public static var rowPitch: CGFloat { indicatorSize + indicatorSpacing }
@@ -462,15 +473,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     public static var listTop: CGFloat { slotTop(0) - indicatorSpacing / 2 }
 
     /// The visible area's height: every row up to seven and a half.
-    public static func listHeight(rows: Int) -> CGFloat {
-        min(CGFloat(max(0, rows)), visibleRows) * rowPitch
+    public static func listHeight(rows: Int, groupStarts: [Int] = []) -> CGFloat {
+        min(CGFloat(max(0, rows)) * rowPitch + CGFloat(groupStarts.count) * groupGap, visibleRows * rowPitch)
     }
 
     /// The summary line under the list ("20 sessions · 3 working").
     public static let summaryGap: CGFloat = 8
     public static let summaryHeight: CGFloat = 12
-    public static func summaryTop(rows: Int) -> CGFloat {
-        listTop + listHeight(rows: rows) + summaryGap
+    public static func summaryTop(rows: Int, groupStarts: [Int] = []) -> CGFloat {
+        listTop + listHeight(rows: rows, groupStarts: groupStarts) + summaryGap
     }
 
     /// The usage block (`UsageBlock`): under the summary, or under the mascot
@@ -484,8 +495,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The block's hairline, from the head. With no session there is
     /// no list and no summary: the block starts where the first ring would.
-    public static func usageTop(rows: Int) -> CGFloat {
-        let above = rows > 0 ? summaryTop(rows: rows) + summaryHeight : mascotTopInset + mascotSize
+    public static func usageTop(rows: Int, groupStarts: [Int] = []) -> CGFloat {
+        let above = rows > 0 ? summaryTop(rows: rows, groupStarts: groupStarts) + summaryHeight : mascotTopInset + mascotSize
         return above + usageGap
     }
 
@@ -499,12 +510,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// opens with. With no session the block hangs under the mascot; with
     /// neither, the head alone. Kept apart from the closed length
     /// (`BarState.openLength`), which the block never changes.
-    public static func openLength(rows: Int, usageLines: Int = 0) -> CGFloat {
+    public static func openLength(rows: Int, usageLines: Int = 0, groupStarts: [Int] = []) -> CGFloat {
         if usageLines > 0 {
-            return usageTop(rows: rows) + usageHeight(lines: usageLines) + mascotTopInset
+            return usageTop(rows: rows, groupStarts: groupStarts) + usageHeight(lines: usageLines) + mascotTopInset
         }
         guard rows > 0 else { return barLength(slots: 0) }
-        return summaryTop(rows: rows) + summaryHeight + mascotTopInset
+        return summaryTop(rows: rows, groupStarts: groupStarts) + summaryHeight + mascotTopInset
     }
 
     /// The open body's width: the names' (a remote row's with its machine),
@@ -522,8 +533,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// How far the open list scrolls: until the last row is whole, with half
     /// a gap under it — the mirror of the top, where half a row shows above.
     /// Zero while every row fits.
-    public static func maxScrollOffset(rows: Int) -> CGFloat {
-        max(0, CGFloat(max(0, rows)) * rowPitch - listHeight(rows: rows))
+    public static func maxScrollOffset(rows: Int, groupStarts: [Int] = []) -> CGFloat {
+        max(0, CGFloat(max(0, rows)) * rowPitch + CGFloat(groupStarts.count) * groupGap - listHeight(rows: rows, groupStarts: groupStarts))
     }
 
     /// A notched wheel's step, per line it reports: AppKit's own default
@@ -533,47 +544,50 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// The least scrolling that shows a row whole: up to it if it is cut at
     /// the top, down to it if it is cut at the bottom, nothing if it is in
     /// sight. A row's slot is its ring and half the gap each side.
-    static func offset(revealing index: Int, rows: Int, from offset: CGFloat) -> CGFloat {
-        let top = CGFloat(index) * rowPitch
-        let height = listHeight(rows: rows)
+    static func offset(revealing index: Int, rows: Int, from offset: CGFloat, groupStarts: [Int] = []) -> CGFloat {
+        let top = slotTop(index, groupStarts: groupStarts) - slotTop(0)
+        let height = listHeight(rows: rows, groupStarts: groupStarts)
         var next = offset
         if top < offset {
             next = top
         } else if top + rowPitch > offset + height {
             next = top + rowPitch - height
         }
-        return min(max(0, next), maxScrollOffset(rows: rows))
+        return min(max(0, next), maxScrollOffset(rows: rows, groupStarts: groupStarts))
     }
 
     /// Whether a row of the open list counts as on screen: its ring wholly in
     /// the visible area. Only such a row takes hover or keeps a card; the
     /// half row does not. `offset` is how far the list is scrolled. The one
     /// place this is decided.
-    static func isRowVisible(_ index: Int, rows: Int, offset: CGFloat = 0) -> Bool {
+    static func isRowVisible(_ index: Int, rows: Int, offset: CGFloat = 0, groupStarts: [Int] = []) -> Bool {
         guard index >= 0, index < rows else { return false }
-        let top = slotTop(index) - offset
-        return top >= listTop - 0.5 && top + indicatorSize <= listTop + listHeight(rows: rows) + 0.5
+        let top = slotTop(index, groupStarts: groupStarts) - offset
+        return top >= listTop - 0.5 && top + indicatorSize <= listTop + listHeight(rows: rows, groupStarts: groupStarts) + 0.5
     }
 
     /// The row under a point, measured from the docked edge and the window's
     /// top; `nil` over the mascot, outside the visible list, over a row not
     /// wholly visible or past `width` — the drawn body's. A slot is its ring
     /// and half the gap each side, so the cursor moving down the column is
-    /// always over some row. Rows are fixed-height (`SessionColumn`), so
-    /// this is the whole geometry.
+    /// over a row except in the deliberate gap before a group header.
     static func slot(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat,
-                     rows: Int, offset: CGFloat = 0) -> Int? {
+                     rows: Int, offset: CGFloat = 0, groupStarts: [Int] = []) -> Int? {
         guard x >= 0, x <= width,
-              y >= listTop, y < listTop + listHeight(rows: rows) else { return nil }
-        let index = Int((y + offset - listTop) / rowPitch)
-        return isRowVisible(index, rows: rows, offset: offset) ? index : nil
+              y >= listTop, y < listTop + listHeight(rows: rows, groupStarts: groupStarts) else { return nil }
+        let position = y + offset - listTop
+        guard let index = (0..<rows).first(where: { index in
+            let top = slotTop(index, groupStarts: groupStarts) - slotTop(0)
+            return position >= top && position < top + rowPitch
+        }) else { return nil }
+        return isRowVisible(index, rows: rows, offset: offset, groupStarts: groupStarts) ? index : nil
     }
 
     /// Whether a point is over the open list's visible area: the body's
     /// width, from the first row's half gap to the last visible one's. The
     /// mascot, the summary line and the card are not the list.
-    static func isOverList(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat, rows: Int) -> Bool {
-        x >= 0 && x <= width && y >= listTop && y < listTop + listHeight(rows: rows)
+    static func isOverList(fromEdge x: CGFloat, fromTop y: CGFloat, width: CGFloat, rows: Int, groupStarts: [Int] = []) -> Bool {
+        x >= 0 && x <= width && y >= listTop && y < listTop + listHeight(rows: rows, groupStarts: groupStarts)
     }
 
     /// The detail card beside the open list (`DetailCard` draws it). Fixed here
@@ -1446,6 +1460,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
         useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
+        sessionGroupsEnabled = defaults?.bool(forKey: "rows.groups") ?? false
+        sessionTitle = SessionTitle.stored(defaults?.string(forKey: "rows.title"))
         branchDisplay = Self.storedBranchDisplay(defaults)
         detail.resolveBranch = { [weak self] folder in
             self?.branchDisplay == .off ? nil : GitHead.branch(in: folder)
@@ -1496,7 +1512,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if let offset = Self.forcedScroll() {
             hover.openNow()
             if !barState.isOpen { openBar() }
-            listScroll.set(offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
+            listScroll.set(offset, max: Self.maxScrollOffset(rows: sessionRows.openItems.count, groupStarts: sessionRows.groupStarts))
         }
         switch Self.forcedSelection() {
         case .first?: sessionRows.rows.first.map { select($0.entity) }
@@ -1576,6 +1592,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
                              content: BarBody(mascot: mascot, rows: sessionRows,
                                               state: barState, scroll: listScroll, detail: detail,
                                               usage: usageBlock,
+                                              onToggleGroup: { [weak self] key in self?.toggleSessionGroup(key) },
                                               onCardFrame: { [weak self] rect in
                                                   self?.cardFrameChanged(rect)
                                               },
@@ -3147,6 +3164,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
             setBodyToggles: { [weak self] in self?.setBodyToggles($0) },
+            sessionGroupsEnabled: { [weak self] in self?.sessionGroupsEnabled ?? false },
+            setSessionGroupsEnabled: { [weak self] in self?.setSessionGroupsEnabled($0) },
+            sessionTitle: { [weak self] in self?.sessionTitle ?? .folder },
+            setSessionTitle: { [weak self] in self?.setSessionTitle($0) },
             branchDisplay: { [weak self] in self?.branchDisplay ?? .auto },
             setBranchDisplay: { [weak self] in self?.setBranchDisplay($0) },
             nudgeMinutes: { [weak self] in self?.nudgeMinutes ?? 0 },
@@ -3725,32 +3746,20 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // Same snapshot, so the rings and the face cannot disagree. The model
         // keeps its own deadband over what it draws.
         let before = sessionRows.rows
+        let beforeItems = sessionRows.openItems
         sessionRows.update(from: snapshot)
         // The block's own deadband: its lines move with the drawn percent and
         // the minute, not with a relay's stamp. The clock is read here, so a
         // window that resets leaves within one poll.
         let usageBefore = usageBlock.lines
         usageBlock.update(from: snapshot.usage, now: now(), hidingStale: hidesStaleUsage)
-        let rowsChanged = before != sessionRows.rows
+        let rowsChanged = before != sessionRows.rows || beforeItems != sessionRows.openItems
         if rowsChanged || usageBefore != usageBlock.lines {
             // The body follows the column and the block — drawn, not the
             // window. Both lengths are kept, the closed and the open one; the
             // block is only in the open one. The hover area is AppKit's and
             // hears nothing from SwiftUI, so it is told the one drawn.
-            let rowCount = sessionRows.rows.count
-            let length = Self.barLength(slots: sessionRows.slotsInUse)
-            let openLength = Self.openLength(rows: rowCount, usageLines: usageBlock.lines.count)
-            let usageTop = Self.usageTop(rows: rowCount)
-            if abs(barState.usageTop - usageTop) > 0.5 { barState.usageTop = usageTop }
-            if abs(barState.length - length) > 0.5 { barState.length = length }
-            if abs(barState.openLength - openLength) > 0.5 { barState.openLength = openLength }
-            // A shorter list takes the offset back to its new end, so the
-            // last row stays whole and nothing is scrolled past.
-            listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: sessionRows.rows.count))
-            // The open body is as wide as the names it holds, the summary and
-            // the block.
-            let width = Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines)
-            if abs(barState.openWidth - width) > 0.5 { barState.openWidth = width }
+            fitSessionList()
             if rowsChanged {
                 // The rows' trace on stderr, for the same reason as the line above.
                 // A row nobody can hear is marked: its phase alone reads like a live one.
@@ -3783,6 +3792,37 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if !barState.isOpen, release(from: snapshot) { scheduleRefresh() }
     }
 
+    /// The open list includes headers and excludes collapsed children. The
+    /// closed strip and overall summary continue to count actual sessions.
+    private func fitSessionList() {
+        let count = sessionRows.openItems.count
+        let length = Self.barLength(slots: sessionRows.slotsInUse)
+        let openLength = Self.openLength(rows: count, usageLines: usageBlock.lines.count, groupStarts: sessionRows.groupStarts)
+        let usageTop = Self.usageTop(rows: count, groupStarts: sessionRows.groupStarts)
+        if abs(barState.usageTop - usageTop) > 0.5 { barState.usageTop = usageTop }
+        if abs(barState.length - length) > 0.5 { barState.length = length }
+        if abs(barState.openLength - openLength) > 0.5 { barState.openLength = openLength }
+        listScroll.set(listScroll.offset, max: Self.maxScrollOffset(rows: count, groupStarts: sessionRows.groupStarts))
+        let titles = sessionRows.openItems.compactMap { item -> String? in
+            if case .group(let group, _, _) = item { return group.title }
+            return nil
+        }
+        let memberIndent = titles.isEmpty ? 0 : SessionColumn.groupMemberIndent
+        let width = min(Self.expandedBarWidth,
+                        max(Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines) + memberIndent,
+                            SessionColumn.openWidth(namesWidth: SessionColumn.namesWidth(titles))))
+        if abs(barState.openWidth - width) > 0.5 { barState.openWidth = width }
+    }
+
+    private func toggleSessionGroup(_ key: SessionGroup.Key) {
+        rowSwitch.cancel()
+        sessionRows.toggleGroup(key)
+        fitSessionList()
+        syncSelection(lastSnapshot?.ordered ?? [])
+        applyPresence()
+        if barState.isOpen { pointerMoved(mouseLocation()) }
+    }
+
     /// The card follows the selected session through the same snapshot: its
     /// slot when the column reorders, its facts when they move. Nothing is
     /// written without a selection. A session that has no visible row any
@@ -3790,13 +3830,13 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// has nothing for the card to hang from, so the card closes.
     private func syncSelection(_ signals: [Signal]) {
         guard let selected = barState.selected else { return }
-        guard let slot = visibleSlot(of: selected) else {
+        guard let slot = visibleSlot(of: selected), let row = sessionRows.openItems[slot].row else {
             deselect()
             return
         }
         if barState.selectedSlot != slot { barState.selectedSlot = slot }
         let signal = signals.first { $0.entity == selected }
-        detail.update(row: sessionRows.rows[slot],
+        detail.update(row: row,
                       signal: signal,
                       approval: approvalCard(for: signal),
                       signals: signals, chatEnabled: isChatEnabled)
@@ -3804,9 +3844,9 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
 
     /// The session's row index, if its row is wholly in sight.
     private func visibleSlot(of entity: String) -> Int? {
-        let rows = sessionRows.rows
-        guard let slot = rows.firstIndex(where: { $0.entity == entity }),
-              Self.isRowVisible(slot, rows: rows.count, offset: listScroll.offset) else { return nil }
+        let items = sessionRows.openItems
+        guard let slot = items.firstIndex(where: { $0.row?.entity == entity }),
+              Self.isRowVisible(slot, rows: items.count, offset: listScroll.offset, groupStarts: sessionRows.groupStarts) else { return nil }
         return slot
     }
 
@@ -3817,13 +3857,17 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// up level with it. Activates nothing — the app stays in the background,
     /// the panel is never key.
     func select(_ entity: String) {
-        guard let index = sessionRows.rows.firstIndex(where: { $0.entity == entity }) else { return }
+        guard sessionRows.rows.contains(where: { $0.entity == entity }) else { return }
         rowSwitch.cancel()
         hover.openNow()
         if !barState.isOpen { openBar() }
-        let count = sessionRows.rows.count
-        listScroll.set(Self.offset(revealing: index, rows: count, from: listScroll.offset),
-                       max: Self.maxScrollOffset(rows: count))
+        sessionRows.reveal(entity)
+        fitSessionList()
+        applyPresence()
+        guard let index = sessionRows.openItems.firstIndex(where: { $0.row?.entity == entity }) else { return }
+        let count = sessionRows.openItems.count
+        listScroll.set(Self.offset(revealing: index, rows: count, from: listScroll.offset, groupStarts: sessionRows.groupStarts),
+                       max: Self.maxScrollOffset(rows: count, groupStarts: sessionRows.groupStarts))
         if barState.selected != entity { barState.selected = entity }
         syncSelection(registry.snapshot().ordered)
     }
@@ -3890,7 +3934,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard barState.isOpen, let panel, let bounds = panel.contentView?.bounds,
               Self.isOverList(fromEdge: panel.edge.inset(of: point.x, in: bounds),
                               fromTop: point.y - bounds.minY - Self.headroom,
-                              width: barState.openWidth, rows: sessionRows.rows.count) else {
+                              width: barState.openWidth, rows: sessionRows.openItems.count, groupStarts: sessionRows.groupStarts) else {
             return false
         }
         scrolled(by: precise ? deltaY : deltaY * Self.lineScroll)
@@ -3907,7 +3951,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     func scrolled(by deltaY: CGFloat) {
         guard barState.isOpen,
               listScroll.set(listScroll.offset - deltaY,
-                             max: Self.maxScrollOffset(rows: sessionRows.rows.count)) else { return }
+                             max: Self.maxScrollOffset(rows: sessionRows.openItems.count, groupStarts: sessionRows.groupStarts)) else { return }
         // Before the re-read: closing the card cancels the pending switch,
         // and the re-read then schedules the one for the row under the cursor.
         if let selected = barState.selected, visibleSlot(of: selected) == nil { deselect() }
@@ -3919,16 +3963,14 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         guard let panel, barState.isOpen,
               let slot = Self.slot(fromEdge: panel.edge.inset(of: point.x, in: panel.frame),
                                    fromTop: panel.frame.maxY - point.y - Self.headroom,
-                                   width: barState.openWidth, rows: sessionRows.rows.count,
-                                   offset: listScroll.offset),
-              sessionRows.rows.indices.contains(slot) else { return nil }
-        return sessionRows.rows[slot].entity
+                                   width: barState.openWidth, rows: sessionRows.openItems.count,
+                                   offset: listScroll.offset, groupStarts: sessionRows.groupStarts),
+              sessionRows.openItems.indices.contains(slot) else { return nil }
+        return sessionRows.openItems[slot].row?.entity
     }
 
-    /// The bar takes two clicks: `[Go to session]`'s, and the mascot's,
-    /// which opens or closes the balloon. Rows and rings take none:
-    /// the card comes by hover (the user's decision), and a click on a
-    /// row it already speaks for has nothing left to do.
+    /// Card buttons, disclosure headers, and the mascot take clicks.
+    /// Session rows still open their cards by hover, without activation.
     private func click(at point: CGPoint) -> Bool {
         if barState.selected != nil, let approval = detail.detail?.approval,
            let button = approvalButton(at: point) {
@@ -3944,6 +3986,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         }
         if barState.selected != nil, let button = goButtonRect, button.contains(point) {
             press(.go) { [weak self] in self?.goToSession() }
+            return true
+        }
+        if barState.isOpen, let panel, let bounds = panel.contentView?.bounds,
+           let slot = Self.slot(fromEdge: panel.edge.inset(of: point.x, in: bounds),
+                                fromTop: point.y - bounds.minY - Self.headroom,
+                                width: barState.openWidth, rows: sessionRows.openItems.count,
+                                offset: listScroll.offset, groupStarts: sessionRows.groupStarts),
+           sessionRows.openItems.indices.contains(slot),
+           case .group(let group, _, _) = sessionRows.openItems[slot] {
+            toggleSessionGroup(group.key)
             return true
         }
         // A mascot behind the edge takes no click: the sliver and the
@@ -4209,8 +4261,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             // A dimmed finish is on the open bar too, if at the bottom: seen
             // there, it is not news when its machine is heard again. So the
             // layers, not `news`, which holds live rows only.
+            // A collapsed group's count does not show its members' finishes.
+            let expanded = Set(sessionRows.openItems.compactMap { $0.row?.entity })
             seen.formUnion(snapshot.ordered.compactMap {
-                snapshot.layers[$0.entity] == .news ? Finish($0) : nil
+                snapshot.layers[$0.entity] == .news && expanded.contains($0.entity) ? Finish($0) : nil
             })
         }
         refresh()
@@ -4415,8 +4469,22 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = toggles
     }
 
-    /// Settings → This Mac → Git branch. Stored, then drawn at once: the
-    /// branches are read again so a switch to `on` shows every row's.
+    func setSessionGroupsEnabled(_ enabled: Bool) {
+        defaults?.set(enabled, forKey: "rows.groups")
+        sessionGroupsEnabled = enabled
+        sessionRows.forgetBranches()
+        refresh()
+    }
+
+    /// Store the primary title choice and redraw without changing signals.
+    func setSessionTitle(_ title: SessionTitle) {
+        defaults?.set(title.rawValue, forKey: "rows.title")
+        sessionTitle = title
+        sessionRows.forgetBranches()
+        refresh()
+    }
+
+    /// Store the branch badge choice and refresh cached branches.
     func setBranchDisplay(_ display: BranchDisplay) {
         defaults?.set(display.storedValue, forKey: Self.branchDisplayKey)
         branchDisplay = display
@@ -4606,7 +4674,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             let tell = { [weak self] in
                 batch.report(index, moment)
                 guard let self, self.nudgeNotify, let notifier = self.notifier else { return }
-                let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
+                let label = self.sessionRows.rows.first { $0.entity == row.entity }?.label ?? row.label
+                let name = label.isEmpty ? L10n.t("notify.waiting.unnamed") : label
                 notifier.post(entity: row.entity,
                               title: L10n.t("notify.waiting.title", ["name": name]),
                               body: L10n.t("notify.waiting.body", ["n": String(self.nudgeMinutes)]))
@@ -4846,8 +4915,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             let tell = { [weak self] in
                 batch.report(index, moment)
                 guard let self, self.nudgeNotify, let notifier = self.notifier else { return }
-                let name = row.map { $0.label.isEmpty ? L10n.t("notify.waiting.unnamed") : $0.label }
-                    ?? L10n.t("notify.waiting.unnamed")
+                let label = self.sessionRows.rows.first { $0.entity == finish.entity }?.label ?? row?.label ?? ""
+                let name = label.isEmpty ? L10n.t("notify.waiting.unnamed") : label
                 let failed = finish.phase == .failed
                 notifier.post(entity: finish.entity,
                               title: L10n.t(failed ? "notify.failed.title" : "notify.finished.title", ["name": name]),
@@ -5390,6 +5459,7 @@ struct BarBody: View {
     /// Handed down, not observed: only the block reads it, and only while
     /// the bar is open.
     var usage = UsageBlockModel()
+    var onToggleGroup: (SessionGroup.Key) -> Void = { _ in }
     /// The card's drawn rectangle as it lays out, `nil` when it goes: the
     /// panel's second hover area is held to it.
     var onCardFrame: (CGRect?) -> Void = { _ in }
@@ -5414,9 +5484,9 @@ struct BarBody: View {
     /// shadow kept inside: a held question is taller than the room under
     /// the head on a small screen. A card that fits never moves for it.
     static func cardTop(slot: Int, offset: CGFloat = 0, height: CGFloat = 0,
-                        room: ClosedRange<CGFloat>? = nil) -> CGFloat {
+                        room: ClosedRange<CGFloat>? = nil, groupStarts: [Int] = []) -> CGFloat {
         let level = AppController.headroom
-            + min(max(0, AppController.slotTop(slot) - offset - cardLead), cardTopLimit)
+            + min(max(0, AppController.slotTop(slot, groupStarts: groupStarts) - offset - cardLead), cardTopLimit)
         guard let room else { return level }
         let lowest = room.upperBound - height - AppController.shadowGutter
         return max(room.lowerBound + AppController.shadowGutter, min(level, lowest))
@@ -5500,7 +5570,7 @@ struct BarBody: View {
             if isFull {
                 SessionColumn(model: rows, scroll: scroll, edge: state.edge, showsNames: state.isOpen,
                               selected: state.selected, hovered: state.hovered,
-                              openWidth: state.openWidth)
+                              openWidth: state.openWidth, onToggleGroup: onToggleGroup)
                     // Its words are read as it is drawn, from rows that do
                     // not change with the language: built again instead.
                     .id(state.language)
@@ -5525,7 +5595,7 @@ struct BarBody: View {
     /// has just arrived — the first card popped in.
     private var card: some View {
         let slot = state.selectedSlot ?? cardSlot
-        return CardPlacing(scroll: scroll, slot: slot, room: state.cardRoom, isLeft: isLeft) {
+        return CardPlacing(scroll: scroll, slot: slot, room: state.cardRoom, isLeft: isLeft, groupStarts: rows.groupStarts) {
             if state.isOpen, state.selected != nil, state.selectedSlot != nil {
                 DetailCard(model: detail, onButtonFrame: onGoButtonFrame, onApprovalFrame: onApprovalFrame)
                     .id(state.language)
@@ -5567,10 +5637,11 @@ struct BarBody: View {
         let slot: Int
         let room: ClosedRange<CGFloat>?
         let isLeft: Bool
+        var groupStarts: [Int] = []
         @ViewBuilder let card: () -> Card
 
         var body: some View {
-            CardLayout(slot: slot, offset: scroll.offset, room: room, isLeft: isLeft) { card() }
+            CardLayout(slot: slot, offset: scroll.offset, room: room, isLeft: isLeft, groupStarts: groupStarts) { card() }
         }
     }
 
@@ -5584,6 +5655,7 @@ struct BarBody: View {
         let offset: CGFloat
         let room: ClosedRange<CGFloat>?
         let isLeft: Bool
+        var groupStarts: [Int] = []
 
         func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
             proposal.replacingUnspecifiedDimensions()
@@ -5592,7 +5664,7 @@ struct BarBody: View {
         func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
             for card in subviews {
                 let size = card.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
-                let top = BarBody.cardTop(slot: slot, offset: offset, height: size.height, room: room)
+                let top = BarBody.cardTop(slot: slot, offset: offset, height: size.height, room: room, groupStarts: groupStarts)
                 let x = isLeft ? bounds.minX : bounds.maxX - size.width
                 card.place(at: CGPoint(x: x, y: bounds.minY + top), anchor: .topLeading,
                            proposal: ProposedViewSize(size))

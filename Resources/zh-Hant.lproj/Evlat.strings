@@ -711,3 +711,16 @@
 "updates.after.claude" = "已開啟的工作階段會在下一則訊息時載入。";
 "updates.step.codex" = "還差一步：在 Codex 中開啟 /hooks 並信任 Evlat 的 hook。";
 "updates.commandNotRun" = "evlat 指令未更新；請重試。";
+
+"settings.sessions.title" = "工作階段標題";
+"settings.sessions.title.note" = "所選標題無法使用時使用資料夾名稱。僅為本機工作階段讀取 Git 分支。";
+"settings.sessions.title.folder" = "資料夾名稱";
+"settings.sessions.title.cli" = "CLI 標題";
+"settings.sessions.title.branch" = "Git 分支";
+
+"settings.sessions.groups" = "群組工作階段";
+"settings.sessions.groups.note" = "將相同資料夾或 origin URL 相同的本機儲存庫中的工作階段分組。點擊群組以收合或展開。";
+"sessions.group.collapsed" = "已收合";
+"sessions.group.expanded" = "已展開";
+"sessions.group.expand" = "展開工作階段";
+"sessions.group.collapse" = "收合工作階段";

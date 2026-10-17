@@ -698,6 +698,32 @@ private struct AgentsSection: View {
                 }
             }
         }
+        SettingsGroup(title: model.t("settings.sessions.groups"), note: model.t("settings.sessions.groups.note")) {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.sessions.groups"))
+                    Toggle("", isOn: Binding(get: { model.sessionGroupsEnabled }, set: { model.setSessionGroupsEnabled($0) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel(model.t("settings.sessions.groups"))
+                }
+            }
+        }
+        SettingsGroup(title: model.t("settings.sessions.title"), note: model.t("settings.sessions.title.note")) {
+            RowBox {
+                HStack(spacing: 10) {
+                    RowTitle(name: model.t("settings.sessions.title"))
+                    Picker("", selection: Binding(get: { model.sessionTitle }, set: { model.setSessionTitle($0) })) {
+                        ForEach(SessionTitle.allCases, id: \.self) { title in
+                            Text(model.t("settings.sessions.title." + title.rawValue)).tag(title)
+                        }
+                    }
+                    .labelsHidden()
+                    .accessibilityLabel(model.t("settings.sessions.title"))
+                }
+            }
+        }
         SettingsGroup(title: model.t("settings.sessions.branch"), note: model.t("settings.sessions.branch.note")) {
             BranchRow(model: model)
         }

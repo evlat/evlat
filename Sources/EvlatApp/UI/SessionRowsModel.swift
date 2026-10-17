@@ -222,9 +222,9 @@ public struct SessionRow: Equatable, Identifiable {
         self.dim = dim
     }
 
-    public init(_ signal: Signal, duplicate: Int = 0, branch: String? = nil,
+    public init(_ signal: Signal, label: String? = nil, duplicate: Int = 0, branch: String? = nil,
                 enteredAt: Date? = nil, passive: Bool = false, machineTag: String? = nil) {
-        self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
+        self.init(entity: signal.entity, label: label ?? signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate, branch: branch,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
                   machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind,
@@ -253,6 +253,26 @@ public struct SessionRow: Equatable, Identifiable {
         case .waiting: return true
         case .idle, .working, .review, .failed: return false
         }
+    }
+}
+
+/// Headers are presentation items, never signals or selectable sessions.
+public enum SessionListItem: Equatable, Identifiable {
+    public enum ID: Hashable {
+        case session(String), group(SessionGroup.Key)
+    }
+    case session(SessionRow)
+    case group(SessionGroup, members: [SessionRow], collapsed: Bool)
+
+    public var id: ID {
+        switch self {
+        case .session(let row): return .session(row.entity)
+        case .group(let group, _, _): return .group(group.key)
+        }
+    }
+    public var row: SessionRow? {
+        if case .session(let row) = self { return row }
+        return nil
     }
 }
 
@@ -304,27 +324,51 @@ public final class SessionRowsModel: ObservableObject {
     /// Reads a folder's branch (`GitHead.branch`); injected so the tests
     /// need no repository. The default reads nothing.
     private let readBranch: (String) -> String?
+    private let readRepository: (String) -> GitRepository.Identity?
+    private var repositories: [String: GitRepository.Identity?] = [:]
+    private var groups: [SessionGroup] = []
+    private var groupedEntities: Set<String> = []
+    private var collapsedGroups: Set<SessionGroup.Key> = []
+    public var groupsEnabled = false
+    @Published public private(set) var openItems: [SessionListItem] = []
+
+    /// Boundaries with a small visual gap; the first item needs no leading gap.
+    public var groupStarts: [Int] {
+        openItems.indices.filter { index in
+            guard index > 0 else { return false }
+            if case .group = openItems[index] { return true }
+            return false
+        }
+    }
+
     /// Branches read so far, by folder, `nil` included: a folder is read once,
     /// then again only after `forgetBranches()`. Pruned with the rows.
     private var branches: [String: String?] = [:]
 
     /// `now` is injected so the tests can move time by hand.
     public init(now: @escaping () -> Date = Date.init,
-                readBranch: @escaping (String) -> String? = { _ in nil }) {
+                readBranch: @escaping (String) -> String? = { _ in nil },
+                readRepository: @escaping (String) -> GitRepository.Identity? = { _ in nil }) {
         self.now = now
         self.readBranch = readBranch
+        self.readRepository = readRepository
     }
 
-    /// Drops every branch read, so the next `update` reads them again. The
+    /// Drops cached branch and repository metadata, so the next `update`
+    /// reads it again. The
     /// shell calls it as the bar opens, before the scan that sizes the body:
     /// a `git checkout` made while the bar was closed is drawn on this
     /// opening, and the width is right from the first frame.
     public func forgetBranches() {
         branches.removeAll()
+        repositories.removeAll()
     }
 
-    /// When a branch is drawn (`BranchDisplay`). The shell sets it from the
-    /// setting and refreshes; the next `update` draws by it.
+    /// The primary name drawn for session rows. Other kinds keep their labels.
+    public var sessionTitle: SessionTitle = .folder
+
+    /// When a branch is drawn after the name. A branch used as the title
+    /// is not repeated as a badge.
     public var branchDisplay: BranchDisplay = .auto
 
     deinit { clock?.invalidate() }
@@ -346,8 +390,9 @@ public final class SessionRowsModel: ObservableObject {
     /// what the closed bar's length is fitted to.
     public var slotsInUse: Int { closedRows.count + (overflow > 0 ? 1 : 0) }
 
-    /// The rows in the view tree: the whole list open, the prefix closed.
-    private var drawnRows: [SessionRow] { isOpen ? rows : closedRows }
+    /// Only visible session entries beat. Disclosure headers are static;
+    /// collapsed children are absent from the view tree.
+    private var drawnRows: [SessionRow] { isOpen ? openItems.compactMap(\.row) : closedRows }
 
     /// The clock follows the drawn rows, so opening can start it and closing
     /// stop it: a working row hidden in the count beats for no one.
@@ -400,7 +445,7 @@ public final class SessionRowsModel: ObservableObject {
     /// Under `.auto`, `branch` is asked only for the rows of a group of two
     /// or more, so a column of distinct names touches no file.
     nonisolated static func names(_ signals: [Signal], display: BranchDisplay,
-                                  branch: (Signal) -> String?)
+                                  branch: (Signal) -> String?, title: (Signal) -> String = { $0.label })
         -> [String: (number: Int, branch: String?)] {
         // A struct, not a joined string: a sender may hold any separator.
         struct Group: Hashable {
@@ -409,7 +454,7 @@ public final class SessionRowsModel: ObservableObject {
         var groups: [Group: [Signal]] = [:]
         for signal in signals {
             let tag = RowTraits.of(signal.kind).tag.text(machine: signal.machine?.name, sender: signal.sender)
-            let key = Group(tag: tag, source: signal.source, label: signal.label)
+            let key = Group(tag: tag, source: signal.source, label: title(signal))
             groups[key, default: []].append(signal)
         }
         var result: [String: (number: Int, branch: String?)] = [:]
@@ -520,7 +565,11 @@ public final class SessionRowsModel: ObservableObject {
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity
         }
-        let names = Self.names(signals, display: branchDisplay, branch: branch(of:))
+        let titles = Dictionary(uniqueKeysWithValues: signals.map { signal in
+            (signal.entity, sessionTitle.label(for: signal, branch: { self.branch(of: signal) }))
+        })
+        let names = Self.names(signals, display: sessionTitle == .branch ? .off : branchDisplay,
+                               branch: branch(of:), title: { titles[$0.entity] ?? $0.label })
         let machineTags = Self.machineTags(signals)
         let folders = Set(signals.compactMap(\.detail))
         branches = branches.filter { folders.contains($0.key) }
@@ -529,7 +578,7 @@ public final class SessionRowsModel: ObservableObject {
             // began (`ChatSession`, `SignalsProvider`), never moved by a tool
             // event: its time is known even for a row first seen already in
             // it — one read back at launch.
-            SessionRow($0, duplicate: names[$0.entity]?.number ?? 0,
+            SessionRow($0, label: titles[$0.entity], duplicate: names[$0.entity]?.number ?? 0,
                        branch: names[$0.entity]?.branch,
                        enteredAt: enteredAt[$0.entity]
                            ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil),
@@ -537,7 +586,61 @@ public final class SessionRowsModel: ObservableObject {
                        machineTag: $0.machine.flatMap { machineTags[$0.name] })
         }
         if rows != next { rows = next }
+        if groupsEnabled {
+            let byEntity = Dictionary(uniqueKeysWithValues: signals.map { ($0.entity, $0) })
+            groups = SessionGroup.groups(next.compactMap { byEntity[$0.entity] }) { signal in
+                guard signal.machine == nil, let folder = signal.detail else { return nil }
+                if let known = self.repositories[folder] { return known }
+                let repo = self.readRepository(folder)
+                self.repositories[folder] = repo
+                return repo
+            }
+            repositories = repositories.filter { folders.contains($0.key) }
+            collapsedGroups.formIntersection(Set(groups.map(\.key)))
+        } else {
+            groups = []
+            repositories.removeAll()
+        }
+        groupedEntities = Set(groups.flatMap(\.entities))
+        rebuildOpenItems()
         setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    public func isGrouped(_ entity: String) -> Bool { groupedEntities.contains(entity) }
+
+    /// Collapse state lasts for this process. It does not acknowledge news,
+    /// mutate a session, or affect the closed strip and aggregate mascot.
+    public func toggleGroup(_ key: SessionGroup.Key) {
+        guard groups.contains(where: { $0.key == key }) else { return }
+        if !collapsedGroups.insert(key).inserted { collapsedGroups.remove(key) }
+        rebuildOpenItems()
+        setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    /// Explicit selection (including a notification click) reveals its group.
+    public func reveal(_ entity: String) {
+        guard let group = groups.first(where: { $0.entities.contains(entity) }),
+              collapsedGroups.remove(group.key) != nil else { return }
+        rebuildOpenItems()
+        setBeating(drawnRows.contains(where: \.beats))
+    }
+
+    private func rebuildOpenItems() {
+        let membership = Dictionary(uniqueKeysWithValues: groups.flatMap { group in
+            group.entities.map { ($0, group) }
+        })
+        let byEntity = Dictionary(uniqueKeysWithValues: rows.map { ($0.entity, $0) })
+        var emitted: Set<SessionGroup.Key> = []
+        var next: [SessionListItem] = []
+        for row in rows {
+            guard let group = membership[row.entity] else { next.append(.session(row)); continue }
+            guard emitted.insert(group.key).inserted else { continue }
+            let members = group.entities.compactMap { byEntity[$0] }
+            let collapsed = collapsedGroups.contains(group.key)
+            next.append(.group(group, members: members, collapsed: collapsed))
+            if !collapsed { next += members.map(SessionListItem.session) }
+        }
+        if openItems != next { openItems = next }
     }
 
     /// The same, for a caller holding rows rather than a snapshot: the

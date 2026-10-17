@@ -711,3 +711,16 @@
 "updates.after.claude" = "Las sesiones abiertas lo aplican con su próximo mensaje.";
 "updates.step.codex" = "Un paso más: en Codex, abre /hooks y confía en los hooks de Evlat.";
 "updates.commandNotRun" = "El comando evlat no se actualizó; vuelve a intentarlo.";
+
+"settings.sessions.title" = "Títulos de sesión";
+"settings.sessions.title.note" = "Si el título elegido no está disponible, se usa el nombre de la carpeta. Las ramas Git solo se leen en sesiones locales.";
+"settings.sessions.title.folder" = "Nombre de carpeta";
+"settings.sessions.title.cli" = "Título de la CLI";
+"settings.sessions.title.branch" = "Rama Git";
+
+"settings.sessions.groups" = "Agrupar sesiones";
+"settings.sessions.groups.note" = "Agrupar sesiones en la misma carpeta o en repositorios locales con la misma URL de origin. Haz clic en un grupo para contraerlo o expandirlo.";
+"sessions.group.collapsed" = "Contraído";
+"sessions.group.expanded" = "Expandido";
+"sessions.group.expand" = "Expandir sesiones";
+"sessions.group.collapse" = "Contraer sesiones";

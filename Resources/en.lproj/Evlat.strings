@@ -801,3 +801,16 @@
 "updates.after.claude" = "Open sessions pick it up with their next message.";
 "updates.step.codex" = "One more step: in Codex, open /hooks and trust Evlat’s hooks.";
 "updates.commandNotRun" = "The evlat command was not updated; try again.";
+
+"settings.sessions.title" = "Session titles";
+"settings.sessions.title.note" = "Use the folder name when the selected title is unavailable. Git branches are read for local sessions only.";
+"settings.sessions.title.folder" = "Folder name";
+"settings.sessions.title.cli" = "CLI title";
+"settings.sessions.title.branch" = "Git branch";
+
+"settings.sessions.groups" = "Group sessions";
+"settings.sessions.groups.note" = "Group sessions in the same folder or local repositories with the same origin URL. Click a group to collapse or expand it.";
+"sessions.group.collapsed" = "Collapsed";
+"sessions.group.expanded" = "Expanded";
+"sessions.group.expand" = "Expand sessions";
+"sessions.group.collapse" = "Collapse sessions";

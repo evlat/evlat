@@ -711,3 +711,16 @@
 "updates.after.claude" = "已打开的会话会在下一条消息时载入。";
 "updates.step.codex" = "还差一步：在 Codex 中打开 /hooks 并信任 Evlat 的 hook。";
 "updates.commandNotRun" = "evlat 命令未更新；请重试。";
+
+"settings.sessions.title" = "会话标题";
+"settings.sessions.title.note" = "所选标题不可用时使用文件夹名称。仅为本地会话读取 Git 分支。";
+"settings.sessions.title.folder" = "文件夹名称";
+"settings.sessions.title.cli" = "CLI 标题";
+"settings.sessions.title.branch" = "Git 分支";
+
+"settings.sessions.groups" = "分组会话";
+"settings.sessions.groups.note" = "将同一文件夹或 origin URL 相同的本地仓库中的会话分组。点击分组以折叠或展开。";
+"sessions.group.collapsed" = "已折叠";
+"sessions.group.expanded" = "已展开";
+"sessions.group.expand" = "展开会话";
+"sessions.group.collapse" = "折叠会话";

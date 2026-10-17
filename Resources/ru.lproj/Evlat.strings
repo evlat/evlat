@@ -712,3 +712,16 @@
 "updates.after.claude" = "Открытые сессии подхватят это со следующим сообщением.";
 "updates.step.codex" = "Ещё один шаг: в Codex откройте /hooks и доверьтесь хукам Evlat.";
 "updates.commandNotRun" = "Команда evlat не обновлена; повторите.";
+
+"settings.sessions.title" = "Заголовки сеансов";
+"settings.sessions.title.note" = "Если выбранный заголовок недоступен, используется имя папки. Ветки Git читаются только для локальных сеансов.";
+"settings.sessions.title.folder" = "Имя папки";
+"settings.sessions.title.cli" = "Заголовок CLI";
+"settings.sessions.title.branch" = "Ветка Git";
+
+"settings.sessions.groups" = "Группировать сеансы";
+"settings.sessions.groups.note" = "Группировать сеансы в одной папке или локальных репозиториях с одинаковым URL origin. Нажмите на группу, чтобы свернуть или развернуть её.";
+"sessions.group.collapsed" = "Свёрнуто";
+"sessions.group.expanded" = "Развёрнуто";
+"sessions.group.expand" = "Развернуть сеансы";
+"sessions.group.collapse" = "Свернуть сеансы";
