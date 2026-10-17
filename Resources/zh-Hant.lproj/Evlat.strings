@@ -716,8 +716,3 @@
 "sessions.group.expanded" = "已展開";
 "sessions.group.expand" = "展開工作階段";
 "sessions.group.collapse" = "收合工作階段";
-
-"settings.sessions.groups.bullet" = "工作階段標記";
-"settings.sessions.groups.bullet.dot" = "圓點";
-"settings.sessions.groups.bullet.dash" = "短橫線";
-"settings.sessions.groups.bullet.none" = "無";

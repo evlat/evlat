@@ -728,8 +728,3 @@
 "sessions.group.expanded" = "Genişletilmiş";
 "sessions.group.expand" = "Oturumları genişlet";
 "sessions.group.collapse" = "Oturumları daralt";
-
-"settings.sessions.groups.bullet" = "Oturum işareti";
-"settings.sessions.groups.bullet.dot" = "Nokta";
-"settings.sessions.groups.bullet.dash" = "Çizgi";
-"settings.sessions.groups.bullet.none" = "Yok";

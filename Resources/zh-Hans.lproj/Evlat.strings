@@ -716,8 +716,3 @@
 "sessions.group.expanded" = "已展开";
 "sessions.group.expand" = "展开会话";
 "sessions.group.collapse" = "折叠会话";
-
-"settings.sessions.groups.bullet" = "会话标记";
-"settings.sessions.groups.bullet.dot" = "圆点";
-"settings.sessions.groups.bullet.dash" = "短横线";
-"settings.sessions.groups.bullet.none" = "无";

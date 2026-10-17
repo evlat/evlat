@@ -716,8 +716,3 @@
 "sessions.group.expanded" = "Розгорнуто";
 "sessions.group.expand" = "Розгорнути сеанси";
 "sessions.group.collapse" = "Згорнути сеанси";
-
-"settings.sessions.groups.bullet" = "Маркер сеансу";
-"settings.sessions.groups.bullet.dot" = "Крапка";
-"settings.sessions.groups.bullet.dash" = "Тире";
-"settings.sessions.groups.bullet.none" = "Немає";

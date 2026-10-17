@@ -261,9 +261,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
-    var sessionGroupBullet: SessionGroupBullet = .dot {
-        didSet { sessionRows.groupBullet = sessionGroupBullet }
-    }
     var sessionGroupsEnabled = false {
         didSet { sessionRows.groupsEnabled = sessionGroupsEnabled }
     }
@@ -1452,7 +1449,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
         useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
-        sessionGroupBullet = SessionGroupBullet.stored(defaults?.string(forKey: "rows.groups.bullet"))
         sessionGroupsEnabled = defaults?.bool(forKey: "rows.groups") ?? false
         sessionTitle = SessionTitle.stored(defaults?.string(forKey: "rows.title"))
         branchDisplay = Self.storedBranchDisplay(defaults)
@@ -3156,8 +3152,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
             setBodyToggles: { [weak self] in self?.setBodyToggles($0) },
-            sessionGroupBullet: { [weak self] in self?.sessionGroupBullet ?? .dot },
-            setSessionGroupBullet: { [weak self] in self?.setSessionGroupBullet($0) },
             sessionGroupsEnabled: { [weak self] in self?.sessionGroupsEnabled ?? false },
             setSessionGroupsEnabled: { [weak self] in self?.setSessionGroupsEnabled($0) },
             sessionTitle: { [weak self] in self?.sessionTitle ?? .folder },
@@ -4461,12 +4455,6 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             defaults?.set(toggles.peekDone, forKey: Self.bodyPeekDoneKey)
         }
         bodyToggles = toggles
-    }
-
-    func setSessionGroupBullet(_ bullet: SessionGroupBullet) {
-        defaults?.set(bullet.rawValue, forKey: "rows.groups.bullet")
-        sessionGroupBullet = bullet
-        refresh()
     }
 
     func setSessionGroupsEnabled(_ enabled: Bool) {

@@ -3,17 +3,6 @@ import EvlatCore
 @testable import EvlatApp
 
 final class SessionGroupsTests: XCTestCase {
-    func testSavedMemberMarkerDefaultsAndChoices() {
-        XCTAssertEqual(SessionGroupBullet.stored(nil), .dot)
-        XCTAssertEqual(SessionGroupBullet.stored("unknown"), .dot)
-        for marker in SessionGroupBullet.allCases {
-            XCTAssertEqual(SessionGroupBullet.stored(marker.rawValue), marker)
-        }
-        XCTAssertEqual(SessionGroupBullet.dot.symbol, "•")
-        XCTAssertEqual(SessionGroupBullet.dash.symbol, "–")
-        XCTAssertNil(SessionGroupBullet.none.symbol)
-    }
-
     private func signal(_ id: String, _ folder: String? = "/work/project", kind: Signal.Kind = .session,
                         machine: Signal.Machine? = nil) -> Signal {
         Signal(provider: "test", entity: id, kind: kind, phase: .idle, label: "CLI \(id)",

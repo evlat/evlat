@@ -709,22 +709,6 @@ private struct AgentsSection: View {
                         .accessibilityLabel(model.t("settings.sessions.groups"))
                 }
             }
-            RowBox {
-                HStack(spacing: 10) {
-                    RowTitle(name: model.t("settings.sessions.groups.bullet"))
-                    Picker("", selection: Binding(get: { model.sessionGroupBullet }, set: { model.setSessionGroupBullet($0) })) {
-                        ForEach(SessionGroupBullet.allCases, id: \.self) { bullet in
-                            Text(model.t("settings.sessions.groups.bullet." + bullet.rawValue)).tag(bullet)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .accessibilityLabel(model.t("settings.sessions.groups.bullet"))
-                }
-            }
-            .disabled(!model.sessionGroupsEnabled)
-            .opacity(model.sessionGroupsEnabled ? 1 : 0.45)
         }
         SettingsGroup(title: model.t("settings.sessions.title"), note: model.t("settings.sessions.title.note")) {
             RowBox {

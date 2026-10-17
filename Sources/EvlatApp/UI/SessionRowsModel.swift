@@ -329,7 +329,6 @@ public final class SessionRowsModel: ObservableObject {
     private var groups: [SessionGroup] = []
     private var groupedEntities: Set<String> = []
     private var collapsedGroups: Set<SessionGroup.Key> = []
-    @Published public var groupBullet: SessionGroupBullet = .dot
     public var groupsEnabled = false
     @Published public private(set) var openItems: [SessionListItem] = []
     /// Branches read so far, by folder, `nil` included: a folder is read once,

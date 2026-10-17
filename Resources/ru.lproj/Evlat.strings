@@ -717,8 +717,3 @@
 "sessions.group.expanded" = "Развёрнуто";
 "sessions.group.expand" = "Развернуть сеансы";
 "sessions.group.collapse" = "Свернуть сеансы";
-
-"settings.sessions.groups.bullet" = "Маркер сеанса";
-"settings.sessions.groups.bullet.dot" = "Точка";
-"settings.sessions.groups.bullet.dash" = "Тире";
-"settings.sessions.groups.bullet.none" = "Нет";

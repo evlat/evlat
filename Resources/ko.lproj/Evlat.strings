@@ -716,8 +716,3 @@
 "sessions.group.expanded" = "펼침";
 "sessions.group.expand" = "세션 펼치기";
 "sessions.group.collapse" = "세션 접기";
-
-"settings.sessions.groups.bullet" = "세션 표시";
-"settings.sessions.groups.bullet.dot" = "점";
-"settings.sessions.groups.bullet.dash" = "대시";
-"settings.sessions.groups.bullet.none" = "없음";

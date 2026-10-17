@@ -103,7 +103,7 @@ struct SessionColumn: View {
     static let minOpenWidth: CGFloat = 110
     /// Compact group members keep a full row-sized hover target.
     static let groupedRowScale: CGFloat = 0.9
-    static let groupMemberIndent: CGFloat = 16
+    static let groupMemberIndent: CGFloat = 10
     static let groupedNameColor = Color(.sRGB, red: 0.74, green: 0.74, blue: 0.74)
 
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
@@ -344,12 +344,6 @@ struct SessionColumn: View {
                         // The name's box starts at the ring's far side and is
                         // pushed across it by the offset in `label`.
                         .overlay(alignment: isLeft ? .trailing : .leading) { label(row, compact: compact) }
-                        .overlay {
-                            if compact, let marker = model.groupBullet.symbol {
-                                memberMarker(marker, color: Self.groupedNameColor)
-                                    .offset(x: isLeft ? -24 : 24)
-                            }
-                        }
                         .scaleEffect(compact ? Self.groupedRowScale : 1, anchor: isLeft ? .leading : .trailing)
                         .offset(x: compact ? (isLeft ? Self.groupMemberIndent : -Self.groupMemberIndent) : 0)
                         .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
@@ -509,14 +503,6 @@ struct SessionColumn: View {
             .opacity(showsNames ? 1 : 0)
             .animation(showsNames ? BarMotion.namesIn : BarMotion.namesOut, value: showsNames)
             .allowsHitTesting(false)
-    }
-
-    private func memberMarker(_ marker: String, color: Color) -> some View {
-        Text(verbatim: marker)
-            .font(Font(Self.nameFont))
-            .foregroundStyle(color)
-            .fixedSize()
-            .accessibilityHidden(true)
     }
 
     private func name(_ label: String, duplicate: Int, branch: String?,

@@ -717,8 +717,3 @@
 "sessions.group.expanded" = "Expandido";
 "sessions.group.expand" = "Expandir sessões";
 "sessions.group.collapse" = "Recolher sessões";
-
-"settings.sessions.groups.bullet" = "Marcador da sessão";
-"settings.sessions.groups.bullet.dot" = "Ponto";
-"settings.sessions.groups.bullet.dash" = "Traço";
-"settings.sessions.groups.bullet.none" = "Nenhum";

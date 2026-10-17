@@ -717,8 +717,3 @@
 "sessions.group.expanded" = "Déplié";
 "sessions.group.expand" = "Déplier les sessions";
 "sessions.group.collapse" = "Replier les sessions";
-
-"settings.sessions.groups.bullet" = "Puce de session";
-"settings.sessions.groups.bullet.dot" = "Point";
-"settings.sessions.groups.bullet.dash" = "Tiret";
-"settings.sessions.groups.bullet.none" = "Aucune";
