@@ -711,3 +711,9 @@
 "updates.after.claude" = "開いているセッションは次のメッセージから反映します。";
 "updates.step.codex" = "あと1ステップ：Codexで/hooksを開き、Evlatのフックを信頼してください。";
 "updates.commandNotRun" = "evlatコマンドはアップデートされていません。再試行してください。";
+
+"settings.sessions.title" = "セッションのタイトル";
+"settings.sessions.title.note" = "選択したタイトルがない場合はフォルダ名を使います。Gitブランチはローカルセッションのみ読み取ります。";
+"settings.sessions.title.folder" = "フォルダ名";
+"settings.sessions.title.cli" = "CLIのタイトル";
+"settings.sessions.title.branch" = "Gitブランチ";

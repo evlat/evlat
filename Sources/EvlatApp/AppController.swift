@@ -261,8 +261,12 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
     /// Minutes a session may wait before it is reminded of (Settings →
     /// Mascot); 0 is off, and so is nothing stored.
     var nudgeMinutes = 0
-    /// Settings → This Mac → Git branch (`BranchDisplay`). Handed to the
-    /// rows, and read by the card's reader so that `off` reads nothing.
+    /// Primary title preference; the row model also supplies card titles.
+    var sessionTitle: SessionTitle = .folder {
+        didSet { sessionRows.sessionTitle = sessionTitle }
+    }
+
+    /// Branch badges, independent of the primary title preference.
     var branchDisplay: BranchDisplay = .auto {
         didSet { sessionRows.branchDisplay = branchDisplay }
     }
@@ -1446,6 +1450,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         SoundPlayer.volume = Float(Self.storedSoundVolume(defaults))
         useVoice(SoundVoice(stored: defaults?.string(forKey: Self.soundVoiceKey)))
         nudgeNotify = defaults?.bool(forKey: Self.nudgeNotifyKey) ?? false
+        sessionTitle = SessionTitle.stored(defaults?.string(forKey: "rows.title"))
         branchDisplay = Self.storedBranchDisplay(defaults)
         detail.resolveBranch = { [weak self] folder in
             self?.branchDisplay == .off ? nil : GitHead.branch(in: folder)
@@ -3147,6 +3152,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             setBodyMode: { [weak self] in self?.setBodyMode($0) },
             bodyToggles: { [weak self] in self?.bodyToggles ?? BodyPresence.Toggles() },
             setBodyToggles: { [weak self] in self?.setBodyToggles($0) },
+            sessionTitle: { [weak self] in self?.sessionTitle ?? .folder },
+            setSessionTitle: { [weak self] in self?.setSessionTitle($0) },
             branchDisplay: { [weak self] in self?.branchDisplay ?? .auto },
             setBranchDisplay: { [weak self] in self?.setBranchDisplay($0) },
             nudgeMinutes: { [weak self] in self?.nudgeMinutes ?? 0 },
@@ -4415,8 +4422,15 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         bodyToggles = toggles
     }
 
-    /// Settings → This Mac → Git branch. Stored, then drawn at once: the
-    /// branches are read again so a switch to `on` shows every row's.
+    /// Store the primary title choice and redraw without changing signals.
+    func setSessionTitle(_ title: SessionTitle) {
+        defaults?.set(title.rawValue, forKey: "rows.title")
+        sessionTitle = title
+        sessionRows.forgetBranches()
+        refresh()
+    }
+
+    /// Store the branch badge choice and refresh cached branches.
     func setBranchDisplay(_ display: BranchDisplay) {
         defaults?.set(display.storedValue, forKey: Self.branchDisplayKey)
         branchDisplay = display
@@ -4606,7 +4620,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             let tell = { [weak self] in
                 batch.report(index, moment)
                 guard let self, self.nudgeNotify, let notifier = self.notifier else { return }
-                let name = row.label.isEmpty ? L10n.t("notify.waiting.unnamed") : row.label
+                let label = self.sessionRows.rows.first { $0.entity == row.entity }?.label ?? row.label
+                let name = label.isEmpty ? L10n.t("notify.waiting.unnamed") : label
                 notifier.post(entity: row.entity,
                               title: L10n.t("notify.waiting.title", ["name": name]),
                               body: L10n.t("notify.waiting.body", ["n": String(self.nudgeMinutes)]))
@@ -4846,8 +4861,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             let tell = { [weak self] in
                 batch.report(index, moment)
                 guard let self, self.nudgeNotify, let notifier = self.notifier else { return }
-                let name = row.map { $0.label.isEmpty ? L10n.t("notify.waiting.unnamed") : $0.label }
-                    ?? L10n.t("notify.waiting.unnamed")
+                let label = self.sessionRows.rows.first { $0.entity == finish.entity }?.label ?? row?.label ?? ""
+                let name = label.isEmpty ? L10n.t("notify.waiting.unnamed") : label
                 let failed = finish.phase == .failed
                 notifier.post(entity: finish.entity,
                               title: L10n.t(failed ? "notify.failed.title" : "notify.finished.title", ["name": name]),

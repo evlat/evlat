@@ -711,3 +711,9 @@
 "updates.after.claude" = "열려 있는 세션은 다음 메시지부터 반영합니다.";
 "updates.step.codex" = "한 단계 더: Codex에서 /hooks를 열고 Evlat의 훅을 신뢰하세요.";
 "updates.commandNotRun" = "evlat 명령은 업데이트되지 않았습니다. 다시 시도하세요.";
+
+"settings.sessions.title" = "세션 제목";
+"settings.sessions.title.note" = "선택한 제목을 사용할 수 없으면 폴더 이름을 사용합니다. Git 브랜치는 로컬 세션에서만 읽습니다.";
+"settings.sessions.title.folder" = "폴더 이름";
+"settings.sessions.title.cli" = "CLI 제목";
+"settings.sessions.title.branch" = "Git 브랜치";

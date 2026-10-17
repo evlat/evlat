@@ -30,6 +30,48 @@ final class SessionRowsTests: XCTestCase {
         SessionRow(entity: entity, label: "name-\(entity)", phase: phase, source: .claude)
     }
 
+    func testTitleChoiceChangesRowsAndDuplicateNumbersTogether() {
+        let model = SessionRowsModel()
+        let sessions = ["a", "b"].map { id in
+            Signal(provider: "stub", entity: id, phase: .idle, label: "CLI \(id)",
+                   detail: "/work/project", fidelity: .derived, updatedAt: Date())
+        }
+        model.update(from: sessions)
+        XCTAssertEqual(Set(model.rows.map(\.label)), ["project"])
+        XCTAssertEqual(Set(model.rows.map(\.duplicate)), [0, 2])
+        model.sessionTitle = .cli
+        model.update(from: sessions)
+        XCTAssertEqual(Set(model.rows.map(\.label)), ["CLI a", "CLI b"])
+        XCTAssertEqual(Set(model.rows.map(\.duplicate)), [0])
+        XCTAssertFalse(model.isBeating)
+    }
+
+    func testBranchTitlesWorkWithBranchBadgesOffAndRefreshTheCache() {
+        var branch = "feature/login"
+        var reads = 0
+        let model = SessionRowsModel(readBranch: { _ in reads += 1; return branch })
+        let session = inFolder("a", "/work/project")
+        model.branchDisplay = .off
+        model.sessionTitle = .branch
+        model.update(from: [session])
+        XCTAssertEqual(model.rows.first?.label, branch)
+        XCTAssertNil(model.rows.first?.branch)
+        model.update(from: [session])
+        XCTAssertEqual(reads, 1)
+        branch = "main"
+        model.forgetBranches()
+        model.update(from: [session])
+        XCTAssertEqual(model.rows.first?.label, "main")
+        XCTAssertEqual(reads, 2)
+    }
+
+    func testRemoteBranchTitlesNeverReadLocalFolders() {
+        let model = SessionRowsModel(readBranch: { _ in XCTFail("Remote folder read locally"); return "wrong" })
+        model.sessionTitle = .branch
+        model.update(from: [inFolder("remote", "/work/project", machine: "server")])
+        XCTAssertEqual(model.rows.first?.label, "project")
+    }
+
     // MARK: - Slots
 
     func testTheSlotRuleShowsFourOrThreeAndTheRest() {
