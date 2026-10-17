@@ -703,3 +703,9 @@
 "updates.after.claude" = "Las sesiones abiertas lo aplican con su próximo mensaje.";
 "updates.step.codex" = "Un paso más: en Codex, abre /hooks y confía en los hooks de Evlat.";
 "updates.commandNotRun" = "El comando evlat no se actualizó; vuelve a intentarlo.";
+
+"settings.sessions.title" = "Títulos de sesión";
+"settings.sessions.title.note" = "Si el título elegido no está disponible, se usa el nombre de la carpeta. Las ramas Git solo se leen en sesiones locales.";
+"settings.sessions.title.folder" = "Nombre de carpeta";
+"settings.sessions.title.cli" = "Título de la CLI";
+"settings.sessions.title.branch" = "Rama Git";

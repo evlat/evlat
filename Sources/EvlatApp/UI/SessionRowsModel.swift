@@ -222,9 +222,9 @@ public struct SessionRow: Equatable, Identifiable {
         self.dim = dim
     }
 
-    public init(_ signal: Signal, duplicate: Int = 0, branch: String? = nil,
+    public init(_ signal: Signal, label: String? = nil, duplicate: Int = 0, branch: String? = nil,
                 enteredAt: Date? = nil, passive: Bool = false, machineTag: String? = nil) {
-        self.init(entity: signal.entity, label: signal.label, phase: signal.phase,
+        self.init(entity: signal.entity, label: label ?? signal.label, phase: signal.phase,
                   source: signal.source, duplicate: duplicate, branch: branch,
                   enteredAt: enteredAt, waitKind: signal.activity?.waitKind,
                   machine: signal.machine?.name, dim: signal.machine?.dim, kind: signal.kind,
@@ -323,8 +323,11 @@ public final class SessionRowsModel: ObservableObject {
         branches.removeAll()
     }
 
-    /// When a branch is drawn (`BranchDisplay`). The shell sets it from the
-    /// setting and refreshes; the next `update` draws by it.
+    /// The primary name drawn for session rows. Other kinds keep their labels.
+    public var sessionTitle: SessionTitle = .folder
+
+    /// When a branch is drawn after the name. A branch used as the title
+    /// is not repeated as a badge.
     public var branchDisplay: BranchDisplay = .auto
 
     deinit { clock?.invalidate() }
@@ -400,7 +403,7 @@ public final class SessionRowsModel: ObservableObject {
     /// Under `.auto`, `branch` is asked only for the rows of a group of two
     /// or more, so a column of distinct names touches no file.
     nonisolated static func names(_ signals: [Signal], display: BranchDisplay,
-                                  branch: (Signal) -> String?)
+                                  branch: (Signal) -> String?, title: (Signal) -> String = { $0.label })
         -> [String: (number: Int, branch: String?)] {
         // A struct, not a joined string: a sender may hold any separator.
         struct Group: Hashable {
@@ -409,7 +412,7 @@ public final class SessionRowsModel: ObservableObject {
         var groups: [Group: [Signal]] = [:]
         for signal in signals {
             let tag = RowTraits.of(signal.kind).tag.text(machine: signal.machine?.name, sender: signal.sender)
-            let key = Group(tag: tag, source: signal.source, label: signal.label)
+            let key = Group(tag: tag, source: signal.source, label: title(signal))
             groups[key, default: []].append(signal)
         }
         var result: [String: (number: Int, branch: String?)] = [:]
@@ -520,7 +523,11 @@ public final class SessionRowsModel: ObservableObject {
             let ea = entered[a.entity] ?? 0, eb = entered[b.entity] ?? 0
             return ea != eb ? ea > eb : a.entity < b.entity
         }
-        let names = Self.names(signals, display: branchDisplay, branch: branch(of:))
+        let titles = Dictionary(uniqueKeysWithValues: signals.map { signal in
+            (signal.entity, sessionTitle.label(for: signal, branch: { self.branch(of: signal) }))
+        })
+        let names = Self.names(signals, display: sessionTitle == .branch ? .off : branchDisplay,
+                               branch: branch(of:), title: { titles[$0.entity] ?? $0.label })
         let machineTags = Self.machineTags(signals)
         let folders = Set(signals.compactMap(\.detail))
         branches = branches.filter { folders.contains($0.key) }
@@ -529,7 +536,7 @@ public final class SessionRowsModel: ObservableObject {
             // began (`ChatSession`, `SignalsProvider`), never moved by a tool
             // event: its time is known even for a row first seen already in
             // it — one read back at launch.
-            SessionRow($0, duplicate: names[$0.entity]?.number ?? 0,
+            SessionRow($0, label: titles[$0.entity], duplicate: names[$0.entity]?.number ?? 0,
                        branch: names[$0.entity]?.branch,
                        enteredAt: enteredAt[$0.entity]
                            ?? (RowTraits.of($0.kind).stampIsPhaseStart ? $0.updatedAt : nil),

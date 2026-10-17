@@ -715,3 +715,9 @@
 "updates.after.claude" = "Açık oturumlar bir sonraki iletilerinde alır.";
 "updates.step.codex" = "Bir adım daha: Codex'te /hooks'u aç ve Evlat'ın hook'larına güven.";
 "updates.commandNotRun" = "evlat komutu güncellenmedi; yeniden dene.";
+
+"settings.sessions.title" = "Oturum başlıkları";
+"settings.sessions.title.note" = "Seçilen başlık yoksa klasör adı kullanılır. Git dalları yalnızca yerel oturumlar için okunur.";
+"settings.sessions.title.folder" = "Klasör adı";
+"settings.sessions.title.cli" = "CLI başlığı";
+"settings.sessions.title.branch" = "Git dalı";
