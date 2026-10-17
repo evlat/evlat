@@ -103,7 +103,7 @@ struct SessionColumn: View {
     static let minOpenWidth: CGFloat = 110
     /// Compact group members keep a full row-sized hover target.
     static let groupedRowScale: CGFloat = 0.9
-    static let groupMemberIndent: CGFloat = 10
+    static let groupMemberIndent: CGFloat = 4
     static let groupedNameColor = Color(.sRGB, red: 0.74, green: 0.74, blue: 0.74)
 
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
