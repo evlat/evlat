@@ -331,6 +331,16 @@ public final class SessionRowsModel: ObservableObject {
     private var collapsedGroups: Set<SessionGroup.Key> = []
     public var groupsEnabled = false
     @Published public private(set) var openItems: [SessionListItem] = []
+
+    /// Boundaries with a small visual gap; the first item needs no leading gap.
+    public var groupStarts: [Int] {
+        openItems.indices.filter { index in
+            guard index > 0 else { return false }
+            if case .group = openItems[index] { return true }
+            return false
+        }
+    }
+
     /// Branches read so far, by folder, `nil` included: a folder is read once,
     /// then again only after `forgetBranches()`. Pruned with the rows.
     private var branches: [String: String?] = [:]

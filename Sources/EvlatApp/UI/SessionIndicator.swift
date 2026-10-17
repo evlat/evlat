@@ -251,7 +251,7 @@ struct SessionColumn: View {
 
     /// The visible area's height: the open list's, or the closed slots'.
     private var clipHeight: CGFloat {
-        showsNames ? AppController.listHeight(rows: model.openItems.count)
+        showsNames ? AppController.listHeight(rows: model.openItems.count, groupStarts: model.groupStarts)
             : CGFloat(model.slotsInUse) * AppController.rowPitch
     }
 
@@ -260,7 +260,7 @@ struct SessionColumn: View {
 
     private var fadeStrength: (top: Double, bottom: Double) {
         guard showsNames else { return (0, 0) }
-        return Self.fades(offset: offset, maxOffset: AppController.maxScrollOffset(rows: model.openItems.count))
+        return Self.fades(offset: offset, maxOffset: AppController.maxScrollOffset(rows: model.openItems.count, groupStarts: model.groupStarts))
     }
 
     /// The column in a container as wide as the open body, cut at the visible
@@ -328,6 +328,7 @@ struct SessionColumn: View {
                 switch item {
                 case .group(let group, let members, let collapsed):
                     groupHeader(group, members: members, collapsed: collapsed)
+                        .padding(.top, model.openItems.first?.id == item.id ? 0 : AppController.groupGap)
                 case .session(let row):
                     let compact = showsNames && model.isGrouped(row.entity)
                     // Centred in the collapsed bar's width, the same column the
