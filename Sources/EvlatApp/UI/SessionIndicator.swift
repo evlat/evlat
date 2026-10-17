@@ -380,26 +380,18 @@ struct SessionColumn: View {
             .frame(width: 8, height: 8)
     }
 
-    private func groupLabel(_ group: SessionGroup, summary: String, waiting: Bool, collapsed: Bool) -> some View {
-        VStack(alignment: docked, spacing: 1) {
-            HStack(spacing: 6) {
-                if !isLeft { groupChevron(collapsed: collapsed) }
-                Text(verbatim: group.title)
-                    .font(Font(Self.nameFont))
-                    .foregroundStyle(BarPalette.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if isLeft { groupChevron(collapsed: collapsed) }
-            }
-            Text(verbatim: summary)
-                .font(Font(Self.statusFont))
-                .foregroundStyle(waiting
-                                 ? SessionIndicator.amber : BarPalette.textSecondary)
+    private func groupLabel(_ group: SessionGroup, collapsed: Bool) -> some View {
+        HStack(spacing: 6) {
+            if !isLeft { groupChevron(collapsed: collapsed) }
+            Text(verbatim: group.title)
+                .font(Font(Self.nameFont))
+                .foregroundStyle(BarPalette.textPrimary)
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .truncationMode(.middle)
+            if isLeft { groupChevron(collapsed: collapsed) }
         }
-        .frame(width: Self.nameMaxWidth, height: Self.labelHeight,
-               alignment: Alignment(horizontal: docked, vertical: .top))
+        .frame(width: Self.nameMaxWidth, height: AppController.indicatorSize,
+               alignment: Alignment(horizontal: docked, vertical: .center))
         .offset(x: mirror * (AppController.barWidth - 12 - Self.nameMaxWidth))
     }
 
@@ -409,7 +401,7 @@ struct SessionColumn: View {
             Color.clear
                 .frame(width: AppController.barWidth, height: AppController.indicatorSize)
                 .overlay(alignment: isLeft ? .trailing : .leading) {
-                    groupLabel(group, summary: summary, waiting: members.contains { $0.phase == .waiting && $0.isLive }, collapsed: collapsed)
+                    groupLabel(group, collapsed: collapsed)
                 }
         }
         .buttonStyle(.plain)
