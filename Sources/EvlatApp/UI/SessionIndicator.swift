@@ -101,6 +101,10 @@ struct SessionColumn: View {
     /// The narrowest the open body gets, so a column of short names still
     /// reads as a panel rather than a ragged tab.
     static let minOpenWidth: CGFloat = 110
+    /// Compact group members keep a full row-sized hover target.
+    static let groupedRowScale: CGFloat = 0.9
+    static let groupedNameColor = Color(.sRGB, red: 0.8, green: 0.8, blue: 0.8)
+
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// The small raised number after a repeated name.
     static let numberFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
@@ -324,6 +328,7 @@ struct SessionColumn: View {
                 case .group(let group, let members, let collapsed):
                     groupHeader(group, members: members, collapsed: collapsed)
                 case .session(let row):
+                    let compact = showsNames && model.isGrouped(row.entity)
                     // Centred in the collapsed bar's width, the same column the
                     // mascot sits in.
                     SessionIndicator(phase: row.phase, source: row.source, mark: row.traits.mark,
@@ -341,7 +346,8 @@ struct SessionColumn: View {
                         }
                         // The name's box starts at the ring's far side and is
                         // pushed across it by the offset in `label`.
-                        .overlay(alignment: isLeft ? .trailing : .leading) { label(row) }
+                        .overlay(alignment: isLeft ? .trailing : .leading) { label(row, compact: compact) }
+                        .scaleEffect(compact ? Self.groupedRowScale : 1, anchor: isLeft ? .leading : .trailing)
                     .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: isLeft ? .leading : .trailing)))
                 }
             }
@@ -439,11 +445,11 @@ struct SessionColumn: View {
     ///
     /// The block is top-aligned in a fixed height, so the name sits in the
     /// same place whether the status line is in the tree or not.
-    private func label(_ row: SessionRow) -> some View {
+    private func label(_ row: SessionRow, compact: Bool = false) -> some View {
         VStack(alignment: docked, spacing: 1) {
             name(row.label, duplicate: row.duplicate, branch: row.branch,
                  color: row.phase == .idle || row.passive || !row.isLive
-                 ? BarPalette.textSecondary : BarPalette.textPrimary)
+                 ? BarPalette.textSecondary : compact ? Self.groupedNameColor : BarPalette.textPrimary)
             if showsNames {
                 // Once a minute, and only while open. The date comes from the
                 // timeline, not `Date()`, so the text is a function of it.

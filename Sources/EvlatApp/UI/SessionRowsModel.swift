@@ -327,6 +327,7 @@ public final class SessionRowsModel: ObservableObject {
     private let readRepository: (String) -> GitRepository.Identity?
     private var repositories: [String: GitRepository.Identity?] = [:]
     private var groups: [SessionGroup] = []
+    private var groupedEntities: Set<String> = []
     private var collapsedGroups: Set<SessionGroup.Key> = []
     public var groupsEnabled = false
     @Published public private(set) var openItems: [SessionListItem] = []
@@ -590,9 +591,12 @@ public final class SessionRowsModel: ObservableObject {
             groups = []
             repositories.removeAll()
         }
+        groupedEntities = Set(groups.flatMap(\.entities))
         rebuildOpenItems()
         setBeating(drawnRows.contains(where: \.beats))
     }
+
+    public func isGrouped(_ entity: String) -> Bool { groupedEntities.contains(entity) }
 
     /// Collapse state lasts for this process. It does not acknowledge news,
     /// mutate a session, or affect the closed strip and aggregate mascot.
