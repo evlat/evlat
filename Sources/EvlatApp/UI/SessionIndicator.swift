@@ -103,6 +103,7 @@ struct SessionColumn: View {
     static let minOpenWidth: CGFloat = 110
     /// Compact group members keep a full row-sized hover target.
     static let groupedRowScale: CGFloat = 0.9
+    static let groupMemberIndent: CGFloat = 16
     static let groupedNameColor = Color(.sRGB, red: 0.74, green: 0.74, blue: 0.74)
 
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
@@ -340,14 +341,21 @@ struct SessionColumn: View {
                                      isLive: row.isLive, passive: row.passive,
                                      outcome: row.outcome)
                         .frame(width: AppController.barWidth)
+                        // The name's box starts at the ring's far side and is
+                        // pushed across it by the offset in `label`.
+                        .overlay(alignment: isLeft ? .trailing : .leading) { label(row, compact: compact) }
+                        .overlay {
+                            if compact, let marker = model.groupBullet.symbol {
+                                memberMarker(marker, color: Self.groupedNameColor)
+                                    .offset(x: isLeft ? -24 : 24)
+                            }
+                        }
+                        .scaleEffect(compact ? Self.groupedRowScale : 1, anchor: isLeft ? .leading : .trailing)
+                        .offset(x: compact ? (isLeft ? Self.groupMemberIndent : -Self.groupMemberIndent) : 0)
                         .background(alignment: Alignment(horizontal: docked, vertical: .center)) {
                             ground(selected: showsNames && row.entity == selected,
                                    hovered: showsNames && row.entity == hovered)
                         }
-                        // The name's box starts at the ring's far side and is
-                        // pushed across it by the offset in `label`.
-                        .overlay(alignment: isLeft ? .trailing : .leading) { label(row, compact: compact) }
-                        .scaleEffect(compact ? Self.groupedRowScale : 1, anchor: isLeft ? .leading : .trailing)
                     .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: isLeft ? .leading : .trailing)))
                 }
             }
@@ -397,7 +405,7 @@ struct SessionColumn: View {
         }
         .frame(width: Self.nameMaxWidth, height: Self.labelHeight,
                alignment: Alignment(horizontal: docked, vertical: .top))
-        .offset(x: mirror * (Self.ringLead - Self.nameGap - Self.nameMaxWidth))
+        .offset(x: mirror * (AppController.barWidth - 12 - Self.nameMaxWidth))
     }
 
     private func groupHeader(_ group: SessionGroup, members: [SessionRow], collapsed: Bool) -> some View {
@@ -453,8 +461,7 @@ struct SessionColumn: View {
         VStack(alignment: docked, spacing: 1) {
             name(row.label, duplicate: row.duplicate, branch: row.branch,
                  color: row.phase == .idle || row.passive || !row.isLive
-                 ? BarPalette.textSecondary : compact ? Self.groupedNameColor : BarPalette.textPrimary,
-                 marker: compact ? model.groupBullet.symbol : nil)
+                 ? BarPalette.textSecondary : compact ? Self.groupedNameColor : BarPalette.textPrimary)
             if showsNames {
                 // Once a minute, and only while open. The date comes from the
                 // timeline, not `Date()`, so the text is a function of it.
@@ -513,9 +520,8 @@ struct SessionColumn: View {
     }
 
     private func name(_ label: String, duplicate: Int, branch: String?,
-                      color: Color, marker: String? = nil) -> some View {
+                      color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
-            if isLeft, let marker { memberMarker(marker, color: color).padding(.trailing, 4) }
             // The name is data, not text of ours: it is what the user called
             // the session, so it bypasses the string lookup (`verbatim`) and
             // needs no catalogue entry.
@@ -549,7 +555,6 @@ struct SessionColumn: View {
                     .layoutPriority(1)
                     .padding(.leading, Self.machineGap - Self.numberGap)
             }
-            if !isLeft, let marker { memberMarker(marker, color: color).padding(.leading, 4) }
         }
             .frame(width: Self.nameMaxWidth, alignment: isLeft ? .leading : .trailing)
     }

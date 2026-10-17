@@ -3801,8 +3801,10 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             if case .group(let group, _, _) = item { return group.title }
             return nil
         }
-        let width = max(Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines),
-                        SessionColumn.openWidth(namesWidth: SessionColumn.namesWidth(titles)))
+        let memberIndent = titles.isEmpty ? 0 : SessionColumn.groupMemberIndent
+        let width = min(Self.expandedBarWidth,
+                        max(Self.openWidth(rows: sessionRows.rows, usage: usageBlock.lines) + memberIndent,
+                            SessionColumn.openWidth(namesWidth: SessionColumn.namesWidth(titles))))
         if abs(barState.openWidth - width) > 0.5 { barState.openWidth = width }
     }
 
