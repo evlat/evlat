@@ -715,3 +715,5 @@
 "updates.after.claude" = "Açık oturumlar bir sonraki iletilerinde alır.";
 "updates.step.codex" = "Bir adım daha: Codex'te /hooks'u aç ve Evlat'ın hook'larına güven.";
 "updates.commandNotRun" = "evlat komutu güncellenmedi; yeniden dene.";
+
+"settings.chat.mascotClick" = "Maskota tıklayınca sohbeti aç";

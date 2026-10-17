@@ -45,6 +45,9 @@ final class SettingsModel: ObservableObject {
         var isHotKeyOn: () -> Bool
         var setHotKey: (Bool) -> Void
         var hotKey: () -> HotKeyCombination
+        /// Whether a left click on the mascot toggles the chat balloon.
+        var isMascotClickEnabled: () -> Bool = { true }
+        var setMascotClickEnabled: (Bool) -> Void = { _ in }
         /// Chat's first switch (`AppController.setChatEnabled`); off, the
         /// rest of the section is dim and takes no press.
         var isChatEnabled: () -> Bool = { true }
@@ -634,6 +637,13 @@ final class SettingsModel: ObservableObject {
         objectWillChange.send()
     }
 
+    var isMascotClickEnabled: Bool { host.isMascotClickEnabled() }
+
+    func setMascotClickEnabled(_ on: Bool) {
+        host.setMascotClickEnabled(on)
+        objectWillChange.send()
+    }
+
     var isHotKeyOn: Bool { host.isHotKeyOn() }
     var hotKey: HotKeyCombination { host.hotKey() }
 
@@ -1017,7 +1027,7 @@ final class SettingsModel: ObservableObject {
         "settings.agents.group", "settings.agents.note", "settings.usage.bar",
         "settings.usage.hideStale", "settings.usage.hideStale.detail",
         "settings.chat.enabled", "settings.chat.enabled.detail",
-        "settings.chat.open", "settings.chat.hotkey", "settings.chat.hotkey.detail",
+        "settings.chat.open", "settings.chat.mascotClick", "settings.chat.hotkey", "settings.chat.hotkey.detail",
         "settings.chat.hotkey.change", "settings.chat.hotkey.cancel", "settings.chat.hotkey.recording",
         "settings.chat.hotkey.off",
         "settings.chat.modes", "settings.chat.modes.note", "settings.chat.modes.recommended",

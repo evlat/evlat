@@ -703,3 +703,5 @@
 "updates.after.claude" = "열려 있는 세션은 다음 메시지부터 반영합니다.";
 "updates.step.codex" = "한 단계 더: Codex에서 /hooks를 열고 Evlat의 훅을 신뢰하세요.";
 "updates.commandNotRun" = "evlat 명령은 업데이트되지 않았습니다. 다시 시도하세요.";
+
+"settings.chat.mascotClick" = "마스코트를 클릭하면 채팅 열기";

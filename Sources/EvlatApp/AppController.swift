@@ -2307,6 +2307,16 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         if let snapshot = lastSnapshot { syncSelection(snapshot.ordered) }
     }
 
+    private var mascotClickUnstored = true
+    var isMascotClickEnabled: Bool {
+        modeDefaults?.object(forKey: "chat.mascotClick") as? Bool ?? mascotClickUnstored
+    }
+
+    func setMascotClickEnabled(_ on: Bool) {
+        if let modeDefaults { modeDefaults.set(on, forKey: "chat.mascotClick") }
+        else { mascotClickUnstored = on }
+    }
+
     // MARK: - Chat backend
 
     /// The new chats' backend the user chose, by its id. An id this build
@@ -3114,6 +3124,8 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
             isHotKeyOn: { [weak self] in self?.isHotKeyOn ?? false },
             setHotKey: { [weak self] in self?.setHotKey(on: $0) },
             hotKey: { [weak self] in self?.hotKeyCombination ?? .standard },
+            isMascotClickEnabled: { [weak self] in self?.isMascotClickEnabled ?? true },
+            setMascotClickEnabled: { [weak self] in self?.setMascotClickEnabled($0) },
             isChatEnabled: { [weak self] in self?.isChatEnabled ?? true },
             setChatEnabled: { [weak self] in self?.setChatEnabled($0) },
             chatBackend: { [weak self] in self?.chatBackend ?? Agents.chatBackends[0] },
@@ -3948,7 +3960,7 @@ public final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegat
         // The chat switched off: the click is still the mascot's and does
         // nothing — handed on, it would reach `super.mouseDown`. The setup
         // out, it brings the panel the keyboard.
-        if isChatEnabled || isSetupOpen { toggleChat() }
+        if isSetupOpen || (isChatEnabled && isMascotClickEnabled) { toggleChat() }
         return true
     }
 

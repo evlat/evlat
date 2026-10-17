@@ -703,3 +703,5 @@
 "updates.after.claude" = "已開啟的工作階段會在下一則訊息時載入。";
 "updates.step.codex" = "還差一步：在 Codex 中開啟 /hooks 並信任 Evlat 的 hook。";
 "updates.commandNotRun" = "evlat 指令未更新；請重試。";
+
+"settings.chat.mascotClick" = "點擊吉祥物時開啟聊天";

@@ -703,3 +703,5 @@
 "updates.after.claude" = "Offene Sitzungen übernehmen es mit ihrer nächsten Nachricht.";
 "updates.step.codex" = "Noch ein Schritt: Öffne in Codex /hooks und vertraue Evlats Hooks.";
 "updates.commandNotRun" = "Der evlat-Befehl wurde nicht aktualisiert; versuche es erneut.";
+
+"settings.chat.mascotClick" = "Chat beim Klicken auf das Maskottchen öffnen";

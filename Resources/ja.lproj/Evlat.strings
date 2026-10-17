@@ -703,3 +703,5 @@
 "updates.after.claude" = "開いているセッションは次のメッセージから反映します。";
 "updates.step.codex" = "あと1ステップ：Codexで/hooksを開き、Evlatのフックを信頼してください。";
 "updates.commandNotRun" = "evlatコマンドはアップデートされていません。再試行してください。";
+
+"settings.chat.mascotClick" = "マスコットをクリックしてチャットを開く";
