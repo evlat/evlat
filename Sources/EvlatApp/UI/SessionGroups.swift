@@ -1,6 +1,22 @@
 import Foundation
 import EvlatCore
 
+/// The marker before a grouped session title. Unknown preferences use a dot.
+public enum SessionGroupBullet: String, CaseIterable {
+    case dot, dash, none
+
+    public static func stored(_ value: String?) -> Self {
+        value.flatMap(Self.init(rawValue:)) ?? .dot
+    }
+    public var symbol: String? {
+        switch self {
+        case .dot: return "•"
+        case .dash: return "–"
+        case .none: return nil
+        }
+    }
+}
+
 /// Group identity is independent of phase, title preference and list position.
 /// Folder paths on different machines never identify the same directory.
 public struct SessionGroup: Equatable {

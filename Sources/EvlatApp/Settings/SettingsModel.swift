@@ -79,6 +79,8 @@ final class SettingsModel: ObservableObject {
         var setBodyMode: (BodyPresence.Mode) -> Void = { _ in }
         var bodyToggles: () -> BodyPresence.Toggles = { BodyPresence.Toggles() }
         var setBodyToggles: (BodyPresence.Toggles) -> Void = { _ in }
+        var sessionGroupBullet: () -> SessionGroupBullet = { .dot }
+        var setSessionGroupBullet: (SessionGroupBullet) -> Void = { _ in }
         var sessionGroupsEnabled: () -> Bool = { false }
         var setSessionGroupsEnabled: (Bool) -> Void = { _ in }
         /// Agents' primary session title preference.
@@ -360,6 +362,13 @@ final class SettingsModel: ObservableObject {
 
     /// A screen came or went: the row lists what is connected now.
     func screensChanged() { objectWillChange.send() }
+
+    var sessionGroupBullet: SessionGroupBullet { host.sessionGroupBullet() }
+
+    func setSessionGroupBullet(_ bullet: SessionGroupBullet) {
+        host.setSessionGroupBullet(bullet)
+        objectWillChange.send()
+    }
 
     var sessionGroupsEnabled: Bool { host.sessionGroupsEnabled() }
 
@@ -1000,6 +1009,8 @@ final class SettingsModel: ObservableObject {
     }
 
     static let keys: [String] = Section.allCases.map(titleKey) + sideList.compactMap(\.heading) + [
+        "settings.sessions.groups.bullet", "settings.sessions.groups.bullet.dot",
+        "settings.sessions.groups.bullet.dash", "settings.sessions.groups.bullet.none",
         "settings.sessions.groups", "settings.sessions.groups.note",
         "sessions.group.collapsed", "sessions.group.expanded", "sessions.group.expand", "sessions.group.collapse",
         "settings.sessions.title", "settings.sessions.title.note",

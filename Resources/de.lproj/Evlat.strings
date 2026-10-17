@@ -716,3 +716,8 @@
 "sessions.group.expanded" = "Ausgeklappt";
 "sessions.group.expand" = "Sitzungen ausklappen";
 "sessions.group.collapse" = "Sitzungen einklappen";
+
+"settings.sessions.groups.bullet" = "Sitzungszeichen";
+"settings.sessions.groups.bullet.dot" = "Punkt";
+"settings.sessions.groups.bullet.dash" = "Strich";
+"settings.sessions.groups.bullet.none" = "Keines";

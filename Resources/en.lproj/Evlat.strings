@@ -804,3 +804,8 @@
 "sessions.group.expanded" = "Expanded";
 "sessions.group.expand" = "Expand sessions";
 "sessions.group.collapse" = "Collapse sessions";
+
+"settings.sessions.groups.bullet" = "Member marker";
+"settings.sessions.groups.bullet.dot" = "Dot";
+"settings.sessions.groups.bullet.dash" = "Dash";
+"settings.sessions.groups.bullet.none" = "None";

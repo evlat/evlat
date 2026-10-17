@@ -716,3 +716,8 @@
 "sessions.group.expanded" = "展開済み";
 "sessions.group.expand" = "セッションを展開";
 "sessions.group.collapse" = "セッションを折りたたむ";
+
+"settings.sessions.groups.bullet" = "セッションのマーカー";
+"settings.sessions.groups.bullet.dot" = "点";
+"settings.sessions.groups.bullet.dash" = "ダッシュ";
+"settings.sessions.groups.bullet.none" = "なし";

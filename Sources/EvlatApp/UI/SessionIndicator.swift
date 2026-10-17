@@ -103,7 +103,7 @@ struct SessionColumn: View {
     static let minOpenWidth: CGFloat = 110
     /// Compact group members keep a full row-sized hover target.
     static let groupedRowScale: CGFloat = 0.9
-    static let groupedNameColor = Color(.sRGB, red: 0.8, green: 0.8, blue: 0.8)
+    static let groupedNameColor = Color(.sRGB, red: 0.74, green: 0.74, blue: 0.74)
 
     static let nameFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     /// The small raised number after a repeated name.
@@ -446,8 +446,9 @@ struct SessionColumn: View {
     /// The block is top-aligned in a fixed height, so the name sits in the
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow, compact: Bool = false) -> some View {
-        VStack(alignment: docked, spacing: 1) {
-            name(row.label, duplicate: row.duplicate, branch: row.branch,
+        let title = compact ? model.groupBullet.symbol.map { $0 + " " + row.label } ?? row.label : row.label
+        return VStack(alignment: docked, spacing: 1) {
+            name(title, duplicate: row.duplicate, branch: row.branch,
                  color: row.phase == .idle || row.passive || !row.isLive
                  ? BarPalette.textSecondary : compact ? Self.groupedNameColor : BarPalette.textPrimary)
             if showsNames {
