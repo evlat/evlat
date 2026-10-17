@@ -372,18 +372,22 @@ struct SessionColumn: View {
     }
 
     private func groupChevron(collapsed: Bool) -> some View {
-        GroupDisclosureChevron(collapsed: collapsed, isLeft: isLeft)
+        GroupDisclosureChevron(collapsed: collapsed, isLeft: !isLeft)
             .stroke(BarPalette.textSecondary, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
             .frame(width: 8, height: 8)
     }
 
-    private func groupLabel(_ group: SessionGroup, summary: String, waiting: Bool) -> some View {
+    private func groupLabel(_ group: SessionGroup, summary: String, waiting: Bool, collapsed: Bool) -> some View {
         VStack(alignment: docked, spacing: 1) {
-            Text(verbatim: group.title)
-                .font(Font(Self.nameFont))
-                .foregroundStyle(BarPalette.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 6) {
+                if !isLeft { groupChevron(collapsed: collapsed) }
+                Text(verbatim: group.title)
+                    .font(Font(Self.nameFont))
+                    .foregroundStyle(BarPalette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if isLeft { groupChevron(collapsed: collapsed) }
+            }
             Text(verbatim: summary)
                 .font(Font(Self.statusFont))
                 .foregroundStyle(waiting
@@ -399,10 +403,10 @@ struct SessionColumn: View {
     private func groupHeader(_ group: SessionGroup, members: [SessionRow], collapsed: Bool) -> some View {
         let summary = SummaryLine.text(rows: members) ?? "\(members.count)"
         return Button { onToggleGroup(group.key) } label: {
-            groupChevron(collapsed: collapsed)
+            Color.clear
                 .frame(width: AppController.barWidth, height: AppController.indicatorSize)
                 .overlay(alignment: isLeft ? .trailing : .leading) {
-                    groupLabel(group, summary: summary, waiting: members.contains { $0.phase == .waiting && $0.isLive })
+                    groupLabel(group, summary: summary, waiting: members.contains { $0.phase == .waiting && $0.isLive }, collapsed: collapsed)
                 }
         }
         .buttonStyle(.plain)
@@ -446,11 +450,11 @@ struct SessionColumn: View {
     /// The block is top-aligned in a fixed height, so the name sits in the
     /// same place whether the status line is in the tree or not.
     private func label(_ row: SessionRow, compact: Bool = false) -> some View {
-        let title = compact ? model.groupBullet.symbol.map { $0 + " " + row.label } ?? row.label : row.label
-        return VStack(alignment: docked, spacing: 1) {
-            name(title, duplicate: row.duplicate, branch: row.branch,
+        VStack(alignment: docked, spacing: 1) {
+            name(row.label, duplicate: row.duplicate, branch: row.branch,
                  color: row.phase == .idle || row.passive || !row.isLive
-                 ? BarPalette.textSecondary : compact ? Self.groupedNameColor : BarPalette.textPrimary)
+                 ? BarPalette.textSecondary : compact ? Self.groupedNameColor : BarPalette.textPrimary,
+                 marker: compact ? model.groupBullet.symbol : nil)
             if showsNames {
                 // Once a minute, and only while open. The date comes from the
                 // timeline, not `Date()`, so the text is a function of it.
@@ -500,9 +504,18 @@ struct SessionColumn: View {
             .allowsHitTesting(false)
     }
 
+    private func memberMarker(_ marker: String, color: Color) -> some View {
+        Text(verbatim: marker)
+            .font(Font(Self.nameFont))
+            .foregroundStyle(color)
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+
     private func name(_ label: String, duplicate: Int, branch: String?,
-                      color: Color) -> some View {
+                      color: Color, marker: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Self.numberGap) {
+            if isLeft, let marker { memberMarker(marker, color: color).padding(.trailing, 4) }
             // The name is data, not text of ours: it is what the user called
             // the session, so it bypasses the string lookup (`verbatim`) and
             // needs no catalogue entry.
@@ -536,6 +549,7 @@ struct SessionColumn: View {
                     .layoutPriority(1)
                     .padding(.leading, Self.machineGap - Self.numberGap)
             }
+            if !isLeft, let marker { memberMarker(marker, color: color).padding(.leading, 4) }
         }
             .frame(width: Self.nameMaxWidth, alignment: isLeft ? .leading : .trailing)
     }
