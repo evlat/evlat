@@ -2,6 +2,29 @@ import SwiftUI
 import AppKit
 import EvlatCore
 
+private struct GroupDisclosureChevron: Shape {
+    let collapsed: Bool
+    let isLeft: Bool
+
+    func path(in rect: CGRect) -> Path {
+        func point(x: CGFloat, y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * rect.width / 8, y: rect.minY + y * rect.height / 8)
+        }
+        var path = Path()
+        if collapsed {
+            path.move(to: point(x: isLeft ? 2 : 6, y: 1))
+            path.addLine(to: point(x: isLeft ? 5 : 3, y: 4))
+            path.addLine(to: point(x: isLeft ? 2 : 6, y: 7))
+        } else {
+            path.move(to: point(x: 1, y: 2))
+            path.addLine(to: point(x: 4, y: 5))
+            path.addLine(to: point(x: 7, y: 2))
+        }
+        return path
+    }
+}
+
+
 /// The column under the mascot. Closed: one ring per slot, and the overflow
 /// count. Open: sessions and optional disclosure headers, each name on the
 /// ring's inner side (left on the right edge, right on the left), in an area of at most
@@ -21,6 +44,7 @@ import EvlatCore
 /// Under each name, the status line ("working · 14 min"). It is in the tree
 /// **only while the bar is open**, and so is the minute tick that redraws it:
 /// behind an opacity, like the name, the tick would run on the closed bar too.
+
 struct SessionColumn: View {
     @ObservedObject var model: SessionRowsModel
     /// How far the open list is scrolled (`AppController.scrolled`).
@@ -341,30 +365,38 @@ struct SessionColumn: View {
         .animation(MascotPose.transition, value: model.overflow)
     }
 
+    private func groupChevron(collapsed: Bool) -> some View {
+        GroupDisclosureChevron(collapsed: collapsed, isLeft: isLeft)
+            .stroke(BarPalette.textSecondary, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+            .frame(width: 8, height: 8)
+    }
+
+    private func groupLabel(_ group: SessionGroup, summary: String, waiting: Bool) -> some View {
+        VStack(alignment: docked, spacing: 1) {
+            Text(verbatim: group.title)
+                .font(Font(Self.nameFont))
+                .foregroundStyle(BarPalette.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(verbatim: summary)
+                .font(Font(Self.statusFont))
+                .foregroundStyle(waiting
+                                 ? SessionIndicator.amber : BarPalette.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(width: Self.nameMaxWidth, height: Self.labelHeight,
+               alignment: Alignment(horizontal: docked, vertical: .top))
+        .offset(x: mirror * (Self.ringLead - Self.nameGap - Self.nameMaxWidth))
+    }
+
     private func groupHeader(_ group: SessionGroup, members: [SessionRow], collapsed: Bool) -> some View {
         let summary = SummaryLine.text(rows: members) ?? "\(members.count)"
         return Button { onToggleGroup(group.key) } label: {
-            Image(systemName: collapsed ? (isLeft ? "chevron.right" : "chevron.left") : "chevron.down")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(BarPalette.textSecondary)
+            groupChevron(collapsed: collapsed)
                 .frame(width: AppController.barWidth, height: AppController.indicatorSize)
                 .overlay(alignment: isLeft ? .trailing : .leading) {
-                    VStack(alignment: docked, spacing: 1) {
-                        Text(verbatim: group.title)
-                            .font(Font(Self.nameFont))
-                            .foregroundStyle(BarPalette.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text(verbatim: summary)
-                            .font(Font(Self.statusFont))
-                            .foregroundStyle(members.contains { $0.phase == .waiting && $0.isLive }
-                                             ? SessionIndicator.amber : BarPalette.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .frame(width: Self.nameMaxWidth, height: Self.labelHeight,
-                           alignment: Alignment(horizontal: docked, vertical: .top))
-                    .offset(x: mirror * (Self.ringLead - Self.nameGap - Self.nameMaxWidth))
+                    groupLabel(group, summary: summary, waiting: members.contains { $0.phase == .waiting && $0.isLive })
                 }
         }
         .buttonStyle(.plain)
