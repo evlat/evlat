@@ -713,7 +713,7 @@ struct DetailCard: View {
     static func go(_ detail: SessionDetail, in lang: String = L10n.language) -> GoButton? {
         if showsButton(detail) {
             let state = detail.traits.button == .backToChat
-                ? returnButton(in: lang) : button(for: detail.host, in: lang)
+                ? returnButton(in: lang) : button(for: detail.host, attach: detail.attach, in: lang)
             return GoButton(state: state, reports: true)
         }
         if detail.hasSandboxHost, detail.noTerminalOpen {
@@ -859,6 +859,14 @@ struct DetailCard: View {
     struct ButtonState: Equatable {
         let title: String
         let enabled: Bool
+    }
+
+    /// A session in no terminal that its agent can attach to: the button
+    /// opens it where the user's terminals are, and says which app that is.
+    static func button(for host: SessionHost, attach: BackgroundSession.Attach?,
+                       in lang: String = L10n.language) -> ButtonState {
+        guard host == .notFound, let attach else { return button(for: host, in: lang) }
+        return ButtonState(title: L10n.t(openKey, ["app": attach.place.name], in: lang), enabled: true)
     }
 
     /// Only a running app is a place to go. A closed one is named and not

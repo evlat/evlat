@@ -17,12 +17,14 @@ final class GoToSessionTests: XCTestCase {
     private let term = SessionHost.App(bundleID: "dev.metalterm.Metalterm", name: "Metalterm", pid: 500)
     private var resolved: [Int32?] = []
     private var activated: [SessionHost.App] = []
+    private var attached: [(BackgroundSession.Attach, String?)] = []
 
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
         resolved = []
         activated = []
+        attached = []
     }
 
     private func signal(_ entity: String, pid: Int32? = 900) -> Signal {
@@ -31,13 +33,18 @@ final class GoToSessionTests: XCTestCase {
                activity: Signal.Activity(pid: pid))
     }
 
-    private func controller(_ signals: [Signal], host: @escaping () -> SessionHost) -> (AppController, Stub) {
+    private func controller(_ signals: [Signal], attach: BackgroundSession.Attach? = nil,
+                            host: @escaping () -> SessionHost) -> (AppController, Stub) {
         let controller = AppController()
         let provider = Stub()
         provider.signals = signals
         controller.registry.register(provider)
         controller.detail.resolveHost = { [unowned self] pid in self.resolved.append(pid); return host() }
         controller.detail.activate = { [unowned self] app in self.activated.append(app); return true }
+        controller.detail.resolveAttach = { _, _, _ in attach }
+        controller.detail.openAttach = { [unowned self] attach, label, _ in
+            self.attached.append((attach, label)); return true
+        }
         controller.installPanel()
         controller.refresh()
         return (controller, provider)
@@ -106,6 +113,21 @@ final class GoToSessionTests: XCTestCase {
         XCTAssertEqual(controller.detail.detail?.host, .closed(name: "Metalterm"))
         XCTAssertTrue(controller.barState.isOpen, "nothing happened elsewhere: the card stays")
         XCTAssertEqual(controller.barState.selected, "a")
+    }
+
+    /// A session in no terminal (`claude --bg`): the click opens its attach
+    /// command where the user's terminals are, and no app is brought forward.
+    func testABackgroundSessionIsOpenedByItsAttachCommand() {
+        let attach = BackgroundSession.Attach(arguments: ["claude", "attach", "b5376907"])
+        let (controller, _) = controller([signal("a")], attach: attach) { .notFound }
+        defer { controller.panel?.close() }
+        controller.select("a")
+        XCTAssertEqual(controller.detail.detail?.attach, attach)
+        controller.goToSession()
+        XCTAssertEqual(attached.map(\.0), [attach])
+        XCTAssertEqual(attached.map(\.1), ["a"], "herdr's tab is named for the session")
+        XCTAssertEqual(activated, [])
+        XCTAssertFalse(controller.barState.isOpen)
     }
 
     /// The button is hit by geometry, like the rows: its drawn rectangle is
@@ -501,6 +523,22 @@ final class GoToSessionTests: XCTestCase {
                        .init(title: "Terminal bulunamadı", enabled: false))
         XCTAssertEqual(DetailCard.button(for: .closed(name: "Orca"), in: "en"),
                        .init(title: "Orca is closed", enabled: false))
+    }
+
+    /// A background session's button names the app it will open in; with
+    /// none to attach to, a session in no terminal keeps the old words.
+    func testABackgroundSessionsButtonNamesWhereItOpens() {
+        var attach = BackgroundSession.Attach(arguments: ["claude", "attach", "b5376907"],
+                                              place: .commandFile(app: "Ghostty"))
+        XCTAssertEqual(DetailCard.button(for: .notFound, attach: attach, in: "en"),
+                       .init(title: "Open in Ghostty", enabled: true))
+        attach.place = .herdr(app: term, cli: "/bin/herdr", session: nil)
+        XCTAssertEqual(DetailCard.button(for: .notFound, attach: attach, in: "en"),
+                       .init(title: "Open in Metalterm", enabled: true))
+        XCTAssertEqual(DetailCard.button(for: .app(term), attach: attach, in: "en"),
+                       DetailCard.button(for: .app(term), in: "en"), "a found terminal wins")
+        XCTAssertEqual(DetailCard.button(for: .notFound, attach: nil, in: "en"),
+                       DetailCard.button(for: .notFound, in: "en"))
     }
 
     /// Through herdr the button promises the session only when its pane

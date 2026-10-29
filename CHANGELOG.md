@@ -13,6 +13,13 @@ renames that heading to its version.
 
 ## Unreleased
 
+- **Background sessions open where you work.** A Claude Code session
+  started with `claude --bg` runs in no terminal, so its card said
+  **Terminal not found**. Now its button opens it with `claude attach`
+  where your other sessions run: in a new herdr tab when they are in herdr,
+  in Terminal, Ghostty or cmux when they are there, and otherwise in
+  the app your Mac opens `.command` files with. Closing that window leaves
+  the session running. Ghostty asks once per open whether to run the file.
 - **OpenCode sessions on the bar.** Settings → This Mac has an OpenCode
   card: one press puts a small plugin file of Evlat's own at
   `~/.config/opencode/plugins/evlat.js`, and every session — the terminal,

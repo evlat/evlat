@@ -41,6 +41,13 @@ struct Claude: Agent {
 
     let display = AgentDisplay(nameKey: "source.claude", outline: Self.outline)
 
+    /// `claude --bg`: the session runs under `claude daemon` → `claude
+    /// bg-pty-host`, and `claude attach <id>` opens it in a terminal. The id
+    /// is the first eight characters, as `claude agents` lists it; the full
+    /// id is refused (measured, 2.1.312).
+    let backgroundAttach: BackgroundAttach? = BackgroundAttach(
+        hostArguments: ["bg-pty-host", "--bg-pty-host"], idLength: 8) { ["claude", "attach", $0] }
+
     /// `~/.claude/sessions/<pid>.json`, as `SessionsProvider` reads it here:
     /// on a server it finds the process a remote row's session runs in.
     let sessionRecords: SessionRecords? = SessionRecords(

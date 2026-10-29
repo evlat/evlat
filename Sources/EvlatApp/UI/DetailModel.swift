@@ -33,6 +33,9 @@ public struct SessionDetail: Equatable {
     /// the card comes up and on the click, not on every snapshot. For a
     /// remote session, once its server has answered (`searching`).
     var host: SessionHost = .notFound
+    /// A session in no terminal, when its host is not found: the button
+    /// opens its agent's attach command in one (`BackgroundSession`).
+    var attach: BackgroundSession.Attach?
     /// A remote session whose terminal can be asked of its server: its
     /// agent keeps session records (`Agent.sessionRecords`). Its button is
     /// there once the terminal is found (`DetailCard.showsButton`).
@@ -201,6 +204,13 @@ public final class DetailModel: ObservableObject {
     /// The branch of a folder (`GitHead.branch`); injected like the host, so
     /// a test reads no repository. The default reads nothing.
     var resolveBranch: (String) -> String? = { _ in nil }
+    /// A background session's attach command and its opening, injected like the host.
+    var resolveAttach: (Int32?, String, _ others: [Int32]) -> BackgroundSession.Attach? = {
+        BackgroundSession.live(pid: $0, sessionID: $1, others: $2)
+    }
+    var openAttach: (BackgroundSession.Attach, _ label: String?, _ folder: String?) -> Bool = {
+        BackgroundSession.open($0, label: $1, folder: $2)
+    }
 
     /// A remote session, as its server is asked about it.
     struct RemoteQuery: Equatable {
@@ -333,8 +343,15 @@ public final class DetailModel: ObservableObject {
                   key.folder == sessionFolder, let current = detail {
             next.host = current.host
             next.branch = current.branch
+            next.attach = current.attach
         } else {
             next.host = localHost(pid: pid, servicePid: servicePid, folder: sessionFolder)
+            if next.host == .notFound {
+                // This Mac's other sessions, most recent first: where they run.
+                let others = signals.filter { $0.machine == nil && $0.entity != row.entity }
+                    .sorted { $0.updatedAt > $1.updatedAt }.compactMap(\.activity?.pid)
+                next.attach = resolveAttach(pid, row.entity, others)
+            }
             // The row's, when it already read one: the two never disagree.
             next.branch = row.branch ?? signal?.detail.flatMap(resolveBranch)
             hostKey = (row.entity, pid, servicePid, sessionFolder)
@@ -455,6 +472,10 @@ public final class DetailModel: ObservableObject {
         if current.host != host {
             current.host = host
             detail = current
+        }
+        if host == .notFound, current.hasLocalHost, let attach = current.attach {
+            let folder = hostKey.flatMap { $0.entity == current.entity ? $0.folder : nil }
+            return openAttach(attach, current.label, folder)
         }
         guard case .app(let app) = host else { return false }
         // Only a pane the card promised: one herdr would not select is not
