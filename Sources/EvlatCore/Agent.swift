@@ -43,6 +43,9 @@ public protocol Agent {
     var approvals: (any ApprovalChannel)? { get }
     /// The agent as the chat bubble's backend; `nil` when it cannot be one.
     var chat: (any ChatBackend)? { get }
+    /// Its sessions that run in no terminal, and how one is opened in one;
+    /// `nil` when it has none.
+    var backgroundAttach: BackgroundAttach? { get }
     var display: AgentDisplay { get }
     /// Its per-session record files, by which a server's shell finds a
     /// session's process (`RemoteHost`); `nil` when it keeps none, and then
@@ -65,6 +68,7 @@ public protocol Agent {
 
 extension Agent {
     public var chat: (any ChatBackend)? { nil }
+    public var backgroundAttach: BackgroundAttach? { nil }
 
     public var sessionRecords: SessionRecords? { nil }
 
@@ -282,6 +286,24 @@ public struct SessionRecords: Equatable {
         self.idKey = idKey
         self.pidKey = pidKey
         self.startedAtKey = startedAtKey
+    }
+}
+
+/// A session the agent runs under a daemon of its own, in no terminal:
+/// found by a word in an ancestor's arguments, opened by a command that
+/// attaches to it by the first characters of its session id.
+public struct BackgroundAttach {
+    /// An argument of the process that hosts such sessions.
+    public let hostArguments: Set<String>
+    /// How many of the session id's characters the command takes.
+    public let idLength: Int
+    /// The command's words for that id, each plain: no quoting is added.
+    public let command: (_ id: String) -> [String]
+
+    public init(hostArguments: Set<String>, idLength: Int, command: @escaping (_ id: String) -> [String]) {
+        self.hostArguments = hostArguments
+        self.idLength = idLength
+        self.command = command
     }
 }
 

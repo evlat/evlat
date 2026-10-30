@@ -407,13 +407,17 @@ told without asking. At it, nothing sounds or peeks. Focus is never
   terminal gives its shells a tab link, opens the tab itself — which
   terminals, how a session is found locally, on a server and in a Docker
   sandbox, and why, is the doc of `SessionHost`, `TabLink`, `Ssh`,
-  `RemoteHost`, `Sandbox` and `ServiceClients`. Nothing on the way asks for
+  `RemoteHost`, `Sandbox`, `ServiceClients` and `BackgroundSession`. Nothing on the way asks for
   a permission. The processes Evlat runs for it, and no others: the tmux
   server's own `tmux` to find a local pane (fixed arguments, checked
   values, no shell, a command that only reads); the running Bateri's `bateri focus` for the
   news (`TabFocus`; it only reads); a read-only `sh` script over a
   machine's live tunnel master only (`RemoteHost`; its one change is
-  herdr's `agent focus` at the click). Setting sandboxes up is the one place
+  herdr's `agent focus` at the click); and for a session in no terminal
+  (`BackgroundSession`), at the click only, the herdr client's own CLI by
+  its absolute path (`tab create`, then `pane run` with the attach line,
+  every word plain) or a `.command` file holding that line, opened in an
+  app. Setting sandboxes up is the one place
   Evlat runs `sbx` (`SandboxRunner`), only while "Watch sandboxes" is on.
   herdr's saved machines (`herdr machine add`) start their bridge from
   another path (`--idle-timeout-v1`, not under `--remote`) and were not
@@ -1008,6 +1012,12 @@ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
   user's streams.
 - **`dash` runs the parent's trap in a subshell until the subshell sets its
   own.** Start background jobs **before** installing traps.
+
+- **A `.command` file's `zsh -l` does not read `.zshrc`**, where Claude
+  Code's installer has `~/.local/bin` put on `PATH`: `claude` was "command
+  not found" there and found in a new terminal window. The file runs its
+  line as `"$SHELL" -lic '<line>'`, the user's own shell, login and
+  interactive (`BackgroundSession.commandFileText`).
 
 - **A master killed with `-9` leaves its control socket, and the next
   `ssh -M -S` on it runs without multiplexing** ("ControlSocket … already

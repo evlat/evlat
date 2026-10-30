@@ -34,6 +34,15 @@ final class AgentCatalogTests: XCTestCase {
                        "Claude's path cannot move; the others' are their own")
     }
 
+    /// Only Claude Code runs sessions in no terminal (`claude --bg`).
+    func testClaudeAttachesItsBackgroundSessions() throws {
+        let attach = try XCTUnwrap(Agents.all.first { $0.id == .claude }?.backgroundAttach)
+        XCTAssertEqual(attach.hostArguments, ["bg-pty-host", "--bg-pty-host"])
+        XCTAssertEqual(attach.idLength, 8)
+        XCTAssertEqual(attach.command("b5376907"), ["claude", "attach", "b5376907"])
+        XCTAssertEqual(Agents.backgroundAttaches.count, 1)
+    }
+
     /// Each agent's name is in both string tables.
     func testEveryAgentHasAName() throws {
         let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

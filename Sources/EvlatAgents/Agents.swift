@@ -23,6 +23,9 @@ public enum Agents {
     /// The agents that can be the chat bubble's backend, in the catalogue's
     /// order: the first is the chat's until one is chosen.
     public static let chatBackends: [any ChatBackend] = all.compactMap(\.chat)
+
+    /// The catalogue's ways to open a session that runs in no terminal.
+    public static let backgroundAttaches: [BackgroundAttach] = all.compactMap(\.backgroundAttach)
 }
 
 extension AgentID {
